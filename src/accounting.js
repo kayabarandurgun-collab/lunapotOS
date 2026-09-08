@@ -1,3 +1,4 @@
+import {applyPurchaseMappings} from './purchase-mapping.js';
 import {cents as rawCents,milli as rawMilli} from '../public/accounting-math.js';
 import {integrationStatus,previewIntegration} from './integrations.js';
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
@@ -21,6 +22,7 @@ const statement=(db,sql,args=[])=>db.prepare(sql).bind(...args);
 const log=(db,message)=>statement(db,'INSERT INTO activity(id,description) VALUES(?,?)',[id(),message]);
 async function batch(db,items){try{return await db.batch(items);}catch(e){
  const message=String(e.message);
+ if(message.includes('PRODUCT_UNIT_LOCKED'))fail('Bağlantısı veya işlem geçmişi olan ürünün stok birimi değiştirilemez.',409);
  if(message.includes('INSUFFICIENT_STOCK'))fail('Stok yetersiz. Önce alış veya açılış stok hareketi girin.',409);
  if(message.includes('STOCK_RESERVED'))fail('Bu stok siparişlere ayrılmış veya çıkış miktarı eldeki stoktan fazla.',409);
  if(message.includes('RETURN_EXCEEDS_SALE')||message.includes('REFUND_EXCEEDS_SALE'))fail('Toplam iade, satış miktarını veya tutarını aşıyor.',409);
@@ -43,7 +45,7 @@ export async function accountingApi(request,env,path,readBody){
  if(productMatch&&method==='POST'&&env.WORKSPACE==='ec'){
   const x=await readBody(request),key=productMatch[1],old=await statement(db,'SELECT * FROM products WHERE id=?',[key]).first();if(!old)fail('Ürün bulunamadı.',404);
   if(!['adet','kg','g','L','ml'].includes(x.stock_unit))fail('Stok birimi geçersiz.');
-  if(old.stock_unit!==x.stock_unit&&(await statement(db,'SELECT id FROM stock_movements WHERE product_id=? LIMIT 1',[key]).first()||await statement(db,'SELECT id FROM purchase_lines WHERE product_id=? LIMIT 1',[key]).first()))fail('Hareketi veya fatura eşleşmesi olan ürünün stok birimi değiştirilemez.',409);
+  if(old.stock_unit!==x.stock_unit&&(await statement(db,'SELECT id FROM stock_movements WHERE product_id=? LIMIT 1',[key]).first()||await statement(db,'SELECT id FROM purchase_lines WHERE product_id=? LIMIT 1',[key]).first()||await statement(db,'SELECT id FROM catalog_mapping_components WHERE product_id=? LIMIT 1',[key]).first()||await statement(db,'SELECT id FROM order_line_components WHERE product_id=? LIMIT 1',[key]).first()))fail('Hareketi, fatura veya ilan bağlantısı olan ürünün stok birimi değiştirilemez.',409);
   await batch(db,[statement(db,'UPDATE products SET name=?,sku=?,stock_unit=?,min_stock_milli=? WHERE id=?',[text(x.name,'Ürün adı'),text(x.sku,'Ürün kodu'),x.stock_unit,x.min_stock===0?0:milli(x.min_stock),key]),log(db,'E-ticaret ürünü güncellendi')]);return {id:key};
  }
  if(path==='/api/accounting/integrations'&&method==='GET')return {providers:integrationStatus(env),runs:(await db.prepare('SELECT * FROM integration_runs ORDER BY created_at DESC LIMIT 20').all()).results};
@@ -123,30 +125,34 @@ export async function accountingApi(request,env,path,readBody){
   const invoiceNo=text(x.invoice_no,'Fatura numarası'),uuid=optional(x.uuid).toLowerCase();
   const registryKeys=[party.tax_id?'invoice:'+party.tax_id+':'+invoiceKey(invoiceNo):'manual:'+env.WORKSPACE+':'+supplier+':'+invoiceKey(invoiceNo)];
   if(uuid)registryKeys.push('uuid:'+uuid);
-  for(const registryKey of registryKeys){const registered=await statement(rootDB,'SELECT workspace FROM document_registry WHERE document_key=?',[registryKey]).first();
-   if(registered)fail('Bu belge '+(registered.workspace==='ec'?'E-Ticaret':'Lunapot')+' alanında zaten kayıtlı. İkinci kez işlenmedi.',409);}
-  const statements=[statement(db,'INSERT INTO purchase_invoices(id,supplier_id,invoice_no,uuid,invoice_date,currency,source,notes) VALUES(?,?,?,?,?,?,?,?)',[key,supplier,text(x.invoice_no,'Fatura numarası'),optional(x.uuid)||null,day(x.invoice_date),'TRY',x.source==='xml'?'xml':'manual',optional(x.notes).slice(0,2000)])];
+  const registered=await statement(rootDB,'SELECT workspace FROM document_registry WHERE document_key IN ('+registryKeys.map(()=>'?').join(',')+') LIMIT 1',registryKeys).first();
+  if(registered)fail('Bu belge '+(registered.workspace==='ec'?'E-Ticaret':'Lunapot')+' alanında zaten kayıtlı. İkinci kez işlenmedi.',409);
+  for(const line of x.lines)if(!line||typeof line!=='object')fail('Fatura satırı geçersiz.');
+  const mappedLines=await applyPurchaseMappings(db,supplier,x.lines);
+  const statements=[statement(db,'INSERT INTO purchase_invoices(id,supplier_id,invoice_no,uuid,invoice_date,currency,source,notes,receiver_tax_id) VALUES(?,?,?,?,?,?,?,?,?)',[key,supplier,text(x.invoice_no,'Fatura numarası'),optional(x.uuid)||null,day(x.invoice_date),'TRY',x.source==='xml'?'xml':'manual',optional(x.notes).slice(0,2000),receiver])];
   for(const registryKey of registryKeys)statements.push(statement(rootDB,'INSERT INTO document_registry(document_key,workspace,invoice_id) VALUES(?,?,?)',[registryKey,env.WORKSPACE,key]));
-  statements.push(statement(db,'UPDATE purchase_invoices SET receiver_tax_id=? WHERE id=?',[receiver,key]));
-  for(const line of x.lines){if(!line||typeof line!=='object')fail('Fatura satırı geçersiz.');milli(line.invoice_quantity);const type=line.line_type==='expense'?'expense':'product',category=['shipping','commission','advertising','rent','packaging','other'].includes(line.expense_category)?line.expense_category:'other';statements.push(statement(db,'INSERT INTO purchase_lines(id,invoice_id,description,external_code,invoice_quantity,invoice_unit,product_id,quantity_milli,net_cents,tax_cents,line_type,expense_category,expense_treatment) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',[id(),key,text(line.description,'Satır açıklaması',300),optional(line.external_code).slice(0,100),line.invoice_quantity,text(line.invoice_unit,'Fatura birimi',30),type==='product'?line.product_id||null:null,type==='product'&&line.product_id?milli(line.stock_quantity):null,amount(line.net),amount(line.tax),type,category,expenseTreatment(type,category,line.expense_treatment)]));}
+  for(const line of mappedLines){milli(line.invoice_quantity);const type=line.line_type==='expense'?'expense':'product',category=['shipping','commission','advertising','rent','packaging','other'].includes(line.expense_category)?line.expense_category:'other';statements.push(statement(db,'INSERT INTO purchase_lines(id,invoice_id,description,external_code,invoice_quantity,invoice_unit,product_id,quantity_milli,net_cents,tax_cents,line_type,expense_category,expense_treatment,catalog_mapping_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[id(),key,text(line.description,'Satır açıklaması',300),optional(line.external_code).slice(0,100),line.invoice_quantity,text(line.invoice_unit,'Fatura birimi',30),type==='product'?line.product_id||null:null,type==='product'&&line.product_id?milli(line.stock_quantity):null,amount(line.net),amount(line.tax),type,category,expenseTreatment(type,category,line.expense_treatment),line.catalog_mapping_id||null]));}
   statements.push(log(db,'Alış faturası incelemeye alındı'));await batch(db,statements);return {id:key};
  }
  if(invoiceMatch&&method==='POST'){
-  const [,key,action]=invoiceMatch,x=await readBody(request),existing=await statement(db,'SELECT status FROM purchase_invoices WHERE id=?',[key]).first();if(!existing)fail('Fatura bulunamadı.',404);
+  const [,key,action]=invoiceMatch,x=await readBody(request),existing=await statement(db,'SELECT status,supplier_id FROM purchase_invoices WHERE id=?',[key]).first();if(!existing)fail('Fatura bulunamadı.',404);
   if(action==='receive'){
    if(existing.status!=='posted')fail('Önce faturayı muhasebeleştirin.',409);
    if(!Array.isArray(x.lines)||!x.lines.length||x.lines.length>40||new Set(x.lines.map(l=>l.id)).size!==x.lines.length)fail('Teslim satırlarını kontrol edin.');
    const date=day(x.occurred_on),reference=text(x.reference,'Teslim referansı'),statements=[];
-   for(const line of x.lines){const q=milli(line.quantity),found=await statement(db,"SELECT id FROM purchase_lines WHERE id=? AND invoice_id=? AND line_type='product'",[line.id,key]).first();if(!found)fail('Bu faturada ürün satırı bulunamadı.',404);
+   const receiptLines=new Set((await statement(db,"SELECT id FROM purchase_lines WHERE invoice_id=? AND line_type='product'",[key]).all()).results.map(l=>l.id));
+   for(const line of x.lines){const q=milli(line.quantity);if(!receiptLines.has(line.id))fail('Bu faturada ürün satırı bulunamadı.',404);
     statements.push(statement(db,'INSERT INTO goods_receipts(id,line_id,quantity_milli,value_cents,occurred_on,reference) SELECT ?,id,?,CAST(ROUND(net_cents*(?+COALESCE((SELECT SUM(quantity_milli) FROM goods_receipts WHERE line_id=l.id),0))/(quantity_milli*1.0)) AS INTEGER)-COALESCE((SELECT SUM(value_cents) FROM goods_receipts WHERE line_id=l.id),0),?,? FROM purchase_lines l WHERE id=?',[id(),q,q,date,reference,line.id]));
    }await batch(db,[...statements,log(db,'Mal teslimi kaydedildi; eldeki stok güncellendi')]);return {id:key};
   }
   if(existing.status!=='draft')fail('Bu fatura daha önce işlendi.',409);
   if(action==='cancel'){await batch(db,[statement(db,"UPDATE purchase_invoices SET status='cancelled' WHERE id=? AND status='draft'",[key])]);return {id:key};}
   if(action==='post'){await batch(db,[statement(db,"UPDATE purchase_invoices SET status='posted' WHERE id=? AND status='draft'",[key]),log(db,'Alış faturası muhasebeleştirildi; mal teslimi bekleniyor')]);return {id:key};}
-  if(!Array.isArray(x.lines)||x.lines.length>40)fail('Fatura eşleştirmesi geçersiz.');const lines=(await statement(db,'SELECT id FROM purchase_lines WHERE invoice_id=?',[key]).all()).results;
+  if(!Array.isArray(x.lines)||x.lines.length>40)fail('Fatura eşleştirmesi geçersiz.');const lines=(await statement(db,'SELECT * FROM purchase_lines WHERE invoice_id=?',[key]).all()).results;
   if(lines.length!==x.lines.length||new Set(x.lines.map(l=>l.id)).size!==lines.length)fail('Tüm satırlar bir kez eşleştirilmeli.');
-  const statements=x.lines.map(l=>{if(!lines.some(old=>old.id===l.id))fail('Satır bulunamadı.');const type=l.line_type==='expense'?'expense':'product',category=['shipping','commission','advertising','rent','packaging','other'].includes(l.expense_category)?l.expense_category:'other';return statement(db,'UPDATE purchase_lines SET product_id=?,quantity_milli=?,line_type=?,expense_category=?,expense_treatment=? WHERE id=? AND invoice_id=?',[type==='product'?l.product_id||null:null,type==='product'&&l.product_id?milli(l.stock_quantity):null,type,category,expenseTreatment(type,category,l.expense_treatment),l.id,key]);});await batch(db,statements);return {id:key};
+  for(const line of x.lines)if(!line||!lines.some(old=>old.id===line.id))fail('Satır bulunamadı.');
+  const mappedLines=await applyPurchaseMappings(db,existing.supplier_id,x.lines.map(l=>({...lines.find(old=>old.id===l.id),...l})),{autoAssign:false,existing:lines});
+  const statements=mappedLines.map(l=>{const type=l.line_type==='expense'?'expense':'product',category=['shipping','commission','advertising','rent','packaging','other'].includes(l.expense_category)?l.expense_category:'other';return statement(db,'UPDATE purchase_lines SET product_id=?,quantity_milli=?,line_type=?,expense_category=?,expense_treatment=?,catalog_mapping_id=? WHERE id=? AND invoice_id=?',[type==='product'?l.product_id||null:null,type==='product'&&l.product_id?milli(l.stock_quantity):null,type,category,expenseTreatment(type,category,l.expense_treatment),l.catalog_mapping_id||null,l.id,key]);});await batch(db,statements);return {id:key};
  }
  fail('İşlem bulunamadı.',404);
 }

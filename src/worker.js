@@ -6,6 +6,9 @@ import {ledgerApi} from './ledger-api.js';
 import {settingsApi} from './settings-api.js';
 import {ordersApi} from './orders-api.js';
 import {connectionsApi} from './connections-api.js';
+import {orderInsightsApi} from './order-insights-api.js';
+import {orderEstimateApi} from './order-estimate-api.js';
+import {catalogApi} from './catalog-api.js';
 import {reconciliationApi} from './reconciliation-api.js';
 const encoder = new TextEncoder();
 const fail = (message,status=400) => {throw Object.assign(new Error(message),{status});};
@@ -60,7 +63,7 @@ async function api(request,env,path){
  const workspace=path.match(/^\/api\/(ec|lp)(\/.*)?$/);
  if(workspace){
   const scoped={...env,DB:scopedDB(db,workspace[1]),ROOT_DB:db,WORKSPACE:workspace[1]},subpath=workspace[2]||'';
-  for(const handler of [pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(result);}
+  for(const handler of [orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(result);}
   return json(await accountingApi(request,scoped,'/api/accounting'+subpath,body));
  }
  if(path==='/api/auth/logout'&&request.method==='POST') {

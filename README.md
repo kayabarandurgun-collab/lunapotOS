@@ -1,4 +1,4 @@
-# Lunapot OS
+# Lunapot OS 2.1
 Mobil ve web uyumlu, Cloudflare Workers + D1 üzerinde çalışan iki ayrı iş alanı.
 
 - **Lunapot** (/): ürünler, hammaddeler, reçeteler, üretim maliyeti, alış/stok ve cari.
@@ -6,6 +6,9 @@ Mobil ve web uyumlu, Cloudflare Workers + D1 üzerinde çalışan iki ayrı iş 
 - Lunapot AI kapalı; ücretli AI servisi bağlı değil.
 
 ## Çalışan özellikler
+- Tek gerçek stok kartına farklı tedarikçi/ilan kodları; tedarikçi ve fatura birimine özel dönüşüm, açıkça tanımlanmış tam ad bağlantısı.
+- Sanal setler (2×A veya A+2×B); tüm bileşenlerde atomik rezervasyon/gönderim, eski siparişlerde değişmeyen eşleştirme sürümleri.
+- Sipariş ayrıntı penceresi: gider grafiği, stok bileşenleri, müşteri/fatura bilgileri, son mal teslimleri, yerel satış faturası taslakları. Taslak resmî fatura değildir.
 - ec/lp için ayrı ürün, stok, fatura, cari, banka/kasa defterleri.
 - Tarihli komisyon/kargo baremleri, paket ölçüsü ve ağırlığı, açık KDV ayrımı, tahmini katkı kârı ve barem değişimlerini dikkate alan taban fiyat.
 - Eksik tarife/maliyet bilinmiyor olarak kalır; sıfıra çevrilmez.
@@ -20,7 +23,7 @@ Trendyol V2 siparişleri ve finans kayıtları ile Hepsiburada sipariş/finans/k
 
 Trendyol siparişleri önce inceleme taslağına gelir. HB kayıtları kaynak gelen kutusundadır; otomatik paket veya muhasebe kaydı oluşmaz. Finans kaynak kayıtları otomatik banka tahsilatı değildir. Tarife gözlemi, gelecekteki haftalık tarife garantisi değildir. EDM üretim SOAP adresi ve API hakkı doğrulanana kadar canlı bağlantı kapalıdır; standart UBL XML içe aktarımı kullanılabilir. Zamanlanmış otomatik çekim etkin değildir. Değişen kaynak siparişleri ve desteklenmeyen vergi/fatura yapıları inceleme gerektirir.
 
-Ücretsiz D1 sınırları için paketler en fazla 10 satırdır. Büyük içe aktarımlar sayfalar halinde yürütülür. 25.000 satıra kadar iş verisi dışa aktarımı vardır; otomatik geri yükleme yoktur. Lunapot reçete maliyeti bir üretim tahminidir; hammadde depo hareketlerini otomatik tüketen üretim emri modülü henüz yoktur.
+Ücretsiz D1 sınırları için paketler en fazla 10 ilan satırı ve toplam 20 stok bileşenidir. Büyük içe aktarımlar sayfalar halinde yürütülür. 25.000 satıra kadar iş verisi dışa aktarımı vardır; otomatik geri yükleme yoktur. Lunapot reçete maliyeti bir üretim tahminidir; hammadde depo hareketlerini otomatik tüketen üretim emri modülü henüz yoktur.
 
 ## Yerel çalışma
 Node.js 22+ gerekir (testlerde node:sqlite kullanılır).
@@ -46,3 +49,7 @@ Node.js 22+ gerekir (testlerde node:sqlite kullanılır).
 Kaynak kodu ticari veri veya mağaza anahtarı içermez. İşlem geçmişi silinerek düzeltilmez; desteklenen ters kayıt/iade akışları kullanılır. Başlangıç stoğu ve tüm fiziksel hareketler kaydedilmeden depo doğruluğu varsayılmaz. Finans sonuçları tahsilat bakiyesinden ayrıdır; stopaj ve KDV işletme kârı gibi gösterilmez.
 
 Testler gerçek müşteri/mağaza verisi olmadan yalıtılmış SQLite üzerinde çalışır. Canlı sağlayıcı testleri ve Worker CPU ölçümü yayın sonrası yapılmalıdır.
+
+Paket tahmini tek bir ilan satırının tekli veya set içeriğini destekler. Paket ölçüleri/ek giderler açıkça girilir, kargo bir kez uygulanır. Birden fazla farklı ilan satırını içeren paketin ortak kargo ve komisyon tahmini henüz tamamlanmadı. Siparişe uygulanan kaynak komisyon kodu, gerçek ilan SKU kodudur.
+
+Yeni sürüm doğrulaması: 65 otomatik test, gerçek yerel D1 geçişleri ve ayrı tarayıcı test ortamında set tanımı, sipariş, gönderim, fatura dönüşümü ve taslak hazırlama. Canlı mağaza/EDM ve Cloudflare yayını henüz doğrulanmadı.

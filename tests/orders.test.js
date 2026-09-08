@@ -6,9 +6,9 @@ import {ordersApi,importOrders} from '../src/orders-api.js';
 const date='2026-09-09';
 function fixture(){
  const sqlite=new DatabaseSync(':memory:');sqlite.exec('PRAGMA foreign_keys=ON');
- for(const file of ['0001_initial.sql','0002_accounting.sql','0003_accounting_audit.sql','0004_pricing.sql','0005_ledger.sql','0006_receipts_settings.sql','0007_orders.sql','0008_connections.sql','0010_order_refresh.sql'])sqlite.exec(readFileSync(new URL('../migrations/'+file,import.meta.url),'utf8'));
+ for(const file of ['0001_initial.sql','0002_accounting.sql','0003_accounting_audit.sql','0004_pricing.sql','0005_ledger.sql','0006_receipts_settings.sql','0007_orders.sql','0008_connections.sql','0010_order_refresh.sql','0011_catalog.sql','0012_order_components.sql'])sqlite.exec(readFileSync(new URL('../migrations/'+file,import.meta.url),'utf8'));
  const raw={prepare(sql){return {values:[],bind(...a){this.values=a;return this;},first(){return sqlite.prepare(sql).get(...this.values)||null;},all(){return {results:sqlite.prepare(sql).all(...this.values)};}};},async batch(items){sqlite.exec('BEGIN');try{const results=items.map(i=>i.all());sqlite.exec('COMMIT');return results;}catch(e){sqlite.exec('ROLLBACK');throw e;}}};
- const DB={...raw,prepare(sql){for(const table of ['order_packages','order_lines','order_reservations','order_refresh_audit','provider_records','provider_connections','products','stock_balances','sale_entries'])sql=sql.replace(new RegExp('\\b'+table+'\\b','g'),'ec_'+table);return raw.prepare(sql);}},env={DB,WORKSPACE:'ec'};
+ const DB={...raw,prepare(sql){for(const table of ['catalog_mappings','catalog_mapping_components','order_line_components','order_packages','order_lines','order_reservations','order_refresh_audit','provider_records','provider_connections','products','stock_balances','sale_entries'])sql=sql.replace(new RegExp('\\b'+table+'\\b','g'),'ec_'+table);return raw.prepare(sql);}},env={DB,WORKSPACE:'ec'};
  const call=(path='',body)=>ordersApi(new Request('https://test.local/api/orders'+path,{method:body?'POST':'GET'}),env,'/api/orders'+path,async()=>body);
  function product(key,quantity=10,value=10000){sqlite.prepare('INSERT INTO ec_products(id,name,sku) VALUES(?,?,?)').run(key,key,key);if(quantity)sqlite.prepare("INSERT INTO ec_stock_movements(id,product_id,quantity_milli,value_cents,kind,reference,occurred_on) VALUES(?,?,?,?, 'opening',?,?)").run('stock:'+key,key,quantity*1000,value,key,date);return key;}
  const order=(ref,lines)=>call('',{channel:'trendyol',external_id:ref,order_no:ref,occurred_on:date,lines});
@@ -25,7 +25,7 @@ test('Reviewed latest source refresh recovers changed draft, resets mappings and
   const preview=await f.call('/'+key+'/source');assert.equal(preview.can_refresh,true);assert.equal(preview.source_record_id,'source-current');assert.equal(preview.package.lines[0].quantity_milli,2000);
   await assert.rejects(f.call('/'+key+'/refresh',{confirm:false,source_record_id:'source-current'}),/onaylayın/);await assert.rejects(f.call('/'+key+'/refresh',{confirm:true,source_record_id:'source-old'}),/tekrar açın/);
   await f.call('/'+key+'/refresh',{confirm:true,source_record_id:'source-current',lines:[{product_id:'ATTACK',quantity:999}]});let state=await f.call();const line=state.lines.find(l=>l.package_id===key);assert.equal(line.quantity_milli,2000);assert.equal(line.product_id,null);assert.equal(line.net_revenue_cents,20000);assert.equal(state.packages.find(x=>x.id===key).source_changed,0);assert.equal(state.products[0].quantity_milli,10000);
-  const audit=f.sqlite.prepare('SELECT * FROM ec_order_refresh_audit').get();assert.equal(audit.applied,1);assert.equal(JSON.parse(audit.old_lines_json)[0].product_id,p);assert.equal(JSON.parse(audit.old_lines_json)[0].quantity_milli,1000);assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_provider_records').get().n,2);
+  const audit=f.sqlite.prepare('SELECT * FROM ec_order_refresh_audit').get();assert.equal(audit.applied,1);assert.equal(JSON.parse(audit.old_components_json).length,1);assert.equal(JSON.parse(audit.old_lines_json)[0].product_id,p);assert.equal(JSON.parse(audit.old_lines_json)[0].quantity_milli,1000);assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_provider_records').get().n,2);
   await f.call('/'+key+'/refresh',{confirm:true,source_record_id:'source-current'});assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_refresh_audit').get().n,1);await assert.rejects(f.call('/'+key+'/reserve',{}),/eşleştirin/);
   await f.call('/'+key+'/map',{lines:[{id:line.id,product_id:p,vat_rate:20}]});await f.call('/'+key+'/reserve',{});await assert.rejects(f.call('/'+key+'/refresh',{confirm:true,source_record_id:'source-current'}),/taslak/);await f.call('/'+key+'/ship',{occurred_on:date,reference:'REFSHIP'});await assert.rejects(f.call('/'+key+'/refresh',{confirm:true,source_record_id:'source-current'}),/taslak/);assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_sale_entries').get().n,1);assert.throws(()=>f.sqlite.exec('DELETE FROM ec_order_refresh_audit'),/LOCKED/);
  }finally{f.close();}
@@ -49,7 +49,7 @@ test('Marketplace package counts cannot map to kg/L stock and bounded batches fi
   f.sqlite.prepare("UPDATE ec_products SET stock_unit='adet' WHERE id=?").run(p);
   await f.call('/'+draft.id+'/map',{lines:[{id:l.id,product_id:p}]});
   f.sqlite.prepare("UPDATE ec_products SET stock_unit='L' WHERE id=?").run(p);
-  await assert.rejects(()=>f.call('/'+draft.id+'/reserve',{}),/stok birimi uyuşmuyor/);
+  await assert.rejects(()=>f.call('/'+draft.id+'/reserve',{}),/birimi eşleştirmeden/);
   await assert.rejects(()=>f.order('TOO-MANY',Array.from({length:11},(_,i)=>f.line(null,'L'+i))),/1–10/);
   await assert.rejects(()=>f.order('FRACTION',[f.line(null,'F',1.5)]),/tam sayı/);
   const source={external_id:'IMP',occurred_on:date,lines:[{external_id:'L',name:'T',quantity_milli:1000,gross_cents:12000,vat_bps:2000}]};

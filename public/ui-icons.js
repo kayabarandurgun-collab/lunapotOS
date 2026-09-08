@@ -4,6 +4,7 @@ const paths={
  orders:'M7 3h10v4H7z M5 5H3v16h18V5h-2 M7 12h10 M7 16h6',
  stock:'m3 7 9-4 9 4-9 4-9-4 M3 7v10l9 4 9-4V7 M12 11v10',
  products:'m3 7 9-4 9 4-9 4-9-4 M3 7v10l9 4 9-4V7 M12 11v10',
+ catalog:'M3 4h7v6H3z M14 14h7v6h-7z M6 10v7h8 M10 7h7v7',
  materials:'M4 5h16v14H4z M4 9h16 M8 13h2 M14 13h2',
  recipes:'M6 3h12v18H6z M9 7h6 M9 11h6 M9 15h4',
  pricing:'M4 18 9 13l4 3 7-10 M15 6h5v5 M4 3v18h17',

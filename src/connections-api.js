@@ -15,6 +15,19 @@ const text=(v,label,max=500)=>{if(typeof v!=='string'||!v.trim()||v.length>max||
 const day=v=>{if(typeof v!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(v)||!Number.isFinite(Date.parse(v))||new Date(v).toISOString().slice(0,10)!==v)fail('Tarih geçersiz.');return v;};
 const integer=(v,max=10000)=>{if(!Number.isInteger(v)||v<0||v>max)fail('Sayfa/limit geçersiz.');return v;};
 const iso=v=>{if(typeof v==='number'&&Number.isFinite(v)||typeof v==='string'&&v.length<=40){const date=new Date(v);if(Number.isFinite(date.getTime()))return date.toISOString();}return null;};
+const personalText=(value,max=300)=>typeof value==='string'?value.trim().slice(0,max):'';
+function postalAddress(value={}){
+ if(!value||typeof value!=='object')return {};
+ return {name:personalText(value.fullName||[value.firstName,value.lastName].filter(v=>typeof v==='string').join(' ')),address:[value.address1,value.address2].filter(v=>typeof v==='string'&&v.trim()).map(v=>v.trim()).join(' ').slice(0,1000),district:personalText(value.district),city:personalText(value.city),postal_code:personalText(value.postalCode,20),country:personalText(value.countryCode,2)};
+}
+function customerFacts(record,provider){
+ const billingRaw=record.invoiceAddress,billing=postalAddress(billingRaw),shipping=postalAddress(provider==='trendyol'?record.shipmentAddress:record.shippingAddress);
+ const name=billing.name||personalText(provider==='trendyol'?[record.customerFirstName,record.customerLastName].filter(v=>typeof v==='string').join(' '):record.customerName);
+ const taxId=personalText(billingRaw?.taxNumber,20);
+ return {name,company:personalText(billingRaw?.company),tax_id:/^\d{10,11}$/.test(taxId)?taxId:'',tax_office:personalText(billingRaw?.taxOffice),billing,shipping};
+}
+function invoiceFacts(record){let url=null;try{const parsed=new URL(record.invoiceLink);if(parsed.protocol==='https:'&&!parsed.username&&!parsed.password)url=parsed.href;}catch{}return {number:personalText(record.invoiceNumber,100),status:personalText(record.invoiceStatus,100),url};}
+const sourcePreview=record=>{const {customer,invoice,...summary}=record;return summary;};
 const b64=bytes=>btoa(String.fromCharCode(...new Uint8Array(bytes)));
 function keyBytes(value){try{const bytes=/^[a-f\d]{64}$/i.test(value||'')?Uint8Array.from(value.match(/../g),h=>parseInt(h,16)):Uint8Array.from(atob(value||''),c=>c.charCodeAt(0));if(bytes.length!==32)throw Error();return bytes;}catch{fail('Sunucuda güvenli bağlantı kasası henüz kurulmadı (CREDENTIAL_KEY).',409);}}
 const encryptionReady=env=>{try{keyBytes(env.CREDENTIAL_KEY);return true;}catch{return false;}};
@@ -69,7 +82,7 @@ function normalizeTY(kind,payload,page){
    const updated=iso(r.lastModifiedDate),created=iso(r.orderDate),currency=short(r.currencyCode);
    const lines=r.lines.map(l=>{if(!Number.isInteger(l.quantity)||l.quantity<=0||l.quantity>10000)fail('Sipariş satır miktarı geçersiz.',502);const unit=numeric(l.lineUnitPrice),platformDiscount=numeric(l.lineTyDiscount);return {external_id:externalID(l.lineId),sku:short(l.stockCode),barcode:short(l.barcode),name:short(l.productName),quantity_milli:l.quantity*1000,gross_cents:unit===null||platformDiscount!==0?null:money(unit*l.quantity),vat_bps:rate(l.vatRate),commission_bps:rate(l.commission),currency:short(l.currencyCode||currency),seller_discount:numeric(l.lineSellerDiscount),platform_discount:platformDiscount,amounts_need_review:platformDiscount!==0};});
    if(new Set(lines.map(l=>l.external_id)).size!==lines.length)fail('Siparişte aynı satır kimliği tekrar ediyor.',502);
-   return {external_id:externalID(r.shipmentPackageId??r.id),order_no:externalID(r.orderNumber),occurred_on:created?new Date(Date.parse(created)+3*3600000).toISOString().slice(0,10):null,external_status:short(r.shipmentPackageStatus??r.status),source_updated_at:updated,currency,carrier:short(r.cargoProviderName),package_gross: numeric(r.packageGrossAmount),package_price:numeric(r.packageTotalPrice),package_seller_discount:numeric(r.packageSellerDiscount),package_platform_discount:numeric(r.packageTyDiscount),lines};
+   return {external_id:externalID(r.shipmentPackageId??r.id),order_no:externalID(r.orderNumber),occurred_on:created?new Date(Date.parse(created)+3*3600000).toISOString().slice(0,10):null,external_status:short(r.shipmentPackageStatus??r.status),source_updated_at:updated,currency,carrier:short(r.cargoProviderName),package_gross: numeric(r.packageGrossAmount),package_price:numeric(r.packageTotalPrice),package_seller_discount:numeric(r.packageSellerDiscount),package_platform_discount:numeric(r.packageTyDiscount),customer:customerFacts(r,'trendyol'),invoice:invoiceFacts(r),lines};
   }
   if(!short(r.id))fail('Finans kaydında dış kimlik yok.',502);
   return {external_id:externalID(r.id),reference:short(r.orderNumber||r.receiptId),order_no:short(r.orderNumber),barcode:short(r.barcode),type:short(r.transactionType),credit:numeric(r.credit),debt:numeric(r.debt),commission:numeric(r.commissionAmount),seller_revenue:numeric(r.sellerRevenue),payment_order_id:short(r.paymentOrderId),source_updated_at:iso(r.lastModifiedDate||r.transactionDate),currency:short(r.currency),interpretation:'source_financial_record'};
@@ -87,7 +100,7 @@ function normalizeHB(kind,payload,page,limit){
   }
   if(kind==='orders'){
    const id=externalID(r.id??r.lineItemId);if(!id)fail('HB sipariş kalem kimliği eksik.',502);
-   return {external_id:id,order_no:short(r.orderNumber),package_id:short(r.packageId),sku:short(r.merchantSKU??r.merchantSku),hb_sku:short(r.sku),quantity:numeric(r.quantity),total_price:numeric(r.totalPrice?.amount),currency:short(r.totalPrice?.currency),commission:numeric(r.commission?.amount),vat:numeric(r.vat),external_status:short(r.status),source_updated_at:iso(r.lastUpdatedDate??r.orderDate),interpretation:'pending_order_line_requires_package_mapping'};
+   return {external_id:id,order_no:short(r.orderNumber),package_id:short(r.packageId),sku:short(r.merchantSKU??r.merchantSku),hb_sku:short(r.sku),quantity:numeric(r.quantity),total_price:numeric(r.totalPrice?.amount),currency:short(r.totalPrice?.currency),commission:numeric(r.commission?.amount),vat:numeric(r.vat),external_status:short(r.status),source_updated_at:iso(r.lastUpdatedDate??r.orderDate),customer:customerFacts(r,'hepsiburada'),interpretation:'pending_order_line_requires_package_mapping'};
   }
   const id=externalID(r.id??r.transactionId);if(!short(r.transactionType??r.type)||numeric(r.amount?.amount??r.amount)===null)fail('HB finans kaydının kimlik/tür/tutar şeması doğrulanamadı.',502);
   return {external_id:id,type:short(r.transactionType??r.type),order_no:short(r.orderNumber),package_no:short(r.packageNumber),sku:short(r.sku),amount:numeric(r.amount?.amount??r.amount),currency:short(r.amount?.currency??r.currency),payment_status:short(r.paymentStatus),source_updated_at:iso(r.transactionDate??r.date),interpretation:'unreconciled_financial_record_not_bank_transfer'};
@@ -131,7 +144,7 @@ export async function syncProvider(env,provider,input,fetcher=fetch,orderImporte
    sourceRows.push({id:crypto.randomUUID(),external_id:r.external_id,fingerprint,payload_json:json,source_updated_at:r.source_updated_at});
    if(provider==='trendyol'&&input.kind==='orders'){
     if(existing?.fingerprint===fingerprint&&localOrderIDs.has(r.external_id))continue;
-    const queriesNeeded=2+2*r.lines.length;
+    const queriesNeeded=4+2*r.lines.length;
     if(!outdated&&r.source_updated_at&&r.currency==='TRY'&&r.occurred_on&&r.lines.every(l=>l.currency==='TRY')){
      if(r.lines.length>10){oversizedOrders++;reviewOnlyOrders++;}
      else if(queriesNeeded<=importQueryBudget){newOrders.push(r);importQueryBudget-=queriesNeeded;}else deferredOrders++;
@@ -147,7 +160,7 @@ export async function syncProvider(env,provider,input,fetcher=fetch,orderImporte
   let orders=null,orderImportWarning=null;
   if(newOrders.length){try{const importer=orderImporter||(await import('./orders-api.js')).importOrders;orders=await importer(env,provider,newOrders);}catch{orderImportWarning='Kaynaklar saklandı; sipariş taslaklarına aktarım tamamlanamadı. Aynı sayfayı yeniden çekebilirsiniz.';}}
   const warnings=[...(orderImportWarning?[orderImportWarning]:[]),...(reviewOnlyOrders?[reviewOnlyOrders+' sipariş kaynak kutusunda kaldı; paket büyüklüğü, tarih, para birimi veya kaynak sürümü inceleme gerektiriyor.']:[]),...(oversizedOrders?[oversizedOrders+' paket 10 satır sınırını aşıyor; bunları yeniden çekmek taslak oluşturmaz.']:[]),...(deferredOrders?[deferredOrders+' paket ücretsiz işlem sınırı nedeniyle kaynak kutusunda. Aynı sayfayı yeniden çekerek sıradaki taslakları aktarın.']:[]),...(missingSkus.length?[missingSkus.length+' istenen SKU için komisyon yanıtı yok; eksik oran sıfır kabul edilmedi.']:[])];
-  return {...result,page:spec.page,next_page:spec.page+1,unchanged,changed,orders,orderImportWarning,reviewOnlyOrders,deferredOrders,oversizedOrders,missing_skus:missingSkus,warnings,message:'Kaynak kayıtlarıdır. Finans/kargo/komisyon henüz muhasebeyle mutabık değildir. Fiyat veya stok pazaryerine gönderilmedi.'+(warnings.length?' '+warnings.join(' '):'')};
+  return {...result,records:result.records.map(sourcePreview),page:spec.page,next_page:spec.page+1,unchanged,changed,orders,orderImportWarning,reviewOnlyOrders,deferredOrders,oversizedOrders,missing_skus:missingSkus,warnings,message:'Kaynak kayıtlarıdır. Finans/kargo/komisyon henüz muhasebeyle mutabık değildir. Fiyat veya stok pazaryerine gönderilmedi.'+(warnings.length?' '+warnings.join(' '):'')};
  }catch(error){
   const safe=error.status?error.message:'Bağlantı işleme hatası; kaynak sayfa tamamlanmadı.';
   await stmt(db,'UPDATE provider_connections SET last_error=? WHERE provider=?',[safe,provider]).run();
@@ -165,7 +178,7 @@ export async function connectionsApi(request,env,path,readBody){
  }
  if(path==='/api/connections/records'&&method==='GET'){
   const provider=url.searchParams.get('provider'),kind=url.searchParams.get('kind'),page=integer(Number(url.searchParams.get('page')||0));if(!providers.includes(provider)||!caps[provider].includes(kind))fail('Sağlayıcı/veri türü seçin.');
-  const records=await rows(stmt(db,'SELECT id,external_id,payload_json,source_updated_at,first_seen_at,last_seen_at FROM provider_records WHERE provider=? AND kind=? ORDER BY last_seen_at DESC,id LIMIT 51 OFFSET ?',[provider,kind,page*50]));return {records:records.slice(0,50).map(r=>({...r,payload:JSON.parse(r.payload_json),payload_json:undefined})),page,hasMore:records.length>50,message:'Her değişen kaynak sürümü saklanır; bu liste muhasebe ekstresi değildir.'};
+  const records=await rows(stmt(db,'SELECT id,external_id,payload_json,source_updated_at,first_seen_at,last_seen_at FROM provider_records WHERE provider=? AND kind=? ORDER BY last_seen_at DESC,id LIMIT 51 OFFSET ?',[provider,kind,page*50]));return {records:records.slice(0,50).map(r=>({...r,payload:sourcePreview(JSON.parse(r.payload_json)),payload_json:undefined})),page,hasMore:records.length>50,message:'Her değişen kaynak sürümü saklanır; bu liste muhasebe ekstresi değildir. Müşteri ve fatura adresi yalnızca sipariş ayrıntısında gösterilir.'};
  }
  const match=path.match(/^\/api\/connections\/(trendyol|hepsiburada|edm)\/(configure|sync)$/);if(!match||method!=='POST')return null;
  const provider=match[1],x=await readBody(request);

@@ -1,4 +1,4 @@
-# Lunapot OS 2 — kayıt ve hesaplama kuralları
+# Lunapot OS 2.1 — kayıt ve hesaplama kuralları
 
 ## Ayrı iş alanları
 Lunapot `/`, e-ticaret `/eticaret/` adresindedir. Ürünler, stoklar, cariler, faturalar ve kasa/banka kayıtları ayrı tutulur. İki alan aynı yönetici oturumunu kullanır; çalışanlara göre ayrı erişim yetkisi henüz yoktur. Bir faturanın iki alanda tekrar işlenmesi ortak belge kontrolüyle engellenir.
@@ -6,7 +6,7 @@ Lunapot `/`, e-ticaret `/eticaret/` adresindedir. Ürünler, stoklar, cariler, f
 ## Sipariş ve stok
 - İlk kullanımda gerçek açılış stoğu ve KDV hariç maliyet girilmelidir. Kaydedilmeyen fiziksel hareketler sistem tarafından bilinemez.
 - E-ticaret siparişi taslak → stok ayırma → gönderim → teslim akışını izler. Ayırma fiziksel stoğu azaltmaz; gönderim azaltır ve satış kaydı oluşturur. Teslim ikinci satış oluşturmaz. Gönderim öncesi iptal ayrılan stoğu bırakır.
-- Sipariş paketleri en fazla 10 satırdır. Otomatik sipariş akışı tam adet miktarını destekler; başka stok birimlerine dönüşüm kurulmadan otomatik işlem yapılmaz.
+- Sipariş paketleri en fazla 10 ilan satırı ve 20 stok bileşenidir. İlan adedi tam sayıdır; açıkça tanımlanmış bileşen dönüşümüyle kg/litre gibi stok birimleri kullanılabilir. Sanal set için ayrı depo kartı açılmaz.
 - Aynı kaynak sipariş tekrar çekildiğinde ikinci kez stok düşmez. Değişen kaynak, taslakta incelenip yenilenebilir; eski sürüm saklanır ve ürün eşleştirmesi yeniden istenir. Ayrılmış/gönderilmiş kaydın içeriği sessizce değişmez.
 - Satış maliyeti ağırlıklı ortalamayla, kaydın işlendiği andaki stoktan hesaplanır. Geçmiş tarih girilmesi geçmiş değerlemeyi yeniden hesaplatmaz; eski kayıtlar kronolojik işlenmelidir.
 - İade asıl satışa bağlıdır; sağlam dönen ürün eski maliyetiyle stoğa girer. Hasarlı veya gelmeyen ürün otomatik stoğa eklenmez. Sayım kaybı ayrıca gider oluşturur.
@@ -47,3 +47,12 @@ Satış giderleri tahmini veya doğrulanmış olarak izlenir. Eksik giderli sat�
 Dönem raporları en fazla 5.000 satış/gider kaydı yükler; fazla kayıtta dönem daraltılır. Fatura ve stok geçmişi son 200 kaydı gösterir. İş verileri 25.000 satıra kadar dışa aktarılabilir; kimlik bilgileri dahil edilmez. Otomatik geri yükleme yoktur. PWA arayüzü önbelleğe alınır; ticari API verileri çevrimdışı saklanmaz.
 
 Ücretli plan veya AI servisi etkinleştirilmedi. Cloudflare ücretsiz katmanı hedeflenir; sağlayıcı kotaları ile pazaryeri/EDM API erişim koşulları ayrıca geçerlidir. Üretim yayını, gerçek mağaza testleri ve üretim performans ölçümü tamamlanmadan tam otomatik işletim varsayılmamalıdır.
+
+## Ürün bağlantıları ve setler
+Stok kartı fiziksel üründür; ilan/tedarikçi bağlantısı bu kartın dış sistemdeki karşılığıdır. Bir ilan bir veya daha fazla stok kartına ve açık miktarlara bağlanabilir. Set satışı bütün bileşenler için yeterli stok varsa ayrılır; gönderimde bir kez çıkar. Satış tutarı açık yüzdelerle bileşenlere dağıtılır ve toplam kuruş korunur. Bu oran ürün maliyetini değiştirmez. İadeler satışın bileşen kayıtlarından izlenir.
+
+Alış bağlantısı tedarikçi + kod + fatura birimiyle çözülür. Kod yoksa yalnızca önceden kaydedilmiş tam ad + tedarikçi + birim kullanılır; yaklaşık ad eşleşmesi yoktur. Örneğin 1 KOLI = 12 adet. Bağlantı değişikliği yeni sürüm oluşturur; geçmiş fatura/sipariş miktarını değiştirmez.
+
+Sipariş penceresindeki alış faturaları son teslim kayıtlarıdır; ağırlıklı ortalama stokta belirli satışın kesin olarak belirli alış partisinden çıktığı iddia edilmez. Resmî EDM belgesinin kendisi canlı bağlantı doğrulanana kadar indirilemez; içe alınan alış kaydı incelenebilir.
+
+Fatura taslağı müşteri ve sipariş tutarlarının sabit sürümüdür; stok/cari hareketi, resmî ETTN veya EDM/GİB gönderimi oluşturmaz. Aynı taslak tekrar kaydedildiğinde çoğalmaz. Müşteri bilgileri korumalı ayrıntıda tutulur; kaynak gelen kutusunun toplu listesine dökülmez. İş verisi yedeği fatura taslağındaki alıcı bilgisini içerir.

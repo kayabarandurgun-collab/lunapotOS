@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
-import {readFileSync} from 'node:fs';
+import {readFileSync,readdirSync} from 'node:fs';
 import {connectionsApi,syncProvider,encryptCredentials,decryptCredentials} from '../src/connections-api.js';
 const key='ab'.repeat(32),credentials={seller_id:'1234',key:'sample-api-key',secret:'sample-api-password',user_agent:'1234 - SelfIntegration'};
 function fixture(){
  const sqlite=new DatabaseSync(':memory:');sqlite.exec('PRAGMA foreign_keys=ON');
- for(const file of ['0001_initial.sql','0002_accounting.sql','0003_accounting_audit.sql','0004_pricing.sql','0005_ledger.sql','0006_receipts_settings.sql','0007_orders.sql','0008_connections.sql'])sqlite.exec(readFileSync(new URL('../migrations/'+file,import.meta.url),'utf8'));
+ for(const file of readdirSync(new URL('../migrations/',import.meta.url)).filter(f=>f.endsWith('.sql')).sort())sqlite.exec(readFileSync(new URL('../migrations/'+file,import.meta.url),'utf8'));
  let queryCount=0;
- const DB={prepare(sql){for(const table of ['provider_connections','provider_records','provider_cursors','integration_runs','order_packages','order_lines','products'])sql=sql.replace(new RegExp('\\b'+table+'\\b','g'),'ec_'+table);return {values:[],bind(...v){this.values=v;return this;},first(){queryCount++;return sqlite.prepare(sql).get(...this.values)||null;},all(){queryCount++;return {results:sqlite.prepare(sql).all(...this.values)};},run(){queryCount++;return sqlite.prepare(sql).run(...this.values);}};},async batch(items){sqlite.exec('BEGIN');try{const result=items.map(i=>i.run());sqlite.exec('COMMIT');return result;}catch(e){sqlite.exec('ROLLBACK');throw e;}}};
+ const DB={prepare(sql){for(const table of ['catalog_mappings','catalog_mapping_components','order_line_components','provider_connections','provider_records','provider_cursors','integration_runs','order_packages','order_lines','products'])sql=sql.replace(new RegExp('\\b'+table+'\\b','g'),'ec_'+table);return {values:[],bind(...v){this.values=v;return this;},first(){queryCount++;return sqlite.prepare(sql).get(...this.values)||null;},all(){queryCount++;return {results:sqlite.prepare(sql).all(...this.values)};},run(){queryCount++;return sqlite.prepare(sql).run(...this.values);}};},async batch(items){sqlite.exec('BEGIN');try{const result=items.map(i=>i.run());sqlite.exec('COMMIT');return result;}catch(e){sqlite.exec('ROLLBACK');throw e;}}};
  const env={DB,WORKSPACE:'ec',CREDENTIAL_KEY:key};
  const call=(path='',body)=>connectionsApi(new Request('https://test.local/api/connections'+path,{method:body===undefined?'GET':'POST'}),env,'/api/connections'+path.split('?')[0],async()=>body);
  return {sqlite,env,call,queryCount:()=>queryCount,resetQueries:()=>{queryCount=0;}};
@@ -30,7 +30,7 @@ test('AES-GCM random IV, provider/account binding, missing key failure and redac
   await assert.rejects(()=>f.call('/edm/configure',{username:'user',password:'pass',url:'http://localhost'}),/doğrulanmadı/);
  }finally{f.sqlite.close();}
 });
-test('TY V2 one-page source sync strips PII, imports drafts, stores cursor and preserves changed revisions',async()=>{
+test('TY V2 one-page source sync strips unrelated PII, imports drafts, stores cursor and preserves changed revisions',async()=>{
  const f=fixture();try{
   await f.call('/trendyol/configure',credentials);let fetchCount=0,imports=0;
   const fetcher=async(url,options)=>{fetchCount++;assert.equal(url.origin,'https://apigw.trendyol.com');assert.equal(url.pathname,'/integration/order/sellers/1234/v2/orders');assert.equal(url.searchParams.get('size'),'50');assert.equal(options.method,'GET');assert.equal(options.redirect,'error');assert.ok(options.headers.Authorization.startsWith('Basic '));return Response.json({content:[order()],totalPages:2,totalElements:80});};
@@ -44,6 +44,17 @@ test('TY V2 one-page source sync strips PII, imports drafts, stores cursor and p
   await syncProvider(f.env,'trendyol',{...query,page:1},async()=>Response.json({content:[],totalPages:2,totalElements:80}),importer);
   await syncProvider(f.env,'trendyol',query,fetcher,importer);assert.equal(f.sqlite.prepare('SELECT next_page FROM ec_provider_cursors').get().next_page,2,'Repeating old page must not regress progress');
   await assert.rejects(()=>syncProvider(f.env,'trendyol',{...query,page:3},fetcher,importer),/sırayla/);
+ }finally{f.sqlite.close();}
+});
+test('Necessary customer invoice details stay in protected source detail, never broad inbox or sync output',async()=>{
+ const f=fixture();try{
+  await f.call('/trendyol/configure',credentials);
+  const input=order({customerId:'PRIVATE-ID',identityNumber:'11111111111',customerFirstName:'TEST',customerLastName:'ALICI',invoiceNumber:'TEST-INV',invoiceLink:'javascript:alert(1)',invoiceAddress:{firstName:'TEST',lastName:'ALICI',address1:'TEST PRIVATE ADDRESS',city:'İstanbul',district:'Kadıköy',countryCode:'TR',taxNumber:'1234567890',taxOffice:'TEST',phone:'PRIVATE-PHONE',email:'PRIVATE-EMAIL',identityNumber:'11111111111'}});
+  const result=await syncProvider(f.env,'trendyol',query,async()=>Response.json({content:[input],totalPages:1,totalElements:1}),async()=>({created:1}));
+  const payload=JSON.parse(f.sqlite.prepare('SELECT payload_json FROM ec_provider_records').get().payload_json);assert.equal(payload.customer.billing.address,'TEST PRIVATE ADDRESS');assert.equal(payload.customer.tax_id,'1234567890');assert.equal(payload.invoice.number,'TEST-INV');assert.equal(payload.invoice.url,null);
+  const raw=JSON.stringify(payload);for(const forbidden of ['PRIVATE-ID','PRIVATE-PHONE','PRIVATE-EMAIL','11111111111','private@example.test'])assert.ok(!raw.includes(forbidden));
+  assert.ok(!JSON.stringify(result).includes('TEST PRIVATE ADDRESS'));assert.equal(result.records[0].customer,undefined);
+  const inbox=await f.call('/records?provider=trendyol&kind=orders');assert.ok(!JSON.stringify(inbox).includes('TEST PRIVATE ADDRESS'));assert.equal(inbox.records[0].payload.customer,undefined);assert.equal(inbox.records[0].payload.invoice,undefined);
  }finally{f.sqlite.close();}
 });
 test('HB exact finance query casing, SKU bound, fail-closed unknown response and Payment source semantics',async()=>{
