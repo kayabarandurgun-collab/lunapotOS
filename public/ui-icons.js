@@ -1,0 +1,20 @@
+const paths={
+ overview:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
+ dashboard:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
+ orders:'M7 3h10v4H7z M5 5H3v16h18V5h-2 M7 12h10 M7 16h6',
+ stock:'m3 7 9-4 9 4-9 4-9-4 M3 7v10l9 4 9-4V7 M12 11v10',
+ products:'m3 7 9-4 9 4-9 4-9-4 M3 7v10l9 4 9-4V7 M12 11v10',
+ materials:'M4 5h16v14H4z M4 9h16 M8 13h2 M14 13h2',
+ recipes:'M6 3h12v18H6z M9 7h6 M9 11h6 M9 15h4',
+ pricing:'M4 18 9 13l4 3 7-10 M15 6h5v5 M4 3v18h17',
+ costs:'M6 3h12v18H6z M9 7h6 M9 12h1 M14 12h1 M9 16h1 M14 16h1',
+ sales:'M4 19V9 M10 19V5 M16 19v-7 M22 19H2',
+ invoices:'M6 3h9l4 4v14H6z M14 3v5h5 M9 12h7 M9 16h5',
+ ledger:'M4 4h16v16H4z M8 8h8 M8 12h4 M8 16h6',
+ accounts:'M4 4h16v16H4z M8 8h8 M8 12h4 M8 16h6',
+ expenses:'M3 6h18v14H3z M3 10h18 M15 15h3',
+ integrations:'M8 3v4 M16 3v4 M6 7h12v3a6 6 0 0 1-12 0V7 M12 16v5',
+ settings:'M4 7h16 M4 17h16 M8 4v6 M16 14v6',
+ reconciliation:'M3 6h12 M11 2l4 4-4 4 M21 18H9 M13 14l-4 4 4 4',
+ ai:'m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z'};
+export const icon=name=>'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+(paths[name]||paths.overview)+'"/></svg>';

@@ -1,0 +1,6 @@
+const tables=['order_refresh_audit','fee_allocations','order_packages','order_lines','order_reservations','provider_connections','provider_records','provider_cursors','suppliers','stock_balances','stock_movements','sale_entries','expenses','purchase_invoices','purchase_lines','integration_runs','supplier_payments','fee_audit','price_profiles','shipping_rates','commission_rates','party_entries','payment_allocations','allocation_reversals','cash_accounts','cash_transactions','goods_receipts'];
+// The namespace is selected only from fixed server routes, never from request data.
+export function scopedDB(db,namespace){
+ if(!['ec','lp'].includes(namespace))throw new Error('Invalid workspace');
+ return {prepare(sql){for(const table of tables)sql=sql.replace(new RegExp('\\b'+table+'\\b','g'),namespace+'_'+table);if(namespace==='ec')sql=sql.replace(/\bproducts\b/g,'ec_products').replace(/\bactivity\b/g,'ec_activity');return db.prepare(sql);},batch:statements=>db.batch(statements)};
+}

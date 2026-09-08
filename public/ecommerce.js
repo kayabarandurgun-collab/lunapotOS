@@ -1,0 +1,28 @@
+import {mountReconciliation} from './reconciliation-ui.js';
+import {mountAccounting} from './accounting-ui.js';
+import {mountBusiness} from './business-ui.js';
+import {mountOrders} from './orders-ui.js';
+import {mountOperations} from './operations-ui.js';
+import {icon} from './ui-icons.js';
+const app=document.querySelector('#commerce-app');let dispose=null,authenticated=false;
+const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const views={overview:'Genel durum',orders:'Siparişler',sales:'Satış ve kârlılık',pricing:'Fiyat ve kâr',stock:'Ürünler ve stok',invoices:'Alış faturaları',ledger:'Cariler ve nakit',reconciliation:'Kesinti eşleştirme',expenses:'Genel giderler',integrations:'Bağlantılar',settings:'Şirket ve yedek'};
+async function auth(path,body){const r=await fetch('/api/auth/'+path,{...(body?{method:'POST',body:JSON.stringify(body),headers:{'Content-Type':'application/json'}}:{})});const result=await r.json();if(!r.ok)throw new Error(result.error||'İşlem tamamlanamadı.');return result;}
+function render(){
+ dispose?.();const current=views[location.hash.slice(1)]?location.hash.slice(1):'overview';
+ app.innerHTML='<aside id="sidebar"><a class="brand" href="/eticaret/"><img src="/ecommerce-icon.svg" alt=""><span>E-Ticaret<span class="brand-sub">İŞİNİN GÜNCEL DURUMU</span></span></a><div class="workspace-label">Torf & zirai ürünler</div><nav aria-label="E-ticaret menüsü">'+Object.entries(views).map(([key,title],i)=>([0,4,9].includes(i)?'<div class="nav-label">'+({0:'SATIŞ OPERASYONU',4:'MUHASEBE VE STOK',9:'YÖNETİM'}[i])+'</div>':'')+'<a href="#'+key+'" class="nav-link '+(key===current?'active':'')+'" '+(key===current?'aria-current="page"':'')+'><span class="nav-icon">'+icon(key)+'</span>'+title+'</a>').join('')+'</nav><div class="sidebar-foot"><div class="version"><span class="status-dot"></span> E-Ticaret v2.0</div><p>Ayrı defter · Ayrı stok</p></div></aside><div class="workspace"><header><button class="mobile-menu icon-button" id="commerce-menu" aria-label="Menüyü aç" aria-expanded="false">☰</button><strong class="mobile-workspace">E-Ticaret</strong><div class="breadcrumb"><span>E-Ticaret</span><span>/</span><strong>'+views[current]+'</strong></div><div class="header-actions"><span class="connection">'+(navigator.onLine?'● Çevrimiçi':'● Çevrimdışı')+'</span><button class="text-button" id="commerce-logout">Çıkış</button></div></header><main id="commerce-content"></main><footer><span>E-Ticaret · Ön muhasebe</span><span>TRY · Tek depo</span></footer></div>';
+ const content=document.querySelector('#commerce-content');
+ dispose=current==='reconciliation'?mountReconciliation(content,'ec'):['ledger','pricing'].includes(current)?mountBusiness(content,'ec',current):current==='orders'?mountOrders(content,'ec'):['overview','settings','integrations'].includes(current)?mountOperations(content,'ec',current):mountAccounting(content,'ec',current);
+ document.querySelector('#commerce-menu').onclick=e=>{const open=document.querySelector('#sidebar').classList.toggle('open');e.currentTarget.setAttribute('aria-expanded',String(open));};
+ document.querySelector('#commerce-logout').onclick=async()=>{try{await auth('logout',{});authenticated=false;await start();}catch(e){content.insertAdjacentHTML('afterbegin','<p class="notice">'+esc(e.message)+'</p>');}};
+}
+async function start(){
+ dispose?.();try{const state=await auth('status');authenticated=state.authenticated;if(authenticated){render();return;}
+ const token=new URLSearchParams(location.hash.slice(1)).get('setup')||'';if(token)history.replaceState(null,'','/eticaret/');
+ app.innerHTML='<div class="auth-layout"><section class="auth-brand"><a class="brand" href="/eticaret/"><img src="/ecommerce-icon.svg" alt=""><span>E-Ticaret</span></a><div><span class="eyebrow">SATIŞ · STOK · ÖN MUHASEBE</span><h1>Satıştan geriye<br>ne kalıyor?</h1><p>Siparişten teslimata, maliyetten kâra.<br>İşinin tamamını aynı yerden takip et.</p></div><small>Torf & zirai ürünler</small></section><section class="auth-form"><form id="commerce-login"><span class="pill">E-Ticaret çalışma alanı</span><h2>'+(state.initialized?'Tekrar hoş geldin.':'Yönetici hesabını oluştur.')+'</h2><p>'+(state.initialized?'Sana ait çalışma alanına giriş yap.':'Lunapot ve e-ticaret için yönetici girişini hazırla.')+'</p>'+(!state.initialized?'<label>Kurulum anahtarı<input name="token" type="password" value="'+esc(token)+'" required autocomplete="off"></label>':'')+'<label>Yönetici şifresi<input name="password" type="password" required '+(!state.initialized?'minlength="12"':'')+' maxlength="200" autocomplete="'+(state.initialized?'current-password':'new-password')+'"></label><button class="primary" type="submit">'+(state.initialized?'Çalışma alanını aç →':'Kurulumu tamamla →')+'</button><p id="commerce-error" class="error" role="alert"></p><small>Cariler ve stoklar Lunapot üretim alanından ayrıdır.</small></form></section></div>';
+ document.querySelector('#commerce-login').onsubmit=async e=>{e.preventDefault();const b=e.target.querySelector('button');b.disabled=true;try{await auth(state.initialized?'login':'setup',Object.fromEntries(new FormData(e.target)));authenticated=true;render();}catch(err){document.querySelector('#commerce-error').textContent=err.message;}finally{b.disabled=false;}};
+ }catch(e){app.innerHTML='<div class="loading"><h1>E-Ticaret</h1><p>'+esc(e.message)+'</p><p>Bağlantıyı kontrol edip sayfayı yenileyin.</p></div>';}
+}
+window.addEventListener('hashchange',()=>{if(authenticated)render();});
+if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
+start();
