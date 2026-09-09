@@ -158,7 +158,17 @@ export async function accountingApi(request,env,path,readBody){
    }await batch(db,[...statements,log(db,'Mal teslimi kaydedildi; eldeki stok güncellendi')]);return {id:key};
   }
   if(existing.status!=='draft')fail('Bu fatura daha önce işlendi.',409);
-  if(action==='cancel'){await batch(db,[statement(db,"UPDATE purchase_invoices SET status='cancelled' WHERE id=? AND status='draft'",[key])]);return {id:key};}
+  // Iptal edilen taslak numarasi serbest kalir: belge kaydi silinir ve numara mezar tasi ile isaretlenir.
+  // Boylece yanlis girilip iptal edilen bir fatura, dogru haliyle yeniden girilebilir.
+  if(action==='cancel'){
+   const rootDB=env.ROOT_DB||db;
+   await batch(db,[
+    statement(rootDB,'DELETE FROM document_registry WHERE invoice_id=? AND workspace=?',[key,env.WORKSPACE]),
+    statement(db,"UPDATE purchase_invoices SET status='cancelled',invoice_no=invoice_no||' (iptal '||substr(id,1,8)||')' WHERE id=? AND status='draft'",[key]),
+    log(db,'Alış faturası iptal edildi; belge numarası yeniden kullanılabilir')
+   ]);
+   return {id:key};
+  }
   if(action==='post'){await batch(db,[statement(db,"UPDATE purchase_invoices SET status='posted' WHERE id=? AND status='draft'",[key]),log(db,'Alış faturası muhasebeleştirildi; mal teslimi bekleniyor')]);return {id:key};}
   if(!Array.isArray(x.lines)||x.lines.length>40)fail('Fatura eşleştirmesi geçersiz.');const lines=(await statement(db,'SELECT * FROM purchase_lines WHERE invoice_id=?',[key]).all()).results;
   if(lines.length!==x.lines.length||new Set(x.lines.map(l=>l.id)).size!==lines.length)fail('Tüm satırlar bir kez eşleştirilmeli.');
