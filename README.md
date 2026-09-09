@@ -1,6 +1,8 @@
 # Lunapot OS 2.1
 Mobil ve web uyumlu, Cloudflare Workers + D1 üzerinde çalışan iki ayrı iş alanı.
 
+Canlı adresler: [Lunapot](https://lunapot-panel.lunapot-os.workers.dev/) · [E-Ticaret](https://lunapot-panel.lunapot-os.workers.dev/eticaret/).
+
 - **Lunapot** (/): ürünler, hammaddeler, reçeteler, üretim maliyeti, alış/stok ve cari.
 - **E-Ticaret** (/eticaret/): torf ve zirai ürünler; sipariş, stok ayırma, kargoya verme, satış kârlılığı, cari/nakit, alış ve mal teslimi.
 - Lunapot AI kapalı; ücretli AI servisi bağlı değil.
@@ -40,8 +42,12 @@ Node.js 22+ gerekir (testlerde node:sqlite kullanılır).
 1. Ücretsiz Workers hesabında lunapot-db adlı D1 veritabanı oluştur.
 2. wrangler.jsonc içindeki database_id alanını gerçek kimlikle değiştir.
 3. Üretim SETUP_TOKEN ve CREDENTIAL_KEY değerlerini Wrangler secret olarak sakla.
-4. D1 migrations apply DB --remote ardından npm run deploy çalıştır.
+4. npm run db:remote ardından npm run deploy çalıştır.
 5. İlk yöneticiyi kişisel şifreyle oluştur; HTTPS ve korumalı API'leri doğrula.
+
+Üretim hesabı ve D1 kimliği wrangler.jsonc içinde sabitlenmiştir. preview_database_id yalnızca mevcut yerel geliştirme veritabanı kimliğini korur; uzak önizleme veritabanı kurulmamıştır. Üretim sürüm önizleme adresleri kapalıdır.
+
+Uzak D1 sorgu uç noktası bazı trigger gövdelerini ayırırken `incomplete input` hatası verdiği için `db:remote` geçişleri resmî SQL dosyası içe aktarımıyla uygular. Her dosyanın geçiş kaydı aynı içe aktarımın içindedir; hata halinde dosya geri alınır. Komut yalnızca bekleyen dosyaları çalıştırır. Aynı anda birden fazla geçiş işlemi başlatmayın. Yerelde standart `db:local` kullanılabilir.
 
 Ücretli plan, alan adı veya AI aboneliği gerekmez. Sağlayıcı ücretsiz kotaları ve pazaryeri/EDM servis hakkı kendi hesabında geçerlidir. Yerel test veritabanı (.wrangler veya work/) kesinlikle üretime kopyalanmaz.
 
@@ -52,4 +58,4 @@ Testler gerçek müşteri/mağaza verisi olmadan yalıtılmış SQLite üzerinde
 
 Paket tahmini tek bir ilan satırının tekli veya set içeriğini destekler. Paket ölçüleri/ek giderler açıkça girilir, kargo bir kez uygulanır. Birden fazla farklı ilan satırını içeren paketin ortak kargo ve komisyon tahmini henüz tamamlanmadı. Siparişe uygulanan kaynak komisyon kodu, gerçek ilan SKU kodudur.
 
-Yeni sürüm doğrulaması: 65 otomatik test, gerçek yerel D1 geçişleri ve ayrı tarayıcı test ortamında set tanımı, sipariş, gönderim, fatura dönüşümü ve taslak hazırlama. Canlı mağaza/EDM ve Cloudflare yayını henüz doğrulanmadı.
+Yeni sürüm doğrulaması: 65 otomatik test, gerçek yerel D1 geçişleri ve ayrı tarayıcı test ortamında set tanımı, sipariş, gönderim, fatura dönüşümü ve taslak hazırlama. 9 Eylül 2026'da Cloudflare'a yayınlandı; 14 üretim geçişi, boş yabancı anahtar hata listesi, HTTPS sayfaları ve girişsiz API isteklerinde 401 doğrulandı. İlk yönetici şifresini hesap sahibi oluşturur. Canlı mağaza/EDM bağlantıları henüz doğrulanmadı.
