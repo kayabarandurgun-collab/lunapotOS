@@ -140,3 +140,13 @@ Yerel tarayıcıda 51 örnek siparişle sayfalama, kanal filtresi, arama, detayd
 Sipariş özeti ve kanal raporu aynı kâr doğrulama kuralını kullanır. Gönderimde oluşan satışın kesintileri doğrulansa bile teslimat tamamlanmadan kesin katkı gösterilmez; tutarlar tam ise tahmin olarak gösterilir. Kaynak sipariş değişmişse veya setin bir bileşeninin satış kaydı eksikse kâr doğrulanmaz. İade ve iade giderleri toplama dahildir. Ana ekranda dağıtılmamış kesinti belgeleri için açıklama düzeltildi.
 
 108 test geçti. Yerel tarayıcıda giderleri doğrulanmış 44 TL katkılı örnek paket, kargodayken tahmin olarak gösterildi; teslim kaydından sonra sipariş özeti ile kanal raporu 44 TL doğrulanmış katkıda eşleşti. Test kayıtları sadece yerelde kaldı; gerçek mağaza bağlantısı ve yeni veritabanı geçişi yoktur.
+
+### v3.0 — Bütün panellerde ortak arayüz (yayın bekliyor)
+
+Ana uygulama ekranı, üretim, e-ticaret, personel ve giriş ekranları ortak tasarım katmanını kullanır. Koyu menü, üretimde yeşil/e-ticarette mor tonlar, daha okunaklı sayılar, ferah kartlar, tutarlı formlar ve açılır pencereler eklendi. Mobil sekmeler iki sütun halinde görünür; alanlar en az 16 piksel yazı ve geniş dokunma hedefleri kullanır. Geniş tablolar veri sütunu gizlemeden kaydırılır ve klavye odağı/ipuçları alır.
+
+Mobil menü dışarı dokunma ve Escape ile kapanır; klavye odağı menü içinde dolaşır, içerik bağlantısı ve azaltılmış hareket tercihi desteklenir. Tasarım yardımcısı iş verisi isteği veya kayıt değişikliği yapmaz. PWA önbelleği ve uygulama renkleri güncellendi; dış yazı tipi/ücretli varlık yok.
+
+Doğrulama: 28 sayfa 1440, 768, 390 ve 320 piksel genişliklerde tarandı. Küçük ekrandaki sekme taşmaları düzeltildi. İki mobil menü, klavye, iki giriş ekranı, personel izinleri ve 10 tür pencere/form kontrol edildi. Reçetede hammadde seçimi, salt görüntüleme personelinde işlem engeli korundu. 108 mevcut otomatik test ve Cloudflare paket kontrolü başarılı. Gerçek bağlantı veya ticari kayıt değiştirilmedi.
+
+Yayın engeli: otomatik onay denetimi, mevcut herkese açık GitHub deponun main dalına yeni UI kaynaklarının gönderilmesi için açık kullanıcı onayı istiyor. Yerel önizleme hazır; v3.0 henüz commit/push veya canlı dağıtım yapılmadı.
