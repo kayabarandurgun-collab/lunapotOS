@@ -1,0 +1,16 @@
+{
+  "account_id": "74daa05337ce197e42ab5747579dea8b",
+  "name": "lunapot-panel-domain",
+  "vars": {
+    "PUBLIC_ORIGIN": "https://muhasebe.lunapot.com",
+    "PROBE_HOST": "lunapot-panel-domain.lunapot-site-74daa053.workers.dev"
+  },
+  "workers_dev": true,
+  "preview_urls": false,
+  "compatibility_date": "2026-09-09",
+  "compatibility_flags": [
+    "global_fetch_strictly_public"
+  ],
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "main": "domain-gateway/worker.js"
+}

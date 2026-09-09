@@ -1,0 +1,29 @@
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const number=v=>new Intl.NumberFormat('tr-TR',{maximumFractionDigits:3}).format(v/1000);
+const money=v=>new Intl.NumberFormat('tr-TR',{style:'currency',currency:'TRY'}).format(v/100);
+export function movementLabel(row){
+ if(row.kind==='adjustment')return 'Alış maliyeti düzeltmesi';
+ if(String(row.reference).startsWith('purchase-return:'))return row.quantity_milli<0?'Tedarikçiye iade':'Tedarikçi iadesi geri alındı';
+ if(String(row.reference).startsWith('receipt-reverse:'))return 'Mal teslimi düzeltmesi';
+ if(row.origin==='production')return row.quantity_milli<0?'Üretim çıkışı':'Üretim girişi / düzeltmesi';
+ return {opening:'Açılış stoğu',count:'Sayım farkı',purchase:'Mal girişi',sale:'Satış çıkışı',return:'Satış iadesi'}[row.kind]||'Stok hareketi';
+}
+export function openStockHistory(root,namespace,productId,parentSignal){
+ const controller=new AbortController(),signal=controller.signal,previous=document.activeElement;
+ const d=document.createElement('dialog');d.className='stock-history-dialog';d.setAttribute('aria-labelledby','stock-history-title');root.append(d);
+ let filters={product:productId,q:'',from:'',to:'',direction:'',page:1},sequence=0,state=null;
+ const stop=()=>{controller.abort();d.close();d.remove();parentSignal?.removeEventListener('abort',stop);if(previous?.isConnected)previous.focus();};
+ parentSignal?.addEventListener('abort',stop,{once:true});d.addEventListener('close',stop,{once:true});
+ function render(){
+  const card=state?.product,p=state?.pagination;
+  d.innerHTML=`<div class="dialog-heading"><div><span class="eyebrow">ÜRÜNÜN STOK GEÇMİŞİ</span><h2 id="stock-history-title">${esc(card?.name||'Stok hareketleri')}</h2><p>${esc(card?card.sku+' · '+card.stock_unit:'Kayıtlar hazırlanıyor…')}</p></div><button type="button" class="icon-button" data-history-close aria-label="Pencereyi kapat">×</button></div><div class="form-body">${card?`<div class="history-summary"><div><small>Şu an eldeki</small><strong>${number(card.quantity_milli)} ${esc(card.stock_unit)}</strong></div><div><small>Siparişe ayrılan</small><strong>${number(card.reserved_milli)}</strong></div><div><small>Kullanılabilir</small><strong>${number(card.quantity_milli-card.reserved_milli)}</strong></div></div><p class="help">Bu miktarlar güncel stoktur; aşağıdaki tarih ve hareket filtrelerinden bağımsızdır.</p>`:''}<form class="ac-filters history-filters" data-history-form><label>Referans veya açıklama<input name="q" type="search" maxlength="200" value="${esc(filters.q)}" placeholder="Sipariş, alış veya sayım notu"></label><label>Başlangıç<input name="from" type="date" value="${esc(filters.from)}"></label><label>Bitiş<input name="to" type="date" value="${esc(filters.to)}"></label><label>Hareket<select name="direction">${[['','Bütün hareketler'],['in','Stoğa girenler'],['out','Stoktan çıkanlar'],['value','Yalnızca maliyet düzeltmeleri']].map(([v,l])=>`<option value="${v}" ${filters.direction===v?'selected':''}>${l}</option>`).join('')}</select></label><button class="secondary" type="button" data-history-apply>Hareketleri bul</button></form><p data-history-error class="error" role="alert"></p><div data-history-results aria-live="polite">${state?`<p class="help">${state.totals.total} hareketin tamamında ${number(state.totals.incoming_milli)} giriş · ${number(state.totals.outgoing_milli)} çıkış · ${money(state.totals.value_change_cents)} maliyet değişimi. Bu tutar kâr değildir.</p><div class="history-list">${state.rows.length?state.rows.map(row=>`<article class="history-movement"><span class="history-direction ${row.quantity_milli<0?'out':row.quantity_milli>0?'in':'value'}" aria-hidden="true">${row.quantity_milli<0?'↗':row.quantity_milli>0?'↙':'≈'}</span><div><strong>${esc(movementLabel(row))}</strong><small>${esc(row.occurred_on)}</small><p>${esc(row.notes||'Açıklama eklenmemiş.')}</p><details><summary>İşlem referansı</summary><code>${esc(row.reference)}</code></details></div><div class="history-amount"><strong>${row.quantity_milli>0?'+':''}${number(row.quantity_milli)} ${esc(card.stock_unit)}</strong><small>${row.value_cents>0?'+':''}${money(row.value_cents)}</small></div></article>`).join(''):'<div class="v2-empty"><h3>Bu seçimde hareket yok.</h3><p>Tarih veya arama filtresini değiştirebilirsin.</p></div>'}</div><div class="history-pagination"><button type="button" class="secondary" data-history-page="-1" ${p.page<=1?'disabled':''}>← Önceki</button><span>Sayfa ${p.page} / ${p.pages}</span><button type="button" class="secondary" data-history-page="1" ${!p.has_more?'disabled':''}>Sonraki →</button></div>`:'<p class="loading" role="status">Stok geçmişi yükleniyor…</p>'}</div></div><div class="dialog-footer"><button type="button" class="secondary" data-history-close>Kapat</button></div>`;
+ }
+ async function load(){
+  const mine=++sequence;state=null;render();
+  try{const r=await fetch('/api/'+namespace+'/stock/history?'+new URLSearchParams(filters),{signal}),data=await r.json();if(!r.ok)throw Error(data.error||'Stok geçmişi alınamadı.');if(signal.aborted||mine!==sequence)return;state=data;render();}
+  catch(e){if(signal.aborted||mine!==sequence)return;d.querySelector('[data-history-error]').textContent=e.message;d.querySelector('[data-history-results]').replaceChildren();}
+ }
+ d.addEventListener('submit',e=>{if(!e.target.matches('[data-history-form]'))return;e.preventDefault();filters={...filters,...Object.fromEntries(new FormData(e.target)),page:1};load();},{signal});
+ d.addEventListener('click',e=>{if(e.target.closest('[data-history-close]')){stop();return;}if(e.target.closest('[data-history-apply]')){d.querySelector('form').requestSubmit();return;}const b=e.target.closest('[data-history-page]');if(b&&!b.disabled){filters.page+=Number(b.dataset.historyPage);load();}},{signal});
+ render();d.showModal();load();return stop;
+}

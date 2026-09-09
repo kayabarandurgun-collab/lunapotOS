@@ -1,3 +1,5 @@
+import {stockHistoryApi} from './stock-history-api.js';
+import {loginLimitSubjects} from './login-limits.js';
 import {filterProductionData} from './permission-policy.js';
 import {purchaseAdjustmentApi} from './purchase-adjustment-api.js';
 import {hash,hex,passwordHash,equal,currentSession,owner,authorize,accessApi,acceptInvite} from './access-api.js';
@@ -40,10 +42,13 @@ async function api(request,env,path){
    const current=await session(request,db);return json({authenticated:!!current,initialized:!!admin,user:current?.user||null});
  }
  if((path==='/api/auth/login'||path==='/api/auth/setup'||path==='/api/auth/accept-invite')&&request.method==='POST') {
-   const input=await body(request); const key=await hash(request.headers.get('CF-Connecting-IP')||'local');
+   const input=await body(request);
    await db.prepare('DELETE FROM login_limits WHERE reset_at<?').bind(now()).run();
-   const attempt=await db.prepare('INSERT INTO login_limits(key,attempts,reset_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET attempts=attempts+1 RETURNING attempts').bind(key,now()+900).first();
-   if(attempt.attempts>10)fail('Çok fazla deneme. 15 dakika sonra tekrar deneyin.',429);
+   const limits=await Promise.all(loginLimitSubjects(path,input,request.headers.get('CF-Connecting-IP')||'local').map(async limit=>({...limit,key:await hash(limit.subject)})));
+   for(const limit of limits) {
+     const attempt=await db.prepare('INSERT INTO login_limits(key,attempts,reset_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET attempts=attempts+1 RETURNING attempts').bind(limit.key,now()+900).first();
+     if(attempt.attempts>limit.max)fail('Çok fazla deneme. 15 dakika sonra tekrar deneyin.',429);
+   }
    if(path==='/api/auth/accept-invite')return json(await acceptInvite(db,input));
    const username=typeof input.username==='string'?input.username.trim().toLowerCase():'';let staff=null;
    let admin=await db.prepare('SELECT * FROM admin WHERE id=1').first();
@@ -61,7 +66,7 @@ async function api(request,env,path){
      if(!account||!equal(candidate,account.password_hash))fail('Kullanıcı adı veya şifre hatalı.',401);
    }
    const token=hex(crypto.getRandomValues(new Uint8Array(32)));
-   await db.batch([db.prepare('DELETE FROM sessions WHERE expires_at<?').bind(now()),db.prepare('INSERT INTO sessions(token_hash,expires_at,staff_id) VALUES(?,?,?)').bind(await hash(token),now()+604800,staff?.id||null),db.prepare('DELETE FROM login_limits WHERE key=?').bind(key)]);
+   await db.batch([db.prepare('DELETE FROM sessions WHERE expires_at<?').bind(now()),db.prepare('INSERT INTO sessions(token_hash,expires_at,staff_id) VALUES(?,?,?)').bind(await hash(token),now()+604800,staff?.id||null),db.prepare('DELETE FROM login_limits WHERE key=?').bind(limits[1].key)]);
    const secure=new URL(request.url).protocol==='https:'?'; Secure':'';
    return json({ok:true},200,{'Set-Cookie':`lunapot_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800${secure}`});
  }
@@ -70,7 +75,7 @@ async function api(request,env,path){
  const workspace=path.match(/^\/api\/(ec|lp)(\/.*)?$/);
  if(workspace){
   const scoped={...env,DB:scopedDB(db,workspace[1]),ROOT_DB:db,WORKSPACE:workspace[1],USER:current.user},subpath=workspace[2]||'';
-  for(const handler of [productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(result);}
+  for(const handler of [stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(result);}
   return json(await accountingApi(request,scoped,'/api/accounting'+subpath,body));
  }
  if(path==='/api/auth/logout'&&request.method==='POST') {

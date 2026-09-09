@@ -14,7 +14,7 @@ export function permit(user,path,method){
  else feature=({products:ns==='ec'?'stock':'products',stock:ns==='ec'?'stock':'accounts',sales:ns==='ec'?'sales':'accounts',returns:ns==='ec'?'sales':'accounts',fees:ns==='ec'?'sales':'accounts',expenses:ns==='ec'?'expenses':'accounts',invoices:ns==='ec'?'invoices':'accounts',purchases:ns==='ec'?'invoices':'accounts',suppliers:ns==='ec'?'ledger':'accounts',payments:'ledger',catalog:'catalog',ledger:'ledger',pricing:'pricing',reconciliation:'reconciliation',orders:'orders',performance:'performance'})[head];
  if(feature==='production-read'){if(!any(user,'lp',['production','materialstock']))deny();return;}
  if(!feature||!can(user,ns,feature,write&&sub!=='/pricing/quote'))deny();
- if(method==='DELETE'&&(!user.permissions?.delete_records||head==='products'&&!can(user,'lp','recipes',true)))deny();
+ if(method==='DELETE'&&(!user.permissions?.delete_records||ns==='lp'&&head==='products'&&!can(user,'lp','recipes',true)))deny();
  if(head==='orders'&&parts.at(-1)==='estimate'&&!can(user,ns,'pricing'))deny();
 }
 export function filterAccounting(x,user,ns){if(!user||user.owner)return x;if(ns==='lp')return can(user,ns,'accounts')?x:{...x,stock:[],sales:[],expenses:[],suppliers:[],invoices:[],movements:[],pending_fee_cents:null};return {...x,stock:any(user,ns,['stock','sales','invoices'])?x.stock:[],sales:can(user,ns,'sales')?x.sales:[],expenses:can(user,ns,'expenses')?x.expenses:[],suppliers:can(user,ns,'invoices')?x.suppliers.map(({balance_cents,purchase_cents,paid_cents,...s})=>s):[],invoices:can(user,ns,'invoices')?x.invoices:[],movements:can(user,ns,'stock')?x.movements:[],pending_fee_cents:any(user,ns,['reconciliation','performance'])?x.pending_fee_cents:null};}

@@ -1,4 +1,4 @@
-import {quotePrice,findPriceFloor} from '../public/pricing-math.js';
+import {priceDecision} from './price-decision.js';
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
 const text=(v,name,max=200)=>{if(typeof v!=='string'||!v.trim()||v.length>max)fail(name+' gerekli/geçersiz.');return v.trim();};
 const integer=(v,name,min=0,max=100000000)=>{if(!Number.isSafeInteger(v)||v<min||v>max)fail(name+' tam sayı olmalı; izin verilen aralık dışında.');return v;};
@@ -56,7 +56,7 @@ export async function pricingApi(request,env,path,readBody){
  if(path==='/api/pricing/quote'&&method==='POST'){
   const x=await readBody(request),data=await state(db),profile=data.profiles.find(p=>p.product_id===x.product_id);
   const input={profile,shippingRates:data.shippingRates,commissionRates:data.commissionRates,priceCents:x.price_cents,quantity:x.quantity??1,channel:x.channel,carrier:x.carrier,date:x.date,desiredProfitCents:x.desired_profit_cents??0,maxPriceCents:x.max_price_cents??1000000};
-  return {quote:quotePrice(input),floor:findPriceFloor(input)};
+  return priceDecision(input);
  }
  return null;
 }

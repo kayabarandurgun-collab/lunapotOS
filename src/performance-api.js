@@ -14,18 +14,18 @@ export async function performanceApi(request,env,path){
  const db=env.DB,packages=await all(db.prepare(`SELECT * FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND ${mode==='delivered'?"status='delivered' AND delivered_on BETWEEN ? AND ?":"status IN ('draft','reserved','shipped') AND occurred_on BETWEEN ? AND ?"} ORDER BY occurred_on DESC,id LIMIT 1001`).bind(from,to));
  if(packages.length>1000)fail('Bu aralıkta 1.000’den fazla paket var. Eksiksiz toplam için tarih aralığını daraltın.',409);
  const ids=JSON.stringify(packages.map(p=>p.id));
- const [lines,components,sales,inputs,shippingRates,commissionRates]=(await db.batch([
+ const [lines,components,sales,inputs=[],shippingRates=[],commissionRates=[]]=(await db.batch([
   db.prepare('SELECT * FROM order_lines WHERE package_id IN (SELECT value FROM json_each(?))').bind(ids),
   db.prepare('SELECT c.*,l.package_id,b.quantity_milli stock_quantity_milli,b.value_cents,p.stock_unit current_stock_unit,s.cost_cents sale_cost_cents FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN stock_balances b ON b.product_id=c.product_id JOIN products p ON p.id=c.product_id LEFT JOIN sale_entries s ON s.id=c.sale_id WHERE l.package_id IN (SELECT value FROM json_each(?))').bind(ids),
   db.prepare('SELECT s.*,l.package_id FROM sale_entries s JOIN order_line_components c ON (s.id=c.sale_id OR s.parent_id=c.sale_id) JOIN order_lines l ON l.id=c.line_id WHERE l.package_id IN (SELECT value FROM json_each(?))').bind(ids),
-  db.prepare('SELECT * FROM order_estimate_inputs WHERE package_id IN (SELECT value FROM json_each(?))').bind(ids),
+  ...(mode==='pending'?[db.prepare('SELECT * FROM order_estimate_inputs WHERE package_id IN (SELECT value FROM json_each(?))').bind(ids),
   db.prepare('SELECT * FROM shipping_rates WHERE archived_at IS NULL LIMIT 1001'),
-  db.prepare('SELECT * FROM commission_rates WHERE archived_at IS NULL LIMIT 1001')
+  db.prepare('SELECT * FROM commission_rates WHERE archived_at IS NULL LIMIT 1001')]:[])
  ])).map(r=>r.results);
  if(shippingRates.length>1000||commissionRates.length>1000)fail('Tarife sayısı sınırı aşıldı. Eski tarifeleri arşivleyin.',409);
  const group=items=>{const m=new Map();for(const r of items){const list=m.get(r.package_id)||[];list.push(r);m.set(r.package_id,list);}return m;};
  const lineMap=group(lines),partMap=group(components),saleMap=group(sales),inputMap=new Map(inputs.map(r=>[r.package_id,r]));
- const templateKeys=packages.filter(p=>!inputMap.has(p.id)).map(p=>parcelTemplateKey(p,lineMap.get(p.id)||[],partMap.get(p.id)||[]));
+ const templateKeys=(mode==='pending'?packages:[]).filter(p=>!inputMap.has(p.id)).map(p=>parcelTemplateKey(p,lineMap.get(p.id)||[],partMap.get(p.id)||[]));
  const templates=mode==='pending'&&templateKeys.length?await all(db.prepare('SELECT * FROM parcel_templates WHERE template_key IN (SELECT value FROM json_each(?))').bind(JSON.stringify(templateKeys))):[];
  const templateMap=new Map(templates.map(t=>[t.template_key,t]));
  const rows=packages.map(p=>{

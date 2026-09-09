@@ -4,3 +4,10 @@ test('İşlem yetkisi ve ayrı kalıcı silme onayı; bilinmeyen rotalar kapalı
 test('Sipariş ayrıntısı kapalı alış faturası belgelerini yan yoldan göstermez',()=>{const x=filterInsights({purchase_invoices:[{invoice_no:'SECRET'}],purchase_invoices_truncated:true,fee_evidence:[{invoice_id:'SECRET',invoice_no:'SECRET',invoice_date:'2026-09-09',description:'SECRET',amount_cents:100,component:'shipping'}]},user,'ec');assert.deepEqual(x.purchase_invoices,[]);assert.equal(JSON.stringify(x).includes('SECRET'),false);assert.equal(x.fee_evidence[0].amount_cents,100);});
 
 test('Yeni personel formu varsayılan olarak bütün ekranları kapalı başlatır',()=>{assert.equal(level(undefined,'ec','stock'),'none');assert.equal(level(undefined,'lp','recipes'),'none');});
+
+test('E-ticaret ürün silme izni üretim reçete yetkisine bağımlı değildir; üretim koruması sürer',()=>{
+ const staff={owner:false,ec_access:'write',lp_access:'none',permissions:parsePermissions({ec:{stock:'write'},delete_records:true})};
+ permit(staff,'/api/ec/products/example','DELETE');
+ assert.throws(()=>permit(staff,'/api/products/example','DELETE'));
+ assert.throws(()=>permit({...staff,permissions:{...staff.permissions,delete_records:false}},'/api/ec/products/example','DELETE'));
+});

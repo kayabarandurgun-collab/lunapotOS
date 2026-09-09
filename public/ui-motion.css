@@ -1,0 +1,50 @@
+/* Lunapot presentation layer. Original CSS; references documented in docs/UI-HAREKET-2026-09-09.md. */
+:root{
+  --motion-quick:140ms;
+  --motion-enter:260ms;
+  --motion-ease:cubic-bezier(.22,.72,.24,1);
+  --surface-shadow:0 3px 8px #26213b04,0 16px 40px #26213b06;
+}
+:where(.card,.v2-card,.decision-profit,.decision-stock,.performance-card){box-shadow:var(--surface-shadow)}
+:where(.stat strong,.v2-stat-value,.decision-net,.decision-splits strong,.price-limits strong,.performance-value,.v2-summary-line strong){font-variant-numeric:tabular-nums lining-nums}
+:where(.primary,.secondary,.icon-button,.text-button,.nav-link,.app-launcher-link){transition:background-color var(--motion-quick) ease,border-color var(--motion-quick) ease,box-shadow var(--motion-quick) ease,color var(--motion-quick) ease,transform var(--motion-quick) var(--motion-ease)}
+:where(input,select,textarea){transition:border-color var(--motion-quick) ease,box-shadow var(--motion-quick) ease}
+:where(.decision-shortcut,.decision-splits a,.decision-channels a,.step,.attention-item,.application){transition:transform 180ms var(--motion-ease),box-shadow 180ms ease,border-color 180ms ease,background-color 180ms ease}
+:where(.v2-table tbody tr,table tbody tr){transition:background-color var(--motion-quick) ease}
+:where(.integration-guide summary,.price-scenarios summary,.quote-advanced summary,.price-rate-summary summary){border-radius:7px;transition:color var(--motion-quick) ease}
+:where(.integration-guide summary,.price-scenarios summary,.quote-advanced summary,.price-rate-summary summary):hover{color:var(--brand,#356c58)}
+:where(.integration-guide details,.price-rate-summary)[open]{border-color:var(--brand-border,#d3e2d9)}
+.v2-empty,.empty{background:radial-gradient(ellipse at 50% 0,var(--brand-soft,#eef5ef),transparent 75%);border-radius:16px}
+.loading{display:flex;align-items:center;gap:12px;line-height:1.7;min-height:44px}
+.loading::before{content:'';display:block;flex:0 0 25px;height:4px;border-radius:4px;background:var(--brand,#356c58);opacity:.65}
+@media(hover:hover) and (pointer:fine){
+  :where(.decision-shortcut,.application):hover{transform:translateY(-3px);box-shadow:0 10px 28px #30264710;border-color:var(--brand-border,#c8dace)}
+  :where(.decision-splits a,.step,.attention-item):hover{transform:translateY(-1px);box-shadow:0 5px 15px #30264708}
+  .decision-channels a:hover{background:var(--brand-soft,#eef5ef);border-radius:6px}
+  :where(.v2-table tbody tr,table tbody tr):hover{background:var(--brand-soft,#eef5ef)}
+  .primary:not(:disabled):hover{box-shadow:0 5px 15px #30264720}
+}
+@media(prefers-reduced-motion:no-preference){
+  @keyframes lp-enter{from{opacity:.45;transform:translateY(7px)}to{opacity:1;transform:none}}
+  @keyframes lp-dialog{from{opacity:.4;transform:translateY(6px) scale(.99)}to{opacity:1;transform:none}}
+  @keyframes lp-fade{from{opacity:.45}to{opacity:1}}
+  @keyframes lp-wait{0%,100%{opacity:.35;transform:scaleX(.65)}50%{opacity:1;transform:scaleX(1)}}
+  .page-heading,.launchpad .welcome,.access-hero{animation:lp-enter var(--motion-enter) var(--motion-ease) backwards}
+  .decision-profit,.decision-side,.decision-stock,.launchpad .application{animation:lp-enter 300ms var(--motion-ease) backwards}
+  .decision-side,.launchpad .application:nth-child(2){animation-delay:35ms}
+  .decision-stock{animation-delay:65ms}
+  dialog[open]{animation:lp-dialog 190ms var(--motion-ease)}
+  dialog[open]::backdrop{animation:lp-fade 160ms ease-out}
+  :where(.integration-guide,.price-scenarios,.quote-advanced,.price-rate-summary)[open]>:not(summary){animation:lp-fade 160ms ease-out}
+  :where(button,.primary,.secondary,.icon-button):not(:disabled):active{transform:translateY(1px)}
+  .loading::before{animation:lp-wait 1200ms ease-in-out 3}
+}
+/* No hidden initial state: if animation is unsupported or disabled, content remains usable. */
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+  :where(.decision-shortcut,.decision-splits a,.step,.attention-item,.application):hover{transform:none!important}
+}
+@media print{
+  *,*::before,*::after{animation:none!important;transition:none!important}
+  :where(.card,.v2-card,.decision-profit,.decision-stock,.performance-card){box-shadow:none}
+}
