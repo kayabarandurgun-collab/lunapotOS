@@ -80,3 +80,27 @@ test('Kurtarma planı salt okunur; eski, değişmiş veya farklı veritabanı pl
  await assert.rejects(()=>applyRecovery(run,plan,'wrong',now));await assert.rejects(()=>applyRecovery(run,{...plan,database_id:'other'},b,now));await assert.rejects(()=>applyRecovery(run,plan,b,now+16*60000));await assert.rejects(()=>applyRecovery(async()=>({bookmark:b}),plan,b,now));assert.throws(()=>validateTimestamp('2026-09-01T00:00:00Z',now));assert.throws(()=>validateTimestamp('2026-09-09T12:00:00',now));
  const result=await applyRecovery(run,plan,b,now);assert.equal(result.undo_bookmark,a);assert.equal(calls.at(-1)[2],'restore');
 });
+
+
+test('Ayrıntılı yetkiler kapalı ekranları ve toplu verideki cari/satış/faturayı sunucuda engeller',async()=>{
+ const f=fixture();try{await f.setup();const inv=await f.invoice();await f.receive(inv.i,inv.l,10);
+ const permissions={ec:{stock:'read'},lp:{},delete_records:false};const u=await f.ok('/admin/users',{username:'warehouse.viewer',name:'Depo görüntüleme',permissions});
+ await f.ok('/auth/accept-invite',{token:u.invite_path.split('=')[1],password:'test-viewer-password-123'});const cookie=(await f.req('/auth/login',{username:'warehouse.viewer',password:'test-viewer-password-123'},'')).cookie;
+ const get=path=>f.req(path,undefined,cookie),write=(path,body)=>f.req(path,body,cookie);let x=await get('/ec');assert.equal(x.status,200);assert.equal(x.data.stock.length,1);for(const key of ['sales','expenses','suppliers','invoices'])assert.deepEqual(x.data[key],[]);assert.equal(x.data.pending_fee_cents,null);
+ for(const path of ['/ec/ledger','/ec/invoices/'+inv.i,'/ec/purchases','/ec/orders','/ec/performance','/ec/catalog','/ec/pricing','/ec/connections','/ec/settings','/ec/attention','/ec/unknown','/data'])assert.equal((await get(path)).status,403,path);
+ assert.equal((await write('/ec/stock',{product_id:inv.p,kind:'count',quantity:0})).status,403);assert.equal((await write('/ec/products',{name:'Kapalı'})).status,403);
+ await f.ok('/admin/users/'+u.id,{name:'Depo işlem',active:true,permissions:{ec:{stock:'write',invoices:'read'},lp:{}}});assert.equal((await get('/ec')).status,401);
+ const c2=(await f.req('/auth/login',{username:'warehouse.viewer',password:'test-viewer-password-123'},'')).cookie;
+ assert.equal((await f.req('/ec/invoices/'+inv.i,undefined,c2)).status,200);assert.equal((await f.req('/ec/invoices/'+inv.i+'/adjustments',{},c2)).status,403);const mixed=await f.req('/ec',undefined,c2);assert.equal(mixed.data.suppliers[0].balance_cents,undefined);
+ assert.equal((await f.req('/ec/products',{name:'İzinli',sku:'AUTH-STOCK',stock_unit:'adet',min_stock:0},c2)).status,200);
+ }finally{f.close();}
+});
+test('Üretim depo personeli reçete, ürün listesi, üretim partisi veya cariyi alamaz',async()=>{
+ const f=fixture();try{await f.setup();await f.req('/materials',{name:'Gizli test hammadde',unit:'kg',price:35});
+ const u=await f.ok('/admin/users',{username:'material.viewer',name:'Hammadde depo',permissions:{lp:{materialstock:'read'},ec:{}}});await f.ok('/auth/accept-invite',{token:u.invite_path.split('=')[1],password:'test-material-password-123'});const c=(await f.req('/auth/login',{username:'material.viewer',password:'test-material-password-123'},'')).cookie;
+ const x=await f.req('/data',undefined,c);assert.equal(x.status,200);for(const key of ['products','materials','recipes','activity'])assert.deepEqual(x.data[key],[]);
+ const stock=await f.req('/lp/production',undefined,c);assert.equal(stock.status,200);assert.equal(stock.data.materials.length,1);assert.deepEqual(stock.data.recipes,[]);assert.deepEqual(stock.data.jobs,[]);
+ assert.equal((await f.req('/lp/production/jobs/test',undefined,c)).status,403);assert.equal((await f.req('/lp/ledger',undefined,c)).status,403);assert.equal((await f.req('/lp/production/material-stock',{},c)).status,403);
+ assert.equal((await f.req('/admin/users',{username:'invalid.permission',name:'Geçersiz',permissions:{ec:{made_up:'write'}}})).status,400);
+ }finally{f.close();}
+});

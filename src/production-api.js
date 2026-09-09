@@ -1,3 +1,4 @@
+import {filterProductionStock} from './permission-policy.js';
 import {convert} from '../public/costs.js';
 import {milli,cents} from '../public/accounting-math.js';
 const fail=(m,s=400)=>{throw Object.assign(new Error(m),{status:s});};
@@ -15,7 +16,7 @@ export async function productionApi(request,env,path,readBody){
    db.prepare('SELECT r.*,p.name product_name,p.stock_unit FROM recipes r JOIN products p ON p.id=r.product_id ORDER BY p.name'),
    db.prepare('SELECT * FROM recipe_items'),db.prepare("SELECT * FROM lp_production_jobs WHERE status!='draft' ORDER BY created_at DESC,rowid DESC LIMIT 200"),
    db.prepare('SELECT v.*,m.name,m.unit FROM lp_material_movements v JOIN materials m ON m.id=v.material_id ORDER BY v.created_at DESC,v.rowid DESC LIMIT 200')
-  ])).map(r=>r.results);return {materials,recipes:recipes.map(r=>({...r,items:items.filter(i=>i.recipe_id===r.id)})),jobs,movements};
+  ])).map(r=>r.results);return filterProductionStock({materials,recipes:recipes.map(r=>({...r,items:items.filter(i=>i.recipe_id===r.id)})),jobs,movements},env.USER);
  }
  const detail=path.match(/^\/api\/production\/jobs\/([\w-]+)$/);if(detail&&method==='GET'){
   const job=await db.prepare('SELECT * FROM lp_production_jobs WHERE id=?').bind(detail[1]).first();if(!job)fail('Üretim kaydı bulunamadı.',404);return {job,items:(await db.prepare('SELECT * FROM lp_production_items WHERE job_id=?').bind(job.id).all()).results};

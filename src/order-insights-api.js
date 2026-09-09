@@ -1,3 +1,4 @@
+import {filterInsights} from './permission-policy.js';
 import {compositionKey,parcelTemplateKey,useParcelTemplate} from './order-estimate-api.js';
 import {summary} from '../public/accounting-math.js';
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
@@ -37,7 +38,7 @@ function billingData(input){
 export async function orderInsightsApi(request,env,path,readBody){
  const match=path.match(/^\/api\/orders\/([\w-]+)\/(insights|invoice-draft)$/);if(!match)return null;
  if(env.WORKSPACE!=='ec')fail('Sipariş ayrıntıları e-ticaret çalışma alanına aittir.',403);
- if(match[2]==='insights'&&request.method==='GET')return orderData(env,match[1]);
+ if(match[2]==='insights'&&request.method==='GET')return filterInsights(await orderData(env,match[1]),env.USER,env.WORKSPACE);
  if(match[2]!=='invoice-draft'||request.method!=='POST')return null;
  const x=await readBody(request),data=await orderData(env,match[1]),date=day(x.issue_date),billing=billingData(x.billing),notes=text(x.notes,'Notlar',2000);
  if(data.package.status==='cancelled'||data.package.source_changed)fail('İptal edilmiş veya kaynak değişikliği bekleyen siparişe taslak hazırlanamaz.',409);

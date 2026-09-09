@@ -1,3 +1,4 @@
+import {filterProductionData} from './permission-policy.js';
 import {purchaseAdjustmentApi} from './purchase-adjustment-api.js';
 import {hash,hex,passwordHash,equal,currentSession,owner,authorize,accessApi,acceptInvite} from './access-api.js';
 import {convert} from '../public/costs.js';
@@ -79,7 +80,7 @@ async function api(request,env,path){
  if(path==='/api/data'&&request.method==='GET') {
    const results=await db.batch(["SELECT * FROM products WHERE inventory_kind='finished' ORDER BY updated_at DESC",'SELECT m.*,b.quantity_milli,b.value_cents,p.sku purchase_sku FROM materials m LEFT JOIN lp_material_balances b ON b.material_id=m.id LEFT JOIN products p ON p.id=m.purchase_product_id ORDER BY m.name','SELECT * FROM recipes ORDER BY updated_at DESC','SELECT * FROM recipe_items','SELECT * FROM activity ORDER BY created_at DESC LIMIT 10'].map(sql=>db.prepare(sql)));
    const [products,materials,recipes,items,activity]=results.map(r=>r.results);
-   return json({products,materials,recipes:recipes.map(r=>({...r,items:items.filter(i=>i.recipe_id===r.id)})),activity});
+   return json(filterProductionData({products,materials,recipes:recipes.map(r=>({...r,items:items.filter(i=>i.recipe_id===r.id)})),activity},current.user));
  }
  const match=path.match(/^\/api\/(materials|products|recipes)(?:\/([\w-]{1,80}))?$/);if(!match)fail('Bulunamadı.',404);
  const [,kind,id]=match;

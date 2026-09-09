@@ -116,3 +116,14 @@ Salt okunur plan: node scripts/recovery.mjs plan 2026-09-09T14:00:00+03:00
 Plan ve güncel güvenlik noktası work/recovery altında saklanır. Gerektiğinde apply <plan-dosyası> <hedef-kurtarma-noktası> kullanılır; kimlik, 15 dakikalık plan süresi ve plan sonrası yeni yazı kontrol edilir, Wrangler'ın son onayı korunur. Komut iptal edilirse başarılı kurtarma varsayılmaz; Cloudflare sonucunu doğrulayın. İş verisi JSON dışa aktarımı ayrı bir analiz dosyasıdır, tam geri yükleme dosyası değildir.
 
 97 otomatik test geçti; 0020 ve 0021 yerel D1'e uygulanarak ekranlar doğrulandı. TY/HB/EDM gerçek bağlantıları kullanıcının isteğiyle sona bırakılmıştır.
+
+
+## 2.6.0 — ekran bazında personel yetkileri
+
+Yönetici /access ekranında her personel için e-ticarette 10, üretimde 10 bölümün iznini ayrı seçer: erişim yok, görüntüleme, görüntüleme ve işlem. Depo / ön muhasebe / tümünü görüntüle / kapat hazır seçimleri kaydetmeden önce düzenlenebilir. Yeni kullanıcıda bütün ekranlar kapalıdır. İşlem izni o bölümdeki ekleme, düzenleme, teslim, iade ve ters kayıtları kapsar; kalıcı silme ayrıca açıkça seçilir. Ürün silme bağlı reçeteyi etkilediğinden reçete işlem izni de gerekir.
+
+Personelin kişisel ana sayfası sadece yetkili bölüm kartlarını gösterir. API tarafında bölüm/işlem kontrolü uygulanır; bilinmeyen uçlar kapalıdır. Ortak muhasebe yanıtında kapalı satış, cari, fatura ve gider bölümleri döndürülmez; sipariş ayrıntısında kapalı alış belgeleri temizlenir. Üretim hammadde deposu yetkisi üretim partilerini/reçetelerini açmaz. Yönetici yetkisi ve girişi korunur. Güncelleme eski panel izinli hesapları otomatik genişletmez; yönetici ayrıntılı seçim kaydedince yeni harita kullanılır. İzin değişikliği oturumları keser.
+
+Kapsam ekran ve işlem düzeyindedir: stok ekranı miktar ile maliyeti, sipariş ekranı müşteri ve satış/maliyet tutarını birlikte içerir. Maliyet sütununu, tek müşteriyi veya tek ürünü ayrıca maskeleyen izin bu sürümde yoktur. Reçete/maliyet hesabı için ürün ve hammadde bilgileri; fatura/satış girişi için ürün ve stok bilgileri ilgili iznin kapsamındadır. Her izin satırında bu içerik açıklanır. Üretimde Alış ve stok ortak ekranı kendi satış/gider alt sekmelerini de kapsar. Şirket ayarları, bağlantı anahtarı, kullanıcılar ve kurtarma sadece yöneticidedir.
+
+102 otomatik test, yerel personel girişi, stok görüntüleme, kapalı cari adresinin engellenmesi ve yetki tablosu kontrolü. Gerçek çalışan veya mağaza bağlantısı oluşturulmadı.

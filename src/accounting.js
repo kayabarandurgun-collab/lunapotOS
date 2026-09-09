@@ -1,3 +1,4 @@
+import {filterAccounting} from './permission-policy.js';
 import {effectiveNet} from './purchase-adjustment-api.js';
 import {applyPurchaseMappings} from './purchase-mapping.js';
 import {cents as rawCents,milli as rawMilli} from '../public/accounting-math.js';
@@ -70,7 +71,7 @@ export async function accountingApi(request,env,path,readBody){
   const credits=env.WORKSPACE==='ec'?(await statement(db,`SELECT a.id,a.reference,'purchase_correction' category,iif(a.reversal_of IS NULL,a.stock_cents-a.net_cents,a.net_cents-a.stock_cents) amount_cents,a.occurred_on,0 paid,a.reason notes FROM purchase_adjustments a JOIN purchase_lines l ON l.id=a.line_id WHERE a.occurred_on BETWEEN ? AND ? AND (a.kind='price' OR (a.kind='service' AND l.expense_treatment='general')) ORDER BY a.occurred_on DESC LIMIT 5001`,[from,to]).all()).results:[];
   if(credits.length>5000)fail('Düzeltme sayısı fazla; tarih aralığını daraltın.',409);
   const costMovements=env.WORKSPACE==='ec'?(await db.prepare(`SELECT a.id,l.product_id,p.name product_name,p.stock_unit,0 quantity_milli,iif(a.reversal_of IS NULL,-a.stock_cents,a.stock_cents) value_cents,'purchase' kind,'price-adjustment:'||a.id reference,a.reference||' · '||a.reason notes,a.occurred_on,a.created_at FROM purchase_adjustments a JOIN purchase_lines l ON l.id=a.line_id JOIN products p ON p.id=l.product_id WHERE a.stock_cents!=0 ORDER BY a.created_at DESC,a.rowid DESC LIMIT 200`).all()).results:[];
-  return {from,to,stock,sales,expenses:[...expenses,...adjustments,...credits],suppliers,invoices,movements:[...movements,...costMovements].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,200),pending_fee_cents:pendingFees[0].pending_fee_cents};
+  return filterAccounting({from,to,stock,sales,expenses:[...expenses,...adjustments,...credits],suppliers,invoices,movements:[...movements,...costMovements].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,200),pending_fee_cents:pendingFees[0].pending_fee_cents},env.USER,env.WORKSPACE);
  }
  if(path==='/api/accounting/suppliers'&&method==='POST'){
   const x=await readBody(request),key=id(),tax=optional(x.tax_id);if(tax&&!/^\d{10,11}$/.test(tax))fail('VKN/TCKN 10 veya 11 rakam olmalı.');
