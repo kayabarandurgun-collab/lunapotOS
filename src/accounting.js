@@ -22,6 +22,7 @@ const statement=(db,sql,args=[])=>db.prepare(sql).bind(...args);
 const log=(db,message)=>statement(db,'INSERT INTO activity(id,description) VALUES(?,?)',[id(),message]);
 async function batch(db,items){try{return await db.batch(items);}catch(e){
  const message=String(e.message);
+ if(message.includes('SPLIT_LOCKED'))fail('Çeşit dağılımını değiştirmek için önce dağılımı geri alın.',409);
  if(message.includes('PRODUCT_UNIT_LOCKED'))fail('Bağlantısı veya işlem geçmişi olan ürünün stok birimi değiştirilemez.',409);
  if(message.includes('INSUFFICIENT_STOCK'))fail('Stok yetersiz. Önce alış veya açılış stok hareketi girin.',409);
  if(message.includes('STOCK_RESERVED'))fail('Bu stok siparişlere ayrılmış veya çıkış miktarı eldeki stoktan fazla.',409);
@@ -58,7 +59,7 @@ export async function accountingApi(request,env,path,readBody){
    statement(db,'SELECT * FROM expenses WHERE occurred_on BETWEEN ? AND ? ORDER BY occurred_on DESC LIMIT 5001',[from,to]),
    db.prepare('SELECT s.*,COALESCE((SELECT SUM(l.net_cents+l.tax_cents) FROM purchase_lines l JOIN purchase_invoices i ON i.id=l.invoice_id WHERE i.supplier_id=s.id AND i.status=\'posted\'),0) purchase_cents,COALESCE((SELECT SUM(amount_cents) FROM supplier_payments WHERE supplier_id=s.id),0) paid_cents,COALESCE((SELECT SUM(amount_cents) FROM party_entries WHERE party_id=s.id),0) balance_cents FROM suppliers s ORDER BY name'),
    db.prepare('SELECT i.*,s.name supplier_name,COALESCE(SUM(l.net_cents),0) net_cents,COALESCE(SUM(l.tax_cents),0) tax_cents,COUNT(l.id) line_count FROM purchase_invoices i JOIN suppliers s ON s.id=i.supplier_id LEFT JOIN purchase_lines l ON l.invoice_id=i.id GROUP BY i.id ORDER BY i.created_at DESC LIMIT 200'),
-   db.prepare('SELECT m.*,p.name product_name,p.stock_unit FROM stock_movements m JOIN products p ON p.id=m.product_id ORDER BY m.created_at DESC,m.rowid DESC LIMIT 200'),
+   db.prepare(`SELECT m.*,p.name product_name,p.stock_unit${env.WORKSPACE==='lp'?',p.inventory_kind':''} FROM stock_movements m JOIN products p ON p.id=m.product_id ORDER BY m.created_at DESC,m.rowid DESC LIMIT 200`),
    db.prepare("SELECT COALESCE(SUM(l.net_cents-COALESCE((SELECT SUM(a.amount_cents) FROM fee_allocations a WHERE a.invoice_line_id=l.id AND a.reversed_at IS NULL),0)),0) pending_fee_cents FROM purchase_lines l JOIN purchase_invoices i ON i.id=l.invoice_id WHERE i.status='posted' AND l.line_type='expense' AND l.expense_treatment='sales_fee'")
   ];
   const [stock,sales,expenses,suppliers,invoices,movements,pendingFees]=(await db.batch(queries)).map(q=>q.results);
@@ -114,7 +115,7 @@ export async function accountingApi(request,env,path,readBody){
  const invoiceMatch=path.match(/^\/api\/accounting\/invoices\/([\w-]+)(?:\/(post|cancel|receive))?$/);
  if(invoiceMatch&&method==='GET'){
   const invoice=await statement(db,'SELECT * FROM purchase_invoices WHERE id=?',[invoiceMatch[1]]).first();if(!invoice)fail('Fatura bulunamadı.',404);
-  return {...invoice,lines:(await statement(db,'SELECT l.*,COALESCE((SELECT SUM(quantity_milli) FROM goods_receipts WHERE line_id=l.id),0) received_milli FROM purchase_lines l WHERE invoice_id=? ORDER BY rowid',[invoice.id]).all()).results,receipts:(await statement(db,'SELECT r.* FROM goods_receipts r JOIN purchase_lines l ON l.id=r.line_id WHERE l.invoice_id=? ORDER BY r.created_at',[invoice.id]).all()).results};
+  return {...invoice,splits:(await statement(db,'SELECT * FROM purchase_line_splits WHERE invoice_id=? ORDER BY created_at',[invoice.id]).all()).results.map(s=>({...s,original:JSON.parse(s.original_json),allocations:JSON.parse(s.allocations_json)})),lines:(await statement(db,'SELECT l.*,COALESCE((SELECT SUM(quantity_milli) FROM goods_receipts WHERE line_id=l.id),0) received_milli FROM purchase_lines l WHERE invoice_id=? ORDER BY rowid',[invoice.id]).all()).results,receipts:(await statement(db,'SELECT r.* FROM goods_receipts r JOIN purchase_lines l ON l.id=r.line_id WHERE l.invoice_id=? ORDER BY r.created_at',[invoice.id]).all()).results};
  }
  if(path==='/api/accounting/invoices'&&method==='POST'){
   const x=await readBody(request),key=id();if(x.currency!=='TRY')fail('Bu sürümde yalnızca TRY faturalar işlenir.');

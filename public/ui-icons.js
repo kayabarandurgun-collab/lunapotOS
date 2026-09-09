@@ -1,4 +1,6 @@
 const paths={
+ production:'M3 21V9l6 3V6l6 3V3h6v18H3 M7 16h2 M13 16h2 M18 16h1',
+ materialstock:'M3 7h18v14H3z M3 7l3-4h12l3 4 M8 12h8 M8 16h5',
  overview:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
  dashboard:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
  orders:'M7 3h10v4H7z M5 5H3v16h18V5h-2 M7 12h10 M7 16h6',

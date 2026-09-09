@@ -11,6 +11,8 @@ import {orderEstimateApi} from './order-estimate-api.js';
 import {catalogApi} from './catalog-api.js';
 import {reconciliationApi} from './reconciliation-api.js';
 import {performanceApi} from './performance-api.js';
+import {productionApi} from './production-api.js';
+import {purchaseSplitApi} from './purchase-split-api.js';
 import {attentionApi} from './attention-api.js';
 const encoder = new TextEncoder();
 const fail = (message,status=400) => {throw Object.assign(new Error(message),{status});};
@@ -65,7 +67,7 @@ async function api(request,env,path){
  const workspace=path.match(/^\/api\/(ec|lp)(\/.*)?$/);
  if(workspace){
   const scoped={...env,DB:scopedDB(db,workspace[1]),ROOT_DB:db,WORKSPACE:workspace[1]},subpath=workspace[2]||'';
-  for(const handler of [performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(result);}
+  for(const handler of [productionApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(result);}
   return json(await accountingApi(request,scoped,'/api/accounting'+subpath,body));
  }
  if(path==='/api/auth/logout'&&request.method==='POST') {
@@ -73,7 +75,7 @@ async function api(request,env,path){
    return json({ok:true},200,{'Set-Cookie':'lunapot_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0; Secure'});
  }
  if(path==='/api/data'&&request.method==='GET') {
-   const results=await db.batch(['SELECT * FROM products ORDER BY updated_at DESC','SELECT * FROM materials ORDER BY name','SELECT * FROM recipes ORDER BY updated_at DESC','SELECT * FROM recipe_items','SELECT * FROM activity ORDER BY created_at DESC LIMIT 10'].map(sql=>db.prepare(sql)));
+   const results=await db.batch(["SELECT * FROM products WHERE inventory_kind='finished' ORDER BY updated_at DESC",'SELECT m.*,b.quantity_milli,b.value_cents,p.sku purchase_sku FROM materials m LEFT JOIN lp_material_balances b ON b.material_id=m.id LEFT JOIN products p ON p.id=m.purchase_product_id ORDER BY m.name','SELECT * FROM recipes ORDER BY updated_at DESC','SELECT * FROM recipe_items','SELECT * FROM activity ORDER BY created_at DESC LIMIT 10'].map(sql=>db.prepare(sql)));
    const [products,materials,recipes,items,activity]=results.map(r=>r.results);
    return json({products,materials,recipes:recipes.map(r=>({...r,items:items.filter(i=>i.recipe_id===r.id)})),activity});
  }
@@ -81,7 +83,10 @@ async function api(request,env,path){
  const [,kind,id]=match;
  if(request.method==='DELETE'&&id) {
    const record=await db.prepare(`SELECT * FROM ${kind} WHERE id=?`).bind(id).first();if(!record)fail('Kayıt bulunamadı.',404);
+   if(kind==='products'&&record.inventory_kind==='material')fail('Bu kart bir hammaddeye bağlı. Hammadde kartından işlem yapın.',409);
    const deletions=[];
+   if(kind==='materials')deletions.push(db.prepare('DELETE FROM lp_material_balances WHERE material_id=? AND quantity_milli=0 AND value_cents=0').bind(id));
+   if(kind==='materials'&&await db.prepare('SELECT id FROM lp_material_movements WHERE material_id=? LIMIT 1').bind(id).first())fail('Stok geçmişi olan hammadde silinemez.',409);
    if(kind==='materials'&&await db.prepare('SELECT id FROM recipe_items WHERE material_id=? LIMIT 1').bind(id).first())fail('Bu hammadde bir reçetede kullanılıyor. Önce reçeteden çıkarın.',409);
    if(kind==='products'){
     if(await db.prepare('SELECT id FROM lp_stock_movements WHERE product_id=? LIMIT 1').bind(id).first()||await db.prepare('SELECT id FROM lp_purchase_lines WHERE product_id=? LIMIT 1').bind(id).first())fail('Stok veya muhasebe kaydı olan ürün silinemez.',409);
@@ -95,21 +100,22 @@ async function api(request,env,path){
  let statements=[];
  if(kind==='materials') {
    const name=str(input.name,'Hammadde adı'),unit=str(input.unit,'Birim',10),price=num(input.price,'Birim fiyat');validateUnits(1,unit,unit);
-   if(id){const old=await db.prepare('SELECT unit FROM materials WHERE id=?').bind(id).first();if(old.unit!==unit&&await db.prepare('SELECT id FROM recipe_items WHERE material_id=? LIMIT 1').bind(id).first())fail('Reçetede kullanılan hammaddenin alış birimini değiştiremezsiniz.',409);}
+   if(id){const old=await db.prepare('SELECT unit FROM materials WHERE id=?').bind(id).first();if(old.unit!==unit&&await db.prepare('SELECT id FROM lp_material_movements WHERE material_id=? LIMIT 1').bind(id).first())fail('Stok geçmişi olan hammaddenin birimi değiştirilemez.',409);if(old.unit!==unit&&await db.prepare('SELECT id FROM recipe_items WHERE material_id=? LIMIT 1').bind(id).first())fail('Reçetede kullanılan hammaddenin alış birimini değiştiremezsiniz.',409);}
    statements.push(db.prepare('INSERT INTO materials(id,name,unit,price,supplier,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,unit=excluded.unit,price=excluded.price,supplier=excluded.supplier,updated_at=excluded.updated_at').bind(recordId,name,unit,price,optional(input.supplier),timestamp));
    statements.push(activity(db,`${name} ${id?'güncellendi':'eklendi'}`));
  } else if(kind==='products') {
+   if(id&&(await db.prepare('SELECT inventory_kind FROM products WHERE id=?').bind(id).first())?.inventory_kind==='material')fail('Hammadde kartını Hammaddeler ekranından düzenleyin.',409);
    const name=str(input.name,'Ürün adı'),sku=str(input.sku,'Ürün kodu',80);
    statements.push(db.prepare('INSERT INTO products(id,name,sku,category,sale_price,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,sku=excluded.sku,category=excluded.category,sale_price=excluded.sale_price,updated_at=excluded.updated_at').bind(recordId,name,sku,optional(input.category,100),num(input.sale_price,'Satış fiyatı'),timestamp));
    statements.push(activity(db,`${name} ${id?'güncellendi':'eklendi'}`));
  } else {
-   const productId=str(input.product_id,'Ürün',80);if(!await db.prepare('SELECT id FROM products WHERE id=?').bind(productId).first())fail('Ürün bulunamadı.');
-   if(!Array.isArray(input.items)||input.items.length<1||input.items.length>40)fail('Reçetede 1–40 hammadde olmalı.');
+   const productId=str(input.product_id,'Ürün',80);if(!await db.prepare("SELECT id FROM products WHERE id=? AND inventory_kind='finished'").bind(productId).first())fail('Ürün bulunamadı.');
+   if(!Array.isArray(input.items)||input.items.length<1||input.items.length>200)fail('Reçetede 1–200 hammadde olmalı.');
    const materials=(await db.prepare('SELECT id,unit FROM materials').all()).results,seen=new Set();
    for(const item of input.items){if(!item||typeof item!=='object')fail('Hammadde satırı geçersiz.');const m=materials.find(m=>m.id===item.material_id);if(!m||seen.has(m.id))fail('Hammadde eksik veya birden fazla eklenmiş.');seen.add(m.id);num(item.quantity,'Miktar',0.000001);validateUnits(item.quantity,item.unit,m.unit);}
    statements.push(db.prepare('INSERT INTO recipes(id,product_id,yield_qty,waste_pct,labor,packaging,overhead,notes,updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET product_id=excluded.product_id,yield_qty=excluded.yield_qty,waste_pct=excluded.waste_pct,labor=excluded.labor,packaging=excluded.packaging,overhead=excluded.overhead,notes=excluded.notes,updated_at=excluded.updated_at').bind(recordId,productId,num(input.yield_qty,'Üretim adedi',0.000001),num(input.waste_pct,'Fire oranı',0,100),num(input.labor,'İşçilik'),num(input.packaging,'Paketleme'),num(input.overhead,'Diğer giderler'),optional(input.notes,2000),timestamp));
    statements.push(db.prepare('DELETE FROM recipe_items WHERE recipe_id=?').bind(recordId));
-   for(const item of input.items)statements.push(db.prepare('INSERT INTO recipe_items(id,recipe_id,material_id,quantity,unit) VALUES(?,?,?,?,?)').bind(crypto.randomUUID(),recordId,item.material_id,item.quantity,item.unit));
+   statements.push(db.prepare("INSERT INTO recipe_items(id,recipe_id,material_id,quantity,unit) SELECT json_extract(value,'$.id'),?,json_extract(value,'$.material_id'),json_extract(value,'$.quantity'),json_extract(value,'$.unit') FROM json_each(?)").bind(recordId,JSON.stringify(input.items.map(i=>({...i,id:crypto.randomUUID()})))));
    statements.push(activity(db,'Ürün reçetesi '+(id?'güncellendi':'eklendi')));
  }
  try{await db.batch(statements);}catch(error){if(/UNIQUE constraint/.test(error.message))fail('Aynı ad/kod veya ürüne ait reçete zaten var.',409);throw error;}

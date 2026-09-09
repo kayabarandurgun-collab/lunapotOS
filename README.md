@@ -1,4 +1,4 @@
-# Lunapot OS 2.2
+# Lunapot OS 2.3
 Mobil ve web uyumlu, Cloudflare Workers + D1 üzerinde çalışan iki ayrı iş alanı.
 
 Adresler: [Uygulamalar](https://lunapot-panel.lunapot-os.workers.dev/) · [Lunapot Üretim](https://lunapot-panel.lunapot-os.workers.dev/uretim/) · [E-Ticaret](https://lunapot-panel.lunapot-os.workers.dev/eticaret/).
@@ -26,7 +26,7 @@ Trendyol V2 siparişleri ve finans kayıtları ile Hepsiburada sipariş/finans/k
 
 Trendyol siparişleri önce inceleme taslağına gelir. HB kayıtları kaynak gelen kutusundadır; otomatik paket veya muhasebe kaydı oluşmaz. Finans kaynak kayıtları otomatik banka tahsilatı değildir. Tarife gözlemi, gelecekteki haftalık tarife garantisi değildir. EDM üretim SOAP adresi ve API hakkı doğrulanana kadar canlı bağlantı kapalıdır; standart UBL XML içe aktarımı kullanılabilir. Zamanlanmış otomatik çekim etkin değildir. Değişen kaynak siparişleri ve desteklenmeyen vergi/fatura yapıları inceleme gerektirir.
 
-Ücretsiz D1 sınırları için paketler en fazla 10 ilan satırı ve toplam 20 stok bileşenidir. Büyük içe aktarımlar sayfalar halinde yürütülür. 25.000 satıra kadar iş verisi dışa aktarımı vardır; otomatik geri yükleme yoktur. Lunapot reçete maliyeti bir üretim tahminidir; hammadde depo hareketlerini otomatik tüketen üretim emri modülü henüz yoktur.
+Ücretsiz D1 sınırları için paketler en fazla 10 ilan satırı ve toplam 20 stok bileşenidir. Büyük içe aktarımlar sayfalar halinde yürütülür. 25.000 satıra kadar iş verisi dışa aktarımı vardır; otomatik geri yükleme yoktur. Lunapot reçete ekranı referans fiyatlarla tahmin yapar. Üretim kayıtları ise gerçekleşen hammadde tüketimini stok maliyetinden düşürür ve mamul girişini oluşturur.
 
 ## Yerel çalışma
 Node.js 22+ gerekir (testlerde node:sqlite kullanılır).
@@ -72,6 +72,18 @@ Hazırlık/kargodaki tahminler ayrı sekmededir ve sipariş tarihine göre süz�
 
 Kullanıcı isteği: canlı TY/HB/EDM kurulumları en sona bırakılacak ve kullanıcıyla birlikte yapılacak. TY erişim bilgileri önceden kaydedildi; iki denemede ağ/bağlantı hatası alındı, başarılı kaynak aktarımı olmadı. HB ve EDM bağlı değil. Bu sürümün testi yalnızca sentetik yerel iş verileriyle yapıldı.
 
-Faturada çeşit kırılımı yoksa varyant adetleri tahmin edilmez. Aynı fiziksel ürünün farklı pazaryeri adları tek stok kartına bağlanabilir; gerçek çeşit stoğu için ilk güvenilir teslim dağılımı/tedarikçi dökümü gerekir. Resmî EDM fatura gönderimi, alış iade/düzeltme, üretim emri, çalışan yetkileri ve otomatik yedek geri yükleme açık işlerdir.
+Faturada çeşit kırılımı yoksa varyant adetleri tahmin edilmez. Aynı fiziksel ürünün farklı pazaryeri adları tek stok kartına bağlanabilir; gerçek çeşit stoğu için ilk güvenilir teslim dağılımı/tedarikçi dökümü gerekir. Resmî EDM fatura gönderimi, alış iade/düzeltme, çalışan yetkileri ve otomatik yedek geri yükleme açık işlerdir.
 
 2.2 doğrulaması: 73 otomatik test geçti; ayrı yerel D1 üzerinde karma paket hesabı, teslim öncesi/sonrası rapor ayrımı ve aynı içerikteki paketin otomatik ölçü eşleşmesi kontrol edildi. Üretim ve e-ticaret arasında ana ekrandan geçiş aynı oturumla çalışır. Yeni 0015 geçişi iki tahmin ayarı tablosu ekler; ticari veri aktarmaz.
+
+## 2.3.0 — alıştan üretime ortak hammadde stoğu
+
+Hammadde kartına bağlı satın alma stok kartı otomatik oluşturulur. Farklı marka/tedarikçi kodları katalogdaki alış bağlantılarıyla bu tek karta bağlanır. Fatura muhasebeleştirmesi cari borcu oluşturur; fiziksel mal teslimi hammadde deposunu besler. Aynı mal için ikinci manuel giriş yapılmaz. Kartın referans fiyatı ile gerçek ağırlıklı stok maliyeti ayrı tutulur.
+
+Reçete stüdyosu depo kartlarında arama, toplu seçim, seçilenlerde arama ve miktar/birim düzenleme sunar. Bir reçetede 200 farklı hammadde desteklenir. 60 hammaddeli reçete kaydı ve üretim tüketimi test edilmiştir; satırlar tek JSON sorgusunda işlenerek D1 sorgu bütçesi korunur.
+
+Tamamlanan üretim kaydı: reçete ve fire önerisi, gerçek tüketim, ek işçilik/ambalaj/diğer maliyet, sabit parti maliyeti, malzeme çıkışı ve mamul girişi. Stok yetersizliği ve çakışmalar bütün işlemi geri alır. Yanlış üretim kaydı, yeterli/ayrılmamış mamul stoğu varsa izlenebilir ters hareketle geri alınabilir. Fiziksel lot takibi yoktur.
+
+Taslak alış faturasındaki tek ürün satırı 2–20 fiziksel çeşide dağıtılabilir. Aynı stok birimi ve eşit birim maliyet gerekir. Toplam miktar, net tutar ve KDV korunur; asıl tedarikçi satırı ve dağılım dayanağı değişmez kayıtta tutulur. Muhasebeleştirmeden önce geri alınıp düzeltilebilir. Faturanın tamamı dağılım sonrasında en fazla 40 satır içerir. Bilinmeyen çeşit adetleri tahmin edilmez.
+
+80 otomatik test geçti. Üç yeni geçiş (0016–0018) gerçek yerel D1 ve Wrangler SQL ayrıştırmasıyla doğrulandı. Üretim, reçete stüdyosu, beş çeşit dağıtımı ve fatura muhasebeleştirmesi yalıtılmış test tarayıcısında denendi. Gerçek TY/HB/EDM servisleri çağrılmadı.
