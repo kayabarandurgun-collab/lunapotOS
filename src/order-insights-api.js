@@ -1,6 +1,6 @@
 import {filterInsights} from './permission-policy.js';
 import {compositionKey,parcelTemplateKey,useParcelTemplate} from './order-estimate-api.js';
-import {summary} from '../public/accounting-math.js';
+import {packageProfit} from './package-profit.js';
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
 const stmt=(db,sql,args=[])=>db.prepare(sql).bind(...args);
 const all=async q=>(await q.all()).results;
@@ -26,8 +26,8 @@ async function orderData(env,key){
   if(saved){if(saved.source_fingerprint===p.source_fingerprint&&saved.composition_key===compositionKey(lines,components)){parcelInput=JSON.parse(saved.input_json);parcelInputSource='package';}}
   else {const template=await stmt(db,'SELECT * FROM parcel_templates WHERE template_key=?',[parcelTemplateKey(p,lines,components)]).first();if(template){parcelInput=useParcelTemplate(JSON.parse(template.input_json),lines,components);parcelInputSource='identical_contents_template';}}
  }
- const totals=summary(sales,[]),allFees=field=>sales.every(s=>s[field]!==null&&s[field]!==undefined)?sales.reduce((sum,s)=>sum+s[field],0):null;
- const actualSummary={status:sales.length?(totals.missing||totals.unconfirmed?'pending':'confirmed'):'not_shipped',order_net_cents:lines.every(l=>l.net_revenue_cents!==null)?lines.reduce((sum,l)=>sum+l.net_revenue_cents,0):null,revenue_net_cents:sales.length?totals.revenue:null,cost_net_cents:sales.length?totals.cost:null,commission_cents:sales.length?allFees('commission_cents'):null,shipping_cents:sales.length?allFees('shipping_cents'):null,other_cents:sales.length?allFees('other_cents'):null,profit_cents:sales.length?totals.profit:null,estimated_profit_cents:sales.length?totals.estimatedProfit:null,missing_fee_count:totals.missing,unconfirmed_count:totals.unconfirmed};
+ const profit=packageProfit(p,lines,components,sales),totals=profit.totals,allFees=field=>sales.every(s=>s[field]!==null&&s[field]!==undefined)?sales.reduce((sum,s)=>sum+s[field],0):null;
+ const actualSummary={status:profit.status,reasons:profit.reasons,order_net_cents:lines.every(l=>l.net_revenue_cents!==null)?lines.reduce((sum,l)=>sum+l.net_revenue_cents,0):null,revenue_net_cents:sales.length?totals.revenue:null,cost_net_cents:sales.length?totals.cost:null,commission_cents:sales.length?allFees('commission_cents'):null,shipping_cents:sales.length?allFees('shipping_cents'):null,other_cents:sales.length?allFees('other_cents'):null,profit_cents:profit.profit_cents,estimated_profit_cents:profit.estimated_profit_cents,missing_fee_count:totals.missing,unconfirmed_count:totals.unconfirmed};
  return {package:p,lines,components,sales,parcel_input:parcelInput,parcel_input_source:parcelInputSource,actual_summary:actualSummary,customer,source,source_facts:sourceFacts,purchase_invoices:purchases.slice(0,50).map(r=>({...r,source:'recent_receipt_not_exact_lot'})),purchase_invoices_truncated:purchases.length>50,fee_evidence:feeEvidence,drafts:drafts.map(unpack),invoice_status:'draft_only',notices:['Alış belgeleri bu stok kartlarının son mal teslimleridir. Satış maliyeti ağırlıklı ortalamadır; kesin parti/fatura çıkışı olduğu iddia edilmez.','Yerel satış faturası taslağı resmî fatura değildir. EDM/GİB gönderimi yapılmaz.',...(p.channel==='hepsiburada'?['Hepsiburada kaynakları henüz paket düzeyinde doğrulanmadığından müşteri ayrıntısı otomatik eşleştirilmedi.']:[])]};
 }
 function billingData(input){

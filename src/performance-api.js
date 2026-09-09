@@ -1,5 +1,5 @@
 import {effectiveNet} from './purchase-adjustment-api.js';
-import {summary} from '../public/accounting-math.js';
+import {packageProfit} from './package-profit.js';
 import {compositionKey,estimatePackage,parcelTemplateKey,useParcelTemplate} from './order-estimate-api.js';
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
 const day=v=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(v)||!Number.isFinite(Date.parse(v))||new Date(v).toISOString().slice(0,10)!==v)fail('Tarih geçersiz.');return v;};
@@ -33,12 +33,12 @@ export async function performanceApi(request,env,path){
   const row={id:p.id,channel:p.channel,order_no:p.order_no,external_id:p.external_id,status:p.status,occurred_on:p.occurred_on,delivered_on:p.delivered_on,profit_cents:null,missing:[],revenue_net_cents:null,cost_net_cents:null,shipping_cents:null,commission_cents:null,other_cents:null};
   if(p.source_changed){row.missing.push('Kaynak sipariş değişti; farkı inceleyin.');return row;}
   if(mode==='delivered'){
-   const total=summary(entries,[]),originals=new Set(entries.filter(s=>s.kind==='sale').map(s=>s.id));
-   if(!parts.length||parts.some(c=>!c.sale_id||!originals.has(c.sale_id))){row.missing.push('Teslimata bağlı stok ve satış kaydı eksik.');return row;}
+   const profit=packageProfit(p,packageLines,parts,entries),total=profit.totals;
+   if(profit.status==='incomplete_records'){row.missing=profit.reasons;return row;}
    row.revenue_net_cents=total.revenue;row.cost_net_cents=total.cost;
    const fee=key=>entries.every(s=>s[key]!==null)?entries.reduce((sum,s)=>sum+s[key],0):null;
    row.shipping_cents=fee('shipping_cents');row.commission_cents=fee('commission_cents');row.other_cents=fee('other_cents');
-   if(total.missing||total.unconfirmed)row.missing.push('Kargo, komisyon veya diğer kesintiler doğrulanmayı bekliyor.');else row.profit_cents=total.profit;
+   row.missing=profit.reasons;row.profit_cents=profit.profit_cents;
    row.returns=entries.filter(s=>s.kind==='return').length;
   }else{
    const direct=inputMap.get(p.id),template=templateMap.get(parcelTemplateKey(p,packageLines,parts)),saved=direct||template;

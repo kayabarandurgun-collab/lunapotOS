@@ -134,3 +134,9 @@ Sipariş araması artık tüm kayıtlarda paket, sipariş ve gönderi referansı
 
 105 otomatik test geçti; eski 500 kayıt sınırının dışındaki arama, SQL arama karakterleri, sayfalama, tarih doğrulaması, tamamlanmış paketlerin kargo uyarısından hariç tutulması test edildi. TY/HB/EDM gerçek veri bağlantıları bu sürümde açılmadı. Yeni veritabanı geçişi veya ücretli servis yoktur.
 Yerel tarayıcıda 51 örnek siparişle sayfalama, kanal filtresi, arama, detaydan dönüş, geçersiz tarihten toparlanma ve 390 piksel telefon genişliği doğrulandı; tarayıcı hatası görülmedi.
+
+### v2.6.2 — Teslimat ve kâr doğrulaması
+
+Sipariş özeti ve kanal raporu aynı kâr doğrulama kuralını kullanır. Gönderimde oluşan satışın kesintileri doğrulansa bile teslimat tamamlanmadan kesin katkı gösterilmez; tutarlar tam ise tahmin olarak gösterilir. Kaynak sipariş değişmişse veya setin bir bileşeninin satış kaydı eksikse kâr doğrulanmaz. İade ve iade giderleri toplama dahildir. Ana ekranda dağıtılmamış kesinti belgeleri için açıklama düzeltildi.
+
+108 test geçti. Yerel tarayıcıda giderleri doğrulanmış 44 TL katkılı örnek paket, kargodayken tahmin olarak gösterildi; teslim kaydından sonra sipariş özeti ile kanal raporu 44 TL doğrulanmış katkıda eşleşti. Test kayıtları sadece yerelde kaldı; gerçek mağaza bağlantısı ve yeni veritabanı geçişi yoktur.

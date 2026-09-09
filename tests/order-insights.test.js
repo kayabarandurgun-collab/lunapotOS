@@ -46,3 +46,13 @@ test('Drafts refuse unknown amounts and changed source; detail customer comes on
   f.sql.prepare('UPDATE ec_order_packages SET source_changed=1 WHERE id=?').run(p.id);await assert.rejects(()=>f.call(p.id,'invoice-draft',body),/kaynak değişikliği/);
  }finally{f.close();}
 });
+
+test('Sipariş detayı kesintiler doğrulansa da teslim bekler; kaynak değişince eski kâr kesinleşmez',async()=>{
+ const f=fixture();try{
+  await f.saveMapping();const p=await f.create();await f.orders('/'+p.id+'/reserve',{});await f.orders('/'+p.id+'/ship',{occurred_on:'2026-09-09',reference:'TEST-FINAL-PROFIT'});
+  f.sql.exec("UPDATE ec_sale_entries SET shipping_cents=50,commission_cents=100,other_cents=0,fees_status='confirmed'");
+  let x=(await f.call(p.id)).actual_summary;assert.equal(x.status,'awaiting_delivery');assert.equal(x.profit_cents,null);assert.equal(x.estimated_profit_cents,7601);assert.match(x.reasons.join(' '),/Teslimat bekleniyor/);
+  await f.orders('/'+p.id+'/deliver',{occurred_on:'2026-09-09'});x=(await f.call(p.id)).actual_summary;assert.equal(x.status,'confirmed');assert.equal(x.profit_cents,7601);assert.deepEqual(x.reasons,[]);
+  f.sql.prepare('UPDATE ec_order_packages SET source_changed=1 WHERE id=?').run(p.id);x=(await f.call(p.id)).actual_summary;assert.equal(x.status,'source_changed');assert.equal(x.profit_cents,null);assert.equal(x.estimated_profit_cents,null);assert.match(x.reasons[0],/Kaynak sipariş değişti/);
+ }finally{f.close();}
+});
