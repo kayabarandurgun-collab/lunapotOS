@@ -12,5 +12,12 @@
     "global_fetch_strictly_public"
   ],
   "$schema": "node_modules/wrangler/config-schema.json",
-  "main": "domain-gateway/worker.js"
+  "main": "domain-gateway/worker.js",
+  "routes": [
+    {
+      "pattern": "muhasebe.lunapot.com",
+      "custom_domain": true,
+      "zone_id": "fd5ae9b0fce1b49a79a7603cd12c6ff3"
+    }
+  ]
 }
