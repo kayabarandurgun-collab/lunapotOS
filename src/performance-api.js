@@ -1,3 +1,4 @@
+import {effectiveNet} from './purchase-adjustment-api.js';
 import {summary} from '../public/accounting-math.js';
 import {compositionKey,estimatePackage,parcelTemplateKey,useParcelTemplate} from './order-estimate-api.js';
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
@@ -51,7 +52,7 @@ export async function performanceApi(request,env,path){
   }
   return row;
  });
- const pendingFees=mode==='delivered'?await db.prepare("SELECT COALESCE(SUM(l.net_cents-COALESCE((SELECT SUM(a.amount_cents) FROM fee_allocations a WHERE a.invoice_line_id=l.id AND a.reversed_at IS NULL),0)),0) cents FROM purchase_lines l JOIN purchase_invoices i ON i.id=l.invoice_id WHERE i.status='posted' AND l.line_type='expense' AND l.expense_treatment='sales_fee'").first():{cents:0};
+ const pendingFees=mode==='delivered'?await db.prepare(`SELECT COALESCE(SUM(${effectiveNet(env.WORKSPACE)}-COALESCE((SELECT SUM(a.amount_cents) FROM fee_allocations a WHERE a.invoice_line_id=l.id AND a.reversed_at IS NULL),0)),0) cents FROM purchase_lines l JOIN purchase_invoices i ON i.id=l.invoice_id WHERE i.status='posted' AND l.line_type='expense' AND l.expense_treatment='sales_fee'`).first():{cents:0};
  const channels=['trendyol','hepsiburada'].map(channel=>{
   const items=rows.filter(r=>r.channel===channel),complete=items.filter(r=>r.profit_cents!==null);
   const subtotal=complete.reduce((sum,r)=>sum+r.profit_cents,0);

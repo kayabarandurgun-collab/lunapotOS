@@ -1,3 +1,5 @@
+import {purchaseAdjustmentApi} from './purchase-adjustment-api.js';
+import {hash,hex,passwordHash,equal,currentSession,owner,authorize,accessApi,acceptInvite} from './access-api.js';
 import {convert} from '../public/costs.js';
 import {accountingApi} from './accounting.js';
 import {scopedDB} from './scoped-db.js';
@@ -16,15 +18,7 @@ import {purchaseSearchApi} from './purchase-search-api.js';
 import {purchaseReturnApi} from './purchase-return-api.js';
 import {purchaseSplitApi} from './purchase-split-api.js';
 import {attentionApi} from './attention-api.js';
-const encoder = new TextEncoder();
 const fail = (message,status=400) => {throw Object.assign(new Error(message),{status});};
-const hex = bytes => Array.from(new Uint8Array(bytes), b=>b.toString(16).padStart(2,'0')).join('');
-const hash = async value => hex(await crypto.subtle.digest('SHA-256',encoder.encode(value)));
-async function passwordHash(password,salt) {
- const key = await crypto.subtle.importKey('raw',encoder.encode(password),'PBKDF2',false,['deriveBits']);
- return hex(await crypto.subtle.deriveBits({name:'PBKDF2',salt:encoder.encode(salt),iterations:100000,hash:'SHA-256'},key,256));
-}
-function equal(a,b) { if(typeof a!=='string'||typeof b!=='string'||a.length!==b.length)return false; let n=0; for(let i=0;i<a.length;i++)n|=a.charCodeAt(i)^b.charCodeAt(i); return n===0; }
 const str=(v,name,max=200)=> {if(typeof v!=='string'||!v.trim()||v.length>max)fail(name+' alanını kontrol edin.');return v.trim();};
 const optional=(v,max=500)=>{if(v===undefined)return '';if(typeof v!=='string'||v.length>max)fail('Metin çok uzun veya geçersiz.');return v.trim();};
 const num=(v,name,min=0,max=1e9)=>{if(typeof v!=='number'||!Number.isFinite(v)||v<min||v>max)fail(name+' geçersiz.');return v;};
@@ -33,7 +27,7 @@ const now=()=>Math.floor(Date.now()/1000);
 const json=(data,status=200,headers={})=>Response.json(data,{status,headers:{'Cache-Control':'no-store',...headers}});
 const activity=(db,description)=>db.prepare('INSERT INTO activity(id,description) VALUES(?,?)').bind(crypto.randomUUID(),description);
 async function body(request){if(Number(request.headers.get('content-length'))>64000)fail('İstek çok büyük.',413);const raw=await request.text();if(raw.length>64000)fail('İstek çok büyük.',413);try{return JSON.parse(raw);}catch{fail('Geçersiz veri.');}}
-async function session(request,db){const token=request.headers.get('Cookie')?.match(/(?:^|; )lunapot_session=([a-f0-9]{64})(?:;|$)/)?.[1];return token&&await db.prepare('SELECT token_hash FROM sessions WHERE token_hash=? AND expires_at>?').bind(await hash(token),now()).first();}
+const session=currentSession;
 async function api(request,env,path){
  const db=env.DB;if(!db)fail('Veritabanı bağlantısı henüz kurulmadı.',503);
  if(!['GET','HEAD'].includes(request.method)) {
@@ -42,13 +36,15 @@ async function api(request,env,path){
  }
  if(path==='/api/auth/status'&&request.method==='GET') {
    const admin=await db.prepare('SELECT id FROM admin WHERE id=1').first();
-   return json({authenticated:!!(await session(request,db)),initialized:!!admin});
+   const current=await session(request,db);return json({authenticated:!!current,initialized:!!admin,user:current?.user||null});
  }
- if((path==='/api/auth/login'||path==='/api/auth/setup')&&request.method==='POST') {
+ if((path==='/api/auth/login'||path==='/api/auth/setup'||path==='/api/auth/accept-invite')&&request.method==='POST') {
    const input=await body(request); const key=await hash(request.headers.get('CF-Connecting-IP')||'local');
    await db.prepare('DELETE FROM login_limits WHERE reset_at<?').bind(now()).run();
    const attempt=await db.prepare('INSERT INTO login_limits(key,attempts,reset_at) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET attempts=attempts+1 RETURNING attempts').bind(key,now()+900).first();
    if(attempt.attempts>10)fail('Çok fazla deneme. 15 dakika sonra tekrar deneyin.',429);
+   if(path==='/api/auth/accept-invite')return json(await acceptInvite(db,input));
+   const username=typeof input.username==='string'?input.username.trim().toLowerCase():'';let staff=null;
    let admin=await db.prepare('SELECT * FROM admin WHERE id=1').first();
    if(path.endsWith('/setup')) {
      if(admin)fail('İlk kurulum daha önce tamamlandı.',409);
@@ -58,18 +54,22 @@ async function api(request,env,path){
      try{await db.prepare('INSERT INTO admin(id,salt,password_hash) VALUES(1,?,?)').bind(salt,await passwordHash(password,salt)).run();}catch{fail('İlk kurulum tamamlanmış. Giriş yapın.',409);}
    } else {
      if(!admin)fail('Önce ilk kurulum tamamlanmalı.',403);
-     if(typeof input.password!=='string'||input.password.length>200||!equal(await passwordHash(input.password,admin.salt),admin.password_hash))fail('Şifre hatalı.',401);
+     if(username&&username!=='admin'&&username!=='owner')staff=await db.prepare('SELECT * FROM staff_users WHERE username=? AND active=1 AND password_hash IS NOT NULL').bind(username).first();
+     const account=username&&username!=='admin'&&username!=='owner'?staff:admin;
+     const candidate=typeof input.password==='string'&&input.password.length<=200?await passwordHash(input.password,account?.salt||admin.salt):'';
+     if(!account||!equal(candidate,account.password_hash))fail('Kullanıcı adı veya şifre hatalı.',401);
    }
    const token=hex(crypto.getRandomValues(new Uint8Array(32)));
-   await db.batch([db.prepare('DELETE FROM sessions WHERE expires_at<?').bind(now()),db.prepare('INSERT INTO sessions(token_hash,expires_at) VALUES(?,?)').bind(await hash(token),now()+604800),db.prepare('DELETE FROM login_limits WHERE key=?').bind(key)]);
+   await db.batch([db.prepare('DELETE FROM sessions WHERE expires_at<?').bind(now()),db.prepare('INSERT INTO sessions(token_hash,expires_at,staff_id) VALUES(?,?,?)').bind(await hash(token),now()+604800,staff?.id||null),db.prepare('DELETE FROM login_limits WHERE key=?').bind(key)]);
    const secure=new URL(request.url).protocol==='https:'?'; Secure':'';
    return json({ok:true},200,{'Set-Cookie':`lunapot_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800${secure}`});
  }
- if(!await session(request,db))fail('Lütfen giriş yapın.',401);
+ const current=await session(request,db);if(!current)fail('Lütfen giriş yapın.',401);authorize(current.user,path,request.method);
+ const accessResult=await accessApi(request,env,path,body,current.user);if(accessResult!==null)return json(accessResult);
  const workspace=path.match(/^\/api\/(ec|lp)(\/.*)?$/);
  if(workspace){
-  const scoped={...env,DB:scopedDB(db,workspace[1]),ROOT_DB:db,WORKSPACE:workspace[1]},subpath=workspace[2]||'';
-  for(const handler of [productionApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(result);}
+  const scoped={...env,DB:scopedDB(db,workspace[1]),ROOT_DB:db,WORKSPACE:workspace[1],USER:current.user},subpath=workspace[2]||'';
+  for(const handler of [productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(result);}
   return json(await accountingApi(request,scoped,'/api/accounting'+subpath,body));
  }
  if(path==='/api/auth/logout'&&request.method==='POST') {

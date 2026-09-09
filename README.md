@@ -98,3 +98,21 @@ Tamamlanan üretim kaydı: reçete ve fire önerisi, gerçek tüketim, ek işçi
 Taslak alış faturasındaki tek ürün satırı 2–20 fiziksel çeşide dağıtılabilir. Aynı stok birimi ve eşit birim maliyet gerekir. Toplam miktar, net tutar ve KDV korunur; asıl tedarikçi satırı ve dağılım dayanağı değişmez kayıtta tutulur. Muhasebeleştirmeden önce geri alınıp düzeltilebilir. Faturanın tamamı dağılım sonrasında en fazla 40 satır içerir. Bilinmeyen çeşit adetleri tahmin edilmez.
 
 80 otomatik test geçti. Üç yeni geçiş (0016–0018) gerçek yerel D1 ve Wrangler SQL ayrıştırmasıyla doğrulandı. Üretim, reçete stüdyosu, beş çeşit dağıtımı ve fatura muhasebeleştirmesi yalıtılmış test tarayıcısında denendi. Gerçek TY/HB/EDM servisleri çağrılmadı.
+
+
+## 2.5.0 — çalışan yetkileri ve alış düzeltmeleri
+
+/access ekranında mevcut yönetici çalışan hesabı oluşturur. Kullanıcı adı ve tek kullanımlık 24 saatlik bağlantı çalışana ayrı iletilir; çalışan şifresini kendisi belirler. E-ticaret ve üretim için erişim yok / görüntüleme / işlem yetkileri sunucuda uygulanır. Yetki değişikliği ve hesap kapatma eski oturumları sonlandırır. Çalışan şirket, bağlantı anahtarı, kullanıcı ve yedek yönetimini değiştiremez. Görüntüleme yetkisi seçilen paneldeki tüm ticari bilgileri kapsar; alan veya müşteri bazlı maskeleme değildir. Mevcut yönetici girişi korunur. Yetki değişiklikleri kaydedilir; tüm ticari işlemlerde kişi bazında ayrıntılı denetim izi bu sürümde yoktur.
+
+E-ticaret işlenmiş alış faturasında Fatura düzeltmesi: ürün fiyatı/iskonto farkı, hizmet/kesinti düzeltmesi ve teslim edilmeyecek miktarın iptali. Pozitif bedel cari borcu azaltır; negatif bedel ek borçtur. Asıl fatura ve değişmez düzeltme geçmişi korunur. Stok payı yalnızca tam teslim edilmiş ürün için açıkça belirlenir; kalan net fark dönem gideridir. Geçmiş satış maliyeti yeniden yazılmaz. Kesinti faturaları satışlara mutabakatla dağıtılır; kullanılan payı aşan indirim önce dağıtımın geri alınmasını gerektirir. Düzeltme ve iptal, sonraki tedarikçi iadesinin tutarına ve kalan teslimine yansır; kuruş toplamları korunur. Resmî fatura kesilmez.
+
+### Otomatik kurtarma ve işletim
+Cloudflare D1 Time Travel ücretsiz planda sürekli açık, son 7 günlük veritabanı geçmişini saklayan kurtarma imkânıdır: https://developers.cloudflare.com/d1/reference/time-travel/ . Yeni ücretli yedek servisi kurulmadı. 9 Eylül 2026'da canlı mevcut ve geçmiş kurtarma noktaları salt okunur sorgularla doğrulandı. Canlı geri yükleme yapılmadı. /access#recovery ekranından Cloudflare veritabanına ve adımlara ulaşılır.
+
+Kurtarma bütün D1 veritabanını, iki paneli ve kullanıcı hesaplarını birlikte geri alır. Kod, Worker gizli anahtarları ve Cloudflare hesap ayarları geri alınmaz. İşlem girişini durdurun; hedef tarihle uygulama şemasının uyumunu ve kurtarmadan sonra çalışan yetkilerini kontrol edin. Bu, bağımsız sağlayıcıya kopyalanan bir arşiv değildir.
+
+Salt okunur plan: node scripts/recovery.mjs plan 2026-09-09T14:00:00+03:00
+
+Plan ve güncel güvenlik noktası work/recovery altında saklanır. Gerektiğinde apply <plan-dosyası> <hedef-kurtarma-noktası> kullanılır; kimlik, 15 dakikalık plan süresi ve plan sonrası yeni yazı kontrol edilir, Wrangler'ın son onayı korunur. Komut iptal edilirse başarılı kurtarma varsayılmaz; Cloudflare sonucunu doğrulayın. İş verisi JSON dışa aktarımı ayrı bir analiz dosyasıdır, tam geri yükleme dosyası değildir.
+
+97 otomatik test geçti; 0020 ve 0021 yerel D1'e uygulanarak ekranlar doğrulandı. TY/HB/EDM gerçek bağlantıları kullanıcının isteğiyle sona bırakılmıştır.

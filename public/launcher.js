@@ -9,3 +9,5 @@ window.addEventListener('appinstalled',()=>{prompt=null;install.hidden=true;});
 function online(){status.textContent=navigator.onLine?'':'İnternet bağlantısı yok. Kayıtlarını görüntülemek ve kaydetmek için yeniden bağlan.';}
 window.addEventListener('online',online);window.addEventListener('offline',online);online();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
+
+fetch('/api/auth/status').then(r=>r.json()).then(s=>{if(s.user?.owner)document.querySelector('#manage-access').hidden=false;if(s.user&&!s.user.owner){for(const [ns,selector] of [['lp','.application.production'],['ec','.application.commerce']])if(s.user[ns+'_access']==='none')document.querySelector(selector).hidden=true;}}).catch(()=>{});

@@ -15,7 +15,7 @@ export async function attentionApi(request,env,path){
    COALESCE(SUM(NOT EXISTS(SELECT 1 FROM stock_movements m WHERE m.product_id=p.id)),0) no_history
    FROM products p JOIN stock_balances b ON b.product_id=p.id`,
   `SELECT COALESCE(SUM(status='draft'),0) drafts,
-   COALESCE(SUM(status='posted' AND EXISTS(SELECT 1 FROM purchase_lines l WHERE l.invoice_id=purchase_invoices.id AND l.line_type='product' AND l.quantity_milli>COALESCE((SELECT SUM(g.quantity_milli) FROM effective_receipts g WHERE g.line_id=l.id),0))),0) awaiting_receipt FROM purchase_invoices`,
+   COALESCE(SUM(status='posted' AND EXISTS(SELECT 1 FROM purchase_lines l WHERE l.invoice_id=purchase_invoices.id AND l.line_type='product' AND l.quantity_milli-COALESCE((SELECT cancelled_milli FROM purchase_line_limits WHERE id=l.id),0)>COALESCE((SELECT SUM(g.quantity_milli) FROM effective_receipts g WHERE g.line_id=l.id),0))),0) awaiting_receipt FROM purchase_invoices`,
   `SELECT COUNT(*) total,
    COALESCE(SUM(fees_status!='confirmed' OR commission_cents IS NULL OR shipping_cents IS NULL OR other_cents IS NULL),0) unconfirmed,
    COALESCE(SUM(kind='sale' AND fees_status='confirmed' AND revenue_cents-cost_cents-commission_cents-shipping_cents-other_cents<0),0) losses FROM sale_entries`,

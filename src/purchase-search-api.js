@@ -3,8 +3,8 @@ export async function purchaseSearchApi(request,env,path){
  if(path!=='/api/purchases'||request.method!=='GET')return null;
  const params=new URL(request.url).searchParams,q=(params.get('q')||'').trim(),status=params.get('status')||'',page=Number(params.get('page')||1);
  if(q.length>200||!Number.isSafeInteger(page)||page<1||page>100000||!['','draft','posted','cancelled','awaiting'].includes(status))fail('Fatura arama veya sayfa bilgisi geçersiz.');
- const receipts=env.WORKSPACE==='ec'?'effective_receipts':'goods_receipts';
- const pending=`EXISTS(SELECT 1 FROM purchase_lines l WHERE l.invoice_id=i.id AND l.line_type='product' AND l.quantity_milli>COALESCE((SELECT SUM(g.quantity_milli) FROM ${receipts} g WHERE g.line_id=l.id),0))`;
+ const receipts=env.WORKSPACE==='ec'?'effective_receipts':'goods_receipts',cancelled=env.WORKSPACE==='ec'?'COALESCE((SELECT cancelled_milli FROM purchase_line_limits WHERE id=l.id),0)':'0';
+ const pending=`EXISTS(SELECT 1 FROM purchase_lines l WHERE l.invoice_id=i.id AND l.line_type='product' AND l.quantity_milli-${cancelled}>COALESCE((SELECT SUM(g.quantity_milli) FROM ${receipts} g WHERE g.line_id=l.id),0))`;
  const where=['1=1'],args=[];
  if(q){where.push("(instr(lower(i.invoice_no),lower(?))>0 OR instr(lower(s.name),lower(?))>0 OR instr(lower(COALESCE(i.uuid,'')),lower(?))>0)");args.push(q,q,q);}
  if(status==='awaiting')where.push("i.status='posted' AND "+pending);else if(status){where.push('i.status=?');args.push(status);}
