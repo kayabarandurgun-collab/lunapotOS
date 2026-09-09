@@ -1,9 +1,10 @@
-# Lunapot OS 2.1
+# Lunapot OS 2.2
 Mobil ve web uyumlu, Cloudflare Workers + D1 üzerinde çalışan iki ayrı iş alanı.
 
-Canlı adresler: [Lunapot](https://lunapot-panel.lunapot-os.workers.dev/) · [E-Ticaret](https://lunapot-panel.lunapot-os.workers.dev/eticaret/).
+Adresler: [Uygulamalar](https://lunapot-panel.lunapot-os.workers.dev/) · [Lunapot Üretim](https://lunapot-panel.lunapot-os.workers.dev/uretim/) · [E-Ticaret](https://lunapot-panel.lunapot-os.workers.dev/eticaret/).
 
-- **Lunapot** (/): ürünler, hammaddeler, reçeteler, üretim maliyeti, alış/stok ve cari.
+- **Uygulamalar** (/): büyük simgeli ortak giriş, iki ayrı çalışma alanına geçiş. Eski /#dashboard gibi üretim bağlantıları /uretim/ altına taşınır. Her panelde ana ekrana dönüş vardır.
+- **Lunapot Üretim** (/uretim/): ürünler, hammaddeler, reçeteler, üretim maliyeti, alış/stok ve cari.
 - **E-Ticaret** (/eticaret/): torf ve zirai ürünler; sipariş, stok ayırma, kargoya verme, satış kârlılığı, cari/nakit, alış ve mal teslimi.
 - Lunapot AI kapalı; ücretli AI servisi bağlı değil.
 
@@ -58,6 +59,19 @@ Kaynak kodu ticari veri veya mağaza anahtarı içermez. İşlem geçmişi silin
 
 Testler gerçek müşteri/mağaza verisi olmadan yalıtılmış SQLite üzerinde çalışır. Canlı sağlayıcı testleri ve Worker CPU ölçümü yayın sonrası yapılmalıdır.
 
-Paket tahmini tek bir ilan satırının tekli veya set içeriğini destekler. Paket ölçüleri/ek giderler açıkça girilir, kargo bir kez uygulanır. Birden fazla farklı ilan satırını içeren paketin ortak kargo ve komisyon tahmini henüz tamamlanmadı. Siparişe uygulanan kaynak komisyon kodu, gerçek ilan SKU kodudur.
+Paket tahmini 1–10 farklı ilan satırını, farklı KDV/komisyonları ve set bileşenlerini destekler. Kargo baremi toplam paket tutarından bir kez seçilir; komisyon her ilanın kendi SKU ve satır tutarından hesaplanır. Sabit işlem/ambalaj gideri paket başınadır. Karma pakette fiyatların ilanlara nasıl dağıtılacağı bilinmediğinden tek bir alt satış fiyatı verilmez; tek ilan/set için alt fiyat araması korunur.
 
-Yeni sürüm doğrulaması: 65 otomatik test, gerçek yerel D1 geçişleri ve ayrı tarayıcı test ortamında set tanımı, sipariş, gönderim, fatura dönüşümü ve taslak hazırlama. 9 Eylül 2026'da Cloudflare'a yayınlandı; 14 üretim geçişi, boş yabancı anahtar hata listesi, HTTPS sayfaları ve girişsiz API isteklerinde 401 doğrulandı. İlk yönetici şifresini hesap sahibi oluşturur. Canlı mağaza/EDM bağlantıları henüz doğrulanmadı.
+Önceki 2.1 sürümü doğrulaması: 65 otomatik test, gerçek yerel D1 geçişleri ve ayrı tarayıcı test ortamında set tanımı, sipariş, gönderim, fatura dönüşümü ve taslak hazırlama. 9 Eylül 2026'da Cloudflare'a yayınlandı; 14 üretim geçişi, boş yabancı anahtar hata listesi, HTTPS sayfaları ve girişsiz API isteklerinde 401 doğrulandı. İlk yönetici şifresini hesap sahibi oluşturur. Canlı mağaza/EDM bağlantıları henüz doğrulanmadı.
+
+## 2.2.0 — teslimat ve tahmin ayrımı
+Ana sayfa ve Kanal kâr / zarar ekranı teslim edilmiş paketlerin kayıtlarını kullanır; TY ve HB ayrı kartlardadır. Kesintisi eksik paketler ve dağıtılmamış kesinti faturaları varsa sonuç tamamlanmış gösterilmez. Teslim tarihine göre seçilen paketlerin sonradan işlenen iadeleri de hesaba dahildir. Ortak işletme giderleri ve gelir/kurumlar vergisi bu satış katkısı raporuna dağıtılmaz.
+
+Hazırlık/kargodaki tahminler ayrı sekmededir ve sipariş tarihine göre süzülür. Başarılı paket hesabı ölçü ve gider varsayımlarını saklar. Aynı kanal, ilan kodu, adet ve gerçek stok bileşenleri için bu varsayımlar öğrenilmiş paket şablonu olarak tekrar kullanılabilir. Stok maliyeti ve tarifeler rapor açılışında yeniden hesaplanır; gönderilmiş pakette sabit gönderim maliyeti ve gönderi tarihinin tarifesi kullanılır. Kaynak veya içerik değişmişse önceki paket varsayımları kullanılmaz. Farklı adetlerin ölçüsü kendiliğinden ölçeklenmez.
+
+İş listesi tüm verilerde eşleşme, teslim, stok, kesinti ve tarife eksiklerini sayar. Kayıtsız işletmede kâr sıfır gösterilmez. Kaynak sayfalarını sırayla alma, duraklatma ve devam etme hazırdır; bu yalnızca sayfa açıkken kullanıcı başlatınca çalışır. Zamanlanmış aktarım yoktur.
+
+Kullanıcı isteği: canlı TY/HB/EDM kurulumları en sona bırakılacak ve kullanıcıyla birlikte yapılacak. TY erişim bilgileri önceden kaydedildi; iki denemede ağ/bağlantı hatası alındı, başarılı kaynak aktarımı olmadı. HB ve EDM bağlı değil. Bu sürümün testi yalnızca sentetik yerel iş verileriyle yapıldı.
+
+Faturada çeşit kırılımı yoksa varyant adetleri tahmin edilmez. Aynı fiziksel ürünün farklı pazaryeri adları tek stok kartına bağlanabilir; gerçek çeşit stoğu için ilk güvenilir teslim dağılımı/tedarikçi dökümü gerekir. Resmî EDM fatura gönderimi, alış iade/düzeltme, üretim emri, çalışan yetkileri ve otomatik yedek geri yükleme açık işlerdir.
+
+2.2 doğrulaması: 73 otomatik test geçti; ayrı yerel D1 üzerinde karma paket hesabı, teslim öncesi/sonrası rapor ayrımı ve aynı içerikteki paketin otomatik ölçü eşleşmesi kontrol edildi. Üretim ve e-ticaret arasında ana ekrandan geçiş aynı oturumla çalışır. Yeni 0015 geçişi iki tahmin ayarı tablosu ekler; ticari veri aktarmaz.

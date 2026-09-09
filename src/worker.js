@@ -10,6 +10,8 @@ import {orderInsightsApi} from './order-insights-api.js';
 import {orderEstimateApi} from './order-estimate-api.js';
 import {catalogApi} from './catalog-api.js';
 import {reconciliationApi} from './reconciliation-api.js';
+import {performanceApi} from './performance-api.js';
+import {attentionApi} from './attention-api.js';
 const encoder = new TextEncoder();
 const fail = (message,status=400) => {throw Object.assign(new Error(message),{status});};
 const hex = bytes => Array.from(new Uint8Array(bytes), b=>b.toString(16).padStart(2,'0')).join('');
@@ -63,7 +65,7 @@ async function api(request,env,path){
  const workspace=path.match(/^\/api\/(ec|lp)(\/.*)?$/);
  if(workspace){
   const scoped={...env,DB:scopedDB(db,workspace[1]),ROOT_DB:db,WORKSPACE:workspace[1]},subpath=workspace[2]||'';
-  for(const handler of [orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(result);}
+  for(const handler of [performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(result);}
   return json(await accountingApi(request,scoped,'/api/accounting'+subpath,body));
  }
  if(path==='/api/auth/logout'&&request.method==='POST') {
@@ -115,7 +117,7 @@ async function api(request,env,path){
 }
 export default {async fetch(request,env) {
  let response;
- try {const path=new URL(request.url).pathname;if(path.startsWith('/api/'))response=await api(request,env,path);else if(path==='/eticaret'||path==='/eticaret/'){const assetURL=new URL(request.url);assetURL.pathname='/ecommerce';response=await env.ASSETS.fetch(new Request(assetURL,request));}else response=await env.ASSETS.fetch(request);}
+ try {const path=new URL(request.url).pathname;if(path.startsWith('/api/'))response=await api(request,env,path);else if(path==='/uretim'||path==='/uretim/'){const assetURL=new URL(request.url);assetURL.pathname='/production';response=await env.ASSETS.fetch(new Request(assetURL,request));}else if(path==='/eticaret'||path==='/eticaret/'){const assetURL=new URL(request.url);assetURL.pathname='/ecommerce';response=await env.ASSETS.fetch(new Request(assetURL,request));}else response=await env.ASSETS.fetch(request);}
  catch(error){response=json({error:error.status?error.message:'İşlem tamamlanamadı. Bağlantıyı kontrol edip tekrar deneyin.'},error.status||500);}
  const headers=new Headers(response.headers);
  headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','no-referrer');headers.set('X-Frame-Options','DENY');

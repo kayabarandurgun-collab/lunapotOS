@@ -17,12 +17,12 @@ function validate(input){
  if(!['trendyol','hepsiburada','other'].includes(input.channel)||!input.carrier)missing.push('Kanal ve kargo şirketi gerekli.');
  return missing;
 }
-function choose(input,price){
+function choose(input,price,shippingPrice=price){
  const {profile:p,date,channel,carrier}=input;
  let commissions=(input.commissionRates||[]).filter(r=>active(r,date)&&r.channel===channel&&bracket(r,price)&&(!r.sku||r.sku.toLowerCase()===String(p.sku).toLowerCase())&&(!r.category||r.category===p.category));
  const rank=r=>(r.sku?2:0)+(r.category?1:0);
  if(commissions.length){const best=Math.max(...commissions.map(rank));commissions=commissions.filter(r=>rank(r)===best);}
- const shipping=(input.shippingRates||[]).filter(r=>active(r,date)&&r.channel===channel&&r.carrier===carrier&&bracket(r,price)).map(r=>{
+ const shipping=(input.shippingRates||[]).filter(r=>active(r,date)&&r.channel===channel&&r.carrier===carrier&&bracket(r,shippingPrice)).map(r=>{
   const desi=p.length_mm*p.width_mm*p.height_mm/1000/r.desi_divisor;
   const raw=Math.max(desi,p.weight_grams/1000)*1000;
   return {rate:r,billable:Math.ceil(raw/r.billable_step_milli)*r.billable_step_milli};
@@ -49,6 +49,32 @@ export function quotePrice(input){
  if(missing.length)return {status:'incomplete',missing};
  const rates=choose(input,input.priceCents);if(rates.missing.length)return {status:'incomplete',missing:rates.missing};
  return evaluate(input,input.priceCents,rates);
+}
+// Each listing keeps its own VAT and commission band. The completed parcel has
+// one shipping band (based on its full price), one packaging cost and one weight.
+export function quoteParcel(input){
+ const lines=input.lines;
+ if(!Array.isArray(lines)||!lines.length||lines.length>10)return {status:'incomplete',missing:['Paket 1–10 ilan satırı içermeli.']};
+ const total=lines.reduce((sum,l)=>sum+l.price_cents,0),missing=[],quotes=[];
+ if(!whole(total,0,10000000))return {status:'incomplete',missing:['Paket satış toplamı geçersiz.']};
+ for(const line of lines){
+  const item={...input,quantity:1,priceCents:line.price_cents,profile:{...input.profile,...line.profile,units_per_parcel:1,packaging_cents:0,other_cents:0}};
+  const errors=validate(item);if(!whole(line.price_cents,0,10000000))errors.push('Satış fiyatı geçersiz.');
+  if(errors.length){missing.push(...errors.map(e=>(line.name||line.id)+': '+e));continue;}
+  const rates=choose(item,line.price_cents,total);
+  if(rates.missing.length){missing.push(...rates.missing.map(e=>(line.name||line.id)+': '+e));continue;}
+  quotes.push({...evaluate(item,line.price_cents,rates),id:line.id,name:line.name,sku:line.profile.sku});
+ }
+ for(const key of ['packaging_cents','other_cents'])if(!whole(input.profile?.[key]))missing.push(key+' eksik veya geçersiz.');
+ if(missing.length)return {status:'incomplete',missing:[...new Set(missing)]};
+ const result={...quotes[0],price_cents:total,lines:quotes};
+ for(const key of ['revenue_net_cents','output_vat_cents','cost_net_cents','commission_net_cents','commission_gross_cents','withholding_cents'])result[key]=quotes.reduce((sum,q)=>sum+q[key],0);
+ result.packaging_net_cents=input.profile.packaging_cents;result.other_net_cents=input.profile.other_cents;
+ result.estimated_profit_cents=result.revenue_net_cents-result.cost_net_cents-result.commission_net_cents-result.shipping_net_cents-result.packaging_net_cents-result.other_net_cents;
+ result.estimated_payout_cents=total-result.commission_gross_cents-result.shipping_gross_cents-result.withholding_cents;
+ result.commission_rate_id=null;
+ result.warnings=[...result.warnings,'Komisyon ve KDV ilan satırı bazında; kargo, ambalaj ve diğer paket giderleri paket başına bir kez hesaplandı.'];
+ return result;
 }
 export function findPriceFloor(input){
  const missing=validate(input),max=input.maxPriceCents??1000000,target=input.desiredProfitCents??0;

@@ -69,12 +69,15 @@ export async function ordersApi(request,env,path,readBody){
  if(!path.startsWith('/api/orders'))return null;if(env.WORKSPACE!=='ec')fail('Siparişler e-ticaret çalışma alanına aittir.',403);
  const db=env.DB,method=request.method;
  if(path==='/api/orders'&&method==='GET'){
+  const selected=new URL(request.url).searchParams.get('package');if(selected&&!/^[\w-]{1,100}$/.test(selected))fail('Paket kimliği geçersiz.');
+  const scope=selected?' WHERE id=?':'',args=selected?[selected]:[];
+
   const [packages,lines,products,reservations,components]=(await db.batch([
-   db.prepare('SELECT * FROM order_packages ORDER BY occurred_on DESC,created_at DESC,rowid DESC LIMIT 501'),
-   db.prepare('SELECT l.* FROM order_lines l WHERE package_id IN (SELECT id FROM order_packages ORDER BY occurred_on DESC,created_at DESC,rowid DESC LIMIT 500)'),
+   statement(db,'SELECT * FROM order_packages'+scope+' ORDER BY occurred_on DESC,created_at DESC,rowid DESC LIMIT 501',args),
+   statement(db,'SELECT l.* FROM order_lines l WHERE package_id IN (SELECT id FROM order_packages'+scope+' ORDER BY occurred_on DESC,created_at DESC,rowid DESC LIMIT 500)',args),
    db.prepare('SELECT p.id,p.name,p.sku,p.stock_unit,b.quantity_milli,b.value_cents,COALESCE((SELECT SUM(r.quantity_milli) FROM order_reservations r WHERE r.product_id=p.id AND r.released_on IS NULL),0) reserved_milli FROM products p JOIN stock_balances b ON b.product_id=p.id ORDER BY p.name'),
    db.prepare('SELECT * FROM order_reservations WHERE released_on IS NULL'),
-   db.prepare('SELECT c.*,p.name product_name,p.sku,p.stock_unit current_stock_unit FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN products p ON p.id=c.product_id WHERE l.package_id IN (SELECT id FROM order_packages ORDER BY occurred_on DESC,created_at DESC,rowid DESC LIMIT 500) ORDER BY c.rowid')
+   statement(db,'SELECT c.*,p.name product_name,p.sku,p.stock_unit current_stock_unit FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN products p ON p.id=c.product_id WHERE l.package_id IN (SELECT id FROM order_packages'+scope+' ORDER BY occurred_on DESC,created_at DESC,rowid DESC LIMIT 500) ORDER BY c.rowid',args)
   ])).map(r=>r.results);
   const counts=(await db.prepare('SELECT status,COUNT(*) count FROM order_packages GROUP BY status').all()).results;
   const stock=new Map(products.map(p=>[p.id,p.quantity_milli-p.reserved_milli]));
