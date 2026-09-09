@@ -22,7 +22,7 @@ export function mountOperations(root,namespace,view){
   if(view==='overview'){
    const [ac,ledger,orders,connections,settings,attention,performance]=await Promise.all([api(''),api('/ledger'),api('/orders'),api('/connections'),api('/settings'),api('/attention'),api('/performance')]);
    if(abort.signal.aborted)return;
-   const configured=connections.providers.filter(p=>p.configured).length,owed=ledger.parties.reduce((s,p)=>s+Math.max(0,-p.balance_cents),0),available=ac.stock.filter(p=>p.quantity_milli>0).length;
+   const configured=connections.providers.filter(p=>p.configured).length,owed=ledger.parties.reduce((s,p)=>s+Math.max(0,-p.balance_cents),0),available=ac.stock.filter(p=>p.quantity_milli-(p.reserved_milli||0)>0).length;
    const delivered=performance.rows,net=delivered.length&&delivered.every(r=>r.revenue_net_cents!==null)?delivered.reduce((n,r)=>n+r.revenue_net_cents,0):null,profit=performance.unallocated_fee_cents===0&&delivered.length&&delivered.every(r=>r.profit_cents!==null)?delivered.reduce((n,r)=>n+r.profit_cents,0):null;
    root.innerHTML=heading('Bugün işin nasıl gidiyor?','E-ticaret çalışma alanı · Son 30 günün satışları ve güncel stok durumu')+'<div id="op-error" class="notice" hidden></div><div class="stats">'+[
     ['Teslim edilen net satış',delivered.length?money(net):'Teslim edilmiş paket yok','Son 30 günde teslim edilenler · KDV hariç'],
@@ -31,7 +31,7 @@ export function mountOperations(root,namespace,view){
     ['Cari borç',ledger.parties.length?money(owed):'Cari kaydı yok','Tüm tarihler · KDV dahil bakiye']
    ].map(([label,value,help],i)=>'<article class="stat '+(i===1?'highlight':'')+'"><span>'+label+'</span><strong>'+value+'</strong><small>'+help+'</small></article>').join('')+'</div><a class="performance-entry" href="#performance"><div><span class="eyebrow">TRENDYOL & HEPSİBURADA</span><strong>Teslim edilenlerin kârı ne durumda?</strong><p>Kesinleşen satışlar ve yoldaki tahminler ayrı kartlarda.</p></div><span aria-hidden="true">→</span></a>'+renderAttention(attention,connections,settings.settings,ac.pending_fee_cents)+'<div class="dashboard-grid"> <section class="card"><div class="card-heading"><h2>İşe başlamak için</h2><span class="pill">'+[!!settings.settings.tax_id,ac.stock.length>0,available>0,configured>0].filter(Boolean).length+'/4 başlangıç adımı</span></div>'+
    link('#settings','Şirketini tanımla',settings.settings.tax_id?'Alış faturalarının alıcısı doğrulanıyor.':'Unvan ve vergi numarası faturaların doğru alana gelmesini sağlar.')+
-   link('#stock','Ürünlerini ve açılış stoğunu ekle',ac.stock.length+' ürün · '+available+' üründe stok var.')+
+   link('#stock','Ürünlerini ve açılış stoğunu ekle',ac.stock.length+' ürün · '+available+' üründe kullanılabilir stok var.')+
    link('#pricing','Maliyet ve tarifelerini belirle','Paket ölçüsü, kargo ve komisyonla satıştan önce kârını gör.')+
    link('#integrations','Satış kanallarını bağla',configured+' bağlantıda erişim bilgisi tanımlı. Canlı durum Bağlantılar ekranında.')+'</section><section class="card"><div class="card-heading"><h2>Günün çalışma akışı</h2></div>'+
    link('#orders','Siparişleri hazırla','Ürün eşleştir → stok ayır → kargoya ver.')+link('#invoices','Alış ve mal teslimlerini işle','Fatura borcu ve depoya gelen miktar ayrı takip edilir.')+

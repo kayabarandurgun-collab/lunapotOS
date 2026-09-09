@@ -1,4 +1,15 @@
 # Lunapot OS 2.3
+
+## 2.4 — E-ticaret stok ve alış düzeltmeleri
+
+- Ürün alışlarında kısmi tedarikçi iadesi stok ve cari borcunu tek işlemde günceller. İade bedeli faturadan orantılı hesaplanır; stoktan güncel ağırlıklı maliyet çıkar. Aradaki fark Genel giderler ekranında ayrı, işaretli düzeltmedir; kanal satış katkısına yüklenmez. Resmî iade faturası düzenlenmez. Hizmet/fiyat farkı/iskontolu iade ve henüz teslim alınmamış alışın iptali bu akışa dahil değildir.
+- İade geri alma geçmişi korur. İadeye bağlı cari kapama varsa önce bu kapama geri alınmalıdır. Yanlış mal teslimi güvenli stok ve maliyet koşullarında ters kayıtla düzeltilir; fatura borcu değişmez, tekrar teslim miktarı açılır. Satılmış veya ayrılmış stok korunur.
+- Alış faturaları 50li sayfalarda tüm geçmişten aranabilir; fatura, ETTN, tedarikçi ve durum/teslim bekleyen filtreleri vardır. Taslaktan vazgeçme ekranda erişilebilir.
+- Stokta eldeki, ayrılan ve kullanılabilir miktarlar ayrıdır; ürün/kod araması, kritik stok filtresi ve Türkçe ondalıklı CSV dışa aktarımı vardır. Sayım sırasında değişen stok eski sonuçla ezilmez.
+- 0019 yalnızca e-ticarete yeni günlükler/görünümler ekler ve gelecekteki teslim doğrulamasını günceller; mevcut ticari kayıtları dönüştürmez.
+
+TY/HB/EDM gerçek bağlantıları kullanıcıyla en son yapılacaktır. Otomatik yedek geri yükleme ve çalışan yetkileri halen ayrı geliştirme işleridir.
+
 Mobil ve web uyumlu, Cloudflare Workers + D1 üzerinde çalışan iki ayrı iş alanı.
 
 Adresler: [Uygulamalar](https://lunapot-panel.lunapot-os.workers.dev/) · [Lunapot Üretim](https://lunapot-panel.lunapot-os.workers.dev/uretim/) · [E-Ticaret](https://lunapot-panel.lunapot-os.workers.dev/eticaret/).

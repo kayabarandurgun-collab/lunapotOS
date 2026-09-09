@@ -12,6 +12,8 @@ import {catalogApi} from './catalog-api.js';
 import {reconciliationApi} from './reconciliation-api.js';
 import {performanceApi} from './performance-api.js';
 import {productionApi} from './production-api.js';
+import {purchaseSearchApi} from './purchase-search-api.js';
+import {purchaseReturnApi} from './purchase-return-api.js';
 import {purchaseSplitApi} from './purchase-split-api.js';
 import {attentionApi} from './attention-api.js';
 const encoder = new TextEncoder();
@@ -67,7 +69,7 @@ async function api(request,env,path){
  const workspace=path.match(/^\/api\/(ec|lp)(\/.*)?$/);
  if(workspace){
   const scoped={...env,DB:scopedDB(db,workspace[1]),ROOT_DB:db,WORKSPACE:workspace[1]},subpath=workspace[2]||'';
-  for(const handler of [productionApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(result);}
+  for(const handler of [productionApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(result);}
   return json(await accountingApi(request,scoped,'/api/accounting'+subpath,body));
  }
  if(path==='/api/auth/logout'&&request.method==='POST') {

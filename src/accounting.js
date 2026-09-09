@@ -36,7 +36,7 @@ async function batch(db,items){try{return await db.batch(items);}catch(e){
  throw e;
 }}
 export async function accountingApi(request,env,path,readBody){
- const db=env.DB,url=new URL(request.url),method=request.method;
+ const db=env.DB,url=new URL(request.url),method=request.method,receiptTable=env.WORKSPACE==='ec'?'effective_receipts':'goods_receipts';
  if(path.startsWith('/api/accounting/integrations')&&env.WORKSPACE!=='ec')fail('Bu bağlantılar e-ticaret çalışma alanına aittir.',403);
  if(path==='/api/accounting/products'&&method==='POST'&&env.WORKSPACE==='ec'){
   const x=await readBody(request),key=id();if(!['adet','kg','g','L','ml'].includes(x.stock_unit))fail('Stok birimi geçersiz.');
@@ -54,7 +54,7 @@ export async function accountingApi(request,env,path,readBody){
  if(path==='/api/accounting'&&method==='GET'){
   const from=day(url.searchParams.get('from')||localDay(Date.now()-30*86400000)),to=day(url.searchParams.get('to')||localDay());if(from>to)fail('Başlangıç tarihi bitişten sonra olamaz.');
   const queries=[
-   db.prepare('SELECT p.id,p.name,p.sku,p.stock_unit,p.min_stock_milli,b.quantity_milli,b.value_cents FROM products p JOIN stock_balances b ON b.product_id=p.id ORDER BY p.name'),
+   db.prepare(`SELECT p.id,p.name,p.sku,p.stock_unit,p.min_stock_milli,b.quantity_milli,b.value_cents,${env.WORKSPACE==='ec'?"COALESCE((SELECT SUM(r.quantity_milli) FROM order_reservations r WHERE r.product_id=p.id AND r.released_on IS NULL),0)":'0'} reserved_milli FROM products p JOIN stock_balances b ON b.product_id=p.id ORDER BY p.name`),
    statement(db,'SELECT s.*,p.name product_name,p.sku FROM sale_entries s JOIN products p ON p.id=s.product_id WHERE s.occurred_on BETWEEN ? AND ? ORDER BY s.occurred_on DESC,s.created_at DESC LIMIT 5001',[from,to]),
    statement(db,'SELECT * FROM expenses WHERE occurred_on BETWEEN ? AND ? ORDER BY occurred_on DESC LIMIT 5001',[from,to]),
    db.prepare('SELECT s.*,COALESCE((SELECT SUM(l.net_cents+l.tax_cents) FROM purchase_lines l JOIN purchase_invoices i ON i.id=l.invoice_id WHERE i.supplier_id=s.id AND i.status=\'posted\'),0) purchase_cents,COALESCE((SELECT SUM(amount_cents) FROM supplier_payments WHERE supplier_id=s.id),0) paid_cents,COALESCE((SELECT SUM(amount_cents) FROM party_entries WHERE party_id=s.id),0) balance_cents FROM suppliers s ORDER BY name'),
@@ -64,7 +64,9 @@ export async function accountingApi(request,env,path,readBody){
   ];
   const [stock,sales,expenses,suppliers,invoices,movements,pendingFees]=(await db.batch(queries)).map(q=>q.results);
   if(sales.length>5000||expenses.length>5000)fail('Bu aralıkta 5.000’den fazla kayıt var. Doğru toplam için tarih aralığını daraltın.');
-  return {from,to,stock,sales,expenses,suppliers,invoices,movements,pending_fee_cents:pendingFees[0].pending_fee_cents};
+  const adjustments=env.WORKSPACE==='ec'?(await statement(db,`SELECT id,reference,'purchase_variance' category,iif(reversal_of IS NULL,cost_cents-net_cents,net_cents-cost_cents) amount_cents,occurred_on,0 paid,reason notes FROM purchase_returns WHERE occurred_on BETWEEN ? AND ? AND cost_cents!=net_cents ORDER BY occurred_on DESC LIMIT 5001`,[from,to]).all()).results:[];
+  if(adjustments.length>5000)fail('Çok fazla iade maliyet farkı var; tarih aralığını daraltın.',409);
+  return {from,to,stock,sales,expenses:[...expenses,...adjustments],suppliers,invoices,movements,pending_fee_cents:pendingFees[0].pending_fee_cents};
  }
  if(path==='/api/accounting/suppliers'&&method==='POST'){
   const x=await readBody(request),key=id(),tax=optional(x.tax_id);if(tax&&!/^\d{10,11}$/.test(tax))fail('VKN/TCKN 10 veya 11 rakam olmalı.');
@@ -85,7 +87,8 @@ export async function accountingApi(request,env,path,readBody){
    if(!await statement(db,'SELECT id FROM stock_movements WHERE id=?',[key]).first())fail('Bu üründe hareket var. Açılış yerine sayım düzeltmesini kullanın.',409);
   }else{
    if(qty===b.quantity_milli)fail('Sayım miktarı mevcut stokla aynı.');
-   await batch(db,[statement(db,"INSERT INTO stock_movements(id,product_id,quantity_milli,value_cents,kind,reference,notes,occurred_on) SELECT ?,product_id,?-quantity_milli,CASE WHEN ?>quantity_milli THEN CAST(ROUND((?-quantity_milli)*?/1000.0) AS INTEGER) ELSE -CAST(ROUND(value_cents*(quantity_milli-?)/MAX(quantity_milli,1.0)) AS INTEGER) END,'count',?,?,? FROM stock_balances WHERE product_id=? AND quantity_milli!=?",[key,qty,qty,qty,unitCost,qty,reference,reason,date,product,qty])]);
+   const result=await batch(db,[statement(db,"INSERT INTO stock_movements(id,product_id,quantity_milli,value_cents,kind,reference,notes,occurred_on) SELECT ?,product_id,?-quantity_milli,CASE WHEN ?>quantity_milli THEN CAST(ROUND((?-quantity_milli)*?/1000.0) AS INTEGER) ELSE -CAST(ROUND(value_cents*(quantity_milli-?)/MAX(quantity_milli,1.0)) AS INTEGER) END,'count',?,?,? FROM stock_balances WHERE product_id=? AND quantity_milli!=? AND quantity_milli=? AND value_cents=? RETURNING id",[key,qty,qty,qty,unitCost,qty,reference,reason,date,product,qty,b.quantity_milli,b.value_cents])]);
+   if(!result[0].results.length)fail('Stok işlem sırasında değişti. Sayım ekranını yenileyin.',409);
   }return {id:key};
  }
  if(path==='/api/accounting/sales'&&method==='POST'){
@@ -115,7 +118,9 @@ export async function accountingApi(request,env,path,readBody){
  const invoiceMatch=path.match(/^\/api\/accounting\/invoices\/([\w-]+)(?:\/(post|cancel|receive))?$/);
  if(invoiceMatch&&method==='GET'){
   const invoice=await statement(db,'SELECT * FROM purchase_invoices WHERE id=?',[invoiceMatch[1]]).first();if(!invoice)fail('Fatura bulunamadı.',404);
-  return {...invoice,splits:(await statement(db,'SELECT * FROM purchase_line_splits WHERE invoice_id=? ORDER BY created_at',[invoice.id]).all()).results.map(s=>({...s,original:JSON.parse(s.original_json),allocations:JSON.parse(s.allocations_json)})),lines:(await statement(db,'SELECT l.*,COALESCE((SELECT SUM(quantity_milli) FROM goods_receipts WHERE line_id=l.id),0) received_milli FROM purchase_lines l WHERE invoice_id=? ORDER BY rowid',[invoice.id]).all()).results,receipts:(await statement(db,'SELECT r.* FROM goods_receipts r JOIN purchase_lines l ON l.id=r.line_id WHERE l.invoice_id=? ORDER BY r.created_at',[invoice.id]).all()).results};
+  const returns=env.WORKSPACE==='ec'?(await statement(db,'SELECT r.*,(SELECT id FROM purchase_returns x WHERE x.reversal_of=r.id) reversed_by FROM purchase_returns r JOIN purchase_lines l ON l.id=r.line_id WHERE l.invoice_id=? ORDER BY r.created_at,r.rowid',[invoice.id]).all()).results:[];
+  const reversals=env.WORKSPACE==='ec'?(await statement(db,'SELECT x.* FROM receipt_reversals x JOIN goods_receipts g ON g.id=x.receipt_id JOIN purchase_lines l ON l.id=g.line_id WHERE l.invoice_id=?',[invoice.id]).all()).results:[];
+  return {...invoice,returns,receipt_reversals:reversals,splits:(await statement(db,'SELECT * FROM purchase_line_splits WHERE invoice_id=? ORDER BY created_at',[invoice.id]).all()).results.map(s=>({...s,original:JSON.parse(s.original_json),allocations:JSON.parse(s.allocations_json)})),lines:(await statement(db,`SELECT l.*,COALESCE((SELECT SUM(quantity_milli) FROM ${receiptTable} WHERE line_id=l.id),0) received_milli FROM purchase_lines l WHERE invoice_id=? ORDER BY rowid`,[invoice.id]).all()).results,receipts:(await statement(db,'SELECT r.* FROM goods_receipts r JOIN purchase_lines l ON l.id=r.line_id WHERE l.invoice_id=? ORDER BY r.created_at',[invoice.id]).all()).results};
  }
  if(path==='/api/accounting/invoices'&&method==='POST'){
   const x=await readBody(request),key=id();if(x.currency!=='TRY')fail('Bu sürümde yalnızca TRY faturalar işlenir.');
@@ -143,7 +148,7 @@ export async function accountingApi(request,env,path,readBody){
    const date=day(x.occurred_on),reference=text(x.reference,'Teslim referansı'),statements=[];
    const receiptLines=new Set((await statement(db,"SELECT id FROM purchase_lines WHERE invoice_id=? AND line_type='product'",[key]).all()).results.map(l=>l.id));
    for(const line of x.lines){const q=milli(line.quantity);if(!receiptLines.has(line.id))fail('Bu faturada ürün satırı bulunamadı.',404);
-    statements.push(statement(db,'INSERT INTO goods_receipts(id,line_id,quantity_milli,value_cents,occurred_on,reference) SELECT ?,id,?,CAST(ROUND(net_cents*(?+COALESCE((SELECT SUM(quantity_milli) FROM goods_receipts WHERE line_id=l.id),0))/(quantity_milli*1.0)) AS INTEGER)-COALESCE((SELECT SUM(value_cents) FROM goods_receipts WHERE line_id=l.id),0),?,? FROM purchase_lines l WHERE id=?',[id(),q,q,date,reference,line.id]));
+    statements.push(statement(db,`INSERT INTO goods_receipts(id,line_id,quantity_milli,value_cents,occurred_on,reference) SELECT ?,id,?,CAST(ROUND(net_cents*(?+COALESCE((SELECT SUM(quantity_milli) FROM ${receiptTable} WHERE line_id=l.id),0))/(quantity_milli*1.0)) AS INTEGER)-COALESCE((SELECT SUM(value_cents) FROM ${receiptTable} WHERE line_id=l.id),0),?,? FROM purchase_lines l WHERE id=?`,[id(),q,q,date,reference,line.id]));
    }await batch(db,[...statements,log(db,'Mal teslimi kaydedildi; eldeki stok güncellendi')]);return {id:key};
   }
   if(existing.status!=='draft')fail('Bu fatura daha önce işlendi.',409);
