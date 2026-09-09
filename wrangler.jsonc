@@ -1,11 +1,18 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "lunapot-panel",
-  "account_id": "46d9b05d5b69c0241e736ce869a0a642",
+  "account_id": "74daa05337ce197e42ab5747579dea8b",
   "main": "src/worker.js",
   "compatibility_date": "2026-09-08",
   "workers_dev": true,
   "preview_urls": false,
+  "routes": [
+    {
+      "pattern": "muhasebe.lunapot.com",
+      "custom_domain": true,
+      "zone_id": "fd5ae9b0fce1b49a79a7603cd12c6ff3"
+    }
+  ],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
@@ -15,7 +22,7 @@
     {
       "binding": "DB",
       "database_name": "lunapot-db",
-      "database_id": "d1def5dd-0aff-402a-af89-7d580b22daae",
+      "database_id": "ae7a9444-838e-4d0f-b547-ce01c23f0328",
       "preview_database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "migrations"
     }
