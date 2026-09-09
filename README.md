@@ -127,3 +127,10 @@ Personelin kişisel ana sayfası sadece yetkili bölüm kartlarını gösterir. 
 Kapsam ekran ve işlem düzeyindedir: stok ekranı miktar ile maliyeti, sipariş ekranı müşteri ve satış/maliyet tutarını birlikte içerir. Maliyet sütununu, tek müşteriyi veya tek ürünü ayrıca maskeleyen izin bu sürümde yoktur. Reçete/maliyet hesabı için ürün ve hammadde bilgileri; fatura/satış girişi için ürün ve stok bilgileri ilgili iznin kapsamındadır. Her izin satırında bu içerik açıklanır. Üretimde Alış ve stok ortak ekranı kendi satış/gider alt sekmelerini de kapsar. Şirket ayarları, bağlantı anahtarı, kullanıcılar ve kurtarma sadece yöneticidedir.
 
 102 otomatik test, yerel personel girişi, stok görüntüleme, kapalı cari adresinin engellenmesi ve yetki tablosu kontrolü. Gerçek çalışan veya mağaza bağlantısı oluşturulmadı.
+
+### v2.6.1 — E-ticaret sipariş takibi
+
+Sipariş araması artık tüm kayıtlarda paket, sipariş ve gönderi referansını tarar. Kanal, durum, sipariş tarihleri ve takip filtresi birlikte uygulanır; 50 paketlik sayfalar arasında geçilir. İş listesi, eşleşme/tutar eksikleri ve değişen kaynak kayıtları için doğrudan ilgili paketlere bağlanır. Gönderiminden 7 gün geçtiği halde kargoda görünen paketler ayrıca listelenir; bu eşik bir teslim taahhüdü değildir. Kargo referansı ve geçen gün liste içinde görünür.
+
+105 otomatik test geçti; eski 500 kayıt sınırının dışındaki arama, SQL arama karakterleri, sayfalama, tarih doğrulaması, tamamlanmış paketlerin kargo uyarısından hariç tutulması test edildi. TY/HB/EDM gerçek veri bağlantıları bu sürümde açılmadı. Yeni veritabanı geçişi veya ücretli servis yoktur.
+Yerel tarayıcıda 51 örnek siparişle sayfalama, kanal filtresi, arama, detaydan dönüş, geçersiz tarihten toparlanma ve 390 piksel telefon genişliği doğrulandı; tarayıcı hatası görülmedi.

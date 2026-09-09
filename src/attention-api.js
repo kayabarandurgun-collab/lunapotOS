@@ -9,7 +9,8 @@ export async function attentionApi(request,env,path){
    COALESCE(SUM(source_changed=1 AND status!='cancelled'),0) changed,
    COALESCE(SUM(status='draft' AND EXISTS(SELECT 1 FROM order_lines l WHERE l.package_id=order_packages.id AND (SELECT COALESCE(SUM(c.revenue_share_bps),0) FROM order_line_components c WHERE c.line_id=l.id)!=10000)),0) unmapped,
    COALESCE(SUM(status='draft' AND EXISTS(SELECT 1 FROM order_lines l WHERE l.package_id=order_packages.id AND (l.net_revenue_cents IS NULL OR l.gross_cents IS NULL OR l.vat_bps IS NULL))),0) missing_amounts,
-   COALESCE(SUM(status='reserved'),0) reserved FROM order_packages`,
+   COALESCE(SUM(status='reserved'),0) reserved,
+   COALESCE(SUM(status='shipped' AND shipped_on<=date(?,'-7 days')),0) long_shipping FROM order_packages`,
   `SELECT COUNT(*) total,
    COALESCE(SUM(b.quantity_milli-COALESCE((SELECT SUM(r.quantity_milli) FROM order_reservations r WHERE r.product_id=p.id AND r.released_on IS NULL),0)<=p.min_stock_milli),0) low,
    COALESCE(SUM(NOT EXISTS(SELECT 1 FROM stock_movements m WHERE m.product_id=p.id)),0) no_history
@@ -25,7 +26,7 @@ export async function attentionApi(request,env,path){
    (SELECT COUNT(*) FROM shipping_rates WHERE archived_at IS NULL AND valid_from<=? AND valid_to BETWEEN ? AND ?) shipping_expiring,
    (SELECT COUNT(*) FROM commission_rates WHERE archived_at IS NULL AND valid_from<=? AND valid_to BETWEEN ? AND ?) commission_expiring`
  ];
- const results=await env.DB.batch(queries.map((sql,i)=>i===4?env.DB.prepare(sql).bind(day,day,day,day,day,day,next,day,day,next):env.DB.prepare(sql)));
+ const results=await env.DB.batch(queries.map((sql,i)=>i===4?env.DB.prepare(sql).bind(day,day,day,day,day,day,next,day,day,next):i===0?env.DB.prepare(sql).bind(day):env.DB.prepare(sql)));
  const [orders,stock,invoices,sales,tariffs]=results.map(r=>r.results[0]);
  return {as_of:day,scope:'all_time',orders,stock,invoices,sales,tariffs};
 }

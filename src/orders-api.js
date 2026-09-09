@@ -1,5 +1,6 @@
 import {cents,milli} from '../public/accounting-math.js';
 import {resolveMapping} from './catalog-api.js';
+import {ordersQuery} from './orders-query.js';
 const fail=(m,s=400)=>{throw Object.assign(new Error(m),{status:s});};
 const id=()=>crypto.randomUUID();
 const text=(v,label,max=200)=>{if(typeof v!=='string'||!v.trim()||v.length>max)fail(label+' alanını kontrol edin.');return v.trim();};
@@ -69,19 +70,20 @@ export async function ordersApi(request,env,path,readBody){
  if(!path.startsWith('/api/orders'))return null;if(env.WORKSPACE!=='ec')fail('Siparişler e-ticaret çalışma alanına aittir.',403);
  const db=env.DB,method=request.method;
  if(path==='/api/orders'&&method==='GET'){
-  const selected=new URL(request.url).searchParams.get('package');if(selected&&!/^[\w-]{1,100}$/.test(selected))fail('Paket kimliği geçersiz.');
-  const scope=selected?' WHERE id=?':'',args=selected?[selected]:[];
+  const {scope,args,page,limit,offset}=ordersQuery(request.url);
+  const pageSQL=scope+' ORDER BY occurred_on DESC,created_at DESC,rowid DESC LIMIT ? OFFSET ?',pageArgs=[...args,limit,offset];
 
   const [packages,lines,products,reservations,components]=(await db.batch([
-   statement(db,'SELECT * FROM order_packages'+scope+' ORDER BY occurred_on DESC,created_at DESC,rowid DESC LIMIT 501',args),
-   statement(db,'SELECT l.* FROM order_lines l WHERE package_id IN (SELECT id FROM order_packages'+scope+' ORDER BY occurred_on DESC,created_at DESC,rowid DESC LIMIT 500)',args),
+   statement(db,'SELECT * FROM order_packages'+pageSQL,pageArgs),
+   statement(db,'SELECT l.* FROM order_lines l WHERE package_id IN (SELECT id FROM order_packages'+pageSQL+')',pageArgs),
    db.prepare('SELECT p.id,p.name,p.sku,p.stock_unit,b.quantity_milli,b.value_cents,COALESCE((SELECT SUM(r.quantity_milli) FROM order_reservations r WHERE r.product_id=p.id AND r.released_on IS NULL),0) reserved_milli FROM products p JOIN stock_balances b ON b.product_id=p.id ORDER BY p.name'),
    db.prepare('SELECT * FROM order_reservations WHERE released_on IS NULL'),
-   statement(db,'SELECT c.*,p.name product_name,p.sku,p.stock_unit current_stock_unit FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN products p ON p.id=c.product_id WHERE l.package_id IN (SELECT id FROM order_packages'+scope+' ORDER BY occurred_on DESC,created_at DESC,rowid DESC LIMIT 500) ORDER BY c.rowid',args)
+   statement(db,'SELECT c.*,p.name product_name,p.sku,p.stock_unit current_stock_unit FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN products p ON p.id=c.product_id WHERE l.package_id IN (SELECT id FROM order_packages'+pageSQL+') ORDER BY c.rowid',pageArgs)
   ])).map(r=>r.results);
   const counts=(await db.prepare('SELECT status,COUNT(*) count FROM order_packages GROUP BY status').all()).results;
+  const total=(await statement(db,'SELECT COUNT(*) count FROM order_packages'+scope,args).first()).count;
   const stock=new Map(products.map(p=>[p.id,p.quantity_milli-p.reserved_milli]));
-  return {packages:packages.slice(0,500).map(p=>{const ls=lines.filter(l=>l.package_id===p.id),lineIDs=new Set(ls.map(l=>l.id)),cs=components.filter(c=>lineIDs.has(c.line_id)),needs=new Map();for(const c of cs)needs.set(c.product_id,(needs.get(c.product_id)||0)+c.quantity_milli);const readiness=p.source_changed?'source_changed':ls.some(l=>cs.filter(c=>c.line_id===l.id).reduce((n,c)=>n+c.revenue_share_bps,0)!==10000)||cs.some(c=>c.stock_unit!==c.current_stock_unit)?'needs_mapping':ls.some(l=>l.net_revenue_cents===null)?'needs_amounts':p.status==='draft'&&[...needs].some(([product,q])=>(stock.get(product)||0)<q)?'needs_stock':'ready';return {...p,readiness};}),lines,components,products:products.map(p=>({...p,available_milli:p.quantity_milli-p.reserved_milli})),reservations,counts,truncated:packages.length>500};
+  return {packages:packages.slice(0,500).map(p=>{const ls=lines.filter(l=>l.package_id===p.id),lineIDs=new Set(ls.map(l=>l.id)),cs=components.filter(c=>lineIDs.has(c.line_id)),needs=new Map();for(const c of cs)needs.set(c.product_id,(needs.get(c.product_id)||0)+c.quantity_milli);const readiness=p.source_changed?'source_changed':ls.some(l=>cs.filter(c=>c.line_id===l.id).reduce((n,c)=>n+c.revenue_share_bps,0)!==10000)||cs.some(c=>c.stock_unit!==c.current_stock_unit)?'needs_mapping':ls.some(l=>l.net_revenue_cents===null)?'needs_amounts':p.status==='draft'&&[...needs].some(([product,q])=>(stock.get(product)||0)<q)?'needs_stock':'ready';return {...p,readiness};}),lines,components,products:products.map(p=>({...p,available_milli:p.quantity_milli-p.reserved_milli})),reservations,counts,truncated:offset+packages.length<total,pagination:{page,limit,total,pages:Math.max(1,Math.ceil(total/limit)),has_more:offset+packages.length<total}};
  }
  const previewMatch=path.match(/^\/api\/orders\/([\w-]+)\/source$/);
  if(previewMatch&&method==='GET'){

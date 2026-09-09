@@ -2,10 +2,11 @@ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 export function attentionItems(data,connections,settings,pendingFees=0){
  const list=[],add=(count,href,title,detail,tone='warning')=>{if(count>0)list.push({count,href,title,detail,tone});};
  const {orders,stock,invoices,sales,tariffs}=data;
- add(orders.changed,'#orders','Kaynak sipariş değişti','Stok işlemlerinden önce pazaryerindeki son kaydı karşılaştır.','danger');
- add(orders.unmapped,'#orders','Ürün eşleşmesi bekleyen paket','İlanı doğru stok kartına veya setine bağla.');
- add(orders.missing_amounts,'#orders','Satış tutarı eksik paket','KDV, indirim ve net tutarı kaynak siparişle doğrula.');
- add(orders.reserved,'#orders','Stok ayrıldı, gönderim bekliyor','Depodan çıkan paketleri kaydet; stok bir kez düşsün.');
+ add(orders.changed,'#orders?watch=source_changed','Kaynak sipariş değişti','Stok işlemlerinden önce pazaryerindeki son kaydı karşılaştır.','danger');
+ add(orders.unmapped,'#orders?watch=unmapped','Ürün eşleşmesi bekleyen paket','İlanı doğru stok kartına veya setine bağla.');
+ add(orders.missing_amounts,'#orders?watch=missing_amounts','Satış tutarı eksik paket','KDV, indirim ve net tutarı kaynak siparişle doğrula.');
+ add(orders.reserved,'#orders?status=reserved','Stok ayrıldı, gönderim bekliyor','Depodan çıkan paketleri kaydet; stok bir kez düşsün.');
+ add(orders.long_shipping,'#orders?watch=long_shipping','7+ gündür kargoda görünen paket','Teslim durumunu kontrol et. Bu süre uyarı eşiğidir; teslim taahhüdü değildir.');
  add(stock.low,'#stock','Kritik kullanılabilir stok','Siparişlere ayrılan miktar düşüldükten sonra alt sınırda.');
  add(invoices.drafts,'#invoices','İncelenecek alış faturası','Tedarikçiyi, ürün bağlantısını ve tutarları kontrol et.');
  add(invoices.awaiting_receipt,'#invoices','Mal teslimi tamamlanmamış fatura','Borç kaydedilmiş; depoya gelen miktarı ayrıca işle.');
