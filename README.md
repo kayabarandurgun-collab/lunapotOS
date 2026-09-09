@@ -12,7 +12,7 @@ TY/HB/EDM gerçek bağlantıları kullanıcıyla en son yapılacaktır. Otomatik
 
 Mobil ve web uyumlu, Cloudflare Workers + D1 üzerinde çalışan iki ayrı iş alanı.
 
-Adresler: [Uygulamalar](https://lunapot-panel.lunapot-os.workers.dev/) · [Lunapot Üretim](https://lunapot-panel.lunapot-os.workers.dev/uretim/) · [E-Ticaret](https://lunapot-panel.lunapot-os.workers.dev/eticaret/).
+Adresler: [Uygulamalar](https://muhasebe.lunapot.com/) · [Lunapot Üretim](https://muhasebe.lunapot.com/uretim/) · [E-Ticaret](https://muhasebe.lunapot.com/eticaret/).
 
 - **Uygulamalar** (/): büyük simgeli ortak giriş, iki ayrı çalışma alanına geçiş. Eski /#dashboard gibi üretim bağlantıları /uretim/ altına taşınır. Her panelde ana ekrana dönüş vardır.
 - **Lunapot Üretim** (/uretim/): ürünler, hammaddeler, reçeteler, üretim maliyeti, alış/stok ve cari.
