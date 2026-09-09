@@ -47,6 +47,8 @@ Node.js 22+ gerekir (testlerde node:sqlite kullanılır).
 
 Üretim hesabı ve D1 kimliği wrangler.jsonc içinde sabitlenmiştir. preview_database_id yalnızca mevcut yerel geliştirme veritabanı kimliğini korur; uzak önizleme veritabanı kurulmamıştır. Üretim sürüm önizleme adresleri kapalıdır.
 
+GitHub `dekovillmimarlik-creator/lunapotOS` deposunun `main` dalı Cloudflare Workers Builds'e bağlıdır. Her gönderimde `npm test && npm run build` başarılı olursa `npx wrangler deploy` çalışır. Diğer dalların yayınları kapalıdır. Yeni veritabanı geçişleri otomatik yayın komutuna dahil değildir; uyumlu geçişleri kodu göndermeden önce `npm run db:remote` ile uygulayın. Derleme Node.js sürümü `.node-version` dosyasında sabitlenmiştir.
+
 Uzak D1 sorgu uç noktası bazı trigger gövdelerini ayırırken `incomplete input` hatası verdiği için `db:remote` geçişleri resmî SQL dosyası içe aktarımıyla uygular. Her dosyanın geçiş kaydı aynı içe aktarımın içindedir; hata halinde dosya geri alınır. Komut yalnızca bekleyen dosyaları çalıştırır. Aynı anda birden fazla geçiş işlemi başlatmayın. Yerelde standart `db:local` kullanılabilir.
 
 Ücretli plan, alan adı veya AI aboneliği gerekmez. Sağlayıcı ücretsiz kotaları ve pazaryeri/EDM servis hakkı kendi hesabında geçerlidir. Yerel test veritabanı (.wrangler veya work/) kesinlikle üretime kopyalanmaz.
