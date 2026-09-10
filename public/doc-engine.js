@@ -402,30 +402,30 @@ export async function pdfBytes({title, subtitle, blocks = [], footer = ''}, kit)
 /* ---------- yazdırılabilir görünüm ---------- */
 // Yazdırma her zaman beyaz kâğıt düzenini kullanır; kullanıcı koyu temadayken de okunaklıdır.
 
-export function printDocument(html, {title = 'Belge'} = {}) {
+export function printDocument(html, {title = 'Belge', bodyClass = ''} = {}) {
   const frame = document.createElement('iframe');
   frame.setAttribute('aria-hidden', 'true');
-  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+  frame.className = 'doc-print-frame';
   document.body.append(frame);
   const win = frame.contentWindow;
+  // Stiller AYRI bir dosyadan gelir. Panelin guvenlik politikasi (style-src 'self')
+  // satir ici <style> bloklarini engelliyor: gomulu stil sessizce uygulanmaz ve
+  // cikti stilsiz basilirdi. Ayni kaynakli stil dosyasi politikaya uygundur.
   win.document.open();
   win.document.write(`<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>${escapeXml(title)}</title>
-<style>
- @page{size:A4;margin:16mm}
- :root{color-scheme:light}
- body{margin:0;background:#fff;color:#243830;font:12px/1.6 'Segoe UI',system-ui,sans-serif}
- h1{font-size:19px;margin:0 0 4px}h2{font-size:14px;margin:22px 0 8px}
- .muted{color:#64746c;font-size:11px}
- table{width:100%;border-collapse:collapse;margin:10px 0}
- th{background:#edf5f0;text-align:left;font-size:10px;padding:7px 9px;border:1px solid #dfe7e0}
- td{padding:7px 9px;border:1px solid #dfe7e0;font-size:11px;vertical-align:top;overflow-wrap:anywhere}
- tr{break-inside:avoid}
- .right{text-align:right}
- .note{border:1px solid #efe0bb;background:#fff8e9;padding:9px 12px;border-radius:6px;color:#76531c;font-size:11px}
-</style></head><body>${html}</body></html>`);
+<link rel="stylesheet" href="/print.css"></head><body${bodyClass ? ` class="${escapeXml(bodyClass)}"` : ''}>${html}</body></html>`);
   win.document.close();
   const cleanup = () => setTimeout(() => frame.remove(), 1000);
-  frame.onload = () => { win.focus(); win.print(); cleanup(); };
-  // onload bazi tarayicilarda document.write sonrasi tetiklenmez; yedek yol.
-  setTimeout(() => { if (frame.isConnected) { win.focus(); win.print(); cleanup(); } }, 350);
+  let printed = false;
+  const go = () => {
+    if (printed || !frame.isConnected) return;
+    printed = true;
+    win.focus(); win.print(); cleanup();
+  };
+  // Stil dosyasi yuklenmeden yazdirirsak cikti stilsiz cikar; once onu bekleriz.
+  const link = win.document.querySelector('link[rel=stylesheet]');
+  if (link) { link.addEventListener('load', go, {once: true}); link.addEventListener('error', go, {once: true}); }
+  // Yedek yol: yukleme olayi bazi tarayicilarda document.write sonrasi tetiklenmez.
+  setTimeout(go, 1200);
 }
+

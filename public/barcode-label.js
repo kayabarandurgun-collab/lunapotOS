@@ -54,7 +54,9 @@ export function code128Checksum(code) {
 }
 
 export const LABEL_SIZES = {
-  small: {name: 'Küçük · 38 × 25 mm', width_mm: 38, height_mm: 25, module_mm: 0.25, font: 6.5},
+  // 38 mm, 13 haneli bir barkodu okunabilir yogunlukta TASIMAZ: Code 128 sayilari
+  // tek tek kodlar ve EAN-13'ten genistir. Ad bunu soyler, plan da kisa olmayan kodu reddeder.
+  small: {name: 'Küçük · 38 × 25 mm — yalnızca kısa kodlar', width_mm: 38, height_mm: 25, module_mm: 0.25, font: 6.5},
   medium: {name: 'Orta · 50 × 30 mm', width_mm: 50, height_mm: 30, module_mm: 0.3, font: 7.5},
   large: {name: 'Büyük · 70 × 40 mm', width_mm: 70, height_mm: 40, module_mm: 0.4, font: 9}
 };
@@ -89,7 +91,12 @@ export function labelPlan({code, size = 'medium'}) {
   };
 }
 
-/** Yazdırma için etiket sayfası; tarayıcı yazdırma penceresi bunu kullanır. */
+/**
+ * Yazdırma için etiket sayfası. Satır içi stil YOKTUR: panelin güvenlik politikası
+ * (style-src 'self') satır içi stilleri ve gömülü <style> bloklarını engelliyor,
+ * etiketler stilsiz basılırdı. Ölçüler print.css içindeki .labels sınıflarından gelir.
+ * SVG x/width birer sunum özniteliğidir, satır içi stil değildir; politikaya takılmaz.
+ */
 export function labelPrintHtml(labels, {size = 'medium'} = {}) {
   const preset = LABEL_SIZES[size];
   if (!preset) throw new Error('Etiket boyutu geçersiz.');
@@ -106,19 +113,10 @@ export function labelPrintHtml(labels, {size = 'medium'} = {}) {
     }).join('');
     return `<div class="label">
       <div class="title">${escapeHtml(label.title || '')}</div>
-      <svg viewBox="0 0 ${preset.width_mm} ${plan.bar_height_mm}" width="${preset.width_mm}mm" height="${plan.bar_height_mm}mm" preserveAspectRatio="none">${rects}</svg>
+      <svg viewBox="0 0 ${preset.width_mm} ${plan.bar_height_mm}" preserveAspectRatio="none" role="img" aria-label="${escapeHtml(label.code)}">${rects}</svg>
       <div class="code">${escapeHtml(label.code)}</div>
       ${label.subtitle ? `<div class="sub">${escapeHtml(label.subtitle)}</div>` : ''}
     </div>`;
   }).join('');
-  return `<style>
- @page{margin:6mm}
- body{margin:0;font:10px/1.25 'Segoe UI',system-ui,sans-serif;color:#000;background:#fff}
- .sheet{display:flex;flex-wrap:wrap;gap:3mm}
- .label{width:${preset.width_mm}mm;height:${preset.height_mm}mm;border:0.2mm dashed #bbb;padding:1mm;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;align-items:center;break-inside:avoid}
- .title{font-size:${preset.font}pt;font-weight:600;text-align:center;overflow:hidden;max-height:2.6em}
- .code{font-family:'Courier New',monospace;font-size:${preset.font}pt;letter-spacing:0.4px}
- .sub{font-size:${preset.font - 1.5}pt;color:#444}
- svg rect{fill:#000}
-</style><div class="sheet">${cells}</div>`;
+  return `<div class="labels ${size}">${cells}</div>`;
 }

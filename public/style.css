@@ -5,3 +5,8 @@
 @media(max-width:440px){.page-heading{flex-direction:column;gap:15px}.page-heading>.primary{font-size:13px}.recipe-grid{grid-template-columns:1fr}.recipe-price{flex-direction:row;align-items:center}.recipe-line{grid-template-columns:1fr 1fr 34px;gap:0 8px}.recipe-line>label:first-child{grid-column:1/-1}.recipe-line .icon-button{margin:0}.field-grid{grid-template-columns:1fr}.breadcrumb{font-size:11px;gap:5px}.breadcrumb strong{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.header-actions .icon-button{width:32px}.stat{padding:16px}.stat>span{font-size:12px}.activity-row time{margin-left:19px}.auth-brand h1{font-size:32px}.auth-brand{gap:25px}h1{overflow-wrap:anywhere}.order-summary>div{flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;scroll-behavior:auto!important}}
 @media(max-width:800px){#sidebar{visibility:hidden}#sidebar.open{visibility:visible}}
+
+/* Yazdirma cercevesi gizli durur. Satir ici stil CSP (style-src self) tarafindan engellendigi
+   icin bu kural stil dosyasinda tutulur. */
+.doc-print-frame{position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden}
+.bc-camera video{width:100%;max-width:420px;border-radius:12px;display:block}

@@ -1,0 +1,75 @@
+/* Yazdırma düzeni. Bu dosya AYRI bir stil dosyasıdır çünkü panelin güvenlik
+   politikası (CSP style-src 'self') satır içi <style> bloklarını engeller:
+   yazdırma penceresine gömülen stiller sessizce uygulanmaz ve çıktı stilsiz basılır.
+   Buradaki stiller her zaman beyaz kâğıt düzenidir; kullanıcı koyu temadayken de okunaklıdır. */
+
+@page { size: A4; margin: 16mm; }
+
+:root { color-scheme: light; }
+
+body {
+  margin: 0;
+  background: #fff;
+  color: #243830;
+  font: 12px/1.6 'Segoe UI', system-ui, sans-serif;
+}
+
+h1 { font-size: 19px; margin: 0 0 4px; }
+h2 { font-size: 14px; margin: 22px 0 8px; }
+.muted { color: #64746c; font-size: 11px; }
+
+table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+th { background: #edf5f0; text-align: left; font-size: 10px; padding: 7px 9px; border: 1px solid #dfe7e0; }
+td { padding: 7px 9px; border: 1px solid #dfe7e0; font-size: 11px; vertical-align: top; overflow-wrap: anywhere; }
+tr { break-inside: avoid; }
+.right { text-align: right; }
+
+.note {
+  border: 1px solid #efe0bb;
+  background: #fff8e9;
+  padding: 9px 12px;
+  border-radius: 6px;
+  color: #76531c;
+  font-size: 11px;
+}
+
+/* ---------- barkod etiketleri ---------- */
+/* Etiket sayfası kendi kâğıt düzenini kullanır; kenar boşluğu etiket için küçüktür. */
+
+.labels { display: flex; flex-wrap: wrap; gap: 3mm; }
+
+.labels .label {
+  border: 0.2mm dashed #bbb;
+  padding: 1mm;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  break-inside: avoid;
+}
+
+.labels .title { font-weight: 600; text-align: center; overflow: hidden; max-height: 2.6em; }
+.labels .code { font-family: 'Courier New', monospace; letter-spacing: 0.4px; }
+.labels .sub { color: #444; }
+.labels svg rect { fill: #000; }
+
+/* Boyutlar sınıfla verilir; satır içi stil CSP tarafından engellenir. */
+.labels.small .label { width: 38mm; height: 25mm; }
+.labels.small .title, .labels.small .code { font-size: 6.5pt; }
+.labels.small .sub { font-size: 5pt; }
+
+.labels.medium .label { width: 50mm; height: 30mm; }
+.labels.medium .title, .labels.medium .code { font-size: 7.5pt; }
+.labels.medium .sub { font-size: 6pt; }
+
+.labels.large .label { width: 70mm; height: 40mm; }
+.labels.large .title, .labels.large .code { font-size: 9pt; }
+.labels.large .sub { font-size: 7.5pt; }
+
+/* Barkod çizimi etiketin genişliğini doldurur; oran korunmaz çünkü modül
+   genişlikleri milimetre cinsinden zaten hesaplanmıştır. */
+.labels svg { width: 100%; height: auto; }
+
+/* Sozlesme imza kutusu. Yukseklik burada verilir; satir ici stil CSP tarafindan engellenir. */
+.sign-box{height:70px}

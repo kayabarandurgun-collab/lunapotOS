@@ -157,7 +157,7 @@ export function offerPrintHtml(payload) {
   const {snapshot, today: todayIso} = payload, offer = merged(payload);
   const rows = lineRows(snapshot.totals);
   const signature = offer.kind === 'contract'
-    ? '<h2>İmzalar</h2><table><tbody><tr><th>Satıcı · kaşe ve imza</th><td style="height:70px"></td></tr><tr><th>Alıcı · kaşe ve imza</th><td style="height:70px"></td></tr></tbody></table>'
+    ? '<h2>İmzalar</h2><table><tbody><tr><th>Satıcı · kaşe ve imza</th><td class="sign-box"></td></tr><tr><th>Alıcı · kaşe ve imza</th><td class="sign-box"></td></tr></tbody></table>'
     : '';
   return `<h1>${escapeHtml(kindName(offer.kind))}</h1>
 <p class="muted">${escapeHtml(snapshot.party.name)} · ${escapeHtml(offer.document_no)} · ${offer.revision}. sürüm · ${escapeHtml(statusName(offer, todayIso))}</p>

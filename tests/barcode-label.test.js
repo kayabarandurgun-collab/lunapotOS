@@ -57,7 +57,8 @@ test('Yazdırma sayfası kodu, adı ve gerçek barları taşır', () => {
   assert.ok(html.includes('İç kullanım kodu'));
   assert.ok((html.match(/<svg/g) || []).length === 2, 'her etikette bir barkod çizimi');
   assert.ok((html.match(/<rect/g) || []).length > 40, 'gerçek barlar çizilmeli');
-  assert.ok(html.includes('50mm'), 'seçilen etiket boyutu uygulanmalı');
+  // Olculer artik print.css icindeki .labels.medium sinifindan gelir; HTML'e gomulmez.
+  assert.ok(html.includes('class="labels medium"'), 'seçilen etiket boyutu sınıfla verilmeli');
   assert.deepEqual(Object.keys(LABEL_SIZES), ['small', 'medium', 'large']);
 });
 
