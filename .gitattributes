@@ -1,1 +1,3 @@
 migrations/*.sql text eol=lf
+*.ttf binary
+*.png binary

@@ -1,0 +1,3 @@
+fontkit (@pdf-lib/fontkit) - lisans: MIT
+Kaynak: node_modules/@pdf-lib/fontkit/package.json "license" alani
+Tam metin: https://github.com/Hopding/fontkit/blob/master/LICENSE
