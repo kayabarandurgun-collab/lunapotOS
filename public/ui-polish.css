@@ -72,3 +72,12 @@ dialog{border-radius:22px;border:1px solid var(--line);box-shadow:0 32px 110px #
 .ac-step-title{margin:26px 0 14px;padding-top:18px;border-top:1px solid var(--line);font-size:14px;letter-spacing:-.2px;color:var(--brand-dark)}
 .ac-step-title:first-of-type{margin-top:4px;padding-top:0;border-top:0}
 .form-body>.ac-step-title:first-child{margin-top:0}
+/* Siparis durum cizgisi ve kod kopyalama. */
+.order-timeline{display:flex;flex-wrap:wrap;gap:8px;list-style:none;padding:0;margin:0 0 16px;font-size:12px}
+.order-timeline li{padding:7px 12px;border-radius:999px;background:var(--canvas);border:1px solid var(--line);color:var(--muted)}
+.order-timeline li.done{background:#e9f5ed;border-color:#c6e3d2;color:#256142}
+.order-timeline li.current{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:650}
+.order-timeline-cancelled{margin:0 0 16px}
+.order-copy-row{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px}
+.order-copy-row button{font-size:12px;min-height:40px;padding:8px 12px;font-variant-numeric:tabular-nums}
+@media(max-width:600px){.order-copy-row button{flex:1 1 100%}}
