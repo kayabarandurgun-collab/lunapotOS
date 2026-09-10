@@ -66,3 +66,9 @@ dialog{border-radius:22px;border:1px solid var(--line);box-shadow:0 32px 110px #
 .setup-guide>summary:focus-visible{outline:3px solid var(--brand);outline-offset:-3px}
 .setup-guide>.step:last-of-type{border-bottom:0}
 @media(prefers-reduced-motion:reduce){.setup-guide>summary::after{transition:none}}
+/* Zorunlu alan isareti ve fatura giris adimlari. */
+.req{color:#b23949;margin-left:3px;font-weight:700}
+.ac-required-note{margin:0 0 18px}
+.ac-step-title{margin:26px 0 14px;padding-top:18px;border-top:1px solid var(--line);font-size:14px;letter-spacing:-.2px;color:var(--brand-dark)}
+.ac-step-title:first-of-type{margin-top:4px;padding-top:0;border-top:0}
+.form-body>.ac-step-title:first-child{margin-top:0}
