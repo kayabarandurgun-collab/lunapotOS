@@ -5,7 +5,12 @@ const names={trendyol:'Trendyol',hepsiburada:'Hepsiburada'},statuses={draft:'Haz
 export function mountPerformance(root){
  const abort=new AbortController(),today=new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Istanbul'});
  const route=new URLSearchParams(location.hash.split('?')[1]||'');
- let mode=route.get('mode')==='pending'?'pending':'delivered',from=new Date(Date.parse(today)-30*86400000).toISOString().slice(0,10),to=today,channel=['trendyol','hepsiburada'].includes(route.get('channel'))?route.get('channel'):'',result=Object.hasOwn(resultLabels,route.get('result'))?route.get('result'):'all',state=null,sequence=0;
+  // Secilen kapsam adres satirinda tutulur: yenileme, geri tusu ve paylasilan baglanti ayni araligi acar.
+ // Tarayici deposu kullanilmaz; baska kullanicinin veya diger calisma alaninin secimi tasinmaz.
+ const isDay=v=>typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v)&&new Date(v).toISOString().slice(0,10)===v;
+ const routeDay=(key,fallback)=>isDay(route.get(key))?route.get(key):fallback;
+ let mode=route.get('mode')==='pending'?'pending':'delivered',from=routeDay('from',new Date(Date.parse(today)-30*86400000).toISOString().slice(0,10)),to=routeDay('to',today),channel=['trendyol','hepsiburada'].includes(route.get('channel'))?route.get('channel'):'',result=Object.hasOwn(resultLabels,route.get('result'))?route.get('result'):'all',state=null,sequence=0;
+ function rememberScope(){const p=new URLSearchParams();if(mode==='pending')p.set('mode','pending');if(channel)p.set('channel',channel);if(result!=='all')p.set('result',result);p.set('from',from);p.set('to',to);history.replaceState(null,'','#performance?'+p);}
  function render(){
   if(abort.signal.aborted)return;
   const pending=mode==='pending',rows=selectPerformanceRows(state?.rows||[],{channel,result});
@@ -13,7 +18,7 @@ export function mountPerformance(root){
  }
  async function load(){const mine=++sequence;state=null;render();try{const r=await fetch('/api/ec/performance?'+new URLSearchParams({mode,from,to}),{signal:abort.signal}),data=await r.json();if(!r.ok)throw Error(data.error||'Rapor alınamadı.');if(mine!==sequence||abort.signal.aborted)return;state=data;render();}catch(e){if(e.name!=='AbortError'&&mine===sequence){root.querySelector('[data-performance-error]').textContent=e.message;root.querySelector('.loading')?.remove();}}}
  root.addEventListener('click',e=>{const b=e.target.closest('[data-mode]');if(!b||b.dataset.mode===mode)return;mode=b.dataset.mode;load();},{signal:abort.signal});
- root.addEventListener('submit',e=>{if(!e.target.matches('[data-performance-filter]'))return;e.preventDefault();const x=Object.fromEntries(new FormData(e.target));from=x.from;to=x.to;channel=x.channel;load();},{signal:abort.signal});
+ root.addEventListener('submit',e=>{if(!e.target.matches('[data-performance-filter]'))return;e.preventDefault();const x=Object.fromEntries(new FormData(e.target));from=x.from;to=x.to;channel=x.channel;rememberScope();load();},{signal:abort.signal});
  root.addEventListener('click',e=>{
  const b=e.target.closest('[data-result],[data-range],[data-export]');if(!b||b.disabled)return;
  if(b.dataset.result){result=b.dataset.result;render();root.querySelector('[data-result="'+result+'"]')?.focus();return;}

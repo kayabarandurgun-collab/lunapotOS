@@ -56,3 +56,13 @@ dialog{border-radius:22px;border:1px solid var(--line);box-shadow:0 32px 110px #
 @media(max-width:800px){.decision-overview{grid-template-columns:1fr}.decision-profit,.decision-stock,.decision-shortcut{padding:21px}.decision-net{font-size:30px}.decision-splits strong{font-size:21px}.decision-stock-stats{gap:12px}.price-limits{grid-template-columns:1fr}.price-limits>div{padding:14px}.price-limits strong{font-size:23px}.price-scenarios article{grid-template-columns:1fr 1fr}.price-scenarios article>div:last-of-type{grid-column:1/-1;display:flex;justify-content:space-between}.decision-low-list a{min-width:0;flex-basis:100%}}
 .integration-guide{margin-top:22px;padding-bottom:18px}.integration-guide>.help{padding:0 22px}.integration-guide-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 22px 16px}.integration-guide-grid details{border:1px solid var(--line,#e5e7ef);border-radius:14px;padding:16px;min-width:0}.integration-guide-grid summary{font-weight:700;cursor:pointer;line-height:1.5}.integration-guide-grid p{line-height:1.7;font-size:14px;color:#535c72}.integration-guide-grid a{font-size:14px;font-weight:700}.integration-guide .card-heading{flex-wrap:wrap;gap:12px}@media(max-width:700px){.integration-guide-grid{grid-template-columns:1fr;padding:0 14px 12px}.integration-guide>.help{padding:0 14px}}
 [data-quote-result]{scroll-margin-top:90px;outline-offset:3px}.price-rate-summary summary{cursor:pointer;font-weight:700}
+/* Baslangic rehberi: kurulum bitince kapali acilir, kaybolmaz. */
+.setup-guide{padding:0}
+.setup-guide>summary{cursor:pointer;list-style:none;gap:12px}
+.setup-guide>summary::-webkit-details-marker{display:none}
+.setup-guide>summary::after{content:'▾';margin-left:auto;color:var(--muted);font-size:13px;transition:transform .18s}
+.setup-guide[open]>summary::after{transform:rotate(180deg)}
+.setup-guide>summary:hover{background:var(--brand-soft)}
+.setup-guide>summary:focus-visible{outline:3px solid var(--brand);outline-offset:-3px}
+.setup-guide>.step:last-of-type{border-bottom:0}
+@media(prefers-reduced-motion:reduce){.setup-guide>summary::after{transition:none}}

@@ -21,3 +21,25 @@ test('Teslim edilmiş paket raporu, tahmin tarife sınırı aşılmış olsa da 
  assert.equal((await f.req('/ec/performance?mode=pending')).status,409,'Tahmin için sınırlı tarife verisiyle eksik hesap yapılmaz');
  }finally{f.close();}
 });
+
+import {decisionTotals} from '../public/decision-overview.js';
+
+test('Karar özeti yalnızca hesaplanabilen paketleri toplar ve eksik varken dönem sonucunu kesin göstermez',()=>{
+ const rows=[{profit_cents:5000},{profit_cents:-2000},{profit_cents:null}];
+ const partial=decisionTotals({rows,unallocated_fee_cents:0});
+ assert.equal(partial.calculated,2);
+ assert.equal(partial.total,3);
+ assert.equal(partial.profit,5000);
+ assert.equal(partial.loss,2000);
+ assert.equal(partial.net,null,'bilgisi eksik paket varken dönem sonucu kesin sayılmamalı');
+
+ const whole=decisionTotals({rows:rows.slice(0,2),unallocated_fee_cents:0});
+ assert.equal(whole.net,3000,'tüm paketler hesaplanınca net sonuç verilir');
+
+ const pendingFees=decisionTotals({rows:rows.slice(0,2),unallocated_fee_cents:1500});
+ assert.equal(pendingFees.net,null,'dağıtılmamış kesinti varken dönem sonucu kesin sayılmamalı');
+
+ const none=decisionTotals({rows:[],unallocated_fee_cents:0});
+ assert.equal(none.profit,null);
+ assert.equal(none.net,null);
+});
