@@ -89,3 +89,11 @@ dialog{border-radius:22px;border:1px solid var(--line);box-shadow:0 32px 110px #
 .history-links li{font-size:12px;line-height:1.6;padding:9px 11px;background:#fff;border:1px solid var(--line);border-radius:9px}
 .history-links li small{display:block;color:var(--muted)}
 .history-links .help{margin:6px 0;font-size:11px;letter-spacing:.4px;text-transform:uppercase}
+/* Uretim planlama bolumu: salt okunur, gerceklesen tuketimin ustunde durur. */
+.production-plan{margin:0 0 22px;padding:18px;border:1px solid var(--brand-border);border-radius:14px;background:var(--brand-soft)}
+.production-plan h3{margin:0 0 8px;font-size:15px;color:var(--brand-dark)}
+.production-plan table{background:#fff;border-radius:10px;overflow:hidden}
+.production-plan th{font-size:10px}
+.production-plan td{padding:11px 14px;font-size:12px}
+.production-plan tr.plan-short td{background:#fff3d9;color:#805510;font-weight:600}
+.production-plan .notice{margin:14px 0 0}
