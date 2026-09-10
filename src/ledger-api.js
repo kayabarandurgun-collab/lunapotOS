@@ -19,16 +19,33 @@ export async function ledgerApi(request,env,path,readBody){
  const db=env.DB,method=request.method;
  if(path==='/api/ledger'&&method==='GET'){
   const url=new URL(request.url),party=url.searchParams.get('party_id');if(party)await requireParty(db,party);
-  const where=party?' WHERE e.party_id=?':'',args=party?[party]:[];
+  // Cari hareket araması ve sayfalama sunucudadır; eski kayıtlar 500 sınırının ardında kalmaz.
+  // Bakiyeler her zaman tam veriden hesaplanır, filtreden etkilenmez.
+  const q=(url.searchParams.get('q')||'').trim(),from=url.searchParams.get('from')||'',to=url.searchParams.get('to')||'',due=url.searchParams.get('due')||'',page=Number(url.searchParams.get('page')||1);
+  if(q.length>200)fail('Arama en fazla 200 karakter olmalı.');
+  if(!['','overdue','upcoming'].includes(due))fail('Vade seçimi geçersiz.');
+  if(!Number.isSafeInteger(page)||page<1||page>1000000)fail('Sayfa bilgisi geçersiz.');
+  const today=new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Istanbul'});
+  const terms=[],args=[];
+  if(party){terms.push('e.party_id=?');args.push(party);}
+  if(from){terms.push('e.occurred_on>=?');args.push(day(from));}
+  if(to){terms.push('e.occurred_on<=?');args.push(day(to));}
+  if(from&&to&&from>to)fail('Başlangıç tarihi bitişten sonra olamaz.');
+  if(q){terms.push("(e.reference LIKE ? ESCAPE '\\' OR e.description LIKE ? ESCAPE '\\' OR s.name LIKE ? ESCAPE '\\')");const term='%'+q.replace(/[\\%_]/g,c=>'\\'+c)+'%';args.push(term,term,term);}
+  if(due==='overdue'){terms.push('e.due_on IS NOT NULL AND e.due_on<?');args.push(today);}
+  if(due==='upcoming'){terms.push('e.due_on IS NOT NULL AND e.due_on>=?');args.push(today);}
+  const where=terms.length?' WHERE '+terms.join(' AND '):'';
+  const limit=200;
+  const countRow=await stmt(db,`SELECT COUNT(*) total FROM party_entries e JOIN suppliers s ON s.id=e.party_id${where}`,args).first();
   const results=await db.batch([
    db.prepare('SELECT s.*,COALESCE(SUM(e.amount_cents),0) balance_cents FROM suppliers s LEFT JOIN party_entries e ON e.party_id=s.id GROUP BY s.id ORDER BY s.name'),
    db.prepare('SELECT a.*,COALESCE(SUM(t.amount_cents),0) balance_cents FROM cash_accounts a LEFT JOIN cash_transactions t ON t.account_id=a.id GROUP BY a.id ORDER BY a.name'),
-   stmt(db,`SELECT e.*,s.name party_name,COALESCE((SELECT SUM(a.amount_cents) FROM payment_allocations a WHERE (a.positive_entry_id=e.id OR a.negative_entry_id=e.id) AND NOT EXISTS(SELECT 1 FROM allocation_reversals r WHERE r.allocation_id=a.id)),0) allocated_cents,(SELECT id FROM party_entries r WHERE r.reversal_of=e.id) reversed_by FROM party_entries e JOIN suppliers s ON s.id=e.party_id${where} ORDER BY e.occurred_on DESC,e.created_at DESC,e.rowid DESC LIMIT 501`,args),
+   stmt(db,`SELECT e.*,s.name party_name,COALESCE((SELECT SUM(a.amount_cents) FROM payment_allocations a WHERE (a.positive_entry_id=e.id OR a.negative_entry_id=e.id) AND NOT EXISTS(SELECT 1 FROM allocation_reversals r WHERE r.allocation_id=a.id)),0) allocated_cents,(SELECT id FROM party_entries r WHERE r.reversal_of=e.id) reversed_by FROM party_entries e JOIN suppliers s ON s.id=e.party_id${where} ORDER BY e.occurred_on DESC,e.created_at DESC,e.rowid DESC LIMIT ? OFFSET ?`,[...args,limit,(page-1)*limit]),
    db.prepare('SELECT a.*,p.party_id,r.id reversed_by,r.reason reversal_reason FROM payment_allocations a JOIN party_entries p ON p.id=a.positive_entry_id LEFT JOIN allocation_reversals r ON r.allocation_id=a.id ORDER BY a.created_at DESC,a.rowid DESC LIMIT 501'),
    db.prepare('SELECT t.*,a.name account_name,e.party_id,s.name party_name,(SELECT id FROM cash_transactions r WHERE r.reversal_of=t.id) reversed_by FROM cash_transactions t JOIN cash_accounts a ON a.id=t.account_id LEFT JOIN party_entries e ON e.id=t.party_entry_id LEFT JOIN suppliers s ON s.id=e.party_id ORDER BY t.occurred_on DESC,t.created_at DESC,t.rowid DESC LIMIT 501')
   ]);
   const [parties,accounts,entries,allocations,cash]=results.map(r=>r.results);
-  return {parties,accounts,entries:entries.slice(0,500).map(e=>({...e,remaining_cents:Math.abs(e.amount_cents)-e.allocated_cents})),allocations:allocations.slice(0,500),cash_transactions:cash.slice(0,500),truncated:{entries:entries.length>500,allocations:allocations.length>500,cash_transactions:cash.length>500},currency:'TRY',balance_note:'Pozitif cari bakiye alacağınız; negatif bakiye borcunuzdur.'};
+  return {parties,accounts,entries:entries.map(e=>({...e,remaining_cents:Math.abs(e.amount_cents)-e.allocated_cents})),entry_pagination:{page,limit,total:countRow.total,pages:Math.max(1,Math.ceil(countRow.total/limit)),has_more:page*limit<countRow.total},entry_filters:{q,from,to,due,party_id:party||''},allocations:allocations.slice(0,500),cash_transactions:cash.slice(0,500),truncated:{entries:false,allocations:allocations.length>500,cash_transactions:cash.length>500},currency:'TRY',balance_note:'Pozitif cari bakiye alacağınız; negatif bakiye borcunuzdur.'};
  }
  if(method!=='POST')return null;
  const x=await readBody(request),key=id();

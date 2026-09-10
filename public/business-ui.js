@@ -32,7 +32,7 @@ const divided = (value, factor) => value === null || value === undefined ? '' : 
 export function mountBusiness(root, namespace, view) {
   if (!['ec','lp'].includes(namespace) || !['pricing','ledger'].includes(view)) throw new Error('Çalışma alanı veya ekran geçersiz.');
   const controller = new AbortController();
-  const state = {data:null, tab:view === 'pricing' ? 'quote' : 'parties', party:'', search:'', quote:null, quoteInput:{channel:'trendyol',desired_profit:0,max_price:10000}, disposed:false, sequence:0};
+  const state = { ledgerQuery: '', ledgerFrom: '', ledgerTo: '', ledgerDue: '', ledgerPage: 1, entryPagination: null,data:null, tab:view === 'pricing' ? 'quote' : 'parties', party:'', search:'', quote:null, quoteInput:{channel:'trendyol',desired_profit:0,max_price:10000}, disposed:false, sequence:0};
   const $ = selector => root.querySelector(selector);
   const api = async (path = '', body) => {
     const response = await fetch(`/api/${namespace}/${view}${path}`, {signal:controller.signal, ...(body === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})});
@@ -49,9 +49,20 @@ export function mountBusiness(root, namespace, view) {
   }
   async function load() {
     const sequence = ++state.sequence;
-    const result = await api(view === 'ledger' && state.party ? '?party_id=' + encodeURIComponent(state.party) : '');
+    let query = '';
+    if (view === 'ledger') {
+      const p = new URLSearchParams();
+      if (state.party) p.set('party_id', state.party);
+      if (state.ledgerQuery) p.set('q', state.ledgerQuery);
+      if (state.ledgerFrom) p.set('from', state.ledgerFrom);
+      if (state.ledgerTo) p.set('to', state.ledgerTo);
+      if (state.ledgerDue) p.set('due', state.ledgerDue);
+      if (state.ledgerPage > 1) p.set('page', String(state.ledgerPage));
+      query = p.toString() ? '?' + p : '';
+    }
+    const result = await api(query);
     if (state.disposed || sequence !== state.sequence || !root.isConnected) return;
-    state.data = result; render();
+    state.entryPagination = result.entry_pagination || null; state.data = result; render();
   }
   function render() {
     if (state.disposed || !state.data) return;
@@ -90,8 +101,23 @@ export function mountBusiness(root, namespace, view) {
     return `<div class="v2-card-body">${badge(q.estimated_profit_cents < 0 ? 'Bu fiyatta zarar görünüyor' : 'Tahmini katkı kârı',q.estimated_profit_cents < 0 ? 'danger' : 'success')}<strong class="v2-stat-value">${money(q.estimated_profit_cents)}</strong><p class="help">Kargo hesabı: ${number(q.billable_milli / 1000)} desi/kg</p>${targetWarning}${lines.map(([label,value]) => `<div class="v2-summary-line"><span>${label}</span><strong>${money(value)}</strong></div>`).join('')}${renderPriceDecision(state.quote)}<div class="v2-summary-line total"><span>Tahmini hakediş</span><strong>${money(q.estimated_payout_cents)}</strong></div><p class="help">Bu ön hakediş yalnızca tanımlı komisyon, kargo ve stopajı düşer. Diğer pazaryeri hizmet kesintileri ayrıca doğrulanır; ürün ve ambalaj maliyeti nakit hakedişinden düşülmez. ${money(q.withholding_cents)} stopaj nakit kesintisi olarak ayrı hesaplandı.</p>${f.status === 'found' ? `<div class="notice ${q.price_cents < f.price_cents ? '' : 'subtle'}"><strong>Hedef kâr için ${money(f.price_cents)} altında satma.</strong><br>Bu tutar paketin KDV dahil en düşük uygun toplam satış fiyatıdır. Her daha yüksek fiyatın aynı hedefi sağlayacağı garanti değildir; barem değişiminde yeniden hesapla.</div>` : `<div class="notice"><strong>${f.status === 'impossible' ? 'Seçtiğin aralıkta hedef kâra ulaşılamıyor.' : 'Güvenilir alt fiyat sınırı henüz bulunamadı.'}</strong>${missing.length ? `<ul>${missing.map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : '<p>Üst sınırı veya hedef kârı gözden geçir.</p>'}</div>`}<details><summary>Hesapta kullanılan tarifeler</summary><p class="help">Komisyon: ${esc(state.data.commissionRates.find(r => r.id === q.commission_rate_id)?.label || '—')}<br>Kargo: ${esc(state.data.shippingRates.find(r => r.id === q.shipping_rate_id)?.label || '—')}</p></details></div>`;
   }
 
+  // Sunucu sayfalamasi: eski hareketler 500 sinirinin ardinda kalmaz.
+  function ledgerPager() {
+    const p = state.entryPagination;
+    if (!p || p.pages <= 1) return '';
+    const back = p.page > 1 ? '' : ' disabled';
+    const next = p.has_more ? '' : ' disabled';
+    return `<span class="ledger-pager"><button type="button" class="secondary" data-business="page" data-context="-1"${back}>← Önceki</button><span class="muted">Sayfa ${p.page} / ${p.pages}</span><button type="button" class="secondary" data-business="page" data-context="1"${next}>Sonraki →</button></span>`;
+  }
   function ledgerFilter() {
-    return `<form class="v2-toolbar" data-business-form="filter">${select('Cari hesabı seç','party_id',[['','Tüm cariler'],...partyOptions()],state.party,false)}<button class="secondary" type="submit">Göster</button><span class="muted">${state.party ? 'Seçili carinin hesap hareketleri' : 'Bu çalışma alanındaki kayıtlar'}</span></form>`;
+    const page = state.entryPagination;
+    const scope = page ? `${page.total} hareket bulundu · sayfa ${page.page}/${page.pages}` : (state.party ? 'Seçili carinin hesap hareketleri' : 'Bu çalışma alanındaki kayıtlar');
+    return `<form class="v2-toolbar ledger-filters" data-business-form="filter">${select('Cari hesabı seç','party_id',[['','Tüm cariler'],...partyOptions()],state.party,false)}` +
+      `<label>Referans, açıklama veya cari<input name="q" value="${esc(state.ledgerQuery || '')}" maxlength="200" placeholder="Tüm geçmişte ara"></label>` +
+      `<label>Başlangıç<input name="from" type="date" value="${esc(state.ledgerFrom || '')}"></label>` +
+      `<label>Bitiş<input name="to" type="date" value="${esc(state.ledgerTo || '')}"></label>` +
+      `${select('Vade','due',[['','Tümü'],['overdue','Vadesi geçenler'],['upcoming','Vadesi gelecekler']],state.ledgerDue || '',false)}` +
+      `<button class="secondary" type="submit">Göster</button><span class="muted">${esc(scope)}</span></form>`;
   }
   function ledgerView() {
     const d = state.data, relevant = state.party && state.tab !== 'parties' ? d.parties.filter(p => p.id === state.party) : d.parties;
@@ -101,7 +127,7 @@ export function mountBusiness(root, namespace, view) {
       const parties = d.parties.filter(p => `${p.name} ${p.tax_id || ''} ${p.phone || ''}`.toLocaleLowerCase('tr-TR').includes(state.search.toLocaleLowerCase('tr-TR')));
       return `<div class="v2-grid cols-3">${stat('Alacağım',money(receivable),'Pozitif bakiyesi olan cari hesaplar')}${stat('Borcum',money(payable),'Negatif bakiyesi olan cari hesaplar')}${stat('Cari hesap',number(d.parties.length),'Yalnızca bu çalışma alanı')}</div><div class="notice subtle">Lunapot ve e-ticaret carileri birbirinden ayrıdır. Alış ve ödemeler bu cari defterinde izlenir; eski tedarikçi özetleri ayrıca toplanmaz.</div>` + card('Cari listesi', `<form class="v2-toolbar" data-business-form="search">${input('Cari adı, vergi no veya telefon','search',state.search,'search','placeholder="Cari ara…"')}<button class="secondary" type="submit">Ara</button></form>` + table(['Cari','Tür','İletişim','Alacağım','Borcum','İşlem'],parties.map(p => [`<strong>${esc(p.name)}</strong><small>${esc(p.tax_id || 'Vergi numarası eklenmemiş')}</small>`, esc(kindNames[p.kind] || 'Tedarikçi'),`${esc(p.phone || '—')}<small>${esc(p.email || '')}</small>`,money(Math.max(0,p.balance_cents)),money(Math.max(0,-p.balance_cents)),button('Hesabı incele','party-detail',p.id,true)]),'Henüz cari hesabın yok.','Tedarikçi, müşteri veya pazaryerini cari olarak ekleyerek başlayabilirsin.'),button('Cari ekle','party'));
     }
-    if (state.tab === 'entries') return `<div class="v2-grid cols-2">${stat('Alacağım',money(receivable),state.party ? 'Seçili cari' : 'Tüm cariler')}${stat('Borcum',money(payable),state.party ? 'Seçili cari' : 'Tüm cariler')}</div>${warnings}` + card('Cari hesap hareketleri', ledgerFilter() + table(['Tarih / vade','Cari / referans','Açıklama','Alacağım artışı','Borcum artışı','Kapatılmamış tutar','İşlem'], d.entries.map(e => [`${esc(e.occurred_on)}<small>${e.due_on ? 'Vade: ' + esc(e.due_on) : 'Vade yok'}</small>`,`<strong>${esc(e.party_name)}</strong><small>${esc(e.reference)}</small>`,`${esc(e.description)}<small>${esc(e.source_key?.startsWith('adjustment:')?'Fatura düzeltmesi':e.source_key?.startsWith('purchase-return:')?'Tedarikçi iadesi':sourceNames[e.source] || 'Belge kaydı')}</small>`,e.amount_cents > 0 ? money(e.amount_cents) : '—',e.amount_cents < 0 ? money(-e.amount_cents) : '—',e.reversed_by || e.reversal_of ? badge('Düzeltildi') : `${money(e.remaining_cents)}${e.due_on && e.due_on < today() && e.remaining_cents > 0 ? '<br>' + badge('Vadesi geçti','warning') : ''}`,!e.reversed_by && !e.reversal_of && ['manual','opening'].includes(e.source) ? button('Ters kayıt','reverse','entry_id:' + e.id,true) : '—'])),`<div class="ac-actions">${button('Hareket ekle','entry')}${button('CSV indir','csv','entries',true)}</div>`);
+    if (state.tab === 'entries') return `<div class="v2-grid cols-2">${stat('Alacağım',money(receivable),state.party ? 'Seçili cari' : 'Tüm cariler')}${stat('Borcum',money(payable),state.party ? 'Seçili cari' : 'Tüm cariler')}</div>${warnings}` + card('Cari hesap hareketleri', ledgerFilter() + table(['Tarih / vade','Cari / referans','Açıklama','Alacağım artışı','Borcum artışı','Kapatılmamış tutar','İşlem'], d.entries.map(e => [`${esc(e.occurred_on)}<small>${e.due_on ? 'Vade: ' + esc(e.due_on) : 'Vade yok'}</small>`,`<strong>${esc(e.party_name)}</strong><small>${esc(e.reference)}</small>`,`${esc(e.description)}<small>${esc(e.source_key?.startsWith('adjustment:')?'Fatura düzeltmesi':e.source_key?.startsWith('purchase-return:')?'Tedarikçi iadesi':sourceNames[e.source] || 'Belge kaydı')}</small>`,e.amount_cents > 0 ? money(e.amount_cents) : '—',e.amount_cents < 0 ? money(-e.amount_cents) : '—',e.reversed_by || e.reversal_of ? badge('Düzeltildi') : `${money(e.remaining_cents)}${e.due_on && e.due_on < today() && e.remaining_cents > 0 ? '<br>' + badge('Vadesi geçti','warning') : ''}`,!e.reversed_by && !e.reversal_of && ['manual','opening'].includes(e.source) ? button('Ters kayıt','reverse','entry_id:' + e.id,true) : '—'])),`<div class="ac-actions">${button('Hareket ekle','entry')}${button('CSV indir','csv','entries',true)}${ledgerPager()}</div>`);
     if (state.tab === 'cash') return `${warnings}<div class="v2-grid cols-3">${d.accounts.map(a => stat(a.name,money(a.balance_cents),a.kind === 'bank' ? 'Banka · kaydedilen bakiye' : 'Kasa · kaydedilen bakiye')).join('')}</div>${d.accounts.length ? '' : '<div class="notice subtle">Tahsilat veya ödeme kaydetmek için önce kasa ya da banka hesabı ekle.</div>'}` + card('Kasa ve banka hareketleri', table(['Tarih','Hesap / cari','Referans / açıklama','Giriş','Çıkış','İşlem'],d.cash_transactions.map(t => [esc(t.occurred_on),`<strong>${esc(t.account_name)}</strong><small>${esc(t.party_name || 'Cari bağlantısı yok')}</small>`,`${esc(t.reference)}<small>${esc(t.description)}</small>`,t.amount_cents > 0 ? money(t.amount_cents) : '—',t.amount_cents < 0 ? money(-t.amount_cents) : '—',t.reversed_by || t.reversal_of ? badge('Düzeltildi') : button('Ters kayıt','reverse','cash_transaction_id:' + t.id,true)])),`<div class="ac-actions">${button('Kasa / banka ekle','account','',true)}${button('Tahsilat / ödeme','cash')}</div>`) + '<p class="help">Bu ekran yalnızca gerçekleşen para hareketlerinin kaydını tutar; banka transferi yapmaz. Tahsilat/ödemeyi bir cariye bağlamak cari bakiyesini de günceller.</p>';
     const allocations = d.allocations.filter(a => !state.party || a.party_id === state.party);
     return `${warnings}<div class="notice subtle">Belge kapaması, hangi tahsilatın hangi alacağı ya da hangi ödemenin hangi borcu kapattığını gösterir. Yeni para hareketi oluşturmaz ve cari bakiyesini değiştirmez.</div>` + card('Belge kapamaları',ledgerFilter() + table(['Cari','Alacak yönlü belge','Borç yönlü belge','Referans','Tutar','Durum','İşlem'],allocations.map(a => [esc(d.parties.find(p => p.id === a.party_id)?.name || '—'),esc(d.entries.find(e => e.id === a.positive_entry_id)?.reference || 'Eski belge · listede değil'),esc(d.entries.find(e => e.id === a.negative_entry_id)?.reference || 'Eski belge · listede değil'),esc(a.reference),money(a.amount_cents),a.reversed_by ? badge('Geri alındı') : badge('Kapandı','success'),a.reversed_by ? esc(a.reversal_reason || '') : a.reference.startsWith('reverse:') ? badge('Otomatik düzeltme') : button('Kapamayı geri al','reverse','allocation_id:' + a.id,true)])),button('Belgeleri eşleştir','allocation'));
@@ -150,7 +176,7 @@ export function mountBusiness(root, namespace, view) {
     if (submitButton) submitButton.disabled = true; if (error) error.textContent = '';
     const x = Object.fromEntries(new FormData(form)), kind = form.dataset.businessForm;
     try {
-      if (kind === 'filter') { state.party = x.party_id; await load(); return; }
+      if (kind === 'filter') { state.party = x.party_id; state.ledgerQuery = (x.q||'').trim(); state.ledgerFrom = x.from||''; state.ledgerTo = x.to||''; state.ledgerDue = x.due||''; state.ledgerPage = 1; await load(); return; }
       if (kind === 'search') { state.search = x.search; render(); return; }
       if (kind === 'quote') {
         state.quoteInput = {...x};
@@ -193,6 +219,7 @@ export function mountBusiness(root, namespace, view) {
     const target = event.target.closest('[data-business]'); if (!target || !root.contains(target)) return;
     const action = target.dataset.business, id = target.dataset.id;
     try {
+      if (action === 'page') { const step = Number(target.dataset.context); state.ledgerPage = Math.max(1, (state.ledgerPage || 1) + step); await load(); return; }
       if (action === 'tab') { closeDialog(); state.tab = id; render(); }
       else if (action === 'close') closeDialog();
       else if (action === 'profile') profileForm(id);
