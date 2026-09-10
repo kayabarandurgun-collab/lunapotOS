@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {buildStatement, counterpartyDifference} from '../public/party-statement.js';
-import {statementBlocks, statementPdfDocument, statementSheets, statementCsvRows, statementPrintHtml, balanceSentence, differenceSentence, money} from '../public/statement-document.js';
+import {statementBlocks, statementPdfDocument, statementSheets, statementCsvRows, statementPrintHtml, balanceSentence, balancePhrase, differenceSentence, money} from '../public/statement-document.js';
 import {xlsxBytes, docxBytes, csvBytes, pdfBytes, keyValuePairs, tableColumns} from '../public/doc-engine.js';
 import {pdfKit} from './helpers/pdf-kit.js';
 
@@ -44,9 +44,15 @@ test('Bildirim yokken belge sıfır fark yazmaz, kabul anlamına gelmediğini s�
   const texts = blocks.filter(b => b.type === 'text' || b.type === 'small').map(b => b.text).join(' ');
   assert.match(texts, /sıfır değil, bilinmiyor/);
   assert.match(texts, /indirilmekle veya iletilmekle kabul edilmiş sayılmaz/);
-  assert.match(balanceSentence(1030000), /bizim alacağımız/);
-  assert.match(balanceSentence(-500), /bizim borcumuz/);
+  // Ek ünlü uyumuna uymalı: "alacağımızdır" ama "borcumuzdur".
+  assert.match(balanceSentence(1030000), /bizim alacağımızdır\.$/);
+  assert.match(balanceSentence(-500), /bizim borcumuzdur\.$/);
   assert.match(balanceSentence(0), /bakiye kalmamıştır/);
+  // Yön kelimeyle söylenir; ekranda çıplak eksili tutar kalmaz.
+  assert.equal(balancePhrase(-1014090), money(1014090) + ' bizim borcumuz');
+  assert.equal(balancePhrase(1014090), money(1014090) + ' bizim alacağımız');
+  assert.equal(balancePhrase(0), 'bakiye yok');
+  assert.equal(balancePhrase(null), money(null));
 });
 
 test('Defter belgeden sonra değiştiyse uyarı her çıktıda görünür', () => {

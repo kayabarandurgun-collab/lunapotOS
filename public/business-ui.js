@@ -68,9 +68,25 @@ export function mountBusiness(root, namespace, view) {
     if (state.disposed || !state.data) return;
     const title = view === 'pricing' ? 'Fiyat ve kâr planı' : 'Cari hesaplar';
     const subtitle = view === 'pricing' ? 'Satmadan önce hesabını gör. Ürün, paket ve geçerli tarifelerle fiyatını belirle.' : 'Kimden alacağın var, kime borçlusun? Belgeleri ve ödemeleri aynı hesapta takip et.';
-    const tabs = view === 'pricing' ? [['quote','Kâr hesapla'],['profiles','Ürün ve paket'],['tariffs','Komisyon ve kargo']] : [['parties','Cariler'],['entries','Hesap hareketleri'],['cash','Kasa ve banka'],['allocations','Belge kapamaları']];
+    const tabs = view === 'pricing' ? [['quote','Kâr hesapla'],['profiles','Ürün ve paket'],['tariffs','Komisyon ve kargo']] : [['parties','Cariler'],['entries','Hesap hareketleri'],['cash','Kasa ve banka'],['allocations','Belge kapamaları'],['statement','Mutabakat']];
     root.innerHTML = `<div class="v2-page"><div class="page-heading"><div><span class="eyebrow">${namespace === 'ec' ? 'E-TİCARET' : 'LUNAPOT'} ÇALIŞMA ALANI</span><h1>${title}</h1><p>${subtitle}</p></div>${view === 'ledger' ? `<div class="ac-actions">${button('Cari ekle','party')}${button('Tahsilat / ödeme','cash','',true)}</div>` : ''}</div><div class="notice" data-business-error role="alert" hidden></div><nav class="v2-tabs" aria-label="${title}">${tabs.map(([key,label]) => `<button type="button" data-business="tab" data-id="${key}" class="${state.tab === key ? 'active' : ''}" aria-current="${state.tab === key ? 'page' : 'false'}">${label}</button>`).join('')}</nav><section data-business-body></section></div>`;
-    $('[data-business-body]').innerHTML = view === 'pricing' ? pricingView() : ledgerView();
+    // Mutabakat kendi modulunde durur; sekme degisince onceki baglanti birakilir.
+    if (state.statementDispose) { state.statementDispose(); state.statementDispose = null; }
+    const body = $('[data-business-body]');
+    if (view === 'ledger' && state.tab === 'statement') mountStatementTab(body);
+    else body.innerHTML = view === 'pricing' ? pricingView() : ledgerView();
+  }
+  // Belge motoru ve yazi tipi yalnizca bu sekme acildiginda indirilir.
+  async function mountStatementTab(body) {
+    body.innerHTML = '<div class="loading">Mutabakat ekranı yükleniyor…</div>';
+    try {
+      const {mountStatement} = await import('./statement-ui.js');
+      if (state.disposed || !body.isConnected) return;
+      body.innerHTML = '';
+      state.statementDispose = mountStatement(body, namespace, state.data.parties);
+    } catch (e) {
+      if (!state.disposed && body.isConnected) body.innerHTML = `<div class="v2-empty"><h3>Mutabakat ekranı yüklenemedi.</h3><p>${esc(e.message)}</p></div>`;
+    }
   }
   const productOptions = () => state.data.products.map(p => [p.id, `${p.name} · ${p.sku}`]);
   const partyOptions = () => state.data.parties.map(p => [p.id, p.name]);
@@ -245,5 +261,5 @@ export function mountBusiness(root, namespace, view) {
   },{signal:controller.signal});
   root.innerHTML = '<div class="loading">Çalışma alanı yükleniyor…</div>';
   load().catch(e => { if (e.name !== 'AbortError' && !state.disposed) root.innerHTML = `<div class="v2-empty"><h3>Ekran yüklenemedi.</h3><p>${esc(e.message)}</p>${button('Yeniden dene','retry')}</div>`; });
-  return () => { state.disposed = true; controller.abort(); closeDialog(); };
+  return () => { state.disposed = true; controller.abort(); closeDialog(); state.statementDispose?.(); };
 }

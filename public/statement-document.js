@@ -28,11 +28,21 @@ const dayText = value => {
   return day ? `${day}.${month}.${year}` : String(value);
 };
 
+// Ek ünlü uyumuna göre değişir: "alacağımızdır" ama "borcumuzdur".
+const BALANCE_CLAUSE = {'bizim alacağımız': 'bizim alacağımızdır', 'bizim borcumuz': 'bizim borcumuzdur'};
+
 export function balanceSentence(closing_cents) {
   if (closing_cents === null || closing_cents === undefined)
     return 'Dönem sonu bakiyesini görme yetkiniz yok.';
   if (closing_cents === 0) return 'Dönem sonunda iki taraf arasında bakiye kalmamıştır.';
-  return `Dönem sonu bakiyesi ${money(Math.abs(closing_cents))} tutarında ${balanceWording(closing_cents)}dır.`;
+  return `Dönem sonu bakiyesi ${money(Math.abs(closing_cents))} tutarında ${BALANCE_CLAUSE[balanceWording(closing_cents)]}.`;
+}
+
+/** Ekranda ve uyarılarda eksi işareti yerine yönü kelimeyle söyler. */
+export function balancePhrase(cents) {
+  if (cents === null || cents === undefined) return money(null);
+  if (cents === 0) return 'bakiye yok';
+  return `${money(Math.abs(cents))} ${balanceWording(cents)}`;
 }
 
 export function differenceSentence(difference) {
