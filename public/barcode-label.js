@@ -4,6 +4,8 @@
 // Barlar gerçek genişliklerle çizilir; etiket fiziksel olarak okunabilir olsun diye
 // modül genişliği ve sessiz alan (quiet zone) korunur. Kod her zaman metindir.
 
+import {isEan, eanModules, eanBars, EAN_QUIET_LEFT, EAN_QUIET_RIGHT, EAN_MIN_MODULE_MM} from './barcode-ean.js';
+
 // 107 desen: her biri 6 haneli, sırayla bar/boşluk modül genişlikleri.
 // Değer 0-102 karakterler, 103-105 başlangıçlar, 106 durdurma.
 export const CODE128_PATTERNS = (
@@ -54,38 +56,88 @@ export function code128Checksum(code) {
 }
 
 export const LABEL_SIZES = {
-  // 38 mm, 13 haneli bir barkodu okunabilir yogunlukta TASIMAZ: Code 128 sayilari
-  // tek tek kodlar ve EAN-13'ten genistir. Ad bunu soyler, plan da kisa olmayan kodu reddeder.
-  small: {name: 'Küçük · 38 × 25 mm — yalnızca kısa kodlar', width_mm: 38, height_mm: 25, module_mm: 0.25, font: 6.5},
-  medium: {name: 'Orta · 50 × 30 mm', width_mm: 50, height_mm: 30, module_mm: 0.3, font: 7.5},
-  large: {name: 'Büyük · 70 × 40 mm', width_mm: 70, height_mm: 40, module_mm: 0.4, font: 9}
+  // GS1 barkodları EAN-13 ile basılır: 95 modül + sessiz alan, %100 büyütmede ~37,3 mm.
+  // Bu yüzden 38 mm etiket resmî bir EAN-13'ü taşır. Code 128 aynı 13 haneyi
+  // belirgin biçimde daha geniş çizer; o yüzden yalnızca EAN olmayan kodlarda kullanılır.
+  small: {name: 'Küçük · 38 × 25 mm', width_mm: 38, height_mm: 25, module_mm: 0.28, font: 6.5},
+  medium: {name: 'Orta · 50 × 30 mm', width_mm: 50, height_mm: 30, module_mm: 0.33, font: 7.5},
+  large: {name: 'Büyük · 70 × 40 mm', width_mm: 70, height_mm: 40, module_mm: 0.4, font: 9},
+  carton: {name: 'Koli · 100 × 70 mm', width_mm: 100, height_mm: 70, module_mm: 0.5, font: 11}
 };
 
 const MM = 72 / 25.4;   // 1 mm kaç PDF punto eder
 
 /**
- * Bir etiketin çizim planı. Saf hesap: konumlar ve genişlikler.
+ * Bir etiketin çizim planı. Saf hesap: konumlar ve genişlikler, milimetre cinsinden.
+ *
+ * Semboloji koda göre seçilir: GS1'den alınmış resmî EAN-13/EAN-8 barkodlar kendi
+ * sembolojisiyle basılır (dar ve her okuyucuda tanınır); GS1 olmayan kodlar ve
+ * "LP-" iç kodları Code 128 ile basılır.
+ *
  * Modül genişliği etikete sığmıyorsa daraltılır ama okunabilirlik alt sınırının
- * (0,19 mm) altına DÜŞÜRÜLMEZ; sığmıyorsa daha büyük etiket istenir.
+ * altına DÜŞÜRÜLMEZ; sığmıyorsa daha büyük etiket istenir.
  */
 export function labelPlan({code, size = 'medium'}) {
   const preset = LABEL_SIZES[size];
   if (!preset) throw new Error('Etiket boyutu geçersiz.');
-  const bars = code128Bars(code);
-  const modules = bars.reduce((total, width) => total + width, 0);
-  const quietModules = 10 * 2;                       // iki yanda sessiz alan
-  const usableMm = preset.width_mm - 4;              // kenar boşluğu
+  const usableMm = preset.width_mm - 3;              // kenar boşluğu
+
+  if (isEan(code)) {
+    const {modules, guards, lead, left, right} = eanModules(code);
+    const totalModules = modules.length + EAN_QUIET_LEFT + EAN_QUIET_RIGHT;
+    const moduleMm = Math.min(preset.module_mm, usableMm / totalModules);
+    if (moduleMm < EAN_MIN_MODULE_MM)
+      throw new Error('Bu barkod seçilen etikete GS1 asgari büyütmesinde sığmıyor. Daha büyük etiket seçin.');
+    const symbolWidthMm = modules.length * moduleMm;
+    const quietLeftMm = EAN_QUIET_LEFT * moduleMm;
+    const totalWidthMm = totalModules * moduleMm;
+    const startMm = (preset.width_mm - totalWidthMm) / 2 + quietLeftMm;
+    const height = Math.max(10, preset.height_mm - (preset.height_mm > 45 ? 26 : 12));
+    const isGuard = index => guards.some(([from, to]) => index >= from && index < to);
+    // Koruma çubukları standarda göre daha uzundur; okuyucu yarıları buradan ayırır.
+    const bars = eanBars(modules).map(bar => ({
+      x_mm: startMm + bar.from * moduleMm,
+      width_mm: bar.width * moduleMm,
+      height_mm: isGuard(bar.from) ? height + moduleMm * 5 : height
+    }));
+    return {
+      code, size, preset, symbology: modules.length === 95 ? 'ean13' : 'ean8',
+      module_mm: moduleMm, bars,
+      bars_width_mm: symbolWidthMm,
+      start_x_mm: startMm,
+      quiet_left_mm: quietLeftMm,
+      bar_height_mm: height + moduleMm * 5,
+      human: {lead, left, right},
+      page: {width_pt: preset.width_mm * MM, height_pt: preset.height_mm * MM},
+      mm_to_pt: MM
+    };
+  }
+
+  const widths = code128Bars(code);
+  const modules = widths.reduce((total, width) => total + width, 0);
+  const quietModules = 10 * 2;
   const moduleMm = Math.min(preset.module_mm, usableMm / (modules + quietModules));
   if (moduleMm < 0.19)
     throw new Error('Bu kod seçilen etikete okunabilir biçimde sığmıyor. Daha büyük etiket seçin.');
   const barsWidthMm = modules * moduleMm;
+  const startMm = (preset.width_mm - barsWidthMm) / 2;
+  const height = Math.max(8, preset.height_mm - (preset.height_mm > 45 ? 26 : 12));
+  let x = startMm, paint = true;
+  const bars = [];
+  for (const width of widths) {
+    const w = width * moduleMm;
+    if (paint) bars.push({x_mm: x, width_mm: w, height_mm: height});
+    x += w;
+    paint = !paint;
+  }
   return {
-    code, size, preset,
-    module_mm: moduleMm,
-    bars,
+    code, size, preset, symbology: 'code128',
+    module_mm: moduleMm, bars,
     bars_width_mm: barsWidthMm,
-    start_x_mm: (preset.width_mm - barsWidthMm) / 2,
-    bar_height_mm: Math.max(8, preset.height_mm - 12),
+    start_x_mm: startMm,
+    quiet_left_mm: 10 * moduleMm,
+    bar_height_mm: height,
+    human: null,
     page: {width_pt: preset.width_mm * MM, height_pt: preset.height_mm * MM},
     mm_to_pt: MM
   };
@@ -103,18 +155,20 @@ export function labelPrintHtml(labels, {size = 'medium'} = {}) {
   const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
   const cells = labels.map(label => {
     const plan = labelPlan({code: label.code, size});
-    let x = plan.start_x_mm, bar = true;
-    const rects = plan.bars.map(width => {
-      const w = width * plan.module_mm, at = x;
-      x += w;
-      const paint = bar;
-      bar = !bar;
-      return paint ? `<rect x="${at.toFixed(3)}" y="0" width="${w.toFixed(3)}" height="${plan.bar_height_mm}"/>` : '';
-    }).join('');
+    const rects = plan.bars
+      .map(bar => `<rect x="${bar.x_mm.toFixed(3)}" y="0" width="${bar.width_mm.toFixed(3)}" height="${bar.height_mm.toFixed(3)}"/>`)
+      .join('');
+    // EAN'de okunabilir haneler standarda göre bölünür: ilk hane solda, kalanlar iki yarıda.
+    const human = plan.human
+      ? `<div class="ean"><span class="lead">${escapeHtml(plan.human.lead)}</span><span class="half">${escapeHtml(plan.human.left)}</span><span class="half">${escapeHtml(plan.human.right)}</span></div>`
+      : `<div class="code">${escapeHtml(label.code)}</div>`;
+    const rows = (label.rows || []).map(([etiket, deger]) =>
+      `<div class="row"><span>${escapeHtml(etiket)}</span><strong>${escapeHtml(deger)}</strong></div>`).join('');
     return `<div class="label">
       <div class="title">${escapeHtml(label.title || '')}</div>
-      <svg viewBox="0 0 ${preset.width_mm} ${plan.bar_height_mm}" preserveAspectRatio="none" role="img" aria-label="${escapeHtml(label.code)}">${rects}</svg>
-      <div class="code">${escapeHtml(label.code)}</div>
+      ${rows ? `<div class="rows">${rows}</div>` : ''}
+      <svg viewBox="0 0 ${preset.width_mm} ${plan.bar_height_mm.toFixed(3)}" preserveAspectRatio="none" role="img" aria-label="${escapeHtml(label.code)}">${rects}</svg>
+      ${human}
       ${label.subtitle ? `<div class="sub">${escapeHtml(label.subtitle)}</div>` : ''}
     </div>`;
   }).join('');

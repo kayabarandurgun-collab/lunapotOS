@@ -207,6 +207,8 @@ export function mountBarcodes(root, namespace = 'lp') {
       <div class="dialog-heading"><h2>Barkodu karta bağla</h2><button type="button" class="icon-button" data-bc="close" aria-label="Kapat">×</button></div>
       <div class="form-body">
         <label>Barkod<input name="code" value="${esc(code)}" maxlength="48" autocomplete="off" placeholder="Kutunun üzerindeki kod"></label>
+        <label>…ya da barkodun fotoğrafını yükle<input type="file" name="barcode_image" accept="image/*" data-bc-image></label>
+        <p class="help" data-bc-image-note>Fotoğraftaki barkod okunup yukarıdaki kutuya yazılır. <strong>Görsel saklanmaz</strong>: barkodu numarasından kendimiz çizeriz, böylece etiket her zaman net ve okunabilir basılır.</p>
         <label><input type="checkbox" name="generate_internal"> Ürünün barkodu yok, iç kullanım kodu üret</label>
         <p class="help">İç kullanım kodu “LP-” ile başlar. <strong>GS1 barkodu değildir</strong> ve işletme dışında geçerli değildir.</p>
         <label>Kart<select name="card" required><option value="">Seçin…</option><optgroup label="Hammaddeler">${materials}</optgroup><optgroup label="Ürünler">${products}</optgroup></select></label>
@@ -264,6 +266,39 @@ export function mountBarcodes(root, namespace = 'lp') {
 
   const closeDialog = () => { const node = $('dialog[data-bc-dialog]'); node?.close(); node?.remove(); };
 
+  /**
+   * Barkodun fotoğrafından numarayı okur. Görsel SAKLANMAZ ve sunucuya gönderilmez:
+   * elimizde numara olduğunda barkodu kendimiz çizeriz, böylece etiket bulanık bir
+   * fotoğraf yerine her zaman net basılır. Okunamazsa elle yazma yolu açık kalır.
+   */
+  async function readImage(file, form) {
+    const note = form.querySelector('[data-bc-image-note]');
+    const say = (text, ok = false) => { if (note) { note.textContent = text; note.classList.toggle('ok', ok); } };
+    if (!file) return;
+    if (!('BarcodeDetector' in window)) {
+      say('Bu tarayıcı fotoğraftan barkod okumayı desteklemiyor. Numarayı elle yazabilirsiniz.');
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) { say('Fotoğraf 8 MB’den küçük olmalı.'); return; }
+    say('Fotoğraf okunuyor…');
+    let bitmap;
+    try { bitmap = await createImageBitmap(file); }
+    catch { say('Bu dosya bir görsel olarak açılamadı. Başka bir fotoğraf deneyin.'); return; }
+    try {
+      const found = await new window.BarcodeDetector().detect(bitmap);
+      const value = found.map(item => item.rawValue).find(Boolean);
+      if (!value) { say('Fotoğrafta barkod bulunamadı. Daha yakın ve net bir fotoğraf deneyin ya da numarayı elle yazın.'); return; }
+      const code = normalizeBarcode(value);
+      form.elements.code.value = code;
+      const info = classifyBarcode(code);
+      say(`Okundu: ${code} · ${BARCODE_KINDS[info.kind] || info.kind}${info.gs1 ? '' : ' · GS1 değil'}. ${info.note}`, info.gs1);
+    } catch (error) {
+      say('Fotoğraf okunamadı: ' + error.message + ' Numarayı elle yazabilirsiniz.');
+    } finally {
+      bitmap.close?.();
+    }
+  }
+
   root.addEventListener('click', event => {
     const target = event.target.closest('[data-bc]');
     if (!target || !root.contains(target)) return;
@@ -311,6 +346,14 @@ export function mountBarcodes(root, namespace = 'lp') {
       // Düzeltme burada yapılmaz: mevcut Hammadde deposu ekranı gerekçe ve tarih ister.
       showError('Farkı düzeltmek için Hammadde deposu ekranındaki sayım kaydını kullanın: orada tarih, referans ve gerekçe istenir ve düzeltme geçmişe yazılır.');
     }
+  }, {signal: controller.signal});
+
+  // Dosya secimi bir form gonderimi degildir; ayri dinlenir.
+  root.addEventListener('change', event => {
+    const input = event.target.closest('[data-bc-image]');
+    if (!input || !root.contains(input)) return;
+    const form = input.closest('form');
+    run(() => readImage(input.files && input.files[0], form));
   }, {signal: controller.signal});
 
   root.addEventListener('submit', event => {

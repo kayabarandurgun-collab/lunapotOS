@@ -10,3 +10,11 @@
    icin bu kural stil dosyasinda tutulur. */
 .doc-print-frame{position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden}
 .bc-camera video{width:100%;max-width:420px;border-radius:12px;display:block}
+/* Fotograftan okunan barkod dogrulandiginda not yesile doner. */
+.help.ok{color:#1f7a4d}
+
+/* Gomulu barkod kutusu ve sonuc satiri. Renkler burada; satir ici stil CSP'ye takilir. */
+.bc-embed-result{border-radius:10px;padding:10px 12px;margin:8px 0;font-size:13px;border:1px solid #dfe7e0;background:#f6faf7}
+.bc-embed-result.ok{border-color:#bfe3cd;background:#f1faf4}
+.bc-embed-result.warn{border-color:#efe0bb;background:#fff8e9}
+.bc-embed-result p{margin:2px 0}

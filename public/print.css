@@ -73,3 +73,17 @@ tr { break-inside: avoid; }
 
 /* Sozlesme imza kutusu. Yukseklik burada verilir; satir ici stil CSP tarafindan engellenir. */
 .sign-box{height:70px}
+
+/* Koli etiketi ve EAN okunabilir haneleri. Olculer burada; satir ici stil CSP'ye takilir. */
+.labels.carton .label { width: 100mm; height: 70mm; }
+.labels.carton .title, .labels.carton .code { font-size: 11pt; }
+.labels.carton .sub { font-size: 9pt; }
+
+.labels .rows { width: 100%; margin: 1mm 0; }
+.labels .rows .row { display: flex; justify-content: space-between; gap: 2mm; border-bottom: 0.2mm dotted #ccc; padding: 0.4mm 0; }
+.labels.carton .rows .row { font-size: 9pt; }
+.labels .rows .row span { color: #444; }
+
+/* EAN'de haneler standarda gore bolunur: ilk hane sembolun solunda durur. */
+.labels .ean { display: flex; justify-content: center; gap: 3mm; font-family: 'Courier New', monospace; letter-spacing: 1px; }
+.labels .ean .lead { margin-right: 1mm; }

@@ -19,6 +19,7 @@ const paths={
  integrations:'M8 3v4 M16 3v4 M6 7h12v3a6 6 0 0 1-12 0V7 M12 16v5',
  settings:'M4 7h16 M4 17h16 M8 4v6 M16 14v6',
  reconciliation:'M3 6h12 M11 2l4 4-4 4 M21 18H9 M13 14l-4 4 4 4',
+ lots:'M4 8h16v12H4z M4 8l2-4h12l2 4 M9 12h6',
  barcodes:'M4 5v14 M7 5v14 M10 5v14 M13 5v10 M16 5v14 M20 5v14',
  offers:'M6 3h9l4 4v14H6z M15 3v4h4 M9 12h7 M9 16h5',
  ai:'m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z'};

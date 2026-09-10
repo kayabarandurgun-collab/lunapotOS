@@ -34,7 +34,9 @@ test('Etiket planı barları ortalar ve okunabilirlik sınırını korur', () =>
   assert.ok(plan.module_mm >= 0.19, 'modül genişliği okunabilirlik sınırının altına düşmemeli');
   assert.ok(plan.bars_width_mm <= plan.preset.width_mm - 4, 'barlar kenar boşluğuna taşmamalı');
   assert.ok(plan.start_x_mm > 0, 'barlar ortalanmalı');
-  assert.equal(plan.bar_height_mm, 18);
+  // EAN'de koruma cubuklari 5 modul daha uzundur; bar_height_mm en uzun bari verir.
+  assert.equal(plan.symbology, 'ean13', 'GS1 barkodu kendi sembolojisiyle basilir');
+  assert.ok(plan.bar_height_mm > 18 && plan.bar_height_mm < 21);
   assert.ok(plan.page.width_pt > 140 && plan.page.width_pt < 145, '50 mm yaklaşık 141,7 punto');
 });
 
@@ -59,7 +61,7 @@ test('Yazdırma sayfası kodu, adı ve gerçek barları taşır', () => {
   assert.ok((html.match(/<rect/g) || []).length > 40, 'gerçek barlar çizilmeli');
   // Olculer artik print.css icindeki .labels.medium sinifindan gelir; HTML'e gomulmez.
   assert.ok(html.includes('class="labels medium"'), 'seçilen etiket boyutu sınıfla verilmeli');
-  assert.deepEqual(Object.keys(LABEL_SIZES), ['small', 'medium', 'large']);
+  assert.deepEqual(Object.keys(LABEL_SIZES), ['small', 'medium', 'large', 'carton']);
 });
 
 // Barlari geri cozen bagimsiz bir okuyucu: cizim var demek okunuyor demek degildir.
@@ -99,4 +101,24 @@ test('Üretilen barlar bağımsız bir okuyucuyla aynı koda geri çözülür', 
   const bozuk = code128Bars('8690632012346');
   bozuk[7] = bozuk[7] === 1 ? 2 : 1;
   assert.throws(() => decode128(bozuk), /Tanınmayan desen|Sağlama hanesi tutmuyor/);
+});
+
+test('GS1 barkodu 38 mm etikete asgari buyutmenin uzerinde sigar', () => {
+  // Code 128 ile ayni kod sigmiyordu; EAN-13 95 modul oldugu icin sigar.
+  const kucuk = labelPlan({code: '8690632012346', size: 'small'});
+  assert.equal(kucuk.symbology, 'ean13');
+  assert.ok(kucuk.module_mm >= 0.264, 'GS1 asgari buyutmesi (%80) korunmali');
+  assert.ok(kucuk.start_x_mm >= 0.264 * 11 - 0.01, 'soldaki 11 modullük sessiz alan korunmali');
+  const sagBos = 38 - (kucuk.start_x_mm + kucuk.bars_width_mm);
+  assert.ok(sagBos >= 0.264 * 7 - 0.01, 'sagdaki 7 modullük sessiz alan korunmali');
+
+  // Ayni kodu Code 128 ile basmak isteyen (GS1 olmayan) bir kod sigmaz.
+  assert.throws(() => labelPlan({code: 'LP-ABCDEF0123', size: 'small'}), /sığmıyor/);
+});
+
+test('Koli boyutu tanimlidir ve genis barkod tasir', () => {
+  const koli = labelPlan({code: '8690632012346', size: 'carton'});
+  assert.equal(koli.preset.width_mm, 100);
+  assert.equal(koli.module_mm, 0.5, 'koli etiketinde barkod daha buyuk basilir');
+  assert.ok(koli.bar_height_mm > 20, 'uzaktan okunmasi icin daha uzun bar');
 });
