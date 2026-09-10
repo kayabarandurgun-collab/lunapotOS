@@ -1,6 +1,6 @@
 import {stockHistoryApi} from './stock-history-api.js';
 import {loginLimitSubjects} from './login-limits.js';
-import {filterProductionData} from './permission-policy.js';
+import {filterProductionData,scrubAmounts} from './permission-policy.js';
 import {purchaseAdjustmentApi} from './purchase-adjustment-api.js';
 import {hash,hex,passwordHash,equal,currentSession,owner,authorize,accessApi,acceptInvite} from './access-api.js';
 import {convert} from '../public/costs.js';
@@ -75,8 +75,8 @@ async function api(request,env,path){
  const workspace=path.match(/^\/api\/(ec|lp)(\/.*)?$/);
  if(workspace){
   const scoped={...env,DB:scopedDB(db,workspace[1]),ROOT_DB:db,WORKSPACE:workspace[1],USER:current.user},subpath=workspace[2]||'';
-  for(const handler of [stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(result);}
-  return json(await accountingApi(request,scoped,'/api/accounting'+subpath,body));
+  for(const handler of [stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(scrubAmounts(result,current.user,workspace[1]));}
+  return json(scrubAmounts(await accountingApi(request,scoped,'/api/accounting'+subpath,body),current.user,workspace[1]));
  }
  if(path==='/api/auth/logout'&&request.method==='POST') {
    const s=await session(request,db);await db.prepare('DELETE FROM sessions WHERE token_hash=?').bind(s.token_hash).run();
@@ -85,7 +85,7 @@ async function api(request,env,path){
  if(path==='/api/data'&&request.method==='GET') {
    const results=await db.batch(["SELECT * FROM products WHERE inventory_kind='finished' ORDER BY updated_at DESC",'SELECT m.*,b.quantity_milli,b.value_cents,p.sku purchase_sku FROM materials m LEFT JOIN lp_material_balances b ON b.material_id=m.id LEFT JOIN products p ON p.id=m.purchase_product_id ORDER BY m.name','SELECT * FROM recipes ORDER BY updated_at DESC','SELECT * FROM recipe_items','SELECT * FROM activity ORDER BY created_at DESC LIMIT 10'].map(sql=>db.prepare(sql)));
    const [products,materials,recipes,items,activity]=results.map(r=>r.results);
-   return json(filterProductionData({products,materials,recipes:recipes.map(r=>({...r,items:items.filter(i=>i.recipe_id===r.id)})),activity},current.user));
+   return json(scrubAmounts(filterProductionData({products,materials,recipes:recipes.map(r=>({...r,items:items.filter(i=>i.recipe_id===r.id)})),activity},current.user),current.user,'lp'));
  }
  const match=path.match(/^\/api\/(materials|products|recipes)(?:\/([\w-]{1,80}))?$/);if(!match)fail('Bulunamadı.',404);
  const [,kind,id]=match;

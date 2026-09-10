@@ -21,3 +21,23 @@ export function filterAccounting(x,user,ns){if(!user||user.owner)return x;if(ns=
 export function filterProductionData(x,user){if(!user||user.owner)return x;return {...x,products:any(user,'lp',['products','recipes','costs'])?x.products:[],materials:any(user,'lp',['materials','recipes','costs'])?x.materials:[],recipes:any(user,'lp',['recipes','costs'])?x.recipes:[],activity:[]};}
 export function filterProductionStock(x,user){if(!user||user.owner||can(user,'lp','production'))return x;return {...x,recipes:[],jobs:[]};}
 export function filterInsights(x,user,ns){if(!user||user.owner||can(user,ns,'invoices'))return x;return {...x,purchase_invoices:[],purchase_invoices_truncated:false,fee_evidence:x.fee_evidence.map(({invoice_id,invoice_no,invoice_date,description,...e})=>e)};}
+
+// Tutar yetkisi kapali kullanici icin para bilgisi yanittan cikarilir.
+// Tek noktada uygulanir: yeni bir uc eklendiginde gizlemeyi ayrica hatirlamak gerekmez.
+// Miktar, sevk ve durum bilgisi aynen kalir; yalnizca parasal alanlar null olur.
+const MONEY_KEY=/(^|_)(cents|price|sale_price|unit_cost)$|_cents$/;
+const MONEY_NAMES=new Set(['price','sale_price','unit_cost','amount','total_cost','rate_bps','revenue_share_bps']);
+export function scrubAmounts(payload,user,ns){
+ if(user?.owner||can(user,ns,'amounts'))return payload;
+ const seen=new WeakSet();
+ const walk=value=>{
+  if(Array.isArray(value))return value.map(walk);
+  if(!value||typeof value!=='object')return value;
+  if(seen.has(value))return value;
+  seen.add(value);
+  const out={};
+  for(const [key,item] of Object.entries(value))out[key]=MONEY_KEY.test(key)||MONEY_NAMES.has(key)?null:walk(item);
+  return out;
+ };
+ return walk(payload);
+}
