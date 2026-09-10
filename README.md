@@ -59,7 +59,15 @@ Node.js 22+ gerekir (testlerde node:sqlite kullanılır).
 
 Üretim hesabı ve D1 kimliği wrangler.jsonc içinde sabitlenmiştir. preview_database_id yalnızca mevcut yerel geliştirme veritabanı kimliğini korur; uzak önizleme veritabanı kurulmamıştır. Üretim sürüm önizleme adresleri kapalıdır.
 
-GitHub `dekovillmimarlik-creator/lunapotOS` deposunun `main` dalı Cloudflare Workers Builds'e bağlıdır. Her gönderimde `npm test && npm run build` başarılı olursa `npx wrangler deploy` çalışır. Diğer dalların yayınları kapalıdır. Yeni veritabanı geçişleri otomatik yayın komutuna dahil değildir; uyumlu geçişleri kodu göndermeden önce `npm run db:remote` ile uygulayın. Derleme Node.js sürümü `.node-version` dosyasında sabitlenmiştir.
+GitHub `kayabarandurgun-collab/lunapotOS` deposunun `main` dalı Cloudflare Workers Builds'e bağlıdır. Her gönderimde `npm run build` başarılı olursa `npx wrangler deploy` çalışır. Otomatik yayın testleri çalıştırmaz; `npm test` göndermeden önce yerelde çalıştırılır. Diğer dalların yayınları kapalıdır. Yeni veritabanı geçişleri otomatik yayın komutuna dahil değildir; uyumlu geçişleri kodu göndermeden önce `npm run db:remote` ile uygulayın. Derleme Node.js sürümü `.node-version` dosyasında sabitlenmiştir.
+
+### Barındırma ve geri dönüş — 10 Eylül 2026
+
+Canlı adres https://muhasebe.lunapot.com . Worker, D1 ve alan adı artık `lunapot.com` bölgesinin sahibi olan Cloudflare hesabındadır (`74daa053…`); araya giren yönlendirici Worker kaldırıldı ve istek doğrudan panele gider. Geçerli hesap ve veritabanı kimliği `wrangler.jsonc` içindedir; eski hesap/DB yazan notlar tarihseldir.
+
+Yeni veritabanı boş şemayla kuruldu: 22 geçişin tamamı uygulandı, kural sayısı yerel referansla birebir eşleşti. Devirde iş verisi taşınmadı, çünkü ölçüldüğünde eski veritabanında iş kaydı yoktu — yalnızca bir yönetici satırı vardı (ürün, hammadde, reçete, fatura, satış, sipariş ve üretim tablolarının hepsi sıfır). Yönetici hesabı taşınmadı; yeni kurulumda hesap sahibi kendi şifresini belirledi.
+
+Eski hesaptaki Worker, D1 ve yönlendirici Worker şimdilik dokunulmadan duruyor. Amaçları yalnızca geri dönüş: yeni kurulumda beklenmeyen bir sorun çıkarsa alan adı eski yola geri bağlanabilir. Kapatma ancak yeni kurulum yeterince kullanıldıktan ve korunması gereken eski veri olmadığı yeniden doğrulandıktan sonra ele alınmalıdır. Canlı veritabanında geri yükleme denemesi yapılmadı.
 
 Uzak D1 sorgu uç noktası bazı trigger gövdelerini ayırırken `incomplete input` hatası verdiği için `db:remote` geçişleri resmî SQL dosyası içe aktarımıyla uygular. Her dosyanın geçiş kaydı aynı içe aktarımın içindedir; hata halinde dosya geri alınır. Komut yalnızca bekleyen dosyaları çalıştırır. Aynı anda birden fazla geçiş işlemi başlatmayın. Yerelde standart `db:local` kullanılabilir.
 
@@ -141,7 +149,7 @@ Sipariş özeti ve kanal raporu aynı kâr doğrulama kuralını kullanır. Gön
 
 108 test geçti. Yerel tarayıcıda giderleri doğrulanmış 44 TL katkılı örnek paket, kargodayken tahmin olarak gösterildi; teslim kaydından sonra sipariş özeti ile kanal raporu 44 TL doğrulanmış katkıda eşleşti. Test kayıtları sadece yerelde kaldı; gerçek mağaza bağlantısı ve yeni veritabanı geçişi yoktur.
 
-### v3.0 — Bütün panellerde ortak arayüz (yayın bekliyor)
+### v3.0 — Bütün panellerde ortak arayüz
 
 Ana uygulama ekranı, üretim, e-ticaret, personel ve giriş ekranları ortak tasarım katmanını kullanır. Koyu menü, üretimde yeşil/e-ticarette mor tonlar, daha okunaklı sayılar, ferah kartlar, tutarlı formlar ve açılır pencereler eklendi. Mobil sekmeler iki sütun halinde görünür; alanlar en az 16 piksel yazı ve geniş dokunma hedefleri kullanır. Geniş tablolar veri sütunu gizlemeden kaydırılır ve klavye odağı/ipuçları alır.
 
@@ -149,4 +157,4 @@ Mobil menü dışarı dokunma ve Escape ile kapanır; klavye odağı menü için
 
 Doğrulama: 28 sayfa 1440, 768, 390 ve 320 piksel genişliklerde tarandı. Küçük ekrandaki sekme taşmaları düzeltildi. İki mobil menü, klavye, iki giriş ekranı, personel izinleri ve 10 tür pencere/form kontrol edildi. Reçetede hammadde seçimi, salt görüntüleme personelinde işlem engeli korundu. 108 mevcut otomatik test ve Cloudflare paket kontrolü başarılı. Gerçek bağlantı veya ticari kayıt değiştirilmedi.
 
-Yayın engeli: otomatik onay denetimi, mevcut herkese açık GitHub deponun main dalına yeni UI kaynaklarının gönderilmesi için açık kullanıcı onayı istiyor. Yerel önizleme hazır; v3.0 henüz commit/push veya canlı dağıtım yapılmadı.
+Yayınlandı. Kaynaklar `main` dalında; canlı dosyaların içerik özetleri yayımlanan sürümle karşılaştırılarak doğrulandı.
