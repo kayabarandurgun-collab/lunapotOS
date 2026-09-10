@@ -2,6 +2,7 @@ import {hash,hex,passwordHash,equal} from './access-api.js';
 import {can} from '../public/permissions.js';
 import {LEGAL_VERSION,LEGAL_DOCS,SELLER,orderLegalText} from './webshop-legal.js';
 import {paymentRoutes} from './webshop-payment.js';
+import {catalogRoutes} from './webshop-catalog.js';
 const fail=(m,s=400)=>{throw Object.assign(Error(m),{status:s})};
 const now=()=>Math.floor(Date.now()/1000);
 const json=(x,status=200,headers={})=>Response.json(x,{status,headers:{'Cache-Control':'no-store',...headers}});
@@ -70,6 +71,8 @@ export async function storeApi(request,env,path,readBody){
  fail('Bulunamadı.',404);
 }
 export async function webshopAdminApi(request,env,path,readBody,user){
+ // Gerçek stok kartı eşlemesi ayrı modüldedir (src/webshop-catalog.js); bu dosyanın akışı değişmez.
+ const catalog=await catalogRoutes({request,env,path,readBody,user,helpers:{requireDemo,event,fail}});if(catalog)return catalog;
  const db=env.DB,sub=path.slice('/api/webshop'.length),method=request.method,url=new URL(request.url),page=Math.max(1,Math.min(10000,Number(url.searchParams.get('page'))||1)),offset=(Math.floor(page)-1)*50;
  if(sub==='/overview'&&method==='GET'){const stats=await db.prepare("SELECT COUNT(*) orders_count,COALESCE(SUM(CASE WHEN status='delivered' AND payment_status='demo_paid' THEN total_cents ELSE 0 END),0) delivered_cents,COALESCE(SUM(CASE WHEN payment_status='demo_paid' AND status<>'cancelled' THEN total_cents ELSE 0 END),0) demo_paid_cents,SUM(CASE WHEN status='new' THEN 1 ELSE 0 END) new_count FROM ws_orders").first();return {...stats,customers_count:(await db.prepare('SELECT COUNT(*) n FROM ws_customers').first()).n,requests_count:(await db.prepare("SELECT COUNT(*) n FROM ws_requests WHERE status<>'closed'").first()).n,mode:'demo',live_ready:false,notice:'Yalnızca test kayıtları. Gerçek tahsilat ve muhasebe fişi oluşturulmaz.'}}
  if(sub==='/orders'&&method==='GET'){const q='%'+(url.searchParams.get('q')||'').slice(0,100)+'%',status=url.searchParams.get('status')||'';const where="WHERE (o.number LIKE ? OR c.name LIKE ? OR c.email LIKE ?) AND (?='' OR o.status=?)";return {orders:(await db.prepare('SELECT o.id,o.number,o.status,o.payment_status,o.total_cents,o.created_at,o.is_test,c.name,c.email FROM ws_orders o JOIN ws_customers c ON c.id=o.customer_id '+where+' ORDER BY o.created_at DESC,o.id DESC LIMIT 50 OFFSET ?').bind(q,q,q,status,status,offset).all()).results,total:(await db.prepare('SELECT COUNT(*) n FROM ws_orders o JOIN ws_customers c ON c.id=o.customer_id '+where).bind(q,q,q,status,status).first()).n,page}}
