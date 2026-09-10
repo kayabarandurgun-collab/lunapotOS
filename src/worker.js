@@ -1,3 +1,4 @@
+import {storeApi,webshopAdminApi,demoEnabled} from './webshop-api.js';
 import {stockHistoryApi} from './stock-history-api.js';
 import {partyStatementApi} from './party-statement-api.js';
 import {offersApi} from './offers-api.js';
@@ -39,6 +40,7 @@ async function api(request,env,path){
    if(request.headers.get('Origin')!==new URL(request.url).origin)fail('İstek kaynağı doğrulanamadı.',403);
    if(!request.headers.get('Content-Type')?.startsWith('application/json'))fail('JSON veri gerekli.',415);
  }
+ if(path==='/api/store'||path.startsWith('/api/store/'))return storeApi(request,env,path,body);
  if(path==='/api/auth/status'&&request.method==='GET') {
    const admin=await db.prepare('SELECT id FROM admin WHERE id=1').first();
    const current=await session(request,db);return json({authenticated:!!current,initialized:!!admin,user:current?.user||null});
@@ -73,6 +75,7 @@ async function api(request,env,path){
    return json({ok:true},200,{'Set-Cookie':`lunapot_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800${secure}`});
  }
  const current=await session(request,db);if(!current)fail('Lütfen giriş yapın.',401);authorize(current.user,path,request.method);
+ if(path.startsWith('/api/webshop/'))return json(scrubAmounts(await webshopAdminApi(request,env,path,body,current.user),current.user,'ec'));
  const accessResult=await accessApi(request,env,path,body,current.user);if(accessResult!==null)return json(accessResult);
  const workspace=path.match(/^\/api\/(ec|lp)(\/.*)?$/);
  if(workspace){
@@ -133,7 +136,12 @@ async function api(request,env,path){
 }
 export default {async fetch(request,env) {
  let response;
- try {const path=new URL(request.url).pathname;if(path.startsWith('/api/'))response=await api(request,env,path);else if(path==='/uretim'||path==='/uretim/'){const assetURL=new URL(request.url);assetURL.pathname='/production';response=await env.ASSETS.fetch(new Request(assetURL,request));}else if(path==='/eticaret'||path==='/eticaret/'){const assetURL=new URL(request.url);assetURL.pathname='/ecommerce';response=await env.ASSETS.fetch(new Request(assetURL,request));}else response=await env.ASSETS.fetch(request);}
+ try {const path=new URL(request.url).pathname;
+  // Musteri magazasi henuz satisa acilmadi. Dosyalar yayin paketinde bulunsa da canli
+  // muhasebe adresinde SUNULMAZ; yalnizca yerel demo ortaminda acilir. Boylece paketin
+  // icinde durmasi "magaza yayinda" anlamina gelmez.
+  if((path==='/magaza'||path.startsWith('/magaza/'))&&!demoEnabled(request,env))response=json({error:'Web mağaza henüz satışa açılmadı.'},404);
+  else if(path.startsWith('/api/'))response=await api(request,env,path);else if(path==='/webmagaza'||path==='/webmagaza/'){const assetURL=new URL(request.url);assetURL.pathname='/webshop';response=await env.ASSETS.fetch(new Request(assetURL,request));}else if(path==='/uretim'||path==='/uretim/'){const assetURL=new URL(request.url);assetURL.pathname='/production';response=await env.ASSETS.fetch(new Request(assetURL,request));}else if(path==='/eticaret'||path==='/eticaret/'){const assetURL=new URL(request.url);assetURL.pathname='/ecommerce';response=await env.ASSETS.fetch(new Request(assetURL,request));}else response=await env.ASSETS.fetch(request);}
  catch(error){response=json({error:error.status?error.message:'İşlem tamamlanamadı. Bağlantıyı kontrol edip tekrar deneyin.'},error.status||500);}
  const headers=new Headers(response.headers);
  headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','no-referrer');headers.set('X-Frame-Options','DENY');

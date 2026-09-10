@@ -3,6 +3,7 @@ const deny=()=>{throw Object.assign(Error('Bu ekran veya işlem için yetkiniz y
 export function permit(user,path,method){
  if(user.owner||path==='/api/auth/logout')return;
  if(path.startsWith('/api/admin'))deny();
+ if(path.startsWith('/api/webshop/')){if(!can(user,'ec','webshop',!['GET','HEAD'].includes(method)))deny();return;}
  const match=path.match(/^\/api\/(ec|lp)(\/.*)?$/),ns=match?.[1]||'lp',sub=match?(match[2]||''):path.slice(4);
  if(user[ns+'_access']==='none')deny();
  const write=!['GET','HEAD'].includes(method),parts=sub.split('/').filter(Boolean),head=parts[0];
