@@ -19,5 +19,6 @@ const paths={
  integrations:'M8 3v4 M16 3v4 M6 7h12v3a6 6 0 0 1-12 0V7 M12 16v5',
  settings:'M4 7h16 M4 17h16 M8 4v6 M16 14v6',
  reconciliation:'M3 6h12 M11 2l4 4-4 4 M21 18H9 M13 14l-4 4 4 4',
+ offers:'M6 3h9l4 4v14H6z M15 3v4h4 M9 12h7 M9 16h5',
  ai:'m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z'};
 export const icon=name=>'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+(paths[name]||paths.overview)+'"/></svg>';

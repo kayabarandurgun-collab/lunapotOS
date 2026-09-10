@@ -1,5 +1,6 @@
 import {stockHistoryApi} from './stock-history-api.js';
 import {partyStatementApi} from './party-statement-api.js';
+import {offersApi} from './offers-api.js';
 import {loginLimitSubjects} from './login-limits.js';
 import {filterProductionData,scrubAmounts} from './permission-policy.js';
 import {purchaseAdjustmentApi} from './purchase-adjustment-api.js';
@@ -76,7 +77,7 @@ async function api(request,env,path){
  const workspace=path.match(/^\/api\/(ec|lp)(\/.*)?$/);
  if(workspace){
   const scoped={...env,DB:scopedDB(db,workspace[1]),ROOT_DB:db,WORKSPACE:workspace[1],USER:current.user},subpath=workspace[2]||'';
-  for(const handler of [partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(scrubAmounts(result,current.user,workspace[1]));}
+  for(const handler of [offersApi,partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(scrubAmounts(result,current.user,workspace[1]));}
   return json(scrubAmounts(await accountingApi(request,scoped,'/api/accounting'+subpath,body),current.user,workspace[1]));
  }
  if(path==='/api/auth/logout'&&request.method==='POST') {
