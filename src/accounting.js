@@ -159,14 +159,16 @@ export async function accountingApi(request,env,path,readBody){
   }
   if(existing.status!=='draft')fail('Bu fatura daha önce işlendi.',409);
   // Iptal edilen taslak numarasi serbest kalir: belge kaydi silinir ve numara mezar tasi ile isaretlenir.
-  // Boylece yanlis girilip iptal edilen bir fatura, dogru haliyle yeniden girilebilir.
+  // Butun yan etkiler ayni durum kosuluna baglidir. Fatura okuma ile yazma arasinda muhasebelestiyse
+  // guncelleme sifir satir etkiler; belge korumasi ve kayit da islemez, istek 409 alir.
   if(action==='cancel'){
-   const rootDB=env.ROOT_DB||db;
-   await batch(db,[
-    statement(rootDB,'DELETE FROM document_registry WHERE invoice_id=? AND workspace=?',[key,env.WORKSPACE]),
-    statement(db,"UPDATE purchase_invoices SET status='cancelled',invoice_no=invoice_no||' (iptal '||substr(id,1,8)||')' WHERE id=? AND status='draft'",[key]),
-    log(db,'Alış faturası iptal edildi; belge numarası yeniden kullanılabilir')
+   const cancelledNow="EXISTS(SELECT 1 FROM purchase_invoices WHERE id=? AND status='cancelled')";
+   const result=await batch(db,[
+    statement(db,"UPDATE purchase_invoices SET status='cancelled',invoice_no=invoice_no||' (iptal '||substr(id,1,8)||')' WHERE id=? AND status='draft' RETURNING id",[key]),
+    statement(db,'DELETE FROM document_registry WHERE invoice_id=? AND workspace=? AND '+cancelledNow,[key,env.WORKSPACE,key]),
+    statement(db,'INSERT INTO activity(id,description) SELECT ?,? WHERE '+cancelledNow,[id(),'Alış faturası iptal edildi; belge numarası yeniden kullanılabilir',key])
    ]);
+   if(!result[0].results.length)fail('Bu fatura daha önce işlendi.',409);
    return {id:key};
   }
   if(action==='post'){await batch(db,[statement(db,"UPDATE purchase_invoices SET status='posted' WHERE id=? AND status='draft'",[key]),log(db,'Alış faturası muhasebeleştirildi; mal teslimi bekleniyor')]);return {id:key};}

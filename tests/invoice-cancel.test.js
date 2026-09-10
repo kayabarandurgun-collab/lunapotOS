@@ -69,3 +69,40 @@ test('Bir alandaki iptal, diğer alanın belge kaydını silmez',async()=>{
   assert.equal(f.sqlite.prepare("SELECT COUNT(*) n FROM document_registry WHERE workspace='ec'").get().n,0);
  }finally{f.close();}
 });
+
+test('Muhasebeleşme iptalin okuması ile yazması arasına girerse iptal 409 alır ve belge koruması silinmez',async()=>{
+ const {f,draft}=await seed();try{
+  const invoice=await f.ok('/ec/invoices',draft('YARIS-1',10));
+  assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM document_registry WHERE invoice_id=?').get(invoice.id).n,1);
+
+  // İptal faturayı taslak okuduktan sonra, kendi yazması başlamadan önce post tamamlanıyor.
+  const original=f.env.DB.batch.bind(f.env.DB);let armed=true,posted=null;
+  f.env.DB.batch=async items=>{if(armed){armed=false;posted=await f.req('/ec/invoices/'+invoice.id+'/post',{});}return original(items);};
+  const cancel=await f.req('/ec/invoices/'+invoice.id+'/cancel',{});
+  f.env.DB.batch=original;
+
+  assert.equal(posted.status,200,'muhasebeleştirme kazanmalı');
+  assert.equal(cancel.status,409,'kaybeden iptal isteği 409 almalı');
+  const row=f.sqlite.prepare('SELECT status,invoice_no FROM ec_purchase_invoices WHERE id=?').get(invoice.id);
+  assert.equal(row.status,'posted','fatura muhasebeleşmiş kalmalı');
+  assert.equal(row.invoice_no,'YARIS-1','iptal etiketi yazılmamalı');
+  assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM document_registry WHERE invoice_id=?').get(invoice.id).n,1,'mükerrer belge koruması silinmemeli');
+
+  // Koruma gerçekten çalışıyor mu: aynı numara ikinci kez işlenememeli.
+  const repeat=await f.req('/ec/invoices',draft('YARIS-1',10));
+  assert.equal(repeat.status,409,'işlenmiş belge ikinci kez kaydedilmemeli');
+ }finally{f.close();}
+});
+
+test('Aynı taslağın iptali tekrarlanırsa ikinci istek 409 alır ve tek kayıt bırakır',async()=>{
+ const {f,draft}=await seed();try{
+  const invoice=await f.ok('/ec/invoices',draft('TEKRAR-1',10));
+  const first=await f.req('/ec/invoices/'+invoice.id+'/cancel',{});
+  const second=await f.req('/ec/invoices/'+invoice.id+'/cancel',{});
+  assert.equal(first.status,200);
+  assert.equal(second.status,409,'tekrar denemede yeni yan etki olmamalı');
+  assert.equal(f.sqlite.prepare("SELECT COUNT(*) n FROM ec_activity WHERE description LIKE '%iptal edildi%'").get().n,1,'tek iptal kaydı olmalı');
+  assert.match(f.sqlite.prepare('SELECT invoice_no FROM ec_purchase_invoices WHERE id=?').get(invoice.id).invoice_no,/^TEKRAR-1 \(iptal [0-9a-f]{8}\)$/,'numara ikinci kez etiketlenmemeli');
+  assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM document_registry').get().n,0);
+ }finally{f.close();}
+});
