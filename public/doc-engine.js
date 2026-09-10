@@ -178,14 +178,23 @@ export function xlsxBytes(sheets) {
 const runXml = (text, {bold = false, size = 22, color = '243830'} = {}) =>
   `<w:r><w:rPr>${bold ? '<w:b/>' : ''}<w:sz w:val="${size}"/><w:color w:val="${color}"/></w:rPr><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`;
 
+// Bloklar PDF, Word ve yazdırmada aynı kaynaktan gelir; iki farklı yazım da kabul edilir.
+// Aksi hâlde biçimlerden biri bloğu sessizce boş çizer — PDF'te özet bu yüzden kaybolmuştu.
+export const keyValuePairs = block => (block.pairs || block.rows || []);
+export const tableColumns = block =>
+  (block.columns || []).map(column => (typeof column === 'string' ? {header: column} : column));
+
 function blockXml(block) {
   if (block.type === 'heading')
     return `<w:p><w:pPr><w:spacing w:before="240" w:after="120"/></w:pPr>${runXml(block.text, {size: 30})}</w:p>`;
   if (block.type === 'small')
     return `<w:p><w:pPr><w:spacing w:after="60"/></w:pPr>${runXml(block.text, {size: 18, color: '64746C'})}</w:p>`;
   if (block.type === 'spacer') return '<w:p/>';
+  // Etiket/değer bloğu Word'de de tablo olur; aksi hâlde özet sessizce boş kalırdı.
+  if (block.type === 'keyvalue')
+    return blockXml({type: 'table', columns: ['Bilgi', 'Değer'], rows: keyValuePairs(block).map(([label, value]) => [label, value])});
   if (block.type === 'table') {
-    const header = `<w:tr>${(block.columns || []).map(c => `<w:tc><w:tcPr><w:shd w:val="clear" w:fill="EDF5F0"/></w:tcPr><w:p>${runXml(c, {size: 18})}</w:p></w:tc>`).join('')}</w:tr>`;
+    const header = `<w:tr>${tableColumns(block).map(c => `<w:tc><w:tcPr><w:shd w:val="clear" w:fill="EDF5F0"/></w:tcPr><w:p>${runXml(c.header, {size: 18})}</w:p></w:tc>`).join('')}</w:tr>`;
     const rows = (block.rows || []).map(row => `<w:tr>${row.map(cell => `<w:tc><w:p>${runXml(cell, {size: 18})}</w:p></w:tc>`).join('')}</w:tr>`).join('');
     return `<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="5000" w:type="pct"/><w:tblBorders><w:top w:val="single" w:sz="4" w:color="DFE7E0"/><w:left w:val="single" w:sz="4" w:color="DFE7E0"/><w:bottom w:val="single" w:sz="4" w:color="DFE7E0"/><w:right w:val="single" w:sz="4" w:color="DFE7E0"/><w:insideH w:val="single" w:sz="4" w:color="DFE7E0"/><w:insideV w:val="single" w:sz="4" w:color="DFE7E0"/></w:tblBorders></w:tblPr>${header}${rows}</w:tbl><w:p/>`;
   }
@@ -334,7 +343,7 @@ export async function pdfBytes({title, subtitle, blocks = [], footer = ''}, kit)
       room(34); y -= 6; draw(block.text, {size: 12}); y -= 17; continue;
     }
     if (block.type === 'keyvalue') {
-      for (const [label, value] of block.rows || []) {
+      for (const [label, value] of keyValuePairs(block)) {
         room(16);
         draw(label, {size: 9.5, color: muted});
         const text = String(value ?? '');
@@ -344,7 +353,7 @@ export async function pdfBytes({title, subtitle, blocks = [], footer = ''}, kit)
       continue;
     }
     if (block.type === 'table') {
-      const columns = block.columns || [];
+      const columns = tableColumns(block);
       const widths = columns.map(c => (c.width || 1));
       const total = widths.reduce((a, b) => a + b, 0);
       const sizes = widths.map(w => (w / total) * contentWidth);
