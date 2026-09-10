@@ -1,3 +1,4 @@
+import {can} from '../public/permissions.js';
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
 const day=value=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFinite(Date.parse(value))||new Date(value).toISOString().slice(0,10)!==value)fail('Tarih geçersiz.');return value;};
 export function stockHistoryQuery(url){
@@ -25,5 +26,10 @@ export async function stockHistoryApi(request,env,path){
   db.prepare(cte+'SELECT * FROM history'+where+' ORDER BY occurred_on DESC,created_at DESC,id DESC LIMIT ? OFFSET ?').bind(...values,limit,(page-1)*limit)
  ])).map(r=>r.results);
  const totals=summary[0];
- return {product:card,rows,totals,pagination:{page,limit,total:totals.total,pages:Math.max(1,Math.ceil(totals.total/limit)),has_more:page*limit<totals.total},as_of:new Date().toISOString()};
+ // Urun baglantilari ayri bir yetki alanidir; yalnizca o yetki varsa doner.
+ // Eslestirme surumleme ve stok islem modeli degismez, sadece okunur.
+ const links=can(env.USER,env.WORKSPACE,"catalog")?(await db.prepare(
+  "SELECT m.id,m.source,m.external_code,m.supplier_id,s.name supplier_name,c.quantity_milli,(SELECT COUNT(*) FROM catalog_mapping_components x WHERE x.mapping_id=m.id) component_count FROM catalog_mappings m JOIN catalog_mapping_components c ON c.mapping_id=m.id LEFT JOIN suppliers s ON s.id=m.supplier_id WHERE c.product_id=? AND m.active=1 ORDER BY m.source,m.external_code LIMIT 51"
+ ).bind(product).all()).results:[];
+ return {product:card,links,links_truncated:links.length>50,rows,totals,pagination:{page,limit,total:totals.total,pages:Math.max(1,Math.ceil(totals.total/limit)),has_more:page*limit<totals.total},as_of:new Date().toISOString()};
 }

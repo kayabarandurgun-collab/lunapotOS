@@ -44,3 +44,31 @@ test('Üretim hammadde alış kartı ve depo hareketi aynı geçmişte bir kez g
 test('Stok geçmişi geçersiz ürün, tarih, yön ve sayfa parametrelerini reddeder',()=>{
  for(const values of [{product:''},{product:'x',from:'2026-02-30'},{product:'x',from:'2026-09-10',to:'2026-09-01'},{product:'x',page:0},{product:'x',page:1.5},{product:'x',direction:'secret'},{product:'x',q:'a'.repeat(201)}])assert.throws(()=>stockHistoryQuery('https://test?'+new URLSearchParams(values)),e=>e.status===400);
 });
+
+test('Stok kartı bağlı ilanları ve setleri yalnızca eşleştirme yetkisi olana verir',async()=>{
+ const f=appFixture();await f.setup();try{
+  const a=(await f.ok('/ec/products',{name:'Bileşen A',sku:'BA-1',stock_unit:'adet',min_stock:0})).id;
+  const b=(await f.ok('/ec/products',{name:'Bileşen B',sku:'BB-1',stock_unit:'adet',min_stock:0})).id;
+  const supplier=await f.ok('/ec/suppliers',{name:'Tedarikçi A',tax_id:'1234567890',contact:''});
+  await f.ok('/ec/catalog/mappings',{source:'trendyol',external_code:'SET-1',
+   components:[{product_id:a,quantity_milli:2000,revenue_share_bps:6000},{product_id:b,quantity_milli:1000,revenue_share_bps:4000}]});
+  await f.ok('/ec/catalog/mappings',{source:'purchase',supplier_id:supplier.id,external_code:'MARKA-A',source_unit:'adet',
+   components:[{product_id:a,quantity_milli:1000,revenue_share_bps:10000}]});
+
+  const owner=await f.ok('/ec/stock/history?product='+a);
+  assert.equal(owner.links.length,2,'yönetici iki bağlantıyı da görmeli');
+  const set=owner.links.find(l=>l.external_code==='SET-1');
+  assert.equal(set.component_count,2,'set iki bileşenli olmalı');
+  assert.equal(set.quantity_milli,2000,'bu üründen set başına 2 adet düşmeli');
+  const purchase=owner.links.find(l=>l.external_code==='MARKA-A');
+  assert.equal(purchase.supplier_name,'Tedarikçi A');
+
+  const staff=await f.ok('/admin/users',{name:'Depo',username:'depo',permissions:{ec:{stock:'read'},lp:{},delete_records:false}});
+  await f.req('/auth/accept-invite',{token:staff.invite_path.split('invite=')[1],password:'depo-personel-sifresi'});
+  const login=await f.req('/auth/login',{username:'depo',password:'depo-personel-sifresi'});
+  const limited=await f.req('/ec/stock/history?product='+a,undefined,login.cookie);
+  assert.equal(limited.status,200,'stok yetkisi olan personel kartı açabilmeli');
+  assert.deepEqual(limited.data.links,[],'eşleştirme yetkisi olmayana bağlantı verilmemeli');
+  assert.ok(limited.data.rows,'stok hareketleri yine dönmeli');
+ }finally{f.close();}
+});

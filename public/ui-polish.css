@@ -81,3 +81,11 @@ dialog{border-radius:22px;border:1px solid var(--line);box-shadow:0 32px 110px #
 .order-copy-row{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px}
 .order-copy-row button{font-size:12px;min-height:40px;padding:8px 12px;font-variant-numeric:tabular-nums}
 @media(max-width:600px){.order-copy-row button{flex:1 1 100%}}
+/* Stok kartindaki bagli ilan ve set listesi. */
+.history-links{margin:14px 0 4px;border:1px solid var(--line);border-radius:12px;background:var(--canvas);padding:0 14px}
+.history-links>summary{cursor:pointer;padding:12px 0;font-size:13px;font-weight:600}
+.history-links>summary:focus-visible{outline:3px solid var(--brand);outline-offset:-3px}
+.history-links ul{list-style:none;margin:0 0 12px;padding:0;display:flex;flex-direction:column;gap:8px}
+.history-links li{font-size:12px;line-height:1.6;padding:9px 11px;background:#fff;border:1px solid var(--line);border-radius:9px}
+.history-links li small{display:block;color:var(--muted)}
+.history-links .help{margin:6px 0;font-size:11px;letter-spacing:.4px;text-transform:uppercase}
