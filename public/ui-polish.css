@@ -104,3 +104,10 @@ dialog{border-radius:22px;border:1px solid var(--line);box-shadow:0 32px 110px #
 .ledger-pager{display:inline-flex;align-items:center;gap:10px;margin-left:auto;font-size:12px}
 .ledger-pager button{min-height:40px;padding:8px 12px;font-size:12px}
 @media(max-width:600px){.ledger-pager{width:100%;margin-left:0;justify-content:space-between}.ledger-pager button{flex:1}}
+/* Kaydetme sirasinda dugme durumu ve uzun urun adlari. */
+button[aria-busy=true]{position:relative;color:transparent!important}
+button[aria-busy=true]::after{content:'Kaydediliyor…';position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-size:12px;font-weight:600}
+.secondary[aria-busy=true]::after,.text-button[aria-busy=true]::after{color:var(--ink)}
+td,th,.stat small,.v2-stat small,.decision-channels strong{overflow-wrap:anywhere}
+td strong,.recipe-card h2,.studio-material strong,.history-links li{overflow-wrap:anywhere;hyphens:auto}
+@media(prefers-reduced-motion:reduce){button[aria-busy=true]::after{content:'Kaydediliyor…'}}

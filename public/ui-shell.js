@@ -9,7 +9,7 @@ function syncMenu(){const open=mobile.matches&&!!sidebar?.classList.contains('op
 shade.addEventListener('click',()=>closeMenu(true));mobile.addEventListener('change',()=>closeMenu());
 document.addEventListener('keydown',e=>{if(!mobile.matches||!sidebar?.classList.contains('open')||document.querySelector('dialog[open]'))return;if(e.key==='Escape'){e.preventDefault();closeMenu(true);}if(e.key==='Tab'){const targets=[menu(),...sidebar.querySelectorAll('a,button,[tabindex="0"]')].filter(x=>x&&!x.disabled&&!x.hidden&&x.getClientRects().length);const first=targets[0],last=targets.at(-1);if(e.shiftKey&&(document.activeElement===first||!targets.includes(document.activeElement))){e.preventDefault();last?.focus();}else if(!e.shiftKey&&(document.activeElement===last||!targets.includes(document.activeElement))){e.preventDefault();first?.focus();}}});
 document.addEventListener('click',e=>{if(e.target.closest('#sidebar a'))closeMenu();});window.addEventListener('hashchange',()=>closeMenu());
-function enhance(){scheduled=false;enhanceNavigationSearch();const next=document.querySelector('#sidebar');if(next!==sidebar){navObserver?.disconnect();sidebar=next;if(sidebar){navObserver=new MutationObserver(syncMenu);navObserver.observe(sidebar,{attributes:true,attributeFilter:['class']});}}syncMenu();
+function enhance(){scheduled=false;for(const busy of document.querySelectorAll("[aria-busy=true]"))if(!busy.disabled)busy.removeAttribute("aria-busy");enhanceNavigationSearch();const next=document.querySelector('#sidebar');if(next!==sidebar){navObserver?.disconnect();sidebar=next;if(sidebar){navObserver=new MutationObserver(syncMenu);navObserver.observe(sidebar,{attributes:true,attributeFilter:['class']});}}syncMenu();
  const main=document.querySelector('main');if(main){skip.hidden=false;if(!main.id)main.id='workspace-main';main.tabIndex=-1;skip.href='#'+main.id;skip.onclick=e=>{e.preventDefault();closeMenu();main.focus();main.scrollIntoView({block:'start'});};}else skip.hidden=true;
  const header=document.querySelector('.workspace>header');if(header&&!header.querySelector('.mobile-workspace,.ui-mobile-title')){const title=document.createElement('strong');title.className='ui-mobile-title';title.textContent='Lunapot';header.querySelector('.mobile-menu')?.after(title);}
  for(const region of document.querySelectorAll('.table-wrap,.v2-table-wrap')){const overflow=region.scrollWidth>region.clientWidth+2;if(!region.dataset.uiRegion){region.dataset.uiRegion='true';region.setAttribute('role','region');region.setAttribute('aria-label','Veri tablosu');const hint=document.createElement('p');hint.className='ui-table-hint';hint.textContent='Diğer sütunlar için tabloyu yana kaydırabilirsin →';region.after(hint);}region.tabIndex=overflow?0:-1;const hint=region.nextElementSibling;if(hint?.classList.contains('ui-table-hint'))hint.hidden=!overflow;}
@@ -21,6 +21,18 @@ const dialogOf=node=>node instanceof Element?node.closest('dialog[open]'):null;
 const markDirty=event=>{const dialog=dialogOf(event.target);if(dialog)unsavedDialog=dialog;};
 document.addEventListener('input',markDirty);document.addEventListener('change',markDirty);
 window.addEventListener('beforeunload',event=>{if(!unsavedDialog?.isConnected||!unsavedDialog.open)return;event.preventDefault();event.returnValue='';});
+// Kaydetme sirasinda dugme durumu: modullerin hepsi gonderirken submit dugmesini kapatir.
+// Burada ortak gorunur durum eklenir; istek bitip dugme yeniden acilinca isaret kalkar.
+// Gecikmis istek basarili sayilmaz: isareti kaldiran sey yalnizca dugmenin yeniden acilmasidir.
+document.addEventListener("submit",event=>{
+ const button=event.submitter||event.target.querySelector("[type=submit]");if(!button)return;
+ button.setAttribute("aria-busy","true");
+ // Modul kendi gonderim isleyicisinde dugmeyi kapatir. Isaret, dugme yeniden acilinca kalkar.
+ // Kapatma kalibini kullanmayan bir form varsa isaret ayni anda temizlenir, asili kalmaz.
+ queueMicrotask(()=>{if(!button.disabled){button.removeAttribute("aria-busy");return;}
+  const watch=new MutationObserver(()=>{if(!button.isConnected||!button.disabled){button.removeAttribute("aria-busy");watch.disconnect();}});
+  watch.observe(button,{attributes:true,attributeFilter:["disabled"]});});
+},true);
 function schedule(){if(!scheduled){scheduled=true;requestAnimationFrame(enhance);}}
 new MutationObserver(schedule).observe(document.body,{childList:true,subtree:true});window.addEventListener('resize',schedule);document.fonts?.ready.then(schedule);schedule();
 

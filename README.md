@@ -158,3 +158,9 @@ Mobil menü dışarı dokunma ve Escape ile kapanır; klavye odağı menü için
 Doğrulama: 28 sayfa 1440, 768, 390 ve 320 piksel genişliklerde tarandı. Küçük ekrandaki sekme taşmaları düzeltildi. İki mobil menü, klavye, iki giriş ekranı, personel izinleri ve 10 tür pencere/form kontrol edildi. Reçetede hammadde seçimi, salt görüntüleme personelinde işlem engeli korundu. 108 mevcut otomatik test ve Cloudflare paket kontrolü başarılı. Gerçek bağlantı veya ticari kayıt değiştirilmedi.
 
 Yayınlandı. Kaynaklar `main` dalında; canlı dosyaların içerik özetleri yayımlanan sürümle karşılaştırılarak doğrulandı.
+
+### Karanlık mod — ertelendi, gerekçesi
+
+Karanlık mod eklenmedi. Ölçüm: dokuz stil dosyasında 539 sabit renk değeri, 337 değişken kullanımına karşılık geliyor; `access.css`, `launcher.css` ve `recipe-studio.css` hiç değişken kullanmıyor. Bu durumda `prefers-color-scheme` ile değişkenleri yeniden tanımlamak yüzeyin yalnızca bir bölümünü çevirir ve parçalı koyu ekranlar ortaya çıkar.
+
+Ön koşul, renklerin önce ortak değişkenlere taşınmasıdır. Bu ayrı bir düzenleme işidir ve görünüm değişikliğinden çok daha geniş bir dokunuş gerektirir. Hareket azaltma tercihi, yazdırma stilleri ve mevcut açık tema korunmaktadır.
