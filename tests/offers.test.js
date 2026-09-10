@@ -153,7 +153,10 @@ test('Teklif proformaya, proforma sözleşmeye dönüşür; aynı iş iki kez be
     await f.ok(`/ec/offers/${varsayilan.id}/status`, {status: 'accepted'});
     const varsayilanProforma = await f.ok(`/ec/offers/${varsayilan.id}/convert`, {});
     assert.notEqual(varsayilanProforma.valid_until, varsayilanProforma.issue_date, 'aynı gün biten proforma üretilmemeli');
-    assert.equal(varsayilanProforma.valid_until, gun(30));
+    // Sunucu "bugün"ü İstanbul saatiyle alır; UTC ile gün farkı olabilir. Beklenen değer
+    // yanıttaki belge tarihinden hesaplanır, test makinesinin saat dilimine bağlanmaz.
+    const otuzGunSonra = new Date(Date.parse(varsayilanProforma.issue_date + 'T00:00:00Z') + 30 * 86400000).toISOString().slice(0, 10);
+    assert.equal(varsayilanProforma.valid_until, otuzGunSonra);
 
     const ikinci = await f.req(`/ec/offers/${teklif.id}/convert`, {});
     assert.equal(ikinci.status, 409, 'aynı tekliften ikinci proforma çıkmaz');

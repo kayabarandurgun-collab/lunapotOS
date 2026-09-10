@@ -1,6 +1,7 @@
 import {hash,hex,passwordHash,equal} from './access-api.js';
 import {can} from '../public/permissions.js';
 import {LEGAL_VERSION,LEGAL_DOCS,SELLER,orderLegalText} from './webshop-legal.js';
+import {paymentRoutes} from './webshop-payment.js';
 const fail=(m,s=400)=>{throw Object.assign(Error(m),{status:s})};
 const now=()=>Math.floor(Date.now()/1000);
 const json=(x,status=200,headers={})=>Response.json(x,{status,headers:{'Cache-Control':'no-store',...headers}});
@@ -20,6 +21,8 @@ function orderRow(o){if(!o)return null;const {snapshot_json,...rest}=o;return {.
 async function ownOrder(db,id,cid){const o=await db.prepare('SELECT * FROM ws_orders WHERE id=? AND customer_id=?').bind(id,cid).first();if(!o)fail('Sipariş bulunamadı.',404);return o}
 export async function storeApi(request,env,path,readBody){
  const db=env.DB,method=request.method,url=new URL(request.url),sub=path.slice('/api/store'.length);
+ // Sağlayıcı ödemesi ayrı modüldedir; bu dosyanın akışı değişmez (src/webshop-payment.js).
+ const payment=await paymentRoutes({request,env,sub,readBody,db,helpers:{customer,ownOrder,requireDemo,event,json,fail,limit,orderRow}});if(payment)return payment;
  if(sub==='/config'&&method==='GET')return json({mode:demoEnabled(request,env)?'demo':'closed',version:LEGAL_VERSION,seller:SELLER,shipping_cents:5900,live_ready:false,blockers:['KEP ve oda bilgileri teyit edilecek','Kargo, fiyat ve stok eşleştirmesi kesinleşecek','ETBİS ve kişisel veri aktarım/saklama süreci doğrulanacak','Ödeme, e-posta doğrulama ve sıfırlama sağlayıcıları bağlanacak']});
  if(sub==='/legal'&&method==='GET')return json({version:LEGAL_VERSION,seller:SELLER,documents:LEGAL_DOCS});
  if(sub==='/catalog'&&method==='GET')return json({items:(await db.prepare('SELECT id,product_id,name,size,image,category,price_cents,stock FROM ws_catalog WHERE active=1 ORDER BY name,size').all()).results});

@@ -36,9 +36,30 @@ const json=(data,status=200,headers={})=>Response.json(data,{status,headers:{'Ca
 const activity=(db,description)=>db.prepare('INSERT INTO activity(id,description) VALUES(?,?)').bind(crypto.randomUUID(),description);
 async function body(request){if(Number(request.headers.get('content-length'))>64000)fail('İstek çok büyük.',413);const raw=await request.text();if(raw.length>64000)fail('İstek çok büyük.',413);try{return JSON.parse(raw);}catch{fail('Geçersiz veri.');}}
 const session=currentSession;
+// Tek bayt aralığı ("bytes=a-b", "bytes=a-", "bytes=-n"). Çoklu aralık desteklenmez; tam dosya döner.
+export async function videoRange(request,response){
+ const range=request.headers.get('Range');
+ const base=new Headers(response.headers);base.set('Accept-Ranges','bytes');
+ if(!range)return new Response(response.body,{status:200,headers:base});
+ const bytes=new Uint8Array(await response.arrayBuffer()),size=bytes.length;
+ const match=/^bytes=(\d*)-(\d*)$/.exec(range.trim());
+ if(!match||(!match[1]&&!match[2])){base.set('Content-Length',String(size));return new Response(bytes,{status:200,headers:base});}
+ let start,end;
+ if(!match[1]){const suffix=Number(match[2]);start=Math.max(0,size-suffix);end=size-1;}
+ else{start=Number(match[1]);end=match[2]?Math.min(Number(match[2]),size-1):size-1;}
+ if(!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||start>end||start>=size){
+  const bad=new Headers(base);bad.set('Content-Range',`bytes */${size}`);bad.delete('Content-Length');
+  return new Response(null,{status:416,headers:bad});
+ }
+ base.set('Content-Range',`bytes ${start}-${end}/${size}`);base.set('Content-Length',String(end-start+1));
+ return new Response(bytes.slice(start,end+1),{status:206,headers:base});
+}
 async function api(request,env,path){
  const db=env.DB;if(!db)fail('Veritabanı bağlantısı henüz kurulmadı.',503);
- if(!['GET','HEAD'].includes(request.method)) {
+ // iyzico geri dönüşü (form) ve bildirimi (webhook) başka kaynaktan gelir; Origin/JSON denetimi
+ // bu iki uca uygulanamaz. Bu uçlarda tek güven kaynağı, sunucunun sağlayıcıya yaptığı imzalı sorgudur.
+ const providerCallback=path==='/api/store/payment/callback'||path==='/api/store/payment/webhook';
+ if(!['GET','HEAD'].includes(request.method)&&!providerCallback) {
    if(request.headers.get('Origin')!==new URL(request.url).origin)fail('İstek kaynağı doğrulanamadı.',403);
    if(!request.headers.get('Content-Type')?.startsWith('application/json'))fail('JSON veri gerekli.',415);
  }
@@ -145,6 +166,9 @@ export default {async fetch(request,env) {
   if((path==='/magaza'||path.startsWith('/magaza/'))&&!demoEnabled(request,env))response=json({error:'Web mağaza henüz satışa açılmadı.'},404);
   else if(path.startsWith('/api/'))response=await api(request,env,path);else if(path==='/webmagaza'||path==='/webmagaza/'){const assetURL=new URL(request.url);assetURL.pathname='/webshop';response=await env.ASSETS.fetch(new Request(assetURL,request));}else if(path==='/uretim'||path==='/uretim/'){const assetURL=new URL(request.url);assetURL.pathname='/production';response=await env.ASSETS.fetch(new Request(assetURL,request));}else if(path==='/eticaret'||path==='/eticaret/'){const assetURL=new URL(request.url);assetURL.pathname='/ecommerce';response=await env.ASSETS.fetch(new Request(assetURL,request));}else response=await env.ASSETS.fetch(request);}
  catch(error){response=json({error:error.status?error.message:'İşlem tamamlanamadı. Bağlantıyı kontrol edip tekrar deneyin.'},error.status||500);}
+ // Video için bayt aralığı: iPhone Safari kısmi yanıt (206) almadan videoyu oynatmaz ve ileri saramaz.
+ // Statik dosya katmanı aralık isteğine tam dosyayla (200) dönüyordu; burada tek aralık kesilir.
+ if(response.status===200&&(response.headers.get('Content-Type')||'').startsWith('video/'))response=await videoRange(request,response);
  const headers=new Headers(response.headers);
  headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','no-referrer');headers.set('X-Frame-Options','DENY');
  headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
