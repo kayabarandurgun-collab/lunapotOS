@@ -1,4 +1,5 @@
 import {renderPriceDecision} from './price-decision-ui.js';
+import {bandLabel} from './rate-bands.js';
 const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const money = value => value === null || value === undefined ? 'Bilgi eksik' : new Intl.NumberFormat('tr-TR', {style:'currency', currency:'TRY'}).format(value / 100);
 const number = value => new Intl.NumberFormat('tr-TR', {maximumFractionDigits:3}).format(value);
@@ -75,7 +76,8 @@ export function mountBusiness(root, namespace, view) {
     return `<div class="v2-grid cols-2">${card('Satışını planla', `<form class="v2-form v2-card-body" data-business-form="quote">${choose('Ürün','product_id',productOptions(),f.product_id)}<div class="field-grid">${choose('Satış kanalı','channel',channels,f.channel)}${choose('Kargo şirketi','carrier',carriers.map(x => [x,x]),f.carrier)}</div><div class="field-grid">${amount('Paketin toplam satış fiyatı · KDV dahil (TL)','price',f.price ?? '')}${input('Paketteki ürün adedi','quantity',f.quantity ?? '', 'number','required min="1" max="1000000" step="1"')}${amount('Paket için hedef kâr · KDV hariç (TL)','desired_profit',f.desired_profit ?? '')}</div><details class="quote-advanced"><summary>Tarih ve arama sınırı</summary><div class="field-grid">${amount('Aranacak en yüksek paket fiyatı (TL)','max_price',f.max_price ?? 10000)}${input('Hesap tarihi','date',f.date || today(),'date','required')}</div></details><p class="help">Adet, ürün profilindeki paketle aynı olmalı. Hedef kâr 0 ise başabaş fiyatı aranır. Bütün fiyat aralıklarında tarifelerin tamamlanmış olması gerekir.</p><p class="error" data-business-form-error role="alert"></p><button class="primary" type="submit">Kârı ve alt fiyat sınırını hesapla</button></form>`)}${card('Satışın sana ne bırakıyor?', '<div data-quote-result tabindex="-1" aria-label="Fiyat hesabı sonucu">'+quoteResult()+'</div>')}</div><div class="notice subtle">Bu hesap tahmindir. Gerçek kesintiler geldiğinde kontrol edilir. Sabit işletme giderleri, gelir/kurumlar vergisi ve sonradan oluşan iadeler katkı kârına dahil değildir.</div>`;
   }
   function tariffName(r) { return `<strong>${esc(r.label)}</strong><small>${esc(r.source)}</small>`; }
-  function tariffRange(r) { return `${money(r.price_min_cents)} – ${r.price_max_cents === null ? 'üst sınır yok' : money(r.price_max_cents) + ' hariç'}`; }
+  // Ust sinir haric oldugu icin aralik bir kurus asagisiyla yazilir: 200,00 siniri 199,99'a kadar demektir.
+  function tariffRange(r) { return bandLabel(r); }
   function tariffAction(r, type) { return r.archived_at ? badge('Arşivde') : badge(r.valid_to < today() ? 'Süresi doldu' : r.valid_from > today() ? 'İleri tarihli' : 'Geçerli', r.valid_to < today() ? 'neutral' : 'success') + `<br>${button('Arşivle','archive',type + ':' + r.id,true)}`; }
   function quoteResult() {
     if (!state.quote) return '<div class="v2-empty"><h3>Karar vermeden önce hesapla.</h3><p>Ürününü ve satış koşullarını seç. Tahmini kârı, hakedişi ve hedefin için gerekli en düşük fiyatı burada göreceksin.</p></div>';
@@ -176,6 +178,8 @@ export function mountBusiness(root, namespace, view) {
       if (kind === 'party' && result.existing) { closeDialog(); await load(); showError('Bu vergi numarasıyla kayıtlı cari zaten var. Yeni kayıt açılmadı.'); return; }
       closeDialog(); if (view === 'pricing') state.quote = null;
       await load();
+      // Bant bosluk/cakisma uyarisi kaydi engellemez; kullanicinin gormesi icin gosterilir.
+      if (result?.warnings?.length && !state.disposed) showError(result.warnings.join(' '));
     } catch (e) { if (e.name !== 'AbortError' && !state.disposed) { if (error && error.isConnected) error.textContent = e.message; else showError(e.message); } }
     finally { if (submitButton?.isConnected) submitButton.disabled = false; }
   }

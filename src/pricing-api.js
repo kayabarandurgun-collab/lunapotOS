@@ -1,4 +1,5 @@
 import {priceDecision} from './price-decision.js';
+import {bandWarnings} from '../public/rate-bands.js';
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
 const text=(v,name,max=200)=>{if(typeof v!=='string'||!v.trim()||v.length>max)fail(name+' gerekli/geçersiz.');return v.trim();};
 const integer=(v,name,min=0,max=100000000)=>{if(!Number.isSafeInteger(v)||v<min||v>max)fail(name+' tam sayı olmalı; izin verilen aralık dışında.');return v;};
@@ -46,7 +47,10 @@ export async function pricingApi(request,env,path,readBody){
    r.rate_bps=integer(x.rate_bps,'Komisyon',0,10000);if(!['gross','net'].includes(x.base))fail('Komisyon matrahı seçilmeli.');r.base=x.base;
   }
   const keys=Object.keys(r),table=shipping?'shipping_rates':'commission_rates';
-  await stmt(db,'INSERT INTO '+table+'('+keys.join(',')+') VALUES('+keys.map(()=>'?').join(',')+')',Object.values(r)).run();return {id:r.id};
+  // Ayni kapsamdaki bantlarla bosluk/cakisma bildirilir. Uyaridir; kayit engellenmez ve
+  // farkli donem, desi veya SKU onceligi cakisma sayilmaz.
+  const warnings=bandWarnings(shipping?'shipping':'commission',await boundedRows(db,table),r);
+  await stmt(db,'INSERT INTO '+table+'('+keys.join(',')+') VALUES('+keys.map(()=>'?').join(',')+')',Object.values(r)).run();return {id:r.id,warnings};
  }
  const archive=path.match(/^\/api\/pricing\/(shipping|commissions)\/([\w-]+)\/archive$/);
  if(archive&&method==='POST'){
