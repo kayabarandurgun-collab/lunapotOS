@@ -14,6 +14,13 @@ function enhance(){scheduled=false;enhanceNavigationSearch();const next=document
  const header=document.querySelector('.workspace>header');if(header&&!header.querySelector('.mobile-workspace,.ui-mobile-title')){const title=document.createElement('strong');title.className='ui-mobile-title';title.textContent='Lunapot';header.querySelector('.mobile-menu')?.after(title);}
  for(const region of document.querySelectorAll('.table-wrap,.v2-table-wrap')){const overflow=region.scrollWidth>region.clientWidth+2;if(!region.dataset.uiRegion){region.dataset.uiRegion='true';region.setAttribute('role','region');region.setAttribute('aria-label','Veri tablosu');const hint=document.createElement('p');hint.className='ui-table-hint';hint.textContent='Diğer sütunlar için tabloyu yana kaydırabilirsin →';region.after(hint);}region.tabIndex=overflow?0:-1;const hint=region.nextElementSibling;if(hint?.classList.contains('ui-table-hint'))hint.hidden=!overflow;}
 }
+// Kaydedilmemis form uyarisi. Basarili kayit pencereyi kapattigi icin bayrak orada temizlenir;
+// bu yuzden kaydettikten sonra gereksiz uyari cikmaz. Hicbir veri saklanmaz veya gonderilmez.
+let unsavedDialog=null;
+const dialogOf=node=>node instanceof Element?node.closest('dialog[open]'):null;
+const markDirty=event=>{const dialog=dialogOf(event.target);if(dialog)unsavedDialog=dialog;};
+document.addEventListener('input',markDirty);document.addEventListener('change',markDirty);
+window.addEventListener('beforeunload',event=>{if(!unsavedDialog?.isConnected||!unsavedDialog.open)return;event.preventDefault();event.returnValue='';});
 function schedule(){if(!scheduled){scheduled=true;requestAnimationFrame(enhance);}}
 new MutationObserver(schedule).observe(document.body,{childList:true,subtree:true});window.addEventListener('resize',schedule);document.fonts?.ready.then(schedule);schedule();
 
