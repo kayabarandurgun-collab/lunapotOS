@@ -13,6 +13,9 @@ export function permit(user,path,method){
  if(!match){if(!['products','materials','recipes'].includes(head))deny();feature=head;}
  else if(head==='production'){feature=parts[1]==='material-stock'?'materialstock':parts.length===1&&!write?'production-read':'production';}
  else feature=({products:ns==='ec'?'stock':'products',stock:ns==='ec'?'stock':'accounts',sales:ns==='ec'?'sales':'accounts',returns:ns==='ec'?'sales':'accounts',fees:ns==='ec'?'sales':'accounts',expenses:ns==='ec'?'expenses':'accounts',invoices:ns==='ec'?'invoices':'accounts',purchases:ns==='ec'?'invoices':'accounts',suppliers:ns==='ec'?'ledger':'accounts',payments:'ledger',catalog:'catalog',ledger:'ledger',statement:'ledger',offers:'offers',pricing:'pricing',reconciliation:'reconciliation',orders:'orders',performance:'performance'})[head];
+ // Barkod yalnizca uretim alanindadir. Okumak icin kart gorme yetkisi yeter;
+ // bagla/degistir icin depo ya da uretim yetkisi gerekir.
+ if(head==='barcodes'){if(ns!=='lp'||!match)deny();if(!any(user,'lp',write?['materialstock','production']:['materials','products','materialstock','production','recipes']))deny();if(method==='DELETE'&&!user.permissions?.delete_records)deny();return;}
  if(feature==='production-read'){if(!any(user,'lp',['production','materialstock']))deny();return;}
  if(!feature||!can(user,ns,feature,write&&sub!=='/pricing/quote'))deny();
  if(method==='DELETE'&&(!user.permissions?.delete_records||ns==='lp'&&head==='products'&&!can(user,'lp','recipes',true)))deny();
