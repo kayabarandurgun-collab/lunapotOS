@@ -30,10 +30,10 @@ const milli = (value, label, {required = true} = {}) => {
 };
 
 // Parti kodu okunabilir ve tekildir: yıl-ay + sıra. Kullanıcı kendi kodunu da yazabilir.
-const LOT_PATTERN = /^[0-9A-Za-z][0-9A-Za-z._\-/]{1,39}$/;
-async function nextLotCode(db, produced) {
+export const LOT_PATTERN = /^[0-9A-Za-z][0-9A-Za-z._\-/]{1,39}$/;
+export async function nextLotCode(db, produced, table = 'lots') {
   const prefix = produced.slice(0, 7) + '-P';
-  const last = await db.prepare('SELECT lot_code FROM lots WHERE lot_code LIKE ? ORDER BY lot_code DESC LIMIT 1')
+  const last = await db.prepare('SELECT lot_code FROM ' + table + ' WHERE lot_code LIKE ? ORDER BY lot_code DESC LIMIT 1')
     .bind(prefix + '%').first();
   const previous = last ? Number(last.lot_code.slice(prefix.length)) : 0;
   if (!Number.isSafeInteger(previous) || previous >= 999) fail('Bu ay için parti numarası tükendi.', 409);

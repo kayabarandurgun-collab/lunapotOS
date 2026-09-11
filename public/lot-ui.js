@@ -75,7 +75,7 @@ export function mountLots(root, namespace = 'lp') {
         ? `<p class="help">Bu ürünün barkodları: ${lot.barcodes.map(b => esc(b.code)).join(', ')}</p>`
         : '<div class="notice">Bu ürünün tanımlı barkodu yok. Koli etiketi basmadan önce Barkod ekranından bir barkod bağlayın.</div>'}
       ${cartons}
-      <div class="ac-actions">${lot.status === 'open' && lot.barcodes.length ? act('Koli etiketi bas', 'wizard', lot.id, false) : ''}${lot.cartons.length ? act('Basılmış etiketleri yeniden yazdır', 'reprint', lot.id) : ''}${act('Durumu değiştir', 'status', lot.id)}</div>
+      <div class="ac-actions">${lot.status === 'open' && lot.barcodes.length ? act('Koli etiketi bas', 'wizard', lot.id, false) : ''}${lot.cartons.length ? act('Basılmış etiketleri yeniden yazdır', 'reprint', lot.id) + act('Etiketleri PDF indir', 'pdf', lot.id) : ''}${act('Durumu değiştir', 'status', lot.id)}</div>
       <p class="help">Basılmış etiket kayıtları değiştirilemez ve silinemez. ${esc(CARTON_NOTICE)}</p>
     </div>`, act('Kapat', 'close-detail'));
   }
@@ -270,6 +270,15 @@ export function mountLots(root, namespace = 'lp') {
         state.detail = await api('/lots/' + encodeURIComponent(w.lot.id));
         await loadLots();
         render();
+      });
+      return;
+    }
+    // Doğrudan PDF: yazdırma ayarlarından bağımsız, her etiket kendi ölçüsünde bir sayfa. Stok değişmez.
+    if (action === 'pdf') {
+      run(async () => {
+        const lot = state.detail || await api('/lots/' + encodeURIComponent(id));
+        const [{labelsPdfBytes}, {saveFile, safeFilename}] = await Promise.all([import('./label-pdf.js'), import('./doc-engine.js')]);
+        saveFile(await labelsPdfBytes(cartonLabels(lot.cartons, {lot}), {size: state.labelSize}), safeFilename('koli-etiketleri', lot.lot_code) + '.pdf');
       });
       return;
     }

@@ -262,7 +262,7 @@ function loadScript(src, globalName) {
     document.head.append(script);
   });
 }
-async function loadPdfKit() {
+export async function loadPdfKit() {
   if (pdfKit) return pdfKit;
   const [lib, fontkit, fontBytes] = await Promise.all([
     loadScript('/vendor/pdf-lib.min.js', 'PDFLib'),
