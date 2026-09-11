@@ -18,6 +18,17 @@ const quantityMilli = value => {
   return milli;
 };
 
+// Set bileşeninin gelir payı (%). Satış defterinde KDV hariç gelir bu oranla bölünür (pazaryeri deseni).
+const shareBps = value => {
+  const parsed = Number(value), bps = Math.round(parsed * 100);
+  if (!Number.isFinite(parsed) || bps < 1 || bps > 10000)
+    throw Object.assign(new Error('Gelir payı %0,01–100 arasında olmalı.'), {status: 400});
+  return bps;
+};
+/** Çok bileşenli eşlemede bütün paylar dolu ve toplamı %100 mü? Tek bileşende pay gerekmez. */
+export const sharesValid = components => components.length < 2 ||
+  (components.every(c => Number.isInteger(c.revenue_share_bps)) && components.reduce((s, c) => s + c.revenue_share_bps, 0) === 10000);
+
 /** Bir varyantın satılabilir adedi: bileşenlerin en kısıtlayıcısı. Bileşen yoksa null (bilinmiyor). */
 export function sellableUnits(components) {
   if (!components.length) return null;
@@ -44,7 +55,7 @@ export function variantBlockers(variant, components) {
 async function readiness(db) {
   const variants = (await db.prepare('SELECT id,product_id,name,size,category,price_cents,stock test_stock,active FROM ws_catalog ORDER BY name,size').all()).results;
   const rows = (await db.prepare(
-    'SELECT c.variant_id,c.product_id,c.quantity_milli,p.name product_name,p.sku,p.stock_unit,' +
+    'SELECT c.variant_id,c.product_id,c.quantity_milli,c.revenue_share_bps,p.name product_name,p.sku,p.stock_unit,' +
     'COALESCE(b.quantity_milli,0) balance_milli,' +
     'COALESCE((SELECT SUM(r.quantity_milli) FROM ec_order_reservations r WHERE r.product_id=c.product_id AND r.released_on IS NULL),0) ec_reserved_milli,' +
     'COALESCE((SELECT SUM(w.quantity_milli) FROM ws_stock_reservations w WHERE w.product_id=c.product_id AND w.released_on IS NULL),0) ws_reserved_milli,' +
@@ -58,6 +69,7 @@ async function readiness(db) {
     const vats = [...new Set(components.map(c => c.vat_bps).filter(v => v !== null && v !== undefined))];
     const blockers = variantBlockers(variant, components);
     // Farklı KDV oranlı bileşenlerden oluşan set tek oranla faturalanamaz; ayrıca belirtilir.
+    if (!sharesValid(components)) blockers.push('Set bileşenlerinin gelir payları toplamı %100 değil.');
     if (vats.length > 1) blockers.push('Bileşenlerin KDV oranları farklı; set fatura kalemleri ayrıştırılmalı.');
     return {
       ...variant,
@@ -105,13 +117,17 @@ export async function catalogRoutes({request, env, path, readBody, user, helpers
       seen.add(product);
       if (!await db.prepare('SELECT id FROM ec_products WHERE id=?').bind(product).first())
         fail('E-ticaret stok kartı bulunamadı. Web mağaza yalnızca e-ticaret kartlarına bağlanır.', 404);
-      parsed.push({product_id: product, quantity_milli: quantityMilli(c.quantity)});
+      parsed.push({product_id: product, quantity_milli: quantityMilli(c.quantity),
+        revenue_share_bps: c.share === undefined || c.share === null || c.share === '' ? null : shareBps(c.share)});
     }
+    // Tek kartta pay %100 sayılır; çok kartta toplam %100 zorunlu.
+    if (parsed.length === 1) parsed[0].revenue_share_bps = null;
+    if (!sharesValid(parsed)) fail('Birden fazla stok kartında gelir payları toplamı %100 olmalı.');
     // Eşleme bütün olarak değişir: yarım kalan eşleme stok hesabını bozmasın.
     await db.batch([
       db.prepare('DELETE FROM ws_variant_components WHERE variant_id=?').bind(variant.id),
-      ...parsed.map(c => db.prepare('INSERT INTO ws_variant_components(id,variant_id,product_id,quantity_milli) VALUES(?,?,?,?)')
-        .bind(crypto.randomUUID(), variant.id, c.product_id, c.quantity_milli)),
+      ...parsed.map(c => db.prepare('INSERT INTO ws_variant_components(id,variant_id,product_id,quantity_milli,revenue_share_bps) VALUES(?,?,?,?,?)')
+        .bind(crypto.randomUUID(), variant.id, c.product_id, c.quantity_milli, c.revenue_share_bps)),
       event(db, null, user.id || 'owner', `Stok eşlemesi: ${variant.name} ${variant.size} → ${parsed.length} kart`)
     ]);
     return (await readiness(db)).find(i => i.id === variant.id);

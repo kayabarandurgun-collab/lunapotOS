@@ -163,3 +163,20 @@ test('Eşleme seçenekleri yalnızca yöneticiye ve yalnızca e-ticaret kartlar�
     assert.equal(seen.data.candidates, undefined, 'personel kart listesini almaz');
   } finally { f.close(); }
 });
+
+test('Set eşlemesinde gelir payları toplamı %100 olmak zorunda; hazırlık eksik payı engel sayar', async () => {
+  const {f, local} = await owner(); try {
+    const url = '/webshop/catalog/set-ikili/components';
+    assert.equal((await local(url, {components: [{product_id: 'ec-luna', quantity: 1}, {product_id: 'ec-toprak', quantity: 2}]})).status, 400, 'pay yoksa reddedilir');
+    assert.equal((await local(url, {components: [{product_id: 'ec-luna', quantity: 1, share: 60}, {product_id: 'ec-toprak', quantity: 2, share: 30}]})).status, 400, 'toplam %90');
+    const ok = await local(url, {components: [{product_id: 'ec-luna', quantity: 1, share: 70}, {product_id: 'ec-toprak', quantity: 2, share: 30}]});
+    assert.equal(ok.status, 200);
+    assert.deepEqual(ok.data.components.map(c => [c.product_id, c.revenue_share_bps]).sort(), [['ec-luna', 7000], ['ec-toprak', 3000]]);
+    assert.ok(!ok.data.blockers.some(b => /gelir payları/.test(b)));
+    const single = await local('/webshop/catalog/luna-kucuk/components', {components: [{product_id: 'ec-luna', quantity: 1, share: 40}]});
+    assert.equal(single.data.components[0].revenue_share_bps, null, 'tek kartta pay %100 sayılır');
+    f.sqlite.exec("UPDATE ws_variant_components SET revenue_share_bps=NULL WHERE variant_id='set-ikili' AND product_id='ec-toprak'");
+    const r = await local('/webshop/catalog/readiness');
+    assert.ok(r.data.items.find(i => i.id === 'set-ikili').blockers.some(b => /gelir payları/.test(b)));
+  } finally { f.close(); }
+});
