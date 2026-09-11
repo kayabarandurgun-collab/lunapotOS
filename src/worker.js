@@ -26,6 +26,7 @@ import {purchaseSearchApi} from './purchase-search-api.js';
 import {purchaseReturnApi} from './purchase-return-api.js';
 import {purchaseSplitApi} from './purchase-split-api.js';
 import {attentionApi} from './attention-api.js';
+import {reportInboxApi} from './report-inbox-api.js';
 const fail = (message,status=400) => {throw Object.assign(new Error(message),{status});};
 const str=(v,name,max=200)=> {if(typeof v!=='string'||!v.trim()||v.length>max)fail(name+' alanını kontrol edin.');return v.trim();};
 const optional=(v,max=500)=>{if(v===undefined)return '';if(typeof v!=='string'||v.length>max)fail('Metin çok uzun veya geçersiz.');return v.trim();};
@@ -34,7 +35,9 @@ const validateUnits=(quantity,from,to)=>{try{return convert(quantity,from,to);}c
 const now=()=>Math.floor(Date.now()/1000);
 const json=(data,status=200,headers={})=>Response.json(data,{status,headers:{'Cache-Control':'no-store',...headers}});
 const activity=(db,description)=>db.prepare('INSERT INTO activity(id,description) VALUES(?,?)').bind(crypto.randomUUID(),description);
-async function body(request){if(Number(request.headers.get('content-length'))>64000)fail('İstek çok büyük.',413);const raw=await request.text();if(raw.length>64000)fail('İstek çok büyük.',413);try{return JSON.parse(raw);}catch{fail('Geçersiz veri.');}}
+// Rapor Kutusu dosya parçası ve satır partileri daha büyük olabilir; sınır yalnızca bu iki uçta yükselir.
+const bodyLimit=request=>/^\/api\/ec\/reports\/files\/[\w-]{1,100}\/(chunk|rows)$/.test(new URL(request.url).pathname)?1000000:64000;
+async function body(request){const limit=bodyLimit(request);if(Number(request.headers.get('content-length'))>limit)fail('İstek çok büyük.',413);const raw=await request.text();if(raw.length>limit)fail('İstek çok büyük.',413);try{return JSON.parse(raw);}catch{fail('Geçersiz veri.');}}
 const session=currentSession;
 // Tek bayt aralığı ("bytes=a-b", "bytes=a-", "bytes=-n"). Çoklu aralık desteklenmez; tam dosya döner.
 export async function videoRange(request,response){
@@ -103,7 +106,7 @@ async function api(request,env,path){
  const workspace=path.match(/^\/api\/(ec|lp)(\/.*)?$/);
  if(workspace){
   const scoped={...env,DB:scopedDB(db,workspace[1]),ROOT_DB:db,WORKSPACE:workspace[1],USER:current.user},subpath=workspace[2]||'';
-  for(const handler of [lotApi,barcodeApi,offersApi,partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(scrubAmounts(result,current.user,workspace[1]));}
+  for(const handler of [reportInboxApi,lotApi,barcodeApi,offersApi,partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(scrubAmounts(result,current.user,workspace[1]));}
   return json(scrubAmounts(await accountingApi(request,scoped,'/api/accounting'+subpath,body),current.user,workspace[1]));
  }
  if(path==='/api/auth/logout'&&request.method==='POST') {
