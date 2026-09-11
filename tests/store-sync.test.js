@@ -60,3 +60,8 @@ test('Çalışma dosyaları, konseptler, sunucu betiği ve kullanılmayan GIF\'l
   assert.ok(!files.some(f => f.endsWith('.gif')), 'hiçbir aktif sayfa GIF kullanmıyor');
   assert.ok(files.every(f => /\.(html|css|js|webp|png|jpg|svg|woff2|txt|mp4)$/i.test(f)), 'yalnızca izinli türler');
 });
+
+test('Dağıtılan betikler CSP\'nin engelleyeceği style="..." üretmez (data-inline-style + CSSOM kullanılır)', {skip: !hasSource && 'tasarım kaynağı yok'}, async () => {
+  const {inline_style_js} = await planStoreSync();
+  assert.deepEqual(inline_style_js, [], 'Worker CSP style-src \'self\' altında bu konumlar uygulanmaz: ' + JSON.stringify(inline_style_js));
+});

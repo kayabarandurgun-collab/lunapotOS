@@ -6,7 +6,7 @@
  function piece(name,cls,x,y,w,h,id,front,tone,model){
   const key=model==='nova'?'nova-'+tone+'-part-'+name:(tone==='black'&&name!=='roots'?'luna-black-part-':'luna-part-')+name;
   const asset=novaAssets[key],box=asset?asset.box:(tone==='black'&&dark[name]?dark[name]:files[name]),size=asset?asset.size:[1122,1402];
-  return '<svg class="luna-piece '+cls+'" style="left:'+x/6+'%;top:'+y/11.2+'%;width:'+w/6+'%;height:'+h/11.2+'%" viewBox="'+box.join(' ')+'" aria-hidden="true">'+(front?'<defs><clipPath id="'+id+'-'+name+'-front"><path d="M '+box[0]+' '+(box[1]+box[3]*.08)+' Q '+(box[0]+box[2]/2)+' '+(box[1]+box[3]*.26)+' '+(box[0]+box[2])+' '+(box[1]+box[3]*.08)+' V '+(box[1]+box[3]+5)+' H '+box[0]+' Z"/></clipPath></defs>':'')+'<image href="assets/'+key+'.png" width="'+size[0]+'" height="'+size[1]+'"'+(front?' clip-path="url(#'+id+'-'+name+'-front)"':'')+'/></svg>';
+  return '<svg class="luna-piece '+cls+'" data-inline-style="left:'+x/6+'%;top:'+y/11.2+'%;width:'+w/6+'%;height:'+h/11.2+'%" viewBox="'+box.join(' ')+'" aria-hidden="true">'+(front?'<defs><clipPath id="'+id+'-'+name+'-front"><path d="M '+box[0]+' '+(box[1]+box[3]*.08)+' Q '+(box[0]+box[2]/2)+' '+(box[1]+box[3]*.26)+' '+(box[0]+box[2])+' '+(box[1]+box[3]*.08)+' V '+(box[1]+box[3]+5)+' H '+box[0]+' Z"/></clipPath></defs>':'')+'<image href="assets/'+key+'.png" width="'+size[0]+'" height="'+size[1]+'"'+(front?' clip-path="url(#'+id+'-'+name+'-front)"':'')+'/></svg>';
  }
  function markup(id,tone='white',model='luna'){
   const title=model==='nova'?'Nova':'Luna',key=model+'-'+tone;
@@ -14,12 +14,12 @@
   const scale=310/(bounds[2]-bounds[0]),fx=300-(bounds[0]+bounds[2])/2*scale,fy=740-bounds[1]*scale,ph=(bounds[3]-bounds[1])*scale;
   const finalBox=novaAssets[key+'-planted'].box,plantTop=fy+finalBox[1]*scale,plantScale=finalBox[2]*scale/370;
   const part=(n,c,x,y,w,h,front=false)=>piece(n,c,x,y,w,h,id,front,tone,model);
-  return '<div class="luna-parts-stage" data-parts-model="'+model+'" style="--platform:0;--peat:0;--plant:0;--closed:0;--finish:0;--plant-end:'+plantTop/312*100+'%;--plant-scale:'+plantScale+'" role="group" aria-label="'+title+', ayrı şeffaf parçalarla yerleşim"><div class="luna-loose">'+
+  return '<div class="luna-parts-stage" data-parts-model="'+model+'" data-inline-style="--platform:0;--peat:0;--plant:0;--closed:0;--finish:0;--plant-end:'+plantTop/312*100+'%;--plant-scale:'+plantScale+'" role="group" aria-label="'+title+', ayrı şeffaf parçalarla yerleşim"><div class="luna-loose">'+
    part('cutaway','luna-pot luna-back luna-cut',145,740,310,ph)+part('closed','luna-pot luna-back luna-closed',145,740,310,ph)+
    part('platform','luna-platform',175,600,250,111)+part('peat','luna-peat',180,451,240,145)+part('roots','luna-roots',218,311,164,115)+part('plant','luna-plant',115,0,370,312)+
    part('cutaway','luna-pot luna-front luna-cut',145,740,310,ph,true)+part('closed','luna-pot luna-front luna-closed',145,740,310,ph,true)+'</div>'+
-   '<svg class="luna-finished" style="left:'+fx/6+'%;top:'+fy/11.2+'%;width:'+1122*scale/6+'%;height:'+1402*scale/11.2+'%" viewBox="0 0 1122 1402" role="img" aria-label="'+title+' '+(tone==='white'?'beyaz':'siyah')+' dikilmiş görünüm"><image href="assets/'+key+'-planted.png" width="1122" height="1402"/></svg>'+
-   [[78,17],[67,33],[74,47],[77,59],[80,84]].map(([x,y],i)=>'<button type="button" class="photo-point luna-point" data-point="'+i+'" style="left:'+x+'%;top:'+y+'%" aria-label="'+['Canlı bitki','Kök bölgesi','Torf karışımı','İç drenaj platformu','Gövde ve alt hazne'][i]+'" aria-pressed="false"><span>0'+(i+1)+'</span></button>').join('')+
+   '<svg class="luna-finished" data-inline-style="left:'+fx/6+'%;top:'+fy/11.2+'%;width:'+1122*scale/6+'%;height:'+1402*scale/11.2+'%" viewBox="0 0 1122 1402" role="img" aria-label="'+title+' '+(tone==='white'?'beyaz':'siyah')+' dikilmiş görünüm"><image href="assets/'+key+'-planted.png" width="1122" height="1402"/></svg>'+
+   [[78,17],[67,33],[74,47],[77,59],[80,84]].map(([x,y],i)=>'<button type="button" class="photo-point luna-point" data-point="'+i+'" data-inline-style="left:'+x+'%;top:'+y+'%" aria-label="'+['Canlı bitki','Kök bölgesi','Torf karışımı','İç drenaj platformu','Gövde ve alt hazne'][i]+'" aria-pressed="false"><span>0'+(i+1)+'</span></button>').join('')+
    '</div><div class="luna-assembly-controls"><div class="luna-tone-picker" role="group" aria-label="'+title+' rengi"><button type="button" data-parts-tone="white" aria-pressed="'+String(tone==='white')+'">Beyaz mermer</button><button type="button" data-parts-tone="black" aria-pressed="'+String(tone==='black')+'">Siyah mermer</button></div><div><span>Parçalar</span><span>Dikilmiş hâli</span></div><label class="luna-range-label">Yerleşimi elinle kontrol et<input type="range" min="0" max="100" value="0" step="1" aria-label="'+title+' yerleşim ilerlemesi"></label><p class="luna-phase" aria-live="polite">Parçaları seç veya birleştir.</p></div>';
  }
  function attach(host){

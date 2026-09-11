@@ -159,7 +159,7 @@ export async function planStoreSync({source = DEFAULT_SOURCE, target = DEFAULT_T
   const inlineStyleJs = [];
   for (const rel of files) {
     if (!rel.endsWith('.js')) continue;
-    const count = ((await readFile(path.join(source, rel), 'utf8')).match(/style=\\?["']/g) || []).length;
+    const count = ((await readFile(path.join(source, rel), 'utf8')).match(/(?<![\w-])style=\\?["']/g) || []).length;
     if (count) inlineStyleJs.push({file: rel, count});
   }
 
