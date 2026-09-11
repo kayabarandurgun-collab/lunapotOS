@@ -3,6 +3,7 @@ import {can} from '../public/permissions.js';
 import {LEGAL_VERSION,LEGAL_DOCS,SELLER,orderLegalText} from './webshop-legal.js';
 import {paymentRoutes,refundOrder,refundPlan} from './webshop-payment.js';
 import {catalogRoutes} from './webshop-catalog.js';
+import {accountRoutes,accountAdminRoutes,issueToken} from './webshop-account.js';
 const fail=(m,s=400)=>{throw Object.assign(Error(m),{status:s})};
 const now=()=>Math.floor(Date.now()/1000);
 const json=(x,status=200,headers={})=>Response.json(x,{status,headers:{'Cache-Control':'no-store',...headers}});
@@ -30,11 +31,13 @@ export async function storeApi(request,env,path,readBody){
  if(sub==='/auth/me'&&method==='GET')return json({customer:publicCustomer(await customer(request,db)),mode:demoEnabled(request,env)?'demo':'closed'});
  requireDemo(request,env);
  await expirePending(db);
+ // Hesap güvenliği ve iletişim formu (src/webshop-account.js). Canlı kapısından SONRA: canlıda kapalı.
+ const account=await accountRoutes({request,env,sub,readBody,db,helpers:{customer,hash,hex,now,passwordHash,email,text,fail,json,limit,cookie}});if(account)return account;
  if(['/auth/register','/auth/login'].includes(sub)&&method==='POST'){
   const x=await readBody(request),em=email(x.email);await limit(request,db,'auth:'+em);
   if(typeof x.password!=='string'||x.password.length<12||x.password.length>200)fail('Şifre 12–200 karakter olmalı.');
   let c=await db.prepare('SELECT * FROM ws_customers WHERE email=?').bind(em).first();
-  if(sub==='/auth/register'){if(x.terms_version!==LEGAL_VERSION)fail('Güncel üyelik koşullarını kabul et.');if(c)fail('Bu e-posta ile işlem yapılamadı. Giriş yapmayı deneyin.',409);const id=crypto.randomUUID(),salt=crypto.randomUUID(),name=text(x.name,'Ad soyad',100);try{await db.prepare('INSERT INTO ws_customers(id,email,name,salt,password_hash) VALUES(?,?,?,?,?)').bind(id,em,name,salt,await passwordHash(x.password,salt)).run()}catch{fail('Bu e-posta ile işlem yapılamadı.',409)}c={id,email:em,name};
+  if(sub==='/auth/register'){if(x.terms_version!==LEGAL_VERSION)fail('Güncel üyelik koşullarını kabul et.');if(c)fail('Bu e-posta ile işlem yapılamadı. Giriş yapmayı deneyin.',409);const id=crypto.randomUUID(),salt=crypto.randomUUID(),name=text(x.name,'Ad soyad',100);try{await db.prepare('INSERT INTO ws_customers(id,email,name,salt,password_hash) VALUES(?,?,?,?,?)').bind(id,em,name,salt,await passwordHash(x.password,salt)).run()}catch{fail('Bu e-posta ile işlem yapılamadı.',409)}c={id,email:em,name};await issueToken(db,{hash,hex,now},c,'verify_email',url.origin);
   }else{const check=await passwordHash(x.password,c?.salt||'missing-customer');if(!c||!equal(check,c.password_hash))fail('E-posta veya şifre hatalı.',401)}
   const token=hex(crypto.getRandomValues(new Uint8Array(32)));await db.batch([db.prepare('DELETE FROM ws_sessions WHERE expires_at<?').bind(now()),db.prepare('INSERT INTO ws_sessions(token_hash,customer_id,expires_at) VALUES(?,?,?)').bind(await hash(token),c.id,now()+604800)]);return json({customer:publicCustomer(c)},200,{'Set-Cookie':cookie(request,token,604800)});
  }
@@ -73,6 +76,7 @@ export async function storeApi(request,env,path,readBody){
 export async function webshopAdminApi(request,env,path,readBody,user){
  // Gerçek stok kartı eşlemesi ayrı modüldedir (src/webshop-catalog.js); bu dosyanın akışı değişmez.
  const catalog=await catalogRoutes({request,env,path,readBody,user,helpers:{requireDemo,event,fail}});if(catalog)return catalog;
+ const accountAdmin=await accountAdminRoutes({request,env,path,readBody,user,helpers:{requireDemo,fail,can}});if(accountAdmin)return accountAdmin;
  const db=env.DB,sub=path.slice('/api/webshop'.length),method=request.method,url=new URL(request.url),page=Math.max(1,Math.min(10000,Number(url.searchParams.get('page'))||1)),offset=(Math.floor(page)-1)*50;
  if(sub==='/overview'&&method==='GET'){const stats=await db.prepare("SELECT COUNT(*) orders_count,COALESCE(SUM(CASE WHEN status='delivered' AND payment_status='demo_paid' THEN total_cents ELSE 0 END),0) delivered_cents,COALESCE(SUM(CASE WHEN payment_status='demo_paid' AND status<>'cancelled' THEN total_cents ELSE 0 END),0) demo_paid_cents,SUM(CASE WHEN status='new' THEN 1 ELSE 0 END) new_count FROM ws_orders").first();return {...stats,customers_count:(await db.prepare('SELECT COUNT(*) n FROM ws_customers').first()).n,requests_count:(await db.prepare("SELECT COUNT(*) n FROM ws_requests WHERE status<>'closed'").first()).n,mode:'demo',live_ready:false,notice:'Yalnızca test kayıtları. Gerçek tahsilat ve muhasebe fişi oluşturulmaz.'}}
  if(sub==='/orders'&&method==='GET'){const q='%'+(url.searchParams.get('q')||'').slice(0,100)+'%',status=url.searchParams.get('status')||'';const where="WHERE (o.number LIKE ? OR c.name LIKE ? OR c.email LIKE ?) AND (?='' OR o.status=?)";return {orders:(await db.prepare('SELECT o.id,o.number,o.status,o.payment_status,o.total_cents,o.created_at,o.is_test,c.name,c.email FROM ws_orders o JOIN ws_customers c ON c.id=o.customer_id '+where+' ORDER BY o.created_at DESC,o.id DESC LIMIT 50 OFFSET ?').bind(q,q,q,status,status,offset).all()).results,total:(await db.prepare('SELECT COUNT(*) n FROM ws_orders o JOIN ws_customers c ON c.id=o.customer_id '+where).bind(q,q,q,status,status).first()).n,page}}
