@@ -148,3 +148,18 @@ test('Mevcut stoktan fazla web ayırması yapılamaz', async () => {
     reserve(f, 'r4', 'o-canli', 10000);
   } finally { f.close(); }
 });
+
+test('Eşleme seçenekleri yalnızca yöneticiye ve yalnızca e-ticaret kartlarından verilir', async () => {
+  const {f, local} = await owner(); try {
+    const r = await local('/webshop/catalog/readiness');
+    const ids = r.data.candidates.map(c => c.id);
+    assert.ok(ids.includes('ec-luna') && ids.includes('ec-toprak'));
+    assert.ok(!ids.includes('lp-urun'), 'üretim kartı aday listesinde yer almaz');
+    const staff = await f.ok('/admin/users', {name: 'Mağaza', username: 'magaza2', permissions: {ec: {webshop: 'write'}, lp: {}, delete_records: false}});
+    await f.req('/auth/accept-invite', {token: staff.invite_path.split('invite=')[1], password: 'magaza-personel-sifresi'});
+    const login = await f.req('/auth/login', {username: 'magaza2', password: 'magaza-personel-sifresi'});
+    const seen = await local('/webshop/catalog/readiness', undefined, login.cookie);
+    assert.equal(seen.status, 200);
+    assert.equal(seen.data.candidates, undefined, 'personel kart listesini almaz');
+  } finally { f.close(); }
+});

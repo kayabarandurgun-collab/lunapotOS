@@ -77,8 +77,13 @@ export async function catalogRoutes({request, env, path, readBody, user, helpers
 
   if (sub === '/catalog/readiness' && method === 'GET') {
     const items = await readiness(db);
+    // Eşleme seçenekleri yalnızca yöneticiye: yalnızca e-ticaret kartları (üretim lp kartları web stoğu olamaz).
+    const candidates = user?.owner
+      ? (await db.prepare('SELECT id,name,sku,stock_unit FROM ec_products ORDER BY name LIMIT 2000').all()).results
+      : undefined;
     return {
       items,
+      ...(candidates ? {candidates} : {}),
       summary: {total: items.length, ready: items.filter(i => i.ready).length, unmapped: items.filter(i => !i.components.length).length},
       notice: 'Satılabilir adet gerçek e-ticaret stoğundan, pazaryeri ve web ayırmaları düşülerek hesaplanır. Test siparişleri bu stoğu ayırmaz.'
     };
