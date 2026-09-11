@@ -11,7 +11,7 @@
 //
 // Sandbox'ta doğrulanan ödeme gerçek para değildir; sipariş 'demo_paid' olur ve is_test=1 kalır.
 import {iyzicoConfig, iyzicoCall, buildInitializeRequest, interpretRetrieve, verifyWebhookSignature,
-  verifyInitializeSignature, PATHS} from './payment-iyzico.js';
+  verifyInitializeSignature, PATHS, REFUND_PATH, interpretRefund, formatPrice} from './payment-iyzico.js';
 
 const ORDER_PATH = /^\/orders\/([a-f0-9-]{36})\/payment$/;
 
@@ -40,8 +40,12 @@ async function settle(db, helpers, {payment, order, result}) {
   const statusFor = {paid: 'verified', pending: 'pending', failed: 'failed', rejected: 'rejected'};
   const next = statusFor[result.outcome] || 'failed';
   const statements = [
-    db.prepare("UPDATE ws_payments SET status=?,provider_payment_id=?,verified_cents=?,reason=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status IN ('initialized','pending') RETURNING id")
-      .bind(next, result.paymentId || null, next === 'verified' ? payment.amount_cents : null, result.reason.slice(0, 500), payment.id)
+    db.prepare("UPDATE ws_payments SET status=?,provider_payment_id=?,verified_cents=?,reason=?,item_transactions_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status IN ('initialized','pending') RETURNING id")
+      .bind(next, result.paymentId || null, next === 'verified' ? payment.amount_cents : null, result.reason.slice(0, 500),
+        // Kalem işlem kimlikleri iade için saklanır; toplamları tahsilata eşit değilse saklanmaz.
+        next === 'verified' && result.items?.length && result.items.reduce((sum, i) => sum + i.paid_cents, 0) === payment.amount_cents
+          ? JSON.stringify(result.items) : null,
+        payment.id)
   ];
   if (next === 'verified') {
     statements.push(db.prepare("UPDATE ws_orders SET payment_status='demo_paid',updated_at=CURRENT_TIMESTAMP WHERE id=? AND payment_status='pending' AND status='new' RETURNING id").bind(order.id));
@@ -175,4 +179,63 @@ export async function paymentRoutes({request, env, sub, readBody, db, helpers}) 
     return json({mode: 'sandbox', payment_page_url: response.paymentPageUrl || null, token_expire_time: response.tokenExpireTime || null});
   }
   return null;
+}
+
+// ---- Sandbox iadesi ----
+// Yalnızca iptal edilmiş ve ödemesi sağlayıcıda doğrulanmış sipariş. Kalem kalem /payment/refund.
+// Gerçek para hareketi yoktur; muhasebe defterine yazılmaz. Sonucu bilinmeyen istek tekrar denenmez.
+const httpError = (message, status) => Object.assign(new Error(message), {status});
+const orderEvent = (db, orderId, action) => db.prepare('INSERT INTO ws_events(id,order_id,actor,action) VALUES(?,?,?,?)')
+  .bind(crypto.randomUUID(), orderId, 'iyzico-sandbox', action.slice(0, 500)).run();
+
+/** İade durumu: doğrulanmış ödeme, saklı kalemler, sonuçlanmamış ve yapılacak iadeler. */
+export async function refundPlan(db, orderId) {
+  const payment = await db.prepare("SELECT * FROM ws_payments WHERE order_id=? AND status='verified' LIMIT 1").bind(orderId).first();
+  if (!payment) return {payment: null, items: [], pending: [], todo: []};
+  let items = [];
+  try { items = JSON.parse(payment.item_transactions_json || '[]'); } catch { items = []; }
+  const rows = (await db.prepare("SELECT transaction_id,status FROM ws_refunds WHERE payment_id=? AND status IN ('requested','succeeded')").bind(payment.id).all()).results;
+  const done = new Set(rows.map(r => r.transaction_id));
+  return {payment, items, pending: rows.filter(r => r.status === 'requested').map(r => r.transaction_id), todo: items.filter(i => !done.has(i.transaction_id))};
+}
+
+export async function refundOrder(db, env, {order, actor, ip = '127.0.0.1'}) {
+  const config = iyzicoConfig(env);
+  if (!config) throw httpError('Ödeme sağlayıcısı yapılandırılmadı.', 503);
+  if (order.status !== 'cancelled') throw httpError('Yalnızca iptal edilmiş siparişin ödemesi iade edilir.', 409);
+  const plan = await refundPlan(db, order.id);
+  if (!plan.payment) throw httpError('Bu siparişte sağlayıcıda doğrulanmış ödeme yok.', 409);
+  if (!plan.items.length) throw httpError('Ödemenin kalem işlem kimlikleri kayıtlı değil; iade sağlayıcı panelinden yapılmalı.', 409);
+  if (plan.pending.length) throw httpError('Önceki iade isteğinin sonucu bilinmiyor; sağlayıcı panelinden kontrol edin.', 409);
+  if (!plan.todo.length) return {refunded_cents: 0, failed: [], already: true};
+
+  let refunded = 0;
+  const failed = [];
+  for (const item of plan.todo) {
+    const id = crypto.randomUUID();
+    try {
+      await db.prepare('INSERT INTO ws_refunds(id,payment_id,order_id,transaction_id,item_id,amount_cents,actor) VALUES(?,?,?,?,?,?,?)')
+        .bind(id, plan.payment.id, order.id, item.transaction_id, item.item_id, item.paid_cents, String(actor || 'owner').slice(0, 100)).run();
+    } catch (error) {
+      if (/UNIQUE/.test(String(error.message))) throw httpError('Bu sipariş için başka bir iade işlemi sürüyor.', 409);
+      throw error;
+    }
+    let response;
+    try {
+      response = await iyzicoCall(config, REFUND_PATH, {locale: 'tr', conversationId: order.id, paymentTransactionId: item.transaction_id,
+        price: formatPrice(item.paid_cents), currency: 'TRY', ip}, fetcherOf(env));
+    } catch {
+      // Sağlayıcı isteği almış olabilir: kayıt 'requested' kalır ve ikinci iade engellenir.
+      await orderEvent(db, order.id, 'DİKKAT: sandbox iade isteği yanıtsız kaldı (' + item.item_id + '); sonuç sağlayıcı panelinden kontrol edilmeli');
+      throw httpError('Sağlayıcıdan yanıt alınamadı; iade sonucu bilinmiyor. Sağlayıcı panelinden kontrol edin.', 502);
+    }
+    const result = interpretRefund(response, {transactionId: item.transaction_id, paymentId: plan.payment.provider_payment_id, cents: item.paid_cents});
+    await db.prepare("UPDATE ws_refunds SET status=?,provider_reference=?,reason=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='requested'")
+      .bind(result.ok ? 'succeeded' : 'failed', result.ok ? result.reference || null : null, result.reason.slice(0, 500), id).run();
+    if (result.ok) refunded += item.paid_cents; else failed.push({item_id: item.item_id, reason: result.reason});
+  }
+  await orderEvent(db, order.id, failed.length
+    ? 'Sandbox iadesi tamamlanamadı: ' + failed.map(f => f.item_id + ' — ' + f.reason).join('; ')
+    : 'Sandbox iadesi sağlayıcıda onaylandı — gerçek para hareketi yok');
+  return {refunded_cents: refunded, failed, already: false};
 }

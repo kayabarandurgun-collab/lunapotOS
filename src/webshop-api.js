@@ -1,7 +1,7 @@
 import {hash,hex,passwordHash,equal} from './access-api.js';
 import {can} from '../public/permissions.js';
 import {LEGAL_VERSION,LEGAL_DOCS,SELLER,orderLegalText} from './webshop-legal.js';
-import {paymentRoutes} from './webshop-payment.js';
+import {paymentRoutes,refundOrder,refundPlan} from './webshop-payment.js';
 import {catalogRoutes} from './webshop-catalog.js';
 const fail=(m,s=400)=>{throw Object.assign(Error(m),{status:s})};
 const now=()=>Math.floor(Date.now()/1000);
@@ -80,9 +80,12 @@ export async function webshopAdminApi(request,env,path,readBody,user){
  if(sub==='/catalog'&&method==='GET')return {items:(await db.prepare('SELECT * FROM ws_catalog ORDER BY name,size').all()).results};
  const product=sub.match(/^\/catalog\/([\w-]+)$/);
  if(product&&method==='POST'){if(!user.owner)fail('Katalog ayarlarını yönetici değiştirebilir.',403);requireDemo(request,env);const x=await readBody(request);await db.batch([db.prepare('UPDATE ws_catalog SET price_cents=?,stock=?,active=? WHERE id=?').bind(integer(x.price_cents,1,10000000),integer(x.stock,0,100000),x.active===true?1:0,product[1]),event(db,null,user.id,'Test katalog fiyat/stok düzenlendi: '+product[1])]);return {ok:true}}
+ const refund=sub.match(/^\/orders\/([a-f0-9-]{36})\/refund$/);
+ // Sandbox iadesi: yalnızca yönetici, yalnızca yerel demo. Gerçek para hareketi ve defter kaydı yok.
+ if(refund&&method==='POST'){if(!user.owner)fail('İadeyi yönetici başlatabilir.',403);requireDemo(request,env);const row=await db.prepare('SELECT * FROM ws_orders WHERE id=?').bind(refund[1]).first();if(!row)fail('Sipariş bulunamadı.',404);return await refundOrder(db,env,{order:row,actor:user.id||'owner',ip:request.headers.get('CF-Connecting-IP')||'127.0.0.1'})}
  const match=sub.match(/^\/orders\/([a-f0-9-]{36})$/);
  if(match){const row=await db.prepare('SELECT * FROM ws_orders WHERE id=?').bind(match[1]).first();if(!row)fail('Sipariş bulunamadı.',404);
-  if(method==='GET'){const o=orderRow(row);if(!can(user,'ec','amounts'))delete o.snapshot.legal_text;return {...o,events:(await db.prepare('SELECT actor,action,created_at FROM ws_events WHERE order_id=? ORDER BY created_at,rowid').bind(o.id).all()).results}}
+  if(method==='GET'){const o=orderRow(row),amounts=can(user,'ec','amounts'),plan=await refundPlan(db,o.id),refunds=(await db.prepare('SELECT item_id,amount_cents,status,reason,created_at FROM ws_refunds WHERE order_id=? ORDER BY created_at,rowid').bind(o.id).all()).results;if(!amounts)delete o.snapshot.legal_text;return {...o,payment:plan.payment?{status:plan.payment.status,...(amounts?{amount_cents:plan.payment.verified_cents}:{})}:null,refunds:amounts?refunds:refunds.map(({amount_cents,...r})=>r),refundable:row.status==='cancelled'&&!!plan.payment&&plan.items.length>0&&plan.todo.length>0&&!plan.pending.length,events:(await db.prepare('SELECT actor,action,created_at FROM ws_events WHERE order_id=? ORDER BY created_at,rowid').bind(o.id).all()).results}}
   if(method==='POST'){requireDemo(request,env);const x=await readBody(request),allowed={new:['preparing','cancelled'],preparing:['shipped','cancelled'],shipped:['delivered'],delivered:[],cancelled:[]};if(!allowed[row.status].includes(x.status))fail('Durum geçişi geçersiz.',409);if(x.status!=='cancelled'&&row.payment_status!=='demo_paid')fail('Ödeme testini tamamlamadan sevk yapılamaz.',409);const carrier=x.status==='shipped'?text(x.carrier,'Kargo firması',100):row.carrier,tracking=x.status==='shipped'?text(x.tracking,'Takip numarası',100):row.tracking;const result=await db.batch([db.prepare('UPDATE ws_orders SET status=?,carrier=?,tracking=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status=? RETURNING id').bind(x.status,carrier,tracking,row.id,row.status),event(db,row.id,user.id,'Durum: '+x.status)]);if(!result[0].results.length)fail('Sipariş değişti; yenile.',409);return {ok:true}}
  }
  if(sub==='/requests'&&method==='GET')return {requests:(await db.prepare('SELECT r.*,c.name,c.email,o.number FROM ws_requests r JOIN ws_customers c ON c.id=r.customer_id LEFT JOIN ws_orders o ON o.id=r.order_id ORDER BY r.created_at DESC,r.id LIMIT 50 OFFSET ?').bind(offset).all()).results,page,total:(await db.prepare('SELECT COUNT(*) n FROM ws_requests').first()).n};

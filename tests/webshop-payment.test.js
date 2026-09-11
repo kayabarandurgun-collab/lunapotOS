@@ -33,10 +33,18 @@ function fakeProvider() {
       state.tokens = {...state.tokens, [token]: body};
       return {json: async () => ({status: 'success', token, conversationId: body.conversationId, paymentPageUrl: 'https://sandbox-cpp.iyzipay.com?token=' + token, signature: hmac(body.conversationId + ':' + token)})};
     }
+    if (url.endsWith('/payment/refund')) {
+      state.refunds = [...(state.refunds || []), body];
+      if (state.refundMode === 'throw') throw new Error('ağ hatası');
+      if (state.refundMode === 'fail') return {json: async () => ({status: 'failure', errorMessage: 'sandbox reddetti'})};
+      if (state.refundMode === 'wrong-amount') return {json: async () => ({status: 'success', paymentTransactionId: body.paymentTransactionId, price: '0.01', currency: 'TRY'})};
+      return {json: async () => ({status: 'success', paymentTransactionId: body.paymentTransactionId, price: body.price, currency: 'TRY', hostReference: 'ref-' + body.paymentTransactionId})};
+    }
     const init0 = state.tokens?.[body.token];
     const price = init0 ? init0.price : '1';
     const r = {status: 'success', paymentId: 'pay-' + body.token, currency: 'TRY', basketId: init0?.basketId, conversationId: body.conversationId,
-      paidPrice: state.paidOverride || price, price, token: body.token, ...state.detail};
+      paidPrice: state.paidOverride || price, price, token: body.token,
+      itemTransactions: (init0?.basketItems || []).map((b, i) => ({itemId: b.id, paymentTransactionId: 'ptx-' + body.token + '-' + i, price: b.price, paidPrice: b.price, transactionStatus: 2})), ...state.detail};
     r.signature = hmac([r.paymentStatus, r.paymentId, r.currency, r.basketId, r.conversationId,
       String(r.paidPrice).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, ''), String(r.price).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, ''), r.token].join(':'));
     return {json: async () => r};
@@ -214,5 +222,104 @@ test('Başka müşterinin siparişine ödeme başlatılamaz ve durumu okunamaz',
 
     const anonymous = await worker.fetch(new Request(`${origin}/api/store/orders/${id}/payment`, {headers: {Origin: origin}}), t.env);
     assert.equal(anonymous.status, 401, 'oturumsuz istek siparişi göremez');
+  } finally { t.DB.close(); }
+});
+
+// ---- Sandbox iadesi ----
+import {refundOrder} from '../src/webshop-payment.js';
+
+async function paidOrder(t, {cancel = true} = {}) {
+  const id = await t.newOrder();
+  await t.req(`/store/orders/${id}/payment`, 'POST', {});
+  await t.callback('tok-00000001');
+  if (cancel) await t.req(`/store/orders/${id}/cancel`, 'POST', {});
+  return {id, order: () => ({...t.DB.s.prepare('SELECT * FROM ws_orders WHERE id=?').get(id)})};
+}
+const refunds = (t, id) => t.DB.s.prepare('SELECT item_id,amount_cents,status FROM ws_refunds WHERE order_id=? ORDER BY rowid').all(id).map(r => ({...r}));
+
+test('Doğrulanan ödemenin kalem işlem kimlikleri iade için saklanır', async () => {
+  const t = shop(); try {
+    const {id} = await paidOrder(t, {cancel: false});
+    const items = JSON.parse(t.DB.s.prepare('SELECT item_transactions_json j FROM ws_payments WHERE order_id=?').get(id).j);
+    assert.deepEqual(items.map(i => [i.item_id, i.paid_cents]), [['soil-standard', 19000], ['kargo', 5900]]);
+  } finally { t.DB.close(); }
+});
+
+test('İptal edilen ödenmiş sipariş kalem kalem iade edilir; ikinci istek yeniden iade etmez', async () => {
+  const t = shop(); try {
+    const {id, order} = await paidOrder(t);
+    assert.equal(order().status, 'cancelled');
+    const r = await refundOrder(t.DB, t.env, {order: order(), actor: 'owner'});
+    assert.deepEqual(r, {refunded_cents: 24900, failed: [], already: false});
+    assert.deepEqual(t.provider.state.refunds.map(b => [b.paymentTransactionId, b.price, b.currency]),
+      [['ptx-tok-00000001-0', '190', 'TRY'], ['ptx-tok-00000001-1', '59', 'TRY']]);
+    assert.deepEqual(refunds(t, id).map(r => r.status), ['succeeded', 'succeeded']);
+    const again = await refundOrder(t.DB, t.env, {order: order(), actor: 'owner'});
+    assert.equal(again.already, true);
+    assert.equal(t.provider.state.refunds.length, 2, 'ikinci istek sağlayıcıya gitmez');
+    assert.equal(t.DB.s.prepare("SELECT COUNT(*) n FROM ws_events WHERE order_id=? AND action LIKE 'Sandbox iadesi sağlayıcıda onaylandı%'").get(id).n, 1);
+    assert.equal(order().is_test, 1, 'sipariş test olarak kalır');
+  } finally { t.DB.close(); }
+});
+
+test('İptal edilmemiş siparişte iade başlamaz', async () => {
+  const t = shop(); try {
+    const {order} = await paidOrder(t, {cancel: false});
+    await assert.rejects(refundOrder(t.DB, t.env, {order: order(), actor: 'owner'}), e => e.status === 409);
+    assert.equal(t.provider.state.refunds, undefined);
+  } finally { t.DB.close(); }
+});
+
+test('Sağlayıcı reddederse veya tutar tutmazsa iade başarılı sayılmaz; reddedilen iade yeniden denenebilir', async () => {
+  const t = shop(); try {
+    const {id, order} = await paidOrder(t);
+    t.provider.state.refundMode = 'wrong-amount';
+    const wrong = await refundOrder(t.DB, t.env, {order: order(), actor: 'owner'});
+    assert.equal(wrong.refunded_cents, 0);
+    assert.match(wrong.failed[0].reason, /eşleşmiyor/);
+    t.provider.state.refundMode = 'fail';
+    const failed = await refundOrder(t.DB, t.env, {order: order(), actor: 'owner'});
+    assert.equal(failed.failed.length, 2);
+    t.provider.state.refundMode = null;
+    const ok = await refundOrder(t.DB, t.env, {order: order(), actor: 'owner'});
+    assert.equal(ok.refunded_cents, 24900);
+    assert.deepEqual(refunds(t, id).map(r => r.status), ['failed', 'failed', 'failed', 'failed', 'succeeded', 'succeeded']);
+  } finally { t.DB.close(); }
+});
+
+test('Yanıtsız kalan iade tekrar denenmez (çift iade yolu kapalı)', async () => {
+  const t = shop(); try {
+    const {id, order} = await paidOrder(t);
+    t.provider.state.refundMode = 'throw';
+    await assert.rejects(refundOrder(t.DB, t.env, {order: order(), actor: 'owner'}), e => e.status === 502);
+    t.provider.state.refundMode = null;
+    await assert.rejects(refundOrder(t.DB, t.env, {order: order(), actor: 'owner'}), e => e.status === 409 && /sonucu bilinmiyor/.test(e.message));
+    assert.equal(t.provider.state.refunds.length, 1);
+    assert.deepEqual(refunds(t, id).map(r => r.status), ['requested']);
+  } finally { t.DB.close(); }
+});
+
+test('Veritabanı toplam iadenin tahsilatı aşmasına ve kaydın değişmesine izin vermez', async () => {
+  const t = shop(); try {
+    const {id} = await paidOrder(t);
+    const pay = t.DB.s.prepare('SELECT id FROM ws_payments WHERE order_id=?').get(id).id;
+    const ins = (rid, tx, cents) => t.DB.s.prepare("INSERT INTO ws_refunds(id,payment_id,order_id,transaction_id,item_id,amount_cents,actor) VALUES(?,?,?,?,'x',?,'test')").run(rid, pay, id, tx, cents);
+    assert.throws(() => ins('r1', 'a', 24901), /WS_REFUND_EXCEEDS/);
+    ins('r2', 'a', 24900);
+    assert.throws(() => ins('r3', 'b', 1), /WS_REFUND_EXCEEDS/);
+    assert.throws(() => ins('r4', 'a', 1), /UNIQUE|WS_REFUND_EXCEEDS/);
+    t.DB.s.exec("UPDATE ws_refunds SET status='succeeded' WHERE id='r2'");
+    assert.throws(() => t.DB.s.exec("UPDATE ws_refunds SET status='failed' WHERE id='r2'"), /WS_REFUND_IMMUTABLE/);
+    assert.throws(() => t.DB.s.exec("DELETE FROM ws_refunds WHERE id='r2'"), /IMMUTABLE_LEDGER/);
+  } finally { t.DB.close(); }
+});
+
+test('Yönetim iade ucu oturumsuz çağrılamaz', async () => {
+  const t = shop(); try {
+    const {id} = await paidOrder(t);
+    const r = await worker.fetch(new Request(`http://localhost/api/webshop/orders/${id}/refund`, {method: 'POST',
+      headers: {Origin: 'http://localhost', 'Content-Type': 'application/json'}, body: '{}'}), t.env);
+    assert.ok([401, 403].includes(r.status));
+    assert.equal(t.provider.state.refunds, undefined);
   } finally { t.DB.close(); }
 });

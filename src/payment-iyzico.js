@@ -170,7 +170,7 @@ export async function interpretRetrieve(response, {order, secretKey}) {
     // Sahtekârlık incelemesi sürüyorsa ödeme henüz kesinleşmemiştir.
     if (Number(response.fraudStatus) === 0) return {outcome: 'pending', reason: 'Ödeme risk incelemesinde.', paymentId: response.paymentId};
     if (Number(response.fraudStatus) === -1) return {outcome: 'failed', reason: 'Ödeme risk incelemesinde reddedildi.', paymentId: response.paymentId};
-    return {outcome: 'paid', reason: 'Ödeme sağlayıcıdan doğrulandı.', paymentId: response.paymentId};
+    return {outcome: 'paid', reason: 'Ödeme sağlayıcıdan doğrulandı.', paymentId: response.paymentId, items: itemTransactions(response)};
   }
   if (['INIT_THREEDS', 'CALLBACK_THREEDS', 'PENDING_CREDIT'].includes(response.paymentStatus))
     return {outcome: 'pending', reason: 'Ödeme henüz tamamlanmadı.', paymentId: response.paymentId};
@@ -200,4 +200,41 @@ export async function iyzicoCall(config, path, payload, fetcher = fetch) {
   let data;
   try { data = await response.json(); } catch { throw new Error('Ödeme sağlayıcısından okunabilir yanıt gelmedi.'); }
   return data;
+}
+
+// ---- İade (sandbox) ----
+// Kaynak: docs.iyzico.com "Refund & Cancel" — POST /payment/refund {paymentTransactionId, price, currency, ip, conversationId, locale}.
+export const REFUND_PATH = '/payment/refund';
+
+/**
+ * Sorgu yanıtındaki kalem işlemleri (itemTransactions[]: itemId, paymentTransactionId, paidPrice).
+ * iyzico bunların iade için saklanmasını ister. Okunamayan kalem varsa liste boş döner;
+ * ödeme yine doğrulanır ama iade uygulamadan yapılamaz (sağlayıcı panelinden yapılır).
+ */
+export function itemTransactions(response) {
+  if (!Array.isArray(response?.itemTransactions)) return [];
+  try {
+    return response.itemTransactions.map(t => {
+      const transaction_id = String(t.paymentTransactionId || '');
+      if (!/^[\w-]{1,100}$/.test(transaction_id)) throw new Error('kalem işlem kimliği');
+      return {item_id: String(t.itemId || '').slice(0, 64), transaction_id, paid_cents: priceToCents(t.paidPrice)};
+    });
+  } catch { return []; }
+}
+
+/**
+ * İade yanıtını yorumlar. Belgede iade yanıtı imzasının alan sırası YOK; uydurulmaz, imza
+ * doğrulanmaz. Bunun yerine durum, (varsa) işlem/ödeme kimliği, tutar ve para birimi eşleşmesi aranır.
+ */
+export function interpretRefund(response, {transactionId, paymentId, cents}) {
+  if (!response || response.status !== 'success') return {ok: false, reason: 'İade reddedildi: ' + (response?.errorMessage || 'bilinmeyen hata')};
+  if (response.paymentTransactionId !== undefined && String(response.paymentTransactionId) !== transactionId)
+    return {ok: false, reason: 'Yanıt başka bir kalem işlemine ait.'};
+  if (response.paymentId !== undefined && paymentId && String(response.paymentId) !== paymentId)
+    return {ok: false, reason: 'Yanıt başka bir ödemeye ait.'};
+  if (response.currency !== undefined && response.currency !== 'TRY') return {ok: false, reason: 'Para birimi eşleşmiyor.'};
+  let refunded;
+  try { refunded = priceToCents(response.price); } catch (error) { return {ok: false, reason: error.message}; }
+  if (refunded !== cents) return {ok: false, reason: `İade tutarı eşleşmiyor (${refunded} ≠ ${cents} kuruş).`};
+  return {ok: true, reason: '', reference: String(response.hostReference || response.refundHostReference || response.paymentId || '').slice(0, 200)};
 }
