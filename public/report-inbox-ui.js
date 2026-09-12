@@ -10,7 +10,7 @@ const num = v => new Intl.NumberFormat('tr-TR').format(v || 0);
 const localNow = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
 const REASONS = {ambiguous_twin: 'Kimliksiz ikiz satır', id_precision: 'Kimlik bozulmuş olabilir', bad_value: 'Okunamayan değer', missing_required: 'Zorunlu alan boş',
   unknown_type: 'Tanımsız işlem türü', no_amount: 'Tutar yok', duplicate_in_file: 'Dosyada aynı kimlik iki kez', same_time_conflict: 'Aynı zamanlı çelişki',
-  posted_changed: 'Sevk edilmiş siparişte değişiklik', erp_ambiguous: 'ERP\'de birden çok aday', review: 'İnceleme'};
+  posted_changed: 'Sevk edilmiş siparişte değişiklik', erp_ambiguous: 'ERP\'de birden çok aday', store_ambiguous: 'Mağaza ayrımı belirsiz', review: 'İnceleme'};
 const OUTCOMES = {new: 'Yeni', updated: 'Güncellenen', same: 'Aynı (tekrar)', older: 'Eski rapor — yok sayıldı', review: 'İncelemeye ayrılan'};
 const CHUNK = 480 * 1024, ROW_BYTES = 800000;
 
