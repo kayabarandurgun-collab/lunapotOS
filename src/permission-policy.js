@@ -32,7 +32,9 @@ export function filterInsights(x,user,ns){if(!user||user.owner||can(user,ns,'inv
 // Tek noktada uygulanir: yeni bir uc eklendiginde gizlemeyi ayrica hatirlamak gerekmez.
 // Miktar, sevk ve durum bilgisi aynen kalir; yalnizca parasal alanlar null olur.
 const MONEY_KEY=/(^|_)(cents|price|sale_price|unit_cost)$|_cents$/;
-const MONEY_NAMES=new Set(['price','sale_price','unit_cost','amount','total_cost','rate_bps','revenue_share_bps']);
+// 'gross' ve 'net_revenue' TL cinsinden para alanlaridir (rapor-stok koprusu onizlemesi).
+// Arayuzde gizlemek yetmez: tutar yetkisi olmayan calisan API yanitindan da okuyamamali.
+const MONEY_NAMES=new Set(['price','sale_price','unit_cost','amount','total_cost','rate_bps','revenue_share_bps','gross','net_revenue']);
 export function scrubAmounts(payload,user,ns){
  if(user?.owner||can(user,ns,'amounts'))return payload;
  const seen=new WeakSet();

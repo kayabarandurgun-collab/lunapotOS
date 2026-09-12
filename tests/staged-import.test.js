@@ -55,9 +55,12 @@ test('Aynı dosya ve aynı fatura ikinci kez uygulanmaz; sayılar çoğalmaz', a
     assert.equal(first.counts.created, 2);
     assert.equal(counts(f).invoices, 2);
 
-    // Aynı dosya tekrar: parti özeti tekil olduğu için reddedilir.
+    // Aynı dosya YENİDEN gönderilebilmeli: eksik bilgi tamamlanınca aktarım kaldığı yerden sürer.
+    // Fatura yine ÇOĞALMAZ; kaynak kimliği zaten uygulandığı için atlanır.
     const repeat = await f.req('/ec/invoices/staged/apply', body(items));
-    assert.equal(repeat.status, 409);
+    assert.equal(repeat.status, 200, 'değişmeyen dosya devam edebilmeli');
+    assert.equal(repeat.data.counts.created, 0);
+    assert.equal(repeat.data.counts.skipped, 2);
     assert.equal(counts(f).invoices, 2, 'tekrar yükleme fatura çoğaltmadı');
 
     // Farklı dosya ama AYNI faturalar (örtüşen dönem): kaynak kimliğiyle atlanır.

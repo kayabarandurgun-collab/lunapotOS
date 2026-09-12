@@ -4,7 +4,69 @@ Bu dosya deponun **tek yetkili devam belgesidir**. Her iş, kodla **aynı commit
 Depo dışındaki eski başlangıç notları (`Desktop/site/CLAUDE-*.md`) tarihseldir; çelişki olursa **bu dosya geçerlidir**.
 Sohbet geçmişine güvenilmez.
 
-Son güncelleme: 12 Eylül 2026 (canlıya geçiş turu)
+Son güncelleme: 12 Eylül 2026 (Codex odaklı inceleme düzeltmeleri)
+
+## 12 Eylül 2026 — Codex'in dört bulgusu düzeltildi + stok başlangıç tarihi (EN YENİ KAYIT)
+
+Bu bölüm daha eski bölümlerin üstündedir. Çelişki olursa **bu bölüm geçerlidir**.
+
+### Düzeltilen dört bulgu (Codex review.test.mjs: önce 2/7, şimdi **7/7**)
+1. **P1 — Rapor güncellenince eski taslakla stok çıkışı yapılabiliyordu.** Bağlantı anındaki paket
+   parmak izi (`import_items.content_hash`) saklanıyor. Sonraki okumada içerik değişmişse ya da
+   rapor paketi iptal/iade gösteriyorsa köprü artık `existing` demiyor: `changed` diyor,
+   `ec_order_packages.source_changed=1` işaretliyor ve mevcut tetik rezervasyon/gönderimi 409 ile
+   durduruyor. Kanıt: adet 2→3 değişiminde reserve 409, stok 20000'de kaldı (eskiden 8 şişe düşüyordu).
+   Rezerve/gönderilmiş sipariş sessizce yeniden yazılmıyor.
+2. **P1 — Aynı dosyada eksik tedarikçi tamamlanınca 409 ve eksik denetim.** Dosya kaydı ile işleme
+   denemesi ayrıldı: aynı SHA için yeni parti açılmıyor, **mevcut parti sürdürülüyor** ve her denemenin
+   sonucu denetime ekleniyor. Kanıt: ikinci deneme 200, 1 created + 1 skipped, **2 fatura + 2 denetim kaydı**.
+3. **P1 — Tutar yetkisi olmayan çalışan köprü önizlemesinden tutarı okuyabiliyordu.** `gross` ve
+   `net_revenue` merkezî maskelemeye eklendi; `amounts:none` çalışan için artık `null` dönüyor.
+4. **P2 — Aynı fatura kimliğinde farklı içerik sessizce atlanıyordu.** Kanonik içerik özeti
+   (tarih, para birimi, toplamlar, sıralı satırlar) saklanıyor. Aynı kimlik + aynı içerik atlanır;
+   aynı kimlik + **farklı içerik incelemeye** alınır, tutar sessizce üzerine yazılmaz.
+
+Kendi eski testimdeki "aynı dosya 409 döner" beklentisi bu düzeltmenin tersiydi; düzeltilmiş sözleşmeye
+güncellendi (mükerrer koruması aynı testte hâlâ doğrulanıyor: fatura sayısı artmıyor).
+
+### Stok başlangıç tarihi
+- `POST /api/{ns}/settings` artık `inventory_start_date` kabul ediyor. **Tarih uydurulmaz:**
+  boş bırakılabilir, geçersiz veya **gelecek tarih reddedilir** (400).
+- Ekran: **Şirket ve yedek** → "Stok başlangıç tarihi". Açılış miktarları için
+  **Ürünler ve stok → "Stok / sayım gir"** kullanılıyor (mevcut ve test edilmiş akış).
+- Tarih girilmeden bu tarihten önceki pazaryeri siparişleri bugünkü stoktan **düşülmüyor**
+  (köprü `blocked`/`historical` diyor).
+
+### Canlı durum
+- **Migration 0038** (`content_hash`) canlıya uygulandı ve doğrulandı: ec+lp sütunları, migration kaydı.
+  Mevcut kayıtlara dokunulmadı (0 fatura, 0 stok hareketi).
+- Uygulama öncesi **tam D1 yedeği** alındı (depo dışında) · geri dönüş noktası
+  `0000002b-00000000-000050e4-5d8dbbae3fff71138f0fbabdb417b81b`.
+- **GERÇEK KAYITLAR CANLIYA HÂLÂ AKTARILMADI.** Aşağıdaki sayılar yerel provadandır.
+
+### Testler
+Codex `review.test.mjs` **7/7** · tam panel paketi **393/393** (2 yeni) · `npm run build` başarılı.
+Test beklentileri gevşetilmedi.
+
+### Yerel prova (bellek içi test veritabanı)
+Katalog 32 kart / 51 ilan / 3 aile / 0 çakışma · alış **30 taslak / 71 satır / 98.521,20 TL**
+(47 satır eşleşti, 24 incelemede) · cari borç 0, stok 0 · ikinci çalıştırma 0 yeni / 30 atlandı.
+
+### Gerçek pazaryeri dosyalarında tespit edilenler (aktarım öncesi)
+- **HB detay CSV'sinde "Barkod" sütunu KARGO barkodudur.** Ürün eşleştirmesi `Satıcı Stok Kodu` /
+  `Hepsiburada Ürün Kodu` ile yapılmalı; otomatik öneri bu sütunu seçtiği için profilde düzeltilmeli.
+- **HB finans dosyasında satır bazında TARİH SÜTUNU YOK.** Dosya adındaki aralık satır tarihi sayılmaz;
+  tarih uydurulmayacak. Bu kayıtlar tarihi bilinmeyen mali özet olarak ele alınmalı.
+- TY finans dosyası mevcut alanlara uyuyor (199 sipariş); ürün/kalem detayı içermiyor.
+
+### Yalnız kullanıcıdan gelebilecekler
+1. **Üç tedarikçinin ticari unvanı.** Özgün alış PDF'leri **taranmış** (metin katmanı yok, OCR erişimi
+   yok) ve hazırlanan veride de unvan geçmiyor; bu yüzden dosyalardan okunamıyor. Ad verilene kadar
+   ilgili faturalar incelemede kalır, diğer işler durmaz.
+2. Stok başlangıç tarihi ve açılış sayımı (ekran hazır).
+3. Tropikal çeşit dağılımı, belirsiz ürün kimlikleri ve TY fatura istisnaları (önceki kayıtta listeli).
+
+---
 
 ## 12 Eylül 2026 — Canlıya geçiş: köprü, gerçek kayıt aktarımı, 0036+0037 (EN YENİ KAYIT)
 

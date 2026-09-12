@@ -73,6 +73,18 @@ function parseBody(x) {
 
 const invoiceKey = v => v.replace(/\s+/g, '').toUpperCase();
 
+/**
+ * Belgenin kanonik içerik özeti. Aynı kimlik + aynı içerik = mükerrer yükleme (atlanır).
+ * Aynı kimlik + FARKLI içerik = düzeltilmiş belge ya da hatalı okuma olabilir: incelemeye alınır,
+ * tutar sessizce üzerine yazılmaz.
+ */
+async function contentHash(item) {
+  const canonical = JSON.stringify([item.date, 'TRY', item.net, item.vat, item.gross,
+    item.lines.map(l => [l.description, l.quantity, l.unit, l.net_cents, l.vat_cents]).sort()]);
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
+  return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 export async function stagedImportApi(request, env, path, readBody) {
   if (!path.startsWith('/api/invoices/staged')) return null;
   if (!['ec', 'lp'].includes(env.WORKSPACE)) fail('Çalışma alanı geçersiz.', 403);
@@ -90,7 +102,9 @@ export async function stagedImportApi(request, env, path, readBody) {
   const apply = sub === '/apply';
 
   // Daha önce uygulanmış kaynak kayıtlar ve belge kaydı: ikinci kez oluşturulmaz.
-  const doneKeys = new Set((await db.prepare('SELECT source_key FROM import_items WHERE kind=?').bind(x.kind).all()).results.map(r => r.source_key));
+  const doneRows = (await db.prepare('SELECT source_key,content_hash FROM import_items WHERE kind=?').bind(x.kind).all()).results;
+  const doneKeys = new Set(doneRows.map(r => r.source_key));
+  const doneHashes = new Map(doneRows.map(r => [r.source_key, r.content_hash]));
   const suppliersByTax = new Map((await db.prepare('SELECT id,tax_id,name FROM suppliers WHERE tax_id IS NOT NULL').all()).results.map(s => [s.tax_id, s]));
   const products = new Map((await db.prepare('SELECT id,sku FROM products').all()).results.map(p => [String(p.sku).toUpperCase(), p.id]));
 
@@ -99,7 +113,20 @@ export async function stagedImportApi(request, env, path, readBody) {
 
   for (const item of x.items) {
     const line = {source_key: item.source_key, invoice_no: item.invoiceNo, supplier_vkn: item.vkn};
-    if (doneKeys.has(item.source_key)) { counts.skipped++; results.push({...line, outcome: 'skipped', detail: 'Bu fatura daha önce aktarıldı.'}); continue; }
+    const hash = await contentHash(item);
+    if (doneKeys.has(item.source_key)) {
+      const prior = doneHashes.get(item.source_key);
+      if (prior && prior !== hash) {
+        // Kimlik aynı, içerik farklı: sessizce atlanmaz.
+        counts.review++;
+        results.push({...line, outcome: 'review', conflict: true,
+          detail: 'Bu fatura kimliği daha önce aktarıldı ama gelen belgenin içeriği farklı (tarih, toplam veya satırlar değişmiş). Üzerine yazılmadı; incelemeye alındı.'});
+      } else {
+        counts.skipped++;
+        results.push({...line, outcome: 'skipped', detail: 'Bu fatura daha önce aktarıldı.'});
+      }
+      continue;
+    }
 
     // Panelde zaten kayıtlı belge (ETTN ya da VKN + fatura no) ikinci kez işlenmez.
     const keys = [...(item.ettn ? ['uuid:' + item.ettn] : []), 'invoice:' + item.vkn + ':' + invoiceKey(item.invoiceNo)];
@@ -141,9 +168,9 @@ export async function stagedImportApi(request, env, path, readBody) {
       };
       const invoice = await callApi(accountingApi, env, '/api/accounting/invoices', body);
       counts.created++;
-      results.push({...line, outcome: 'created', invoice_id: invoice.id, detail});
+      results.push({...line, outcome: 'created', invoice_id: invoice.id, detail, content_hash: hash});
     } catch (e) {
-      if (e.status === 409) { counts.skipped++; results.push({...line, outcome: 'skipped', detail: e.message}); }
+      if (e.status === 409) { counts.skipped++; results.push({...line, outcome: 'skipped', detail: e.message, content_hash: hash}); }
       else { counts.failed++; results.push({...line, outcome: 'failed', detail: String(e.message).slice(0, 400)}); }
     }
   }
@@ -157,21 +184,33 @@ export async function stagedImportApi(request, env, path, readBody) {
 
   // Parti ve her kaynak kaydın sonucu denetim için saklanır. Kayıt yazımı başarısız olsa bile
   // belge kaydı ikinci oluşturmayı engeller.
-  const batchId = id();
-  const stmts = [db.prepare('INSERT INTO import_batches(id,kind,source_name,sha256,item_count,counts_json,status,created_by) VALUES(?,?,?,?,?,?,?,?)')
-    .bind(batchId, x.kind, x.source_name, x.sha256, x.items.length, JSON.stringify(counts), 'applied', user.id || 'owner')];
+  // Dosya kaydı ile işleme denemesi AYRIDIR. Eksik bilgi tamamlanıp aynı dosya yeniden
+  // gönderildiğinde yeni parti açılmaz; mevcut parti sürdürülür ve her denemenin sonucu
+  // denetime eklenir. Aksi hâlde fatura oluşur ama istek 409 döner ve denetim izi eksik kalırdı.
+  const openBatch = await db.prepare('SELECT id,counts_json FROM import_batches WHERE kind=? AND sha256=?').bind(x.kind, x.sha256).first();
+  const batchId = openBatch?.id || id();
+  const stmts = [];
+  if (openBatch) {
+    const prior = JSON.parse(openBatch.counts_json || '{}'), merged = {...counts};
+    for (const k of Object.keys(prior)) merged[k] = (prior[k] || 0) + (counts[k] || 0);
+    stmts.push(db.prepare('UPDATE import_batches SET counts_json=? WHERE id=?').bind(JSON.stringify(merged), batchId));
+  } else {
+    stmts.push(db.prepare('INSERT INTO import_batches(id,kind,source_name,sha256,item_count,counts_json,status,created_by) VALUES(?,?,?,?,?,?,?,?)')
+      .bind(batchId, x.kind, x.source_name, x.sha256, x.items.length, JSON.stringify(counts), 'applied', user.id || 'owner'));
+  }
   for (const r of results) {
     // YALNIZCA sonuçlanmış kayıtlar tekil anahtarı tutar. 'review' ve 'failed' kayıtlar
     // inceleme kuyruğunda kalır ve eksik bilgi tamamlanınca YENİDEN aktarılabilir olmalıdır;
     // bunları tekil anahtara yazmak kullanıcıyı kalıcı olarak kilitlerdi.
     if (!['created', 'skipped'].includes(r.outcome)) continue;
     if (r.outcome === 'skipped' && doneKeys.has(r.source_key)) continue;   // zaten kayıtlı, tekrar yazma
-    stmts.push(db.prepare('INSERT OR IGNORE INTO import_items(id,batch_id,kind,source_key,outcome,target_kind,target_id,detail) VALUES(?,?,?,?,?,?,?,?)')
-      .bind(id(), batchId, x.kind, r.source_key, r.outcome, r.invoice_id ? 'purchase_invoice' : '', r.invoice_id || '', String(r.detail || '').slice(0, 500)));
+    stmts.push(db.prepare('INSERT OR IGNORE INTO import_items(id,batch_id,kind,source_key,outcome,target_kind,target_id,detail,content_hash) VALUES(?,?,?,?,?,?,?,?,?)')
+      .bind(id(), batchId, x.kind, r.source_key, r.outcome, r.invoice_id ? 'purchase_invoice' : '', r.invoice_id || '',
+        String(r.detail || '').slice(0, 500), r.content_hash || null));
   }
   try { await db.batch(stmts); }
   catch (e) {
-    if (/UNIQUE/.test(e.message)) fail('Bu kaynak dosya zaten uygulanmış. Aynı dosya ikinci kez işlenmez.', 409);
+    if (/UNIQUE/.test(e.message)) fail('Bu aktarım az önce işlendi. Listeyi yenileyip sonucu kontrol edin.', 409);
     throw e;
   }
   return {mode: 'applied', batch_id: batchId, kind: x.kind, counts, results,

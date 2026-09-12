@@ -11,9 +11,16 @@ export async function settingsApi(request,env,path,readBody){
   const x=await readBody(request);
   if(typeof x.legal_name!=='string'||x.legal_name.trim().length>200)fail('Ticari unvanı kontrol edin.');
   if(typeof x.tax_id!=='string'||(x.tax_id&&!/^\d{10,11}$/.test(x.tax_id)))fail('Vergi numarası 10 veya 11 rakam olmalı.');
+  // Stok başlangıç tarihi UYDURULMAZ: boş bırakılabilir. Girilirse gerçek bir gün olmalı ve
+  // gelecek tarih kabul edilmez. Bu tarih girilmeden, bu tarihten önceki pazaryeri siparişleri
+  // bugünkü stoktan otomatik düşülmez (rapor-stok köprüsü "historical" der).
+  const startRaw=typeof x.inventory_start_date==='string'?x.inventory_start_date.trim():'';
+  if(startRaw&&(!/^\d{4}-\d{2}-\d{2}$/.test(startRaw)||!Number.isFinite(Date.parse(startRaw))||new Date(startRaw).toISOString().slice(0,10)!==startRaw))fail('Stok başlangıç tarihi geçersiz.');
+  if(startRaw&&startRaw>new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Istanbul'}))fail('Stok başlangıç tarihi gelecekte olamaz.');
   const old=await db.prepare('SELECT tax_id FROM workspace_settings WHERE workspace=?').bind(ns).first();
   if(old.tax_id&&old.tax_id!==x.tax_id&&await env.DB.prepare("SELECT id FROM purchase_invoices WHERE status='posted' LIMIT 1").first())fail('İşlenmiş faturalar varken şirket vergi numarası değiştirilemez.',409);
-  await db.prepare('UPDATE workspace_settings SET legal_name=?,tax_id=?,updated_at=CURRENT_TIMESTAMP WHERE workspace=?').bind(x.legal_name.trim(),x.tax_id,ns).run();
+  await db.prepare('UPDATE workspace_settings SET legal_name=?,tax_id=?,inventory_start_date=?,updated_at=CURRENT_TIMESTAMP WHERE workspace=?')
+   .bind(x.legal_name.trim(),x.tax_id,startRaw||null,ns).run();
   return {ok:true};
  }
  if(path==='/api/settings/backup'&&request.method==='GET'){

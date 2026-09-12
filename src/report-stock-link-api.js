@@ -28,7 +28,15 @@ async function digest(parts) {
   return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** Paketi okur ve aktarıma uygun olup olmadığını söyler. Yazmaz. */
+/**
+ * Paketin O ANKİ içerik parmak izi: kalem kimliği, adet, tutar ve durum.
+ * Bağlantı kurulduğunda saklanır; sonraki okumalarda rapor değişmiş mi diye karşılaştırılır.
+ */
+const packageFingerprint = records => digest(records
+  .map(r => [String(r.data.line_id || ''), Number(r.data.quantity) || 0, r.data.gross ?? null, String(r.data.status || '')])
+  .sort((a, b) => a[0].localeCompare(b[0])));
+
+/** Paketi okur ve aktarıma uygun olup olmadığını söyler. Yalnız eskimiş taslağı işaretler. */
 async function plan(env, storeId, packageId) {
   const db = env.DB, rootDB = env.ROOT_DB || db;
   const store = await db.prepare('SELECT * FROM ec_report_stores WHERE id=?').bind(key(storeId)).first();
@@ -43,8 +51,27 @@ async function plan(env, storeId, packageId) {
 
   const records = rows.map(r => ({...r, data: parse(r.data_json, {})}));
   const linked = records.find(r => r.erp_package_id);
-  if (linked) return {store, outcome: 'existing', package_id: linked.erp_package_id, stock_write: false,
-    reason: 'Bu paket panelde zaten bir siparişe bağlı. İkinci sipariş açılmaz.'};
+  if (linked) {
+    // Bağlantı anındaki içerik ile ŞİMDİKİ içerik karşılaştırılır. Rapor güncellendiyse (iptal,
+    // adet değişimi) eski taslak sessizce kullanılmaz: paket "kaynak değişti" diye işaretlenir ve
+    // mevcut veritabanı tetiği rezervasyon/gönderimi engeller. Rezerve/gönderilmiş sipariş
+    // sessizce yeniden yazılmaz; iptal/iade/düzeltme akışına bırakılır.
+    const linkKey = store.provider + ':' + store.id + ':' + packageId;
+    const item = await db.prepare("SELECT content_hash FROM import_items WHERE kind='report_stock_link' AND source_key=?").bind(linkKey).first();
+    const current = await packageFingerprint(records);
+    const cancelledNow = records.some(r => CANCELLED.test(String(r.data.status || '').toLocaleLowerCase('tr-TR')));
+    const drifted = !!item?.content_hash && item.content_hash !== current;
+    if (drifted || cancelledNow) {
+      await db.prepare("UPDATE ec_order_packages SET source_changed=1 WHERE id=? AND status='draft'").bind(linked.erp_package_id).run();
+      return {store, outcome: 'changed', package_id: linked.erp_package_id, stock_write: false,
+        issues: [cancelledNow
+          ? 'Rapor bu paketi iptal/iade olarak gösteriyor; bağlı taslakla stok çıkışı yapılamaz.'
+          : 'Rapor güncellendi (adet veya içerik değişti); bağlı taslağın içeriği eski.'],
+        reason: 'Bağlı sipariş taslağı güncel raporla uyuşmuyor. Stok ayırma ve gönderim engellendi; taslağı inceleyip düzeltin.'};
+    }
+    return {store, outcome: 'existing', package_id: linked.erp_package_id, stock_write: false,
+      reason: 'Bu paket panelde zaten bir siparişe bağlı. İkinci sipariş açılmaz.'};
+  }
 
   const orders = new Set(records.map(r => r.data.order_no)), dates = new Set(), seen = new Set();
   const issues = [];
@@ -83,6 +110,7 @@ async function plan(env, storeId, packageId) {
     reason: 'Sipariş stok başlangıcından eski. Mali rapor korunur; güncel stoktan otomatik düşülmez.'};
 
   return {store, outcome: 'draft', stock_write: false, occurred_on: occurred,
+    fingerprint: await packageFingerprint(records),
     source: {provider: store.provider, store_id: store.id, package_id: packageId,
       record_ids: records.map(r => r.id), versions: records.map(r => r.version)},
     order: {channel: store.provider, external_id, order_no: [...orders][0], occurred_on: occurred,
@@ -138,9 +166,9 @@ export async function reportStockLinkApi(request, env, path, readBody) {
       db.prepare('INSERT INTO import_batches(id,kind,source_name,sha256,item_count,counts_json,status,created_by) VALUES(?,?,?,?,?,?,?,?)')
         .bind(batchId, 'report_stock_link', sourceKey, await digest([sourceKey, result.order.external_id]), 1,
           JSON.stringify({created: created.existing ? 0 : 1, skipped: created.existing ? 1 : 0}), 'applied', user.id || 'owner'),
-      db.prepare('INSERT OR IGNORE INTO import_items(id,batch_id,kind,source_key,outcome,target_kind,target_id,detail) VALUES(?,?,?,?,?,?,?,?)')
+      db.prepare('INSERT OR IGNORE INTO import_items(id,batch_id,kind,source_key,outcome,target_kind,target_id,detail,content_hash) VALUES(?,?,?,?,?,?,?,?,?)')
         .bind(id(), batchId, 'report_stock_link', sourceKey, created.existing ? 'skipped' : 'created', 'order_package', created.id,
-          'Sipariş taslağı açıldı; stok değişmedi.'),
+          'Sipariş taslağı açıldı; stok değişmedi.', result.fingerprint),
       // Rapor kayıtları artık bu siparişe bağlı: sürüm ve veri değişmez, yalnız bağlantı kurulur.
       ...result.source.record_ids.map(recordId =>
         db.prepare('UPDATE ec_report_records SET erp_package_id=? WHERE id=? AND erp_package_id IS NULL').bind(created.id, recordId))
