@@ -215,3 +215,159 @@ test('Rapor Kutusu yalnızca e-ticaret alanında', async () => {
     assert.equal((await f.req('/lp/reports')).status, 403);
   } finally { f.close(); }
 });
+
+/* ---- Codex incelemesi (12 Eylül 2026): doğrulanan hatalar ve ek şüpheler ---- */
+
+test('Sipariş düzeyindeki tek kesinti bölünmüş paketlerde iki kez sayılmaz', async () => {
+  const {f, store, profile, upload, applyAll} = await fixture(); try {
+    const s = await store();
+    await profile('orders', ORDER_COLUMNS, ORDER_MAPPING);
+    await applyAll((await upload(s, 'orders', ORDER_COLUMNS, [line('S1', 'P1', 'L1', 'NOVA-1', 1, 'Teslim edildi', '240,00', '0,00'), line('S1', 'P2', 'L2', 'NOVA-1', 1, 'Teslim edildi', '240,00', '0,00')], '2026-09-01T10:00')).id);
+    await profile('finance', FIN_COLUMNS, FIN_MAPPING, {type_map: {'Komisyon': 'commission'}, fee_amounts_include_vat: false});
+    await applyAll((await upload(s, 'finance', FIN_COLUMNS, [['K1', 'S1', '', 'NOVA-1', 'Komisyon', '03.09.2026', '-12,00']], '2026-09-03T10:00')).id);
+    const {results} = await f.ok('/ec/reports/orders?store_id=' + s);
+    const commission = results.flatMap(r => r.fees).filter(r => r.type === 'commission');
+    assert.equal(commission.reduce((n, r) => n + r.actual_cents, 0), -1200, 'tek olay toplamda bir kez');
+    assert.deepEqual(commission.map(r => r.actual_cents).sort((a, b) => a - b), [-600, -600], 'toplamı koruyarak dağıtıldı');
+    assert.ok(results[0].notes.some(n => /dağıtıldı/.test(n)), 'dağıtım kullanıcıya söylenir');
+  } finally { f.close(); }
+});
+
+test('Komisyon tahmini paketteki bütün satırları kapsar; tarifesi olmayan satır varsa tam tahmin denmez', async () => {
+  const {f, store, profile, upload, applyAll} = await fixture(); try {
+    const s = await store();
+    await profile('orders', ORDER_COLUMNS, ORDER_MAPPING);
+    f.sqlite.exec("INSERT INTO ec_commission_rates(id,label,channel,sku,category,valid_from,valid_to,price_min_cents,price_max_cents,rate_bps,base,vat_bps,tax_included,source) VALUES('k1','TY genel','trendyol','','','2026-01-01','2026-12-31',0,NULL,1500,'gross',2000,1,'test')");
+    await applyAll((await upload(s, 'orders', ORDER_COLUMNS, [line('S1', 'P1', 'L1', 'NOVA-1', 1, 'Kargoda', '240,00', '0,00'), line('S1', 'P1', 'L2', 'NOVA-1', 1, 'Kargoda', '120,00', '0,00')], '2026-09-01T10:00')).id);
+    let row = (await f.ok('/ec/reports/orders?store_id=' + s)).results[0];
+    assert.equal(row.estimates.find(e => e.type === 'commission').value, -5400, '240 + 120 TL üzerinden %15');
+    // Tarife dar bir fiyat aralığına çekilince ikinci satır kapsam dışında kalır: kısmi hesap tam tahmin sayılmaz.
+    f.sqlite.exec("UPDATE ec_commission_rates SET archived_at='2026-09-01' WHERE id='k1'");
+    f.sqlite.exec("INSERT INTO ec_commission_rates(id,label,channel,sku,category,valid_from,valid_to,price_min_cents,price_max_cents,rate_bps,base,vat_bps,tax_included,source) VALUES('k2','Dar bant','trendyol','','','2026-01-01','2026-12-31',20000,NULL,1500,'gross',2000,1,'test')");
+    row = (await f.ok('/ec/reports/orders?store_id=' + s)).results[0];
+    const est = row.estimates.find(e => e.type === 'commission');
+    assert.equal(est.value, null);
+    assert.match(est.basis, /tarifesi yok/);
+    assert.equal(row.estimated_result_cents, null, 'eksik tahminle sonuç tahmini verilmez');
+  } finally { f.close(); }
+});
+
+test('Değişmeyen yeni gözlem güncellik sınırını ilerletir; sonradan yüklenen eski rapor geri alamaz', async () => {
+  const {f, store, profile, upload, applyAll, record} = await fixture(); try {
+    const s = await store();
+    await profile('orders', ORDER_COLUMNS, ORDER_MAPPING);
+    await applyAll((await upload(s, 'orders', ORDER_COLUMNS, [line('S1', 'P1', 'L1', 'NOVA-1', 1, 'Kargoda', '240,00')], '2026-09-01T10:00')).id);
+    const second = await applyAll((await upload(s, 'orders', ORDER_COLUMNS, [line('S1', 'P1', 'L1', 'NOVA-1', 1, 'Kargoda', '240,00'), line('S2', 'P2', 'L2', 'NOVA-1', 1, 'Yeni', '120,00')], '2026-09-03T10:00', 'b.xlsx')).id);
+    assert.deepEqual([second.counts.same, second.counts.new], [1, 1], 'L1 aynı, L2 yeni');
+    const older = await applyAll((await upload(s, 'orders', ORDER_COLUMNS, [line('S1', 'P1', 'L1', 'NOVA-1', 1, 'Hazırlanıyor', '240,00')], '2026-09-02T10:00', 'c.xlsx')).id);
+    assert.deepEqual({older: older.counts.older || 0, updated: older.counts.updated || 0, status: record(s, 'L:L1').status}, {older: 1, updated: 0, status: 'Kargoda'});
+    assert.equal(record(s, 'L:L1')._v, 1, 'yalnız gözlem zamanı ilerledi, veri sürümü artmadı');
+  } finally { f.close(); }
+});
+
+test('ERP bağlantısı mağaza ayrımı kesin değilse kurulmaz', async () => {
+  const {f, store, profile, upload, applyAll} = await fixture(); try {
+    f.sqlite.exec("INSERT INTO ec_order_packages(id,channel,external_id,order_no,occurred_on,source_fingerprint) VALUES('pkg-1','trendyol','P1','S1','2026-09-01','test')");
+    const a = await store('trendyol', 'TY-A');
+    await profile('orders', ORDER_COLUMNS, ORDER_MAPPING);
+    await applyAll((await upload(a, 'orders', ORDER_COLUMNS, [line('S1', 'P1', 'L1', 'NOVA-1', 1, 'Kargoda', '240,00')], '2026-09-01T10:00')).id);
+    assert.equal(f.sqlite.prepare("SELECT erp_package_id FROM ec_report_records WHERE record_key='L:L1'").get().erp_package_id, 'pkg-1', 'tek mağazada bağlanır');
+    // İkinci mağaza tanımlanınca aynı numaralar hangi mağazanınki belli olmaz: bağlanmaz, incelemeye gider.
+    const b = await store('trendyol', 'TY-B');
+    await applyAll((await upload(b, 'orders', ORDER_COLUMNS, [line('S1', 'P1', 'L1', 'NOVA-1', 1, 'Kargoda', '240,00')], '2026-09-01T10:00', 'b.xlsx')).id);
+    const second = f.sqlite.prepare("SELECT erp_package_id FROM ec_report_records WHERE store_id=? AND record_key='L:L1'").get(b);
+    assert.equal(second.erp_package_id, null);
+    assert.ok((await f.ok('/ec/reports/reviews')).reviews.some(r => r.reason === 'store_ambiguous'));
+  } finally { f.close(); }
+});
+
+test('Sayfalama paket bütünlüğünü bozmaz', async () => {
+  const {f, store, profile, upload, applyAll} = await fixture(); try {
+    const s = await store();
+    await profile('orders', ORDER_COLUMNS, ORDER_MAPPING);
+    const rows = [];
+    for (const o of ['S1', 'S2', 'S3']) rows.push(line(o, 'P' + o, 'L' + o + 'a', 'NOVA-1', 1, 'Kargoda', '240,00', '0,00'), line(o, 'P' + o, 'L' + o + 'b', 'NOVA-1', 1, 'Kargoda', '120,00', '0,00'));
+    await applyAll((await upload(s, 'orders', ORDER_COLUMNS, rows, '2026-09-01T10:00')).id);
+    const {orderResults} = await import('../src/report-inbox-api.js');
+    for (let page = 0; page < 3; page++) {
+      const {results} = await orderResults(f.env.DB, s, {limit: 1, offset: page});
+      assert.equal(results.length, 1);
+      assert.equal(results[0].lines.length, 2, 'paketin iki satırı da hesaba girer');
+      assert.equal(results[0].net_sales_ex_vat_cents, 30000, '360 TL brüt → KDV hariç 300 TL');
+    }
+  } finally { f.close(); }
+});
+
+test('Gider KDV bilgisi olayın kendi profil sürümünden gelir; sonraki profil geçmişi değiştirmez', async () => {
+  const {f, store, profile, upload, applyAll} = await fixture(); try {
+    const s = await store();
+    await profile('orders', ORDER_COLUMNS, ORDER_MAPPING);
+    await applyAll((await upload(s, 'orders', ORDER_COLUMNS, [line('S1', 'P1', 'L1', 'NOVA-1', 1, 'Teslim edildi', '240,00', '0,00')], '2026-09-01T10:00')).id);
+    await profile('finance', FIN_COLUMNS, FIN_MAPPING, {type_map: {'Komisyon': 'commission'}, fee_amounts_include_vat: false});
+    await applyAll((await upload(s, 'finance', FIN_COLUMNS, [['K1', 'S1', 'P1', 'NOVA-1', 'Komisyon', '03.09.2026', '-36,00']], '2026-09-03T10:00')).id);
+    const before = (await f.ok('/ec/reports/orders?store_id=' + s)).results[0].contribution_cents;
+    // Aynı pazaryerinde SONRADAN başka bir rapor biçimi için "KDV dahil" profil açılır.
+    await profile('finance', [...FIN_COLUMNS, {header: 'Ek'}], FIN_MAPPING, {type_map: {'Komisyon': 'commission'}, fee_amounts_include_vat: true, fee_vat_bps: 2000});
+    const after = (await f.ok('/ec/reports/orders?store_id=' + s)).results[0].contribution_cents;
+    assert.equal(after, before, 'eski olayın hesabı değişmez');
+  } finally { f.close(); }
+});
+
+test('Gözlemden tahmin yalnızca aynı içerikli paketlerden yapılır', async () => {
+  const {f, store, profile, upload, applyAll} = await fixture(); try {
+    const s = await store();
+    await profile('orders', ORDER_COLUMNS, ORDER_MAPPING);
+    await profile('finance', FIN_COLUMNS, FIN_MAPPING, {type_map: {'Kargo': 'cargo'}});
+    // Geçmiş: üç paket 1 adet NOVA-1, kargo 30 TL. Ayrıca farklı içerikli (2 adet) bir paket.
+    const past = [];
+    for (const n of [1, 2, 3]) past.push(line('G' + n, 'PG' + n, 'LG' + n, 'NOVA-1', 1, 'Teslim edildi', '240,00', '0,00'));
+    past.push(line('G9', 'PG9', 'LG9', 'NOVA-1', 2, 'Teslim edildi', '480,00', '0,00'));
+    await applyAll((await upload(s, 'orders', ORDER_COLUMNS, past, '2026-09-01T10:00')).id);
+    await applyAll((await upload(s, 'finance', FIN_COLUMNS, [1, 2, 3].map(n => ['C' + n, 'G' + n, 'PG' + n, 'NOVA-1', 'Kargo', '02.09.2026', '-30,00'])
+      .concat([['C9', 'G9', 'PG9', 'NOVA-1', 'Kargo', '02.09.2026', '-90,00']]), '2026-09-02T10:00')).id);
+    // Yeni sipariş: 1 adet → aynı içerikli üç paketten tahmin. 5 adetlik paket → benzer kayıt yok.
+    await applyAll((await upload(s, 'orders', ORDER_COLUMNS, [line('S1', 'P1', 'L1', 'NOVA-1', 1, 'Kargoda', '240,00', ''), line('S5', 'P5', 'L5', 'NOVA-1', 5, 'Kargoda', '1200,00', '')], '2026-09-03T10:00', 'b.xlsx')).id);
+    const {results} = await f.ok('/ec/reports/orders?store_id=' + s);
+    const one = results.find(r => r.group === 'P1').estimates.find(e => e.type === 'cargo');
+    assert.equal(one.value, -3000);
+    assert.equal(one.samples, 3);
+    const five = results.find(r => r.group === 'P5').estimates.find(e => e.type === 'cargo');
+    assert.equal(five.value, null, 'farklı içerikli paket için uydurma tahmin yok');
+  } finally { f.close(); }
+});
+
+test('Sonradan tanımlanan eşleştirme eksik kayıtları tamamlar; eski anlık görüntüler korunur', async () => {
+  const {f, store, profile, upload, applyAll} = await fixture(); try {
+    const s = await store();
+    await profile('orders', ORDER_COLUMNS, ORDER_MAPPING);
+    await applyAll((await upload(s, 'orders', ORDER_COLUMNS, [line('S1', 'P1', 'L1', 'YOK-1', 1, 'Teslim edildi', '240,00', '0,00'), line('S2', 'P2', 'L2', 'NOVA-1', 1, 'Teslim edildi', '240,00', '0,00')], '2026-09-01T10:00')).id);
+    let row = (await f.ok('/ec/reports/orders?store_id=' + s)).results.find(r => r.group === 'P1');
+    assert.ok(row.contribution_missing.some(m => /eşleşmesi yok/.test(m)));
+    // Eşleştirme sonradan tanımlanır.
+    f.sqlite.exec("INSERT INTO ec_catalog_mappings(id,source,match_by,match_value,external_code,active,version,created_at) VALUES('m-yok','trendyol','code','YOK-1','YOK-1',0,1,'2026-09-05 00:00:00')");
+    f.sqlite.exec("INSERT INTO ec_catalog_mapping_components(id,mapping_id,product_id,quantity_milli,revenue_share_bps) VALUES('c9','m-yok','nova',1000,10000)");
+    f.sqlite.exec("UPDATE ec_catalog_mappings SET active=1 WHERE id='m-yok'");
+    const nova = f.sqlite.prepare("SELECT components_json FROM ec_report_records WHERE record_key='L:L2'").get().components_json;
+    const result = await f.ok('/ec/reports/backfill-components', {store_id: s});
+    assert.equal(result.filled, 1);
+    row = (await f.ok('/ec/reports/orders?store_id=' + s)).results.find(r => r.group === 'P1');
+    assert.equal(row.cogs_cents, 10000);
+    assert.ok(row.notes.some(n => /sipariş tarihinden sonra/.test(n)), 'sonradan tanımlanan set için uyarı');
+    assert.equal(f.sqlite.prepare("SELECT components_json FROM ec_report_records WHERE record_key='L:L2'").get().components_json, nova, 'var olan anlık görüntü değişmedi');
+  } finally { f.close(); }
+});
+
+test('Aktarım partisi yalnız kendi satırlarını okur; dosya içi tekrar partiler arasında da yakalanır', async () => {
+  const {f, store, profile, upload} = await fixture(); try {
+    const s = await store();
+    await profile('orders', ORDER_COLUMNS, ORDER_MAPPING);
+    const rows = Array.from({length: 300}, (_, i) => line('B' + i, 'PB' + i, 'LB' + i, 'NOVA-1', 1, 'Kargoda', '240,00'));
+    rows.push(line('B0', 'PB0', 'LB0', 'NOVA-1', 1, 'Kargoda', '240,00'));   // 1. satırın kimliğinin tekrarı, son partide
+    const file = await upload(s, 'orders', ORDER_COLUMNS, rows, '2026-09-01T10:00', 'buyuk.xlsx');
+    const seal = JSON.parse(f.sqlite.prepare('SELECT twin_keys_json j FROM ec_report_files WHERE id=?').get(file.id).j);
+    assert.ok(seal.duplicates['order_line|L:LB0'], 'tekrar eden kimlik mühürlemede bulunur');
+    let r; do { r = await f.ok('/ec/reports/files/' + file.id + '/apply', {}); } while (!r.done);
+    assert.equal(r.counts.new, 300);
+    assert.equal(r.counts.review, 1, 'farklı partideki tekrar yine incelemeye gider');
+  } finally { f.close(); }
+});

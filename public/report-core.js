@@ -224,9 +224,13 @@ export const contentHash = data => stable(data);
 export function compareVersions(prior, incoming) {
   if (!prior) return {outcome: 'new', data: incoming.data};
   const merged = {...prior.data, ...incoming.data};
-  if (incoming.time && prior.time && incoming.time < prior.time) return {outcome: 'older', data: prior.data};
-  if (stable(prior.data) === stable(merged)) return {outcome: 'same', data: prior.data};
-  if (prior.locked || !incoming.time || !prior.time || incoming.time === prior.time) return {outcome: 'review', data: prior.data, proposed: merged};
+  // observedTime: bu kaydı en son DOĞRULAYAN gözlem (içerik değişmese de ilerler).
+  // dataTime: veriyi en son DEĞİŞTİREN rapor. Araya sonradan yüklenen eski rapor geri alamaz.
+  const observed = prior.observedTime || prior.dataTime || prior.time || null;
+  if (incoming.time && observed && incoming.time < observed) return {outcome: 'older', data: prior.data};
+  if (stable(prior.data) === stable(merged))
+    return {outcome: 'same', data: prior.data, advanceObservation: !!(incoming.time && (!observed || incoming.time > observed))};
+  if (prior.locked || !incoming.time || !observed || incoming.time === observed) return {outcome: 'review', data: prior.data, proposed: merged};
   return {outcome: 'updated', data: merged};
 }
 

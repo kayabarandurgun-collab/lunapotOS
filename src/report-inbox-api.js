@@ -18,7 +18,7 @@
 //   POST /api/ec/reports/records/:id/evidence    {invoice_line_id} gider kanıtı (ikinci gider yok)
 //
 // Bu dosya stok hareketi, sevkiyat, satış kaydı veya fatura OLUŞTURMAZ; pazaryeri API'si çağırmaz.
-import {FIELDS, PROVIDERS, EVENT_TYPES, FEE_TYPES, headerSignature, normalizeRows, compareVersions, contentHash, exVat, observedEstimate} from '../public/report-core.js';
+import {FIELDS, PROVIDERS, EVENT_TYPES, FEE_TYPES, headerSignature, normalizeRows, compareVersions, contentHash, exVat, observedEstimate, allocateCents} from '../public/report-core.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), {status}); };
 const id = () => crypto.randomUUID();
@@ -69,24 +69,28 @@ async function classify(db, f, profile, records) {
   const out = [];
   for (const r of records) {
     const k = r.kind + '|' + r.key;
-    const blocking = r.issues.filter(i => ['ambiguous_twin', 'id_precision', 'bad_value', 'missing_required', 'unknown_type', 'no_amount'].includes(i.code));
+    const blocking = r.issues.filter(i => ['ambiguous_twin', 'duplicate_in_file', 'id_precision', 'bad_value', 'missing_required', 'unknown_type', 'no_amount'].includes(i.code));
     if (blocking.length) { out.push({...r, outcome: 'review', reason: blocking[0].code, detail: blocking.map(i => i.detail).join(' ')}); continue; }
     // Aynı dosyada aynı sağlayıcı kimliği iki kez: ikincisi ilkinin sürümü sayılmaz, incelemeye.
     if (seenInFile.has(k)) { out.push({...r, outcome: 'review', reason: 'duplicate_in_file', detail: 'Aynı kimlik dosyada ' + seenInFile.get(k) + '. satırda da var.'}); continue; }
     seenInFile.set(k, r.row);
     const prior = existing.get(k);
-    const result = compareVersions(prior && {data: parse(prior.data_json, {}), time: prior.source_time, locked: await locked(db, prior)}, {data: r.data, time: f.snapshot_at});
-    out.push({...r, outcome: result.outcome, merged: result.data, proposed: result.proposed, prior,
+    const result = compareVersions(prior && {data: parse(prior.data_json, {}), dataTime: prior.data_time || prior.source_time, observedTime: prior.source_time, locked: await locked(db, prior)}, {data: r.data, time: f.snapshot_at});
+    out.push({...r, outcome: result.outcome, merged: result.data, proposed: result.proposed, prior, advanceObservation: result.advanceObservation,
       reason: result.outcome === 'review' ? (prior && await locked(db, prior) ? 'posted_changed' : 'same_time_conflict') : null,
       detail: result.outcome === 'review' ? 'Önceki bilgiyle çelişiyor ve hangisinin daha yeni olduğu kesin değil.' : ''});
   }
   return out;
 }
 
-/** ERP'de zaten var olan paket (oluşturma yok). Birden çok aday varsa bağlanmaz. */
+/** ERP'de zaten var olan paket (oluşturma yok). Mağaza ayrımı kesin değilse bağlanmaz. */
 async function erpMatch(db, provider, data) {
   const ids = [data.package_id, data.order_no].filter(Boolean);
   if (!ids.length) return {id: null};
+  // ERP paketlerinde mağaza/satıcı alanı YOK. Aynı pazaryerinde birden çok mağaza tanımlıysa
+  // siparişin hangi mağazaya ait olduğu belirlenemez: yanlış kayda bağlamak yerine bağlanmaz.
+  const stores = (await db.prepare('SELECT COUNT(*) n FROM ec_report_stores WHERE provider=?').bind(provider).first()).n;
+  if (stores > 1) return {id: null, storeAmbiguous: true};
   const rows = (await db.prepare('SELECT id FROM ec_order_packages WHERE channel=? AND (external_id IN (SELECT value FROM json_each(?)) OR order_no IN (SELECT value FROM json_each(?)))')
     .bind(provider, JSON.stringify(ids), JSON.stringify(ids)).all()).results;
   return rows.length === 1 ? {id: rows[0].id} : {id: null, ambiguous: rows.length > 1};
@@ -119,105 +123,183 @@ async function vatOf(db, productIds) {
   return rates.length === 1 && rates[0] !== null ? rates[0] : null;
 }
 
+/** Satır bazında komisyon tarifesi. Kargo tarifesi (desi) henüz bağlı değildir. */
 async function tariffEstimate(db, provider, type, line, date) {
   if (type !== 'commission' || line.gross === undefined) return null;
   const rate = await db.prepare("SELECT * FROM ec_commission_rates WHERE channel=? AND archived_at IS NULL AND valid_from<=? AND valid_to>=? AND (sku='' OR sku=?) AND price_min_cents<=? AND (price_max_cents IS NULL OR price_max_cents>?) ORDER BY sku DESC,valid_from DESC LIMIT 1")
     .bind(provider, date, date, line.sku || line.barcode || '', line.gross, line.gross).first();
   if (!rate) return null;
-  const base = rate.base === 'net' && line.vat_bps !== null ? exVat(line.gross, line.vat_bps) : line.gross;
+  const base = rate.base === 'net' && line.vat_bps !== null && line.vat_bps !== undefined ? exVat(line.gross, line.vat_bps) : line.gross;
   const value = -Math.round(base * rate.rate_bps / 10000);
-  return {value, low: value, high: value, samples: 0, basis: 'Tarife: ' + rate.label + ' (%' + (rate.rate_bps / 100) + ')'};
+  return {value, basis: 'Tarife: ' + rate.label + ' (%' + (rate.rate_bps / 100) + ')'};
 }
-async function observed(db, storeId, type, code, date) {
-  if (!code) return null;
+
+/** Paketin "neye benzediği": barkod/SKU, adet ve taşıyıcı. Tahmin yalnız aynı içerikli paketlerden yapılır. */
+const packageSignature = lines => JSON.stringify(lines
+  .map(l => [String(l.barcode || l.sku || ''), Number(l.quantity) || 0, String(l.carrier || '')])
+  .sort((a, b) => (a[0] + a[1] + a[2]).localeCompare(b[0] + b[1] + b[2])));
+
+/**
+ * Gerçekleşmiş kayıtlardan tahmin: yalnızca aynı mağazada, son 90 günde, AYNI içerikli
+ * (barkod, adet, taşıyıcı) paketlerin kayıtları. Yetersiz örnekte tahmin yapılmaz; sıfır sayılmaz.
+ */
+async function observedFor(db, storeId, type, signature, date, excludeGroup) {
+  if (!date) return null;
   const from = new Date(Date.parse(date + 'T00:00:00Z') - 90 * 86400000).toISOString().slice(0, 10);
-  const rows = (await db.prepare("SELECT json_extract(data_json,'$.amount_cents') a FROM ec_report_records WHERE store_id=? AND kind='finance_event' AND json_extract(data_json,'$.type')=? AND json_extract(data_json,'$.barcode')=? AND substr(json_extract(data_json,'$.event_date'),1,10) BETWEEN ? AND ?")
-    .bind(storeId, type, code, from, date).all()).results;
-  const est = observedEstimate(rows.map(r => r.a));
-  return est ? {...est, basis: 'Benzer gerçekleşmiş işlemler: son 90 gün, ' + est.samples + ' örnek'} : null;
+  const rows = (await db.prepare("SELECT data_json FROM ec_report_records WHERE store_id=? AND kind='order_line' AND substr(json_extract(data_json,'$.order_date'),1,10) BETWEEN ? AND ? LIMIT 3000")
+    .bind(storeId, from, date).all()).results.map(r => parse(r.data_json, {}));
+  const groups = new Map();
+  for (const d of rows) { const g = d.package_id || d.order_no; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(d); }
+  const similar = new Set([...groups.entries()].filter(([g, ls]) => g !== excludeGroup && packageSignature(ls) === signature).map(([g]) => g));
+  if (!similar.size) return null;
+  // Benzer paketler sipariş tarihine göre seçilir (geçmişe bakarken gelecekteki sipariş kullanılmaz).
+  // O paketlerin gerçekleşmiş kesintileri ise siparişten SONRA oluşur; bu yüzden olay tarihine göre süzülmez.
+  const events = (await db.prepare("SELECT json_extract(data_json,'$.amount_cents') a,json_extract(data_json,'$.package_id') p,json_extract(data_json,'$.order_no') o FROM ec_report_records WHERE store_id=? AND kind='finance_event' AND json_extract(data_json,'$.type')=? LIMIT 3000")
+    .bind(storeId, type).all()).results;
+  const est = observedEstimate(events.filter(e => similar.has(e.p || e.o)).map(e => e.a));
+  return est ? {...est, basis: 'Aynı içerikli paketlerin son 90 gündeki gerçekleşen kayıtları: ' + est.samples + ' örnek'} : null;
 }
 
 export async function orderResults(db, storeId, {limit = 100, offset = 0} = {}) {
   const store = await db.prepare('SELECT * FROM ec_report_stores WHERE id=?').bind(key(storeId)).first();
   if (!store) fail('Mağaza bulunamadı.', 404);
-  const lines = (await db.prepare("SELECT * FROM ec_report_records WHERE store_id=? AND kind='order_line' ORDER BY json_extract(data_json,'$.order_date') DESC,record_key LIMIT ? OFFSET ?").bind(store.id, limit, offset).all()).results;
-  const groups = new Map();
+  // Sayfalama SİPARİŞ düzeyinde: bir paketin satırları sayfa sınırında bölünmez.
+  const orderNos = (await db.prepare("SELECT json_extract(data_json,'$.order_no') o,MAX(substr(json_extract(data_json,'$.order_date'),1,10)) d FROM ec_report_records WHERE store_id=? AND kind='order_line' GROUP BY o ORDER BY d DESC,o LIMIT ? OFFSET ?")
+    .bind(store.id, limit, offset).all()).results.map(r => r.o).filter(o => o !== null && o !== undefined);
+  if (!orderNos.length) return {store, results: []};
+  const lines = (await db.prepare("SELECT * FROM ec_report_records WHERE store_id=? AND kind='order_line' AND json_extract(data_json,'$.order_no') IN (SELECT value FROM json_each(?)) ORDER BY record_key")
+    .bind(store.id, JSON.stringify(orderNos)).all()).results;
+  const allEvents = (await db.prepare("SELECT r.*,e.invoice_line_id,f.profile_id FROM ec_report_records r LEFT JOIN ec_report_fee_evidence e ON e.record_id=r.id JOIN ec_report_files f ON f.id=r.file_id WHERE r.store_id=? AND r.kind='finance_event' AND json_extract(r.data_json,'$.order_no') IN (SELECT value FROM json_each(?))")
+    .bind(store.id, JSON.stringify(orderNos)).all()).results.map(r => ({...parse(r.data_json, {}), id: r.id, invoice_line_id: r.invoice_line_id, profile_id: r.profile_id}));
+
+  // Gider KDV bilgisi olayın KENDİ dosyasının profil sürümünden gelir; sonradan açılan başka profil
+  // geçmiş hesabı değiştirmez.
+  const profileOptions = new Map();
+  for (const pid of [...new Set(allEvents.map(e => e.profile_id).filter(Boolean))])
+    profileOptions.set(pid, parse((await db.prepare('SELECT options_json FROM ec_report_profiles WHERE id=?').bind(pid).first())?.options_json, {}));
+  const feeVatOf = event => {
+    const o = profileOptions.get(event.profile_id) || {};
+    return o.fee_amounts_include_vat === true && Number.isInteger(o.fee_vat_bps) ? o.fee_vat_bps : o.fee_amounts_include_vat === false ? 0 : null;
+  };
+
+  // Sipariş → paketler.
+  const byOrder = new Map();
   for (const l of lines) {
-    const d = parse(l.data_json, {}), g = d.package_id || d.order_no;
-    if (!groups.has(g)) groups.set(g, {group: g, order_no: d.order_no, package_id: d.package_id || null, order_date: d.order_date, status: d.status || null, erp_package_id: l.erp_package_id, lines: []});
-    groups.get(g).lines.push({...d, id: l.id, components: parse(l.components_json, null)});
+    const d = parse(l.data_json, {}), order = d.order_no || '', group = d.package_id || order;
+    if (!byOrder.has(order)) byOrder.set(order, new Map());
+    const packages = byOrder.get(order);
+    if (!packages.has(group)) packages.set(group, {group, order_no: order, package_id: d.package_id || null, order_date: d.order_date, status: d.status || null, erp_package_id: l.erp_package_id, lines: []});
+    packages.get(group).lines.push({...d, id: l.id, components: parse(l.components_json, null)});
   }
+
   const results = [];
-  for (const g of groups.values()) {
-    const events = (await db.prepare("SELECT r.*,e.invoice_line_id FROM ec_report_records r LEFT JOIN ec_report_fee_evidence e ON e.record_id=r.id WHERE r.store_id=? AND r.kind='finance_event' AND (json_extract(r.data_json,'$.package_id')=? OR (json_extract(r.data_json,'$.package_id') IS NULL AND json_extract(r.data_json,'$.order_no')=?))")
-      .bind(store.id, g.package_id || '', g.order_no || '').all()).results.map(r => ({...parse(r.data_json, {}), id: r.id, invoice_line_id: r.invoice_line_id}));
-    const missing = [], notes = [], date = String(g.order_date || '').slice(0, 10);
-    let netSales = 0, cogs = 0;
-    for (const line of g.lines) {
-      const comps = line.components?.components || null;
-      if (!comps) { missing.push('Ürün/set eşleşmesi yok: ' + (line.barcode || line.sku || line.product_name || 'ürün')); netSales = null; cogs = null; continue; }
-      if (line.components.after_order) notes.push((line.barcode || line.sku) + ': set tanımı sipariş tarihinden sonra; eski içerik doğrulanmalı.');
-      line.vat_bps = await vatOf(db, comps.map(c => c.product_id));
-      if (line.gross === undefined) { missing.push('Satış tutarı yok (sipariş ' + line.order_no + ')'); netSales = null; }
-      else if (line.vat_bps === null) { missing.push('KDV oranı tanımlı değil: ' + (line.barcode || line.sku)); netSales = null; }
-      else if (netSales !== null) netSales += exVat(line.gross, line.vat_bps);
-      for (const c of comps) {
-        const cost = await unitCostAt(db, c.product_id, date);
-        if (!cost) { missing.push('Maliyet yok: ' + c.product_id + ' (' + date + ' öncesi giriş bulunamadı)'); cogs = null; continue; }
-        // İki adet ikili set = her üründen 2 × set içindeki miktar.
-        if (cogs !== null) cogs += Math.round(cost.cents_per_unit * c.quantity_milli * (line.quantity || 0) / 1000);
+  for (const [order, packages] of byOrder) {
+    const list = [...packages.values()];
+    const packageEvents = new Map(list.map(p => [p.group, []]));
+    const shared = [];
+    for (const e of allEvents.filter(e => (e.order_no || '') === order)) {
+      const direct = e.package_id && packageEvents.has(e.package_id);
+      if (direct) packageEvents.get(e.package_id).push(e); else shared.push(e);
+    }
+    // Paket numarası olmayan SİPARİŞ düzeyindeki gider bir kez sayılır: tek pakette olduğu gibi,
+    // bölünmüş siparişte toplamı koruyarak paketlere dağıtılır.
+    const grossOf = p => p.lines.reduce((s, l) => s + (l.gross || 0), 0);
+    const weights = list.map(p => grossOf(p));
+    const evenSplit = weights.some(w => !w);
+    const sharedNotes = [];
+    for (const e of shared) {
+      if (list.length === 1) { packageEvents.get(list[0].group).push(e); continue; }
+      const parts = allocateCents(e.amount_cents, evenSplit ? list.map(() => 1) : weights);
+      list.forEach((p, i) => packageEvents.get(p.group).push({...e, amount_cents: parts[i], allocated: true}));
+      sharedNotes.push((EVENT_TYPES[e.type] || 'Gider') + ' sipariş düzeyinde geldi; ' + list.length + ' pakete tutar korunarak dağıtıldı' +
+        (evenSplit ? ' (satır tutarı bilinmediği için eşit bölündü; dağılım belirsiz).' : '.'));
+    }
+
+    for (const g of list) {
+      const events = packageEvents.get(g.group);
+      const missing = [], notes = [...sharedNotes], date = String(g.order_date || '').slice(0, 10);
+      let netSales = 0, cogs = 0;
+      for (const line of g.lines) {
+        const comps = line.components?.components || null;
+        if (!comps) { missing.push('Ürün/set eşleşmesi yok: ' + (line.barcode || line.sku || line.product_name || 'ürün')); netSales = null; cogs = null; continue; }
+        if (line.components.after_order) notes.push((line.barcode || line.sku) + ': set tanımı sipariş tarihinden sonra; eski içerik doğrulanmalı.');
+        line.vat_bps = await vatOf(db, comps.map(c => c.product_id));
+        if (line.gross === undefined) { missing.push('Satış tutarı yok (sipariş ' + line.order_no + ')'); netSales = null; }
+        else if (line.vat_bps === null) { missing.push('KDV oranı tanımlı değil: ' + (line.barcode || line.sku)); netSales = null; }
+        else if (netSales !== null) netSales += exVat(line.gross, line.vat_bps);
+        for (const c of comps) {
+          const cost = await unitCostAt(db, c.product_id, date);
+          if (!cost) { missing.push('Maliyet yok: ' + c.product_id + ' (' + date + ' öncesi giriş bulunamadı)'); cogs = null; continue; }
+          // İki adet ikili set = her üründen 2 × set içindeki miktar.
+          if (cogs !== null) cogs += Math.round(cost.cents_per_unit * c.quantity_milli * (line.quantity || 0) / 1000);
+        }
       }
-    }
-    const sum = type => events.filter(e => e.type === type).reduce((s, e) => s + e.amount_cents, 0);
-    const has = type => events.some(e => e.type === type);
-    const refunds = sum('refund');
-    const vatForRefund = g.lines.length && g.lines.every(l => l.vat_bps === g.lines[0].vat_bps) ? g.lines[0].vat_bps : null;
-    if (refunds && netSales !== null) { if (vatForRefund === null) { missing.push('İadenin KDV oranı belirlenemedi'); netSales = null; } else netSales += exVat(refunds, vatForRefund); }
-    if (refunds) notes.push('İade var: ürün fiziken dönmeden stok ve maliyet geri alınmaz.');
+      const sum = type => events.filter(e => e.type === type).reduce((s, e) => s + e.amount_cents, 0);
+      const has = type => events.some(e => e.type === type);
+      const refunds = sum('refund');
+      const vatForRefund = g.lines.length && g.lines.every(l => l.vat_bps === g.lines[0].vat_bps) ? g.lines[0].vat_bps : null;
+      if (refunds && netSales !== null) { if (vatForRefund === null) { missing.push('İadenin KDV oranı belirlenemedi'); netSales = null; } else netSales += exVat(refunds, vatForRefund); }
+      if (refunds) notes.push('İade var: ürün fiziken dönmeden stok ve maliyet geri alınmaz.');
 
-    const profile = await db.prepare("SELECT options_json FROM ec_report_profiles WHERE provider=? AND kind='finance' AND active=1 ORDER BY created_at DESC LIMIT 1").bind(store.provider).first();
-    const opts = parse(profile?.options_json, {});
-    const feeVat = opts.fee_amounts_include_vat === true && Number.isInteger(opts.fee_vat_bps) ? opts.fee_vat_bps : opts.fee_amounts_include_vat === false ? 0 : null;
-    let fees = 0;
-    const feeRows = [];
-    for (const t of FEE_TYPES) {
-      if (has(t)) { const v = sum(t); feeRows.push({type: t, label: EVENT_TYPES[t], actual_cents: v, evidence: events.filter(e => e.type === t && e.invoice_line_id).length}); fees += feeVat ? exVat(v, feeVat) : v; }
-    }
-    // Sipariş raporundaki paket kargosu: finans kaydı yoksa ve paketteki bütün satırlarda aynıysa BİR kez.
-    if (!has('cargo')) {
-      const cargoValues = [...new Set(g.lines.map(l => l.cargo_package).filter(v => v !== undefined))];
-      if (cargoValues.length === 1) { const v = -Math.abs(cargoValues[0]); feeRows.push({type: 'cargo', label: 'Kargo (sipariş raporu, paket başına)', actual_cents: v, evidence: 0}); fees += feeVat ? exVat(v, feeVat) : v; }
-      else if (cargoValues.length > 1) missing.push('Paketin satırlarında farklı kargo ücretleri var; tek kargo kabul edilmedi.');
-    }
-    if (feeVat === null && feeRows.length) notes.push('Kesinti tutarlarının KDV durumu profilde belirtilmedi; katkı yaklaşık.');
+      let fees = 0, vatUnknown = false;
+      const feeRows = [];
+      for (const t of FEE_TYPES) {
+        if (!has(t)) continue;
+        const rows = events.filter(e => e.type === t);
+        const raw = rows.reduce((s, e) => s + e.amount_cents, 0);
+        for (const e of rows) { const v = feeVatOf(e); if (v === null) vatUnknown = true; fees += v ? exVat(e.amount_cents, v) : e.amount_cents; }
+        feeRows.push({type: t, label: EVENT_TYPES[t], actual_cents: raw, evidence: rows.filter(e => e.invoice_line_id).length, allocated: rows.some(e => e.allocated)});
+      }
+      // Sipariş raporundaki paket kargosu: finans kaydı yoksa ve paketteki bütün satırlarda aynıysa BİR kez.
+      if (!has('cargo')) {
+        const cargoValues = [...new Set(g.lines.map(l => l.cargo_package).filter(v => v !== undefined))];
+        if (cargoValues.length === 1) { const v = -Math.abs(cargoValues[0]); feeRows.push({type: 'cargo', label: 'Kargo (sipariş raporu, paket başına)', actual_cents: v, evidence: 0}); fees += v; vatUnknown = true; }
+        else if (cargoValues.length > 1) missing.push('Paketin satırlarında farklı kargo ücretleri var; tek kargo kabul edilmedi.');
+      }
+      if (vatUnknown && feeRows.length) notes.push('Kesinti tutarlarının KDV durumu profilde belirtilmedi; katkı yaklaşık.');
 
-    // Tahmin: yalnızca gerçekleşmiş kaydı OLMAYAN gider türleri için. Gerçek gelince tahmin kaybolur.
-    const estimates = [];
-    for (const t of ['commission', 'cargo']) {
-      if (feeRows.some(r => r.type === t)) continue;
-      let est = null;
-      for (const line of g.lines) est = est || await tariffEstimate(db, store.provider, t, line, date);
-      if (!est) est = await observed(db, store.id, t, g.lines[0]?.barcode, date);
-      estimates.push(est ? {type: t, label: EVENT_TYPES[t], ...est} : {type: t, label: EVENT_TYPES[t], value: null, basis: 'Tahmin için yeterli veri yok (sıfır sayılmadı).'});
+      // Tahmin: yalnızca gerçekleşmiş kaydı OLMAYAN gider türleri için. Gerçek gelince tahmin kaybolur.
+      const signature = packageSignature(g.lines), estimates = [];
+      if (!feeRows.some(r => r.type === 'commission')) {
+        let total = 0, unknownLines = 0;
+        const basis = new Set();
+        for (const line of g.lines) {
+          const est = await tariffEstimate(db, store.provider, 'commission', line, date);
+          if (est) { total += est.value; basis.add(est.basis); } else unknownLines++;
+        }
+        if (!unknownLines && basis.size) estimates.push({type: 'commission', label: EVENT_TYPES.commission, value: total, low: total, high: total, samples: 0, basis: [...basis].join(' · ') + ' — paketteki ' + g.lines.length + ' satırın toplamı'});
+        else {
+          const obs = await observedFor(db, store.id, 'commission', signature, date, g.group);
+          estimates.push(obs ? {type: 'commission', label: EVENT_TYPES.commission, ...obs}
+            : {type: 'commission', label: EVENT_TYPES.commission, value: null, partial_cents: unknownLines && total ? total : null,
+              basis: unknownLines ? unknownLines + ' satırın tarifesi yok; kısmi hesap tam tahmin sayılmaz.' : 'Tahmin için yeterli veri yok (sıfır sayılmadı).'});
+        }
+      }
+      if (!feeRows.some(r => r.type === 'cargo')) {
+        const obs = await observedFor(db, store.id, 'cargo', signature, date, g.group);
+        estimates.push(obs ? {type: 'cargo', label: EVENT_TYPES.cargo, ...obs}
+          : {type: 'cargo', label: EVENT_TYPES.cargo, value: null, basis: 'Kargo tarifesi (desi) bağlanmadı; aynı içerikli paketten yeterli kayıt da yok.'});
+      }
+      const payouts = events.filter(e => e.source_field === 'net_payout' || e.type === 'payout');
+      const reported = events.some(e => e.net_payout !== undefined) ? [...new Map(events.filter(e => e.net_payout !== undefined).map(e => [e.event_id || e.id, e.net_payout])).values()].reduce((s, v) => s + v, 0)
+        : payouts.length ? payouts.reduce((s, e) => s + e.amount_cents, 0) : null;
+      const computed = events.filter(e => e.type && e.type !== 'payout').reduce((s, e) => s + e.amount_cents, 0);
+      const contribution = netSales !== null && cogs !== null ? netSales - cogs + fees : null;
+      const complete = estimates.every(e => e.value !== null);
+      const estimatedFees = estimates.reduce((s, e) => s + (e.value || 0), 0);
+      results.push({
+        ...g, lines: g.lines.map(l => ({order_no: l.order_no, barcode: l.barcode, sku: l.sku, product_name: l.product_name, quantity: l.quantity, gross_cents: l.gross ?? null,
+          components: l.components?.components || null})),
+        reported_net_cents: reported, computed_net_cents: events.length ? computed : null,
+        bank_verified_cents: null, bank_note: 'Banka hareketleriyle eşleştirme henüz bağlanmadı.',
+        withholding_cents: has('withholding') ? sum('withholding') : null,
+        net_sales_ex_vat_cents: netSales, cogs_cents: cogs, fees: feeRows,
+        contribution_cents: contribution, contribution_missing: missing,
+        fee_events: events.filter(e => FEE_TYPES.includes(e.type)).map(e => ({id: e.id, type: e.type, label: EVENT_TYPES[e.type], amount_cents: e.amount_cents, invoice_line_id: e.invoice_line_id || null, allocated: !!e.allocated})),
+        estimates, estimated_result_cents: contribution !== null && complete && estimates.length ? contribution + estimatedFees : null,
+        notes
+      });
     }
-    const payouts = events.filter(e => e.source_field === 'net_payout' || e.type === 'payout');
-    const reported = events.some(e => e.net_payout !== undefined) ? [...new Map(events.filter(e => e.net_payout !== undefined).map(e => [e.event_id || e.id, e.net_payout])).values()].reduce((s, v) => s + v, 0)
-      : payouts.length ? payouts.reduce((s, e) => s + e.amount_cents, 0) : null;
-    const computed = events.filter(e => e.type && e.type !== 'payout').reduce((s, e) => s + e.amount_cents, 0);
-    const contribution = netSales !== null && cogs !== null ? netSales - cogs + fees : null;
-    const estimatedFees = estimates.reduce((s, e) => s + (e.value || 0), 0);
-    results.push({
-      ...g, lines: g.lines.map(l => ({order_no: l.order_no, barcode: l.barcode, sku: l.sku, product_name: l.product_name, quantity: l.quantity, gross_cents: l.gross ?? null,
-        components: l.components?.components || null})),
-      reported_net_cents: reported, computed_net_cents: events.length ? computed : null,
-      bank_verified_cents: null, bank_note: 'Banka hareketleriyle eşleştirme henüz bağlanmadı.',
-      withholding_cents: has('withholding') ? sum('withholding') : null,
-      net_sales_ex_vat_cents: netSales, cogs_cents: cogs, fees: feeRows,
-      contribution_cents: contribution, contribution_missing: missing,
-      fee_events: events.filter(e => FEE_TYPES.includes(e.type)).map(e => ({id: e.id, type: e.type, label: EVENT_TYPES[e.type], amount_cents: e.amount_cents, invoice_line_id: e.invoice_line_id || null})),
-      estimates, estimated_result_cents: contribution !== null && estimates.some(e => e.value !== null) ? contribution + (feeVat ? exVat(estimatedFees, feeVat) : estimatedFees) : null,
-      notes
-    });
   }
   return {store, results};
 }
@@ -347,7 +429,17 @@ export async function reportInboxApi(request, env, path, readBody) {
       if (size !== f.size_bytes || await sha256Hex(all) !== f.sha256) fail('Sunucuya ulaşan dosya, seçilen dosyayla aynı değil. Yeniden yükleyin.', 409);
       const n = (await db.prepare('SELECT COUNT(*) n FROM ec_report_rows WHERE file_id=?').bind(f.id).first()).n;
       if (n !== f.row_count) fail('Satırlar eksik (' + n + ' / ' + f.row_count + '); yüklemeyi sürdürün.', 409);
-      await db.prepare("UPDATE ec_report_files SET status='received' WHERE id=? AND status='receiving'").bind(f.id).run();
+      // Kimliksiz ikizler ve dosya içi tekrarlar burada bir kez bulunur; her aktarım partisinde
+      // bütün dosyanın yeniden okunması gerekmez.
+      const sealProfile = await loadProfile(db, f);
+      const sealNorm = normalizeRows(sealProfile, parse(f.headers_json, []), await fileRows(db, f.id, 0, Number.MAX_SAFE_INTEGER), {date1904: !!f.date1904});
+      const twins = [...new Set(sealNorm.records.filter(r => r.issues.some(i => i.code === 'ambiguous_twin')).map(r => r.kind + '|' + r.key))];
+      const firstRow = {};
+      for (const r of sealNorm.records) { const k = r.kind + '|' + r.key; if (firstRow[k] === undefined) firstRow[k] = r.row; }
+      const duplicates = {};
+      for (const r of sealNorm.records) { const k = r.kind + '|' + r.key; if (firstRow[k] !== r.row) duplicates[k] = firstRow[k]; }
+      await db.prepare("UPDATE ec_report_files SET status='received',twin_keys_json=? WHERE id=? AND status='receiving'")
+        .bind(JSON.stringify({twins, duplicates}), f.id).run();
       return {ok: true, status: 'received'};
     }
     if (action === 'preview' && method === 'GET') {
@@ -375,11 +467,20 @@ export async function reportInboxApi(request, env, path, readBody) {
       const lastRow = (await db.prepare('SELECT MAX(row_no) m FROM ec_report_rows WHERE file_id=?').bind(f.id).first()).m || 0;
       const chunkRows = (await db.prepare('SELECT row_no FROM ec_report_rows WHERE file_id=? AND row_no>? ORDER BY row_no LIMIT ?').bind(f.id, f.applied_row, APPLY_BATCH).all()).results;
       const toRow = chunkRows.length ? chunkRows.at(-1).row_no : lastRow;
-      // Belirsiz ikizler dosya genelinde görülmeli: tüm dosya normalize edilir, yalnız bu partinin satırları yazılır.
-      const all = normalizeRows(profile, parse(f.headers_json, []), await fileRows(db, f.id, 0, Number.MAX_SAFE_INTEGER), {date1904: !!f.date1904});
-      if (all.unknownTypes.length) fail('Tanımlanmamış işlem türleri var (' + all.unknownTypes.slice(0, 5).join(', ') + '). Önce eşleştirmede karşılığını seçin.', 409);
-      const classifiedAll = await classify(db, f, profile, all.records);
-      const part = classifiedAll.filter(r => r.row > f.applied_row && r.row <= toRow);
+      // Bu parti dışındaki satırlar okunmaz: iş yükü dosya boyutuyla değil parti boyutuyla artar.
+      // Dosya genelini ilgilendiren ikiz/tekrar bilgisi mühürleme sırasında hesaplanmıştır.
+      const seal = parse(f.twin_keys_json, {twins: [], duplicates: {}});
+      const twinKeys = new Set(seal.twins || []), duplicateKeys = seal.duplicates || {};
+      const batch = normalizeRows(profile, parse(f.headers_json, []), await fileRows(db, f.id, f.applied_row, toRow), {date1904: !!f.date1904});
+      if (batch.unknownTypes.length) fail('Tanımlanmamış işlem türleri var (' + batch.unknownTypes.slice(0, 5).join(', ') + '). Önce eşleştirmede karşılığını seçin.', 409);
+      for (const r of batch.records) {
+        const k = r.kind + '|' + r.key;
+        if (twinKeys.has(k) && !r.issues.some(i => i.code === 'ambiguous_twin'))
+          r.issues.push({code: 'ambiguous_twin', field: null, detail: 'Aynı bilgilere sahip başka satır var ve kimlikleri yok; ayrı işlemler olabilir.'});
+        if (duplicateKeys[k] !== undefined && duplicateKeys[k] !== r.row)
+          r.issues.push({code: 'duplicate_in_file', field: null, detail: 'Aynı kimlik dosyada ' + duplicateKeys[k] + '. satırda da var.'});
+      }
+      const part = await classify(db, f, profile, batch.records);
       const counts = parse(f.counts_json, {new: 0, updated: 0, same: 0, older: 0, review: 0});
       const stmts = [db.prepare('INSERT INTO ec_report_apply_steps(file_id,from_row,to_row) VALUES(?,?,?)').bind(f.id, f.applied_row, toRow)];
       for (const r of part) {
@@ -388,15 +489,21 @@ export async function reportInboxApi(request, env, path, readBody) {
         if (r.outcome === 'new') {
           const recId = id(), erp = r.kind === 'order_line' ? await erpMatch(db, f.provider, r.data) : {id: null};
           const comps = r.kind === 'order_line' ? await componentsFor(db, f.provider, r.data) : null;
-          stmts.push(db.prepare('INSERT INTO ec_report_records(id,store_id,kind,record_key,key_source,data_json,source_time,file_id,row_no,erp_package_id,components_json) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
-            .bind(recId, f.store_id, r.kind, r.key, r.keySource, JSON.stringify(r.data), f.snapshot_at, f.id, r.row, erp.id, comps ? JSON.stringify(comps) : null));
+          stmts.push(db.prepare('INSERT INTO ec_report_records(id,store_id,kind,record_key,key_source,data_json,source_time,data_time,file_id,row_no,erp_package_id,components_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
+            .bind(recId, f.store_id, r.kind, r.key, r.keySource, JSON.stringify(r.data), f.snapshot_at, f.snapshot_at, f.id, r.row, erp.id, comps ? JSON.stringify(comps) : null));
           stmts.push(db.prepare("INSERT INTO ec_report_record_versions(id,record_id,version,file_id,row_no,outcome,data_json,source_time) VALUES(?,?,1,?,?,'new',?,?)").bind(id(), recId, f.id, r.row, JSON.stringify(r.data), f.snapshot_at));
           if (erp.ambiguous) stmts.push(review(db, f, r, 'erp_ambiguous', 'ERP\'de bu siparişe uyan birden fazla paket var; bağlantı kurulmadı.'));
+          if (erp.storeAmbiguous) stmts.push(review(db, f, r, 'store_ambiguous', 'Bu pazaryerinde birden çok mağaza tanımlı; siparişin hangi mağazaya ait olduğu ERP kaydından anlaşılmadığı için bağlanmadı.'));
         } else if (r.outcome === 'updated') {
           const v = r.prior.version + 1;
-          stmts.push(db.prepare('UPDATE ec_report_records SET data_json=?,source_time=?,file_id=?,row_no=?,version=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND version=?')
-            .bind(JSON.stringify(r.merged), f.snapshot_at, f.id, r.row, v, r.prior.id, r.prior.version));
+          stmts.push(db.prepare('UPDATE ec_report_records SET data_json=?,source_time=?,data_time=?,file_id=?,row_no=?,version=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND version=?')
+            .bind(JSON.stringify(r.merged), f.snapshot_at, f.snapshot_at, f.id, r.row, v, r.prior.id, r.prior.version));
           stmts.push(db.prepare("INSERT INTO ec_report_record_versions(id,record_id,version,file_id,row_no,outcome,data_json,source_time) VALUES(?,?,?,?,?,'updated',?,?)").bind(id(), r.prior.id, v, f.id, r.row, JSON.stringify(r.merged), f.snapshot_at));
+        } else if (r.outcome === 'same' && r.advanceObservation) {
+          // İçerik değişmedi ama kayıt daha yeni bir raporda yeniden görüldü: güncellik sınırı ilerler,
+          // böylece sonradan yüklenen ESKİ rapor bu kaydı geri alamaz. Veri sürümü artmaz.
+          stmts.push(db.prepare('UPDATE ec_report_records SET source_time=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND (source_time IS NULL OR source_time<?)')
+            .bind(f.snapshot_at, r.prior.id, f.snapshot_at));
         } else if (r.outcome === 'review') {
           stmts.push(review(db, f, r, r.reason, r.detail));
         }
@@ -436,6 +543,23 @@ export async function reportInboxApi(request, env, path, readBody) {
     }
     await db.batch(stmts);
     return {ok: true};
+  }
+
+  // Sonradan tanımlanan ürün/set eşleştirmesini eksik kayıtlara uygular. Var olan tarihî
+  // anlık görüntüler DEĞİŞMEZ; yalnızca eşleşmesi hiç olmayan kayıtlar doldurulur.
+  if (sub === '/backfill-components' && method === 'POST') {
+    const x = await readBody(request);
+    const store = await db.prepare('SELECT * FROM ec_report_stores WHERE id=?').bind(key(x.store_id)).first();
+    if (!store) fail('Mağaza bulunamadı.', 404);
+    const rows = (await db.prepare("SELECT id,data_json FROM ec_report_records WHERE store_id=? AND kind='order_line' AND components_json IS NULL LIMIT 500").bind(store.id).all()).results;
+    const stmts = [];
+    for (const r of rows) {
+      const comps = await componentsFor(db, store.provider, parse(r.data_json, {}));
+      if (comps) stmts.push(db.prepare('UPDATE ec_report_records SET components_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND components_json IS NULL').bind(JSON.stringify(comps), r.id));
+    }
+    if (stmts.length) await db.batch(stmts);
+    return {checked: rows.length, filled: stmts.length, remaining: rows.length - stmts.length,
+      notice: 'Yalnızca eşleşmesi olmayan kayıtlar dolduruldu; daha önce kaydedilmiş set içerikleri değişmedi.'};
   }
 
   if (sub === '/orders' && method === 'GET') {
