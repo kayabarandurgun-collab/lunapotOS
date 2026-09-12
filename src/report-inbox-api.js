@@ -169,8 +169,17 @@ export async function orderResults(db, storeId, {limit = 100, offset = 0} = {}) 
   if (!orderNos.length) return {store, results: []};
   const lines = (await db.prepare("SELECT * FROM ec_report_records WHERE store_id=? AND kind='order_line' AND json_extract(data_json,'$.order_no') IN (SELECT value FROM json_each(?)) ORDER BY record_key")
     .bind(store.id, JSON.stringify(orderNos)).all()).results;
-  const allEvents = (await db.prepare("SELECT r.*,e.invoice_line_id,f.profile_id FROM ec_report_records r LEFT JOIN ec_report_fee_evidence e ON e.record_id=r.id JOIN ec_report_files f ON f.id=r.file_id WHERE r.store_id=? AND r.kind='finance_event' AND json_extract(r.data_json,'$.order_no') IN (SELECT value FROM json_each(?))")
-    .bind(store.id, JSON.stringify(orderNos)).all()).results.map(r => ({...parse(r.data_json, {}), id: r.id, invoice_line_id: r.invoice_line_id, profile_id: r.profile_id}));
+  // Paket kimliği hangi siparişe ait? Finans satırında sipariş no boş olsa da olay bu yolla bulunur.
+  // Eşleme YALNIZCA bu mağazanın kayıtlarından kurulur; paketler mağazalar arasında karışmaz.
+  const packageOwner = new Map();
+  for (const l of lines) { const d = parse(l.data_json, {}); if (d.package_id !== undefined && d.package_id !== null && d.package_id !== '') packageOwner.set(String(d.package_id), d.order_no || ''); }
+  const packageIds = [...packageOwner.keys()];
+  const allEvents = (await db.prepare("SELECT r.*,e.invoice_line_id,f.profile_id FROM ec_report_records r LEFT JOIN ec_report_fee_evidence e ON e.record_id=r.id JOIN ec_report_files f ON f.id=r.file_id WHERE r.store_id=? AND r.kind='finance_event' AND (json_extract(r.data_json,'$.order_no') IN (SELECT value FROM json_each(?)) OR json_extract(r.data_json,'$.package_id') IN (SELECT value FROM json_each(?)))")
+    .bind(store.id, JSON.stringify(orderNos), JSON.stringify(packageIds)).all()).results
+    .map(r => ({...parse(r.data_json, {}), id: r.id, invoice_line_id: r.invoice_line_id, profile_id: r.profile_id, row_no: r.row_no, file_id: r.file_id}));
+  // Tek kaynak satırından üretilen birden çok olay (geniş kolonlu rapor) bildirilen neti çoğaltmamalı:
+  // net, olay kimliği yoksa kaynak satırın kimliğiyle tekilleştirilir.
+  const sourceKey = e => e.event_id || (e.file_id || '') + ':' + (e.row_no ?? '');
 
   // Gider KDV bilgisi olayın KENDİ dosyasının profil sürümünden gelir; sonradan açılan başka profil
   // geçmiş hesabı değiştirmez.
@@ -197,9 +206,21 @@ export async function orderResults(db, storeId, {limit = 100, offset = 0} = {}) 
     const list = [...packages.values()];
     const packageEvents = new Map(list.map(p => [p.group, []]));
     const shared = [];
-    for (const e of allEvents.filter(e => (e.order_no || '') === order)) {
-      const direct = e.package_id && packageEvents.has(e.package_id);
-      if (direct) packageEvents.get(e.package_id).push(e); else shared.push(e);
+    const conflictNotes = [];
+    for (const e of allEvents) {
+      const pkg = e.package_id === undefined || e.package_id === null || e.package_id === '' ? null : String(e.package_id);
+      const stated = e.order_no || '', owner = pkg !== null && packageOwner.has(pkg) ? packageOwner.get(pkg) : null;
+      // Finans satırındaki sipariş no ile paketin gerçek siparişi çelişiyorsa: sipariş geneline
+      // DAĞITILMAZ, incelemeye ayrılır. Yanlış siparişe gider yazmaktansa eksik bırakılır.
+      if (stated && owner !== null && stated !== owner) {
+        if (stated === order || owner === order)
+          conflictNotes.push('Çelişkili kesinti: ' + (EVENT_TYPES[e.type] || 'gider') + ' satırı ' + stated + ' siparişini gösteriyor ama ' +
+            pkg + ' paketi ' + (owner || '(siparişsiz)') + ' siparişine ait. Dağıtılmadı; incelenmeli.');
+        continue;
+      }
+      if (!(stated ? stated === order : owner === order)) continue;
+      const direct = pkg !== null && packageEvents.has(pkg);
+      if (direct) packageEvents.get(pkg).push(e); else shared.push(e);
     }
     // Paket numarası olmayan SİPARİŞ düzeyindeki gider bir kez sayılır: tek pakette olduğu gibi,
     // bölünmüş siparişte toplamı koruyarak paketlere dağıtılır.
@@ -209,15 +230,19 @@ export async function orderResults(db, storeId, {limit = 100, offset = 0} = {}) 
     const sharedNotes = [];
     for (const e of shared) {
       if (list.length === 1) { packageEvents.get(list[0].group).push(e); continue; }
-      const parts = allocateCents(e.amount_cents, evenSplit ? list.map(() => 1) : weights);
-      list.forEach((p, i) => packageEvents.get(p.group).push({...e, amount_cents: parts[i], allocated: true}));
+      const shares = evenSplit ? list.map(() => 1) : weights;
+      const parts = allocateCents(e.amount_cents, shares);
+      // Bildirilen net hakediş kaynak kapsamına aittir; kopyalanırsa sipariş toplamı çoğalır.
+      const netParts = Number.isSafeInteger(e.net_payout) ? allocateCents(e.net_payout, shares) : null;
+      list.forEach((p, i) => packageEvents.get(p.group).push({...e, amount_cents: parts[i], ...(netParts ? {net_payout: netParts[i]} : {}), allocated: true}));
       sharedNotes.push((EVENT_TYPES[e.type] || 'Gider') + ' sipariş düzeyinde geldi; ' + list.length + ' pakete tutar korunarak dağıtıldı' +
+        (netParts ? ' (bildirilen net hakediş de aynı oranda bölündü; sipariş toplamı değişmedi)' : '') +
         (evenSplit ? ' (satır tutarı bilinmediği için eşit bölündü; dağılım belirsiz).' : '.'));
     }
 
     for (const g of list) {
       const events = packageEvents.get(g.group);
-      const missing = [], notes = [...sharedNotes], date = String(g.order_date || '').slice(0, 10);
+      const missing = [...conflictNotes], notes = [...sharedNotes, ...conflictNotes], date = String(g.order_date || '').slice(0, 10);
       let netSales = 0, cogs = 0;
       for (const line of g.lines) {
         const comps = line.components?.components || null;
@@ -281,10 +306,10 @@ export async function orderResults(db, storeId, {limit = 100, offset = 0} = {}) 
           : {type: 'cargo', label: EVENT_TYPES.cargo, value: null, basis: 'Kargo tarifesi (desi) bağlanmadı; aynı içerikli paketten yeterli kayıt da yok.'});
       }
       const payouts = events.filter(e => e.source_field === 'net_payout' || e.type === 'payout');
-      const reported = events.some(e => e.net_payout !== undefined) ? [...new Map(events.filter(e => e.net_payout !== undefined).map(e => [e.event_id || e.id, e.net_payout])).values()].reduce((s, v) => s + v, 0)
+      const reported = events.some(e => e.net_payout !== undefined) ? [...new Map(events.filter(e => e.net_payout !== undefined).map(e => [sourceKey(e), e.net_payout])).values()].reduce((s, v) => s + v, 0)
         : payouts.length ? payouts.reduce((s, e) => s + e.amount_cents, 0) : null;
       const computed = events.filter(e => e.type && e.type !== 'payout').reduce((s, e) => s + e.amount_cents, 0);
-      const contribution = netSales !== null && cogs !== null ? netSales - cogs + fees : null;
+      const contribution = conflictNotes.length || netSales === null || cogs === null ? null : netSales - cogs + fees;
       const complete = estimates.every(e => e.value !== null);
       const estimatedFees = estimates.reduce((s, e) => s + (e.value || 0), 0);
       results.push({
