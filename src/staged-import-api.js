@@ -93,13 +93,16 @@ export async function stagedImportApi(request, env, path, readBody) {
 
   if (sub === '/batches' && method === 'GET') {
     const batches = (await db.prepare('SELECT * FROM import_batches ORDER BY created_at DESC LIMIT 50').all()).results;
-    return {batches: batches.map(b => ({...b, counts: JSON.parse(b.counts_json || '{}')})),
+    const attempts = (await db.prepare('SELECT * FROM import_attempts ORDER BY batch_id,attempt_no').all()).results;
+    return {batches: batches.map(b => ({...b, counts: JSON.parse(b.counts_json || '{}'),
+      attempts: attempts.filter(a => a.batch_id === b.id).map(a => ({...a, counts: JSON.parse(a.counts_json || '{}')}))})),
       notice: 'Aktarım taslak oluşturur; cari borç ve stok ayrı adımlarda yazılır.'};
   }
   if (!['/preview', '/apply'].includes(sub) || method !== 'POST') return null;
 
   const x = parseBody(await readBody(request));
   const apply = sub === '/apply';
+  const startedAt = new Date().toISOString();
 
   // Daha önce uygulanmış kaynak kayıtlar ve belge kaydı: ikinci kez oluşturulmaz.
   const doneRows = (await db.prepare('SELECT source_key,content_hash FROM import_items WHERE kind=?').bind(x.kind).all()).results;
@@ -191,9 +194,8 @@ export async function stagedImportApi(request, env, path, readBody) {
   const batchId = openBatch?.id || id();
   const stmts = [];
   if (openBatch) {
-    const prior = JSON.parse(openBatch.counts_json || '{}'), merged = {...counts};
-    for (const k of Object.keys(prior)) merged[k] = (prior[k] || 0) + (counts[k] || 0);
-    stmts.push(db.prepare('UPDATE import_batches SET counts_json=? WHERE id=?').bind(JSON.stringify(merged), batchId));
+    // Güncel durum = son tam değerlendirme. Denemelerin işlem sayıları ayrı tabloda tutulur.
+    stmts.push(db.prepare('UPDATE import_batches SET counts_json=? WHERE id=?').bind(JSON.stringify(counts), batchId));
   } else {
     stmts.push(db.prepare('INSERT INTO import_batches(id,kind,source_name,sha256,item_count,counts_json,status,created_by) VALUES(?,?,?,?,?,?,?,?)')
       .bind(batchId, x.kind, x.source_name, x.sha256, x.items.length, JSON.stringify(counts), 'applied', user.id || 'owner'));
@@ -208,12 +210,15 @@ export async function stagedImportApi(request, env, path, readBody) {
       .bind(id(), batchId, x.kind, r.source_key, r.outcome, r.invoice_id ? 'purchase_invoice' : '', r.invoice_id || '',
         String(r.detail || '').slice(0, 500), r.content_hash || null));
   }
+  const attemptNo = ((await db.prepare('SELECT COUNT(*) n FROM import_attempts WHERE batch_id=?').bind(batchId).first())?.n || 0) + 1;
+  stmts.push(db.prepare('INSERT INTO import_attempts(id,batch_id,attempt_no,actor,started_at,finished_at,counts_json) VALUES(?,?,?,?,?,?,?)')
+    .bind(id(), batchId, attemptNo, user.id || 'owner', startedAt, new Date().toISOString(), JSON.stringify(counts)));
   try { await db.batch(stmts); }
   catch (e) {
     if (/UNIQUE/.test(e.message)) fail('Bu aktarım az önce işlendi. Listeyi yenileyip sonucu kontrol edin.', 409);
     throw e;
   }
-  return {mode: 'applied', batch_id: batchId, kind: x.kind, counts, results,
+  return {mode: 'applied', batch_id: batchId, attempt_no: attemptNo, kind: x.kind, counts, results,
     missing_suppliers: [...missingSuppliers],
     notice: 'Faturalar TASLAK olarak açıldı. Cari borç "Muhasebeleştir", depo girişi "Mal teslimi" ile oluşur. Eşleşmesi olmayan satırlar incelemede kalır.'};
 }

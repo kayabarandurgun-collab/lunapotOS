@@ -4,7 +4,68 @@ Bu dosya deponun **tek yetkili devam belgesidir**. Her iş, kodla **aynı commit
 Depo dışındaki eski başlangıç notları (`Desktop/site/CLAUDE-*.md`) tarihseldir; çelişki olursa **bu dosya geçerlidir**.
 Sohbet geçmişine güvenilmez.
 
-Son güncelleme: 12 Eylül 2026 (Codex odaklı inceleme düzeltmeleri)
+Son güncelleme: 13 Eylül 2026 (ikinci inceleme düzeltmeleri)
+
+## 13 Eylül 2026 — Codex ikinci incelemesi: dört bulgu + sayaç kusuru (EN YENİ KAYIT)
+
+Bu bölüm daha eski bölümlerin üstündedir. Çelişki olursa **bu bölüm geçerlidir**.
+
+### Düzeltilen dört bulgu (remaining.test.mjs: önce 0/4, şimdi **4/4**)
+1. **Önizleme açılmadan rezervasyon engellenmiyordu.** Kaynak güncelliği denetimi artık
+   `plan()` içinde değil, **stok eyleminin kendisinde**: `src/report-link-guard.js`
+   rezervasyon ve gönderimden önce zorunlu çalışıyor. Koruma isteğe bağlı ekran ziyaretine bağlı değil.
+2. **Rezerve edilip sonra iptal gelen paket sevk edilebiliyordu.** Artık ship de aynı denetimden
+   geçiyor: 409, stok 20000'de kalıyor, satış kaydı oluşmuyor.
+3. **Ürün kimliği değişimi fark edilmiyordu.** Parmak izi sürümlendi (`v2:`) ve kapsamına
+   **barkod + satıcı stok kodu** eklendi. Aynı adet/tutar artık aynı ürün sayılmıyor.
+4. **Önizleme veri yazıyordu.** `plan()` içindeki UPDATE kaldırıldı; önizleme **salt okunur**
+   (test: total_changes farkı 0). Engel yazmaya değil, stok eylemindeki denetime bağlı.
+
+**Atomiklik:** rezervasyon ve gönderim UPDATE'leri okunan `report_link_hash` değerine koşullu
+(`WHERE id=? AND report_link_hash IS ?` + RETURNING). Satır güncellenmezse işlem 409 ile durur.
+
+### Kendi kusurum: parti sayaçları birikiyordu
+`counts_json` her denemede TOPLANIYORDU; yeniden denemede eski "inceleme" sayısı birikip dosyanın
+satır sayısını aşabiliyordu. Artık:
+- `import_batches.counts_json` = **dosyanın güncel satır durumu** (son tam değerlendirme),
+- `ec_import_attempts` = **append-only deneme geçmişi** (actor, başlangıç, bitiş, sonuç; silinemez/değiştirilemez).
+
+### Eski NULL içerik özetleri
+Rapor bağlantısında özet **yoksa** artık "aynı" sayılmıyor; `changed` olarak incelemeye alınıyor.
+
+### Migrationlar
+- `0039_order_report_link.sql` — `ec_order_packages.report_link_hash` (+kısmi indeks). Salt ekleme.
+- `0040_import_attempts.sql` — `ec/lp_import_attempts` append-only deneme tablosu.
+- `tests/orders.test.js` sabit migration listesine 0039 eklendi (o dosya 0001–0012'yi elle yüklüyor).
+
+### Testler
+Codex `remaining.test.mjs` **4/4** · Codex `review.test.mjs` **7/7** · tam panel **398/398**
+(5 yeni: 4 köprü entegrasyon + 1 deneme geçmişi) · `npm run build` başarılı. Beklentiler gevşetilmedi.
+Yeni `tests/report-link-guard.test.js` **gerçek dosya yükleme yolundan** (xlsx → dosya → parça →
+satır → mühür → uygula) geçiyor ve önizlemeyi hiç açmıyor.
+
+### Canlı durum
+- Migration **0039 + 0040 uygulandı ve doğrulandı**; mevcut veri etkilenmedi.
+- Dağıtım sürümü **4cbee44c-7c89-47ec-8f06-0b8b9bbed243**.
+- Kontrol: /eticaret 200 · /uretim 200 · /magaza **404** · oturumsuz API **401**.
+- Yedek: tam D1 dışa aktarımı (depo dışında, 185 KB) · geri dönüş noktası
+  `0000002e-00000000-000050e4-20dad41c94f48d88d2e4cc6cc2c37fde`.
+- **CANLI KAYIT SAYILARI DEĞİŞMEDİ: ürün 1, alış faturası 0, rapor 0, sipariş 0, stok hareketi 0.**
+  Gerçek veri aktarımı YAPILMADI.
+
+### Tedarikçi unvanları çözüldü (kullanıcıya tekrar sorulmayacak)
+Codex özgün PDF'lerden pypdf ile çıkardı; `supplier-names.json` + `supplier-evidence.json`
+(dosya yolu, SHA-256, sayfa). Benim okuyucumun textLayer=false sonucu dosyanın metinsiz olduğunu
+kanıtlamıyormuş — bu çıkarımım yanlıştı. Unvanlar Git'e konmadı; aktarım sırasında yük ile taşınır.
+
+### Sırada (bu turda YAPILMADI)
+- HB para hücresi (`-54.12 TL (%19.54)`) profil entegrasyonu: tutar, oran ve ham hücre ayrı.
+  Yardımcı kod hazır ve doğrulandı (3 test + 66 gerçek hücre), **panele bağlanmadı**.
+- Tarihsiz HB finansının `event_date=null` sipariş finans özeti olarak saklanması.
+- 265 TY/HB özeti, 73 HB detayı, 193 TY satış faturası aktarımı; PDF/sayfa bağlantısı; tek inceleme kuyruğu.
+- Gerçek kayıtların canlıya aktarımı: **kimlik doğrulamalı oturum gerekiyor**.
+
+---
 
 ## 12 Eylül 2026 — Codex'in dört bulgusu düzeltildi + stok başlangıç tarihi (EN YENİ KAYIT)
 

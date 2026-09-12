@@ -15,6 +15,7 @@
 //  · Gerçek paket/kalem kimliği yoksa aktarılmaz.
 //  · Aynı paket ikinci kez aktarılamaz: hem sipariş kimliği hem aktarım kaydı tekildir.
 import {ordersApi} from './orders-api.js';
+import {reportLinkFingerprint} from './report-link-guard.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), {status}); };
 const id = () => crypto.randomUUID();
@@ -28,13 +29,9 @@ async function digest(parts) {
   return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-/**
- * Paketin O ANKİ içerik parmak izi: kalem kimliği, adet, tutar ve durum.
- * Bağlantı kurulduğunda saklanır; sonraki okumalarda rapor değişmiş mi diye karşılaştırılır.
- */
-const packageFingerprint = records => digest(records
-  .map(r => [String(r.data.line_id || ''), Number(r.data.quantity) || 0, r.data.gross ?? null, String(r.data.status || '')])
-  .sort((a, b) => a[0].localeCompare(b[0])));
+// Parmak izi ortak modülden gelir: sürümlü ve ÜRÜN KİMLİĞİNİ de kapsar.
+// Aynı adet ve tutar, aynı ürün demek değildir.
+const packageFingerprint = records => reportLinkFingerprint(records);
 
 /** Paketi okur ve aktarıma uygun olup olmadığını söyler. Yalnız eskimiş taslağı işaretler. */
 async function plan(env, storeId, packageId) {
@@ -60,13 +57,18 @@ async function plan(env, storeId, packageId) {
     const item = await db.prepare("SELECT content_hash FROM import_items WHERE kind='report_stock_link' AND source_key=?").bind(linkKey).first();
     const current = await packageFingerprint(records);
     const cancelledNow = records.some(r => CANCELLED.test(String(r.data.status || '').toLocaleLowerCase('tr-TR')));
-    const drifted = !!item?.content_hash && item.content_hash !== current;
-    if (drifted || cancelledNow) {
-      await db.prepare("UPDATE ec_order_packages SET source_changed=1 WHERE id=? AND status='draft'").bind(linked.erp_package_id).run();
+    // Eski kayıtlarda özet YOKSA bu "aynı" demek değildir: güvenli sayılmaz, incelemeye alınır.
+    const unknownHash = !item || !item.content_hash;
+    const drifted = !unknownHash && item.content_hash !== current;
+    if (drifted || cancelledNow || unknownHash) {
+      // Önizleme SALT OKUNUR: burada hiçbir şey yazılmaz. Rezervasyon ve gönderim,
+      // sipariş motorundaki zorunlu kaynak denetimiyle zaten engellenir.
       return {store, outcome: 'changed', package_id: linked.erp_package_id, stock_write: false,
         issues: [cancelledNow
           ? 'Rapor bu paketi iptal/iade olarak gösteriyor; bağlı taslakla stok çıkışı yapılamaz.'
-          : 'Rapor güncellendi (adet veya içerik değişti); bağlı taslağın içeriği eski.'],
+          : unknownHash
+            ? 'Bu bağlantının içerik özeti kayıtlı değil; güncelliği doğrulanamıyor. İnceleyin.'
+            : 'Rapor güncellendi (adet, ürün kimliği veya durum değişti); bağlı taslağın içeriği eski.'],
         reason: 'Bağlı sipariş taslağı güncel raporla uyuşmuyor. Stok ayırma ve gönderim engellendi; taslağı inceleyip düzeltin.'};
     }
     return {store, outcome: 'existing', package_id: linked.erp_package_id, stock_write: false,
@@ -169,6 +171,8 @@ export async function reportStockLinkApi(request, env, path, readBody) {
       db.prepare('INSERT OR IGNORE INTO import_items(id,batch_id,kind,source_key,outcome,target_kind,target_id,detail,content_hash) VALUES(?,?,?,?,?,?,?,?,?)')
         .bind(id(), batchId, 'report_stock_link', sourceKey, created.existing ? 'skipped' : 'created', 'order_package', created.id,
           'Sipariş taslağı açıldı; stok değişmedi.', result.fingerprint),
+      // Sipariş satırına da yazılır: rezervasyon/gönderim denetimi bunu okur ve yazmayı buna koşullar.
+      db.prepare('UPDATE order_packages SET report_link_hash=? WHERE id=? AND report_link_hash IS NULL').bind(result.fingerprint, created.id),
       // Rapor kayıtları artık bu siparişe bağlı: sürüm ve veri değişmez, yalnız bağlantı kurulur.
       ...result.source.record_ids.map(recordId =>
         db.prepare('UPDATE ec_report_records SET erp_package_id=? WHERE id=? AND erp_package_id IS NULL').bind(created.id, recordId))

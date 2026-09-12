@@ -1,6 +1,7 @@
 import {cents,milli} from '../public/accounting-math.js';
 import {resolveMapping} from './catalog-api.js';
 import {ordersQuery} from './orders-query.js';
+import {assertReportLinkFresh} from './report-link-guard.js';
 const fail=(m,s=400)=>{throw Object.assign(new Error(m),{status:s});};
 const id=()=>crypto.randomUUID();
 const text=(v,label,max=200)=>{if(typeof v!=='string'||!v.trim()||v.length>max)fail(label+' alanını kontrol edin.');return v.trim();};
@@ -111,6 +112,8 @@ export async function ordersApi(request,env,path,readBody){
   await execute(db,items);return {id:key,status:'draft',refreshed:true,source_record_id:source.id};
  }
  if(['reserve','ship'].includes(action)&&components.some(c=>c.stock_unit!==c.current_stock_unit))fail('Stok birimi eşleştirmeden sonra değişmiş. Bileşen dönüşümünü yeniden doğrulayın.',409);
+ // Rapora bagli siparis: kaynak guncelligi fiziksel stok hareketinden once ZORUNLU olarak denetlenir.
+ if(['reserve','ship'].includes(action))await assertReportLinkFresh(db,p,fail);
  if(action==='map'){
   if(p.status!=='draft')fail('Yalnızca taslak sipariş eşleştirilebilir.',409);
   if(!Array.isArray(x.lines)||!x.lines.length||x.lines.length>10)fail('Bir işlemde 1–10 satır eşleştirin.');
@@ -125,7 +128,9 @@ export async function ordersApi(request,env,path,readBody){
  }
  if(action==='reserve'){
   if(p.status==='reserved')return {id:key,status:p.status,existing:true};
-  await execute(db,[statement(db,"UPDATE order_packages SET status='reserved' WHERE id=?",[key])]);return {id:key,status:'reserved'};
+  const reserved=await execute(db,[statement(db,"UPDATE order_packages SET status='reserved' WHERE id=? AND report_link_hash IS ? RETURNING id",[key,p.report_link_hash??null])]);
+  if(!reserved[0].results.length)fail('Siparişin kaynak bağlantısı bu sırada değişti. Kaydı yeniden inceleyin.',409);
+  return {id:key,status:'reserved'};
  }
  if(action==='cancel'){
   if(p.status==='cancelled')return {id:key,status:p.status,existing:true};
@@ -141,11 +146,13 @@ export async function ordersApi(request,env,path,readBody){
   const date=day(x.occurred_on),reference=text(x.reference,'Gönderi referansı');
   if(['shipped','delivered'].includes(p.status)){if(p.shipment_reference!==reference)fail('Bu paket farklı referansla zaten gönderilmiş.',409);return {id:key,status:p.status,existing:true};}
   if(p.status!=='reserved')fail('Önce sipariş için stok ayırın.',409);if(date<p.occurred_on)fail('Gönderim tarihi siparişten önce olamaz.');
-  const items=[statement(db,"UPDATE order_packages SET status='shipped',shipped_on=?,shipment_reference=? WHERE id=?",[date,reference,key])];
+  const items=[statement(db,"UPDATE order_packages SET status='shipped',shipped_on=?,shipment_reference=? WHERE id=? AND report_link_hash IS ? RETURNING id",[date,reference,key,p.report_link_hash??null])];
   if(components.length>20||lines.some(l=>components.filter(c=>c.line_id===l.id).reduce((sum,c)=>sum+c.revenue_share_bps,0)!==10000))fail('Sipariş bileşenleri eksik veya gelir payları geçersiz.',409);
   for(const l of lines){let share=0,allocated=0;for(const c of components.filter(c=>c.line_id===l.id)){share+=c.revenue_share_bps;const cumulative=Number((BigInt(l.net_revenue_cents)*BigInt(share)+5000n)/10000n),revenue=cumulative-allocated;allocated=cumulative;const sale=id();items.push(statement(db,"INSERT INTO sale_entries(id,channel,external_id,product_id,kind,quantity_milli,revenue_cents,cost_cents,commission_cents,shipping_cents,other_cents,fees_status,occurred_on,notes) SELECT ?,?,?,product_id,'sale',?,?,CAST(ROUND(value_cents*?/MAX(quantity_milli,1.0)) AS INTEGER),NULL,NULL,NULL,'pending',?,? FROM stock_balances WHERE product_id=?",[sale,p.channel,'order:'+key+':'+c.id,c.quantity_milli,revenue,c.quantity_milli,date,'Paket '+p.external_id+' / '+reference+' / '+l.name,c.product_id]));items.push(statement(db,'UPDATE order_line_components SET sale_id=? WHERE id=?',[sale,c.id]));}}
   items.push(statement(db,'UPDATE order_lines SET sale_id=(SELECT MIN(sale_id) FROM order_line_components c WHERE c.line_id=order_lines.id HAVING COUNT(*)=1) WHERE package_id=?',[key]));
-  await execute(db,items);return {id:key,status:'shipped'};
+  const shipped=await execute(db,items);
+  if(!shipped[0].results.length)fail('Siparişin kaynak bağlantısı bu sırada değişti. Kaydı yeniden inceleyin.',409);
+  return {id:key,status:'shipped'};
  }
  return null;
 }
