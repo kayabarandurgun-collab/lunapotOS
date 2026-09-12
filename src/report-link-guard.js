@@ -35,7 +35,12 @@ export async function reportLinkFingerprint(records) {
  *   {linked:true, current:'v2:...'}         → karşılaştırılacak güncel özet
  */
 export async function currentReportLink(db, pkg) {
-  if (!pkg || !pkg.report_link_hash) return {linked: false};
+  if (!pkg) return {linked: false};
+  // Bağlı DEĞİLSE hiç sorgu yapılmaz: koruma her stok eyleminde çalışır ve rapora bağlı olmayan
+  // siparişlere sorgu maliyeti bindirmemeli (D1 sorgu bütçesi).
+  if (!pkg.report_linked) return {linked: false};
+  // Bağlı ama özet yok (migration öncesi bağlantı): "aynı" sayılamaz, sorgu da gerekmez.
+  if (!pkg.report_link_hash) return {linked: true, unknown: true};
   const rows = (await db.prepare("SELECT data_json FROM ec_report_records WHERE erp_package_id=? AND kind='order_line'")
     .bind(pkg.id).all()).results;
   if (!rows.length) return {linked: true, missing: true};
@@ -51,6 +56,8 @@ export async function currentReportLink(db, pkg) {
 export async function assertReportLinkFresh(db, pkg, fail) {
   const state = await currentReportLink(db, pkg);
   if (!state.linked) return;
+  if (state.unknown)
+    fail('Bu sipariş bir pazaryeri raporuna bağlı ama bağlantının içerik özeti kayıtlı değil. Güncelliği doğrulanamadığı için stok hareketi yapılmadı; kaydı inceleyin.', 409);
   if (state.missing)
     fail('Bu siparişin bağlı olduğu pazaryeri raporu kayıtları bulunamıyor. Stok hareketi yapılmadan önce inceleyin.', 409);
   if (state.current !== pkg.report_link_hash)

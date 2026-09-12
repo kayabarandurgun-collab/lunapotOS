@@ -179,6 +179,23 @@ export async function stagedImportApi(request, env, path, readBody) {
   }
   counts.unknown_suppliers = missingSuppliers.size;
 
+  // Partinin GÜNCEL durumu, o denemede ne yapıldığından bağımsızdır. Bekleyen satır sayısı
+  // veritabanındaki gerçek faturalardan okunur. Önceden: aynı dosya yeniden yüklendiğinde bütün
+  // faturalar 'atlandı' dalına düşüyor, döngü hiç satır saymıyor ve çözülmemiş satırlar 0
+  // görünüyordu. Kullanıcı eşleştirme yapınca sayı gerçekten azalmalı; sabit tutmak da yanlıştır.
+  if (apply) {
+    const prior = await db.prepare('SELECT id FROM import_batches WHERE kind=? AND sha256=?').bind(x.kind, x.sha256).first();
+    const priorIds = prior
+      ? (await db.prepare("SELECT target_id FROM import_items WHERE batch_id=? AND target_kind='purchase_invoice' AND target_id!=''")
+          .bind(prior.id).all()).results.map(r => r.target_id)
+      : [];
+    const invoiceIds = [...new Set([...priorIds, ...results.map(r => r.invoice_id).filter(Boolean)])];
+    counts.pending_lines = invoiceIds.length
+      ? (await db.prepare('SELECT COUNT(*) n FROM purchase_lines WHERE product_id IS NULL AND invoice_id IN (SELECT value FROM json_each(?))')
+          .bind(JSON.stringify(invoiceIds)).first()).n
+      : 0;
+  }
+
   if (!apply) {
     return {mode: 'preview', kind: x.kind, source_name: x.source_name, counts, results: results.slice(0, MAX_ITEMS),
       missing_suppliers: [...missingSuppliers],
