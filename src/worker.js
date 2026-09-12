@@ -26,6 +26,8 @@ import {purchaseSearchApi} from './purchase-search-api.js';
 import {purchaseReturnApi} from './purchase-return-api.js';
 import {purchaseSplitApi} from './purchase-split-api.js';
 import {purchaseDocumentApi} from './purchase-document-api.js';
+import {stagedImportApi} from './staged-import-api.js';
+import {reportStockLinkApi} from './report-stock-link-api.js';
 import {attentionApi} from './attention-api.js';
 import {reportInboxApi} from './report-inbox-api.js';
 const fail = (message,status=400) => {throw Object.assign(new Error(message),{status});};
@@ -107,7 +109,7 @@ async function api(request,env,path){
  const workspace=path.match(/^\/api\/(ec|lp)(\/.*)?$/);
  if(workspace){
   const scoped={...env,DB:scopedDB(db,workspace[1]),ROOT_DB:db,WORKSPACE:workspace[1],USER:current.user},subpath=workspace[2]||'';
-  for(const handler of [purchaseDocumentApi,reportInboxApi,lotApi,barcodeApi,offersApi,partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(scrubAmounts(result,current.user,workspace[1]));}
+  for(const handler of [stagedImportApi,purchaseDocumentApi,reportStockLinkApi,reportInboxApi,lotApi,barcodeApi,offersApi,partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(scrubAmounts(result,current.user,workspace[1]));}
   return json(scrubAmounts(await accountingApi(request,scoped,'/api/accounting'+subpath,body),current.user,workspace[1]));
  }
  if(path==='/api/auth/logout'&&request.method==='POST') {
@@ -175,7 +177,7 @@ export default {async fetch(request,env) {
  if(response.status===200&&(response.headers.get('Content-Type')||'').startsWith('video/'))response=await videoRange(request,response);
  const headers=new Headers(response.headers);
  headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','no-referrer');headers.set('X-Frame-Options','DENY');
- headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
+ headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src blob:; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
  headers.set('Permissions-Policy','camera=(), microphone=(), geolocation=()');
  if(new URL(request.url).protocol==='https:')headers.set('Strict-Transport-Security','max-age=31536000');
  return new Response(response.body,{status:response.status,headers});

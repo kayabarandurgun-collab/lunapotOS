@@ -4,9 +4,89 @@ Bu dosya deponun **tek yetkili devam belgesidir**. Her iş, kodla **aynı commit
 Depo dışındaki eski başlangıç notları (`Desktop/site/CLAUDE-*.md`) tarihseldir; çelişki olursa **bu dosya geçerlidir**.
 Sohbet geçmişine güvenilmez.
 
-Son güncelleme: 12 Eylül 2026
+Son güncelleme: 12 Eylül 2026 (canlıya geçiş turu)
 
-## 12 Eylül 2026 — Codex katalog / arayüz devri (en yeni kayıt)
+## 12 Eylül 2026 — Canlıya geçiş: köprü, gerçek kayıt aktarımı, 0036+0037 (EN YENİ KAYIT)
+
+Bu bölüm daha eski bölümlerin üstündedir. Çelişki olursa **bu bölüm geçerlidir**.
+
+### Canlı durum
+- **Şema:** `0036_product_catalog_metadata.sql` ve `0037_staged_import.sql` **canlı veritabanına uygulandı ve doğrulandı**
+  (4 aktarım tablosu, `ec_products.brand`/`supplier_id`, `workspace_settings.inventory_start_date`, iki migration kaydı).
+  Mevcut kayıtlara dokunulmadı.
+- **Kod:** canlıya dağıtıldı. Sürüm kimliği `81c1f36b-1375-4ba7-9a07-da45f820c548`, hedef `muhasebe.lunapot.com`
+  (hesap `74daa05337ce197e42ab5747579dea8b`, worker `lunapot-panel`, DB `ae7a9444-838e-4d0f-b547-ce01c23f0328`).
+  Kabuk önbelleği `v37-aktarim`. Dağıtım sonrası: /eticaret 200, /uretim 200, /magaza 404, oturumsuz API 401.
+- **Yedek:** dağıtım öncesi **tam D1 dışa aktarımı** alındı ve depo DIŞINDA saklandı; geri dönüş noktası
+  `00000029-00000000-000050e4-9fb75df58b0353590dba178906ddff69`. Küçük JSON yedeği tam yedek değildir.
+- **GERÇEK KAYITLAR CANLIYA AKTARILMADI.** Aktarım kimlik doğrulamalı oturum gerektirir; panel şifresi bende yok.
+  Ekranlar hazır, yükleme kullanıcı tarafından yapılacak. Aşağıdaki sayılar **yerel provadandır**, canlı değildir.
+
+### Tamamlananlar
+- **P0 — Rapor → sipariş → stok köprüsü bağlandı.** `src/report-stock-link-api.js`:
+  `/api/ec/reports/stock-link/{candidates,preview,apply}`. Önizleme yazmaz. Aktarım stoğu KENDİ düşmez;
+  mevcut sipariş motoruna **taslak** açar, stok yalnız "Stok ayır" ve "Gönder" adımlarında bir kez düşer.
+  Korumalar: mağaza ayrımı, paketin tamamının açık onayı, gerçek paket/kalem kimliği zorunlu,
+  stok başlangıç tarihi girilmeden geçmiş sipariş uygulanmaz, iptal/iade yeni satışa çevrilmez,
+  aynı paket ikinci kez aktarılamaz. Rapor Kutusu → Sipariş sonuçlarına "Stoğa aktar…" eklendi.
+- **Gerçek kayıt aktarımı.** `src/staged-import-api.js` + `public/staged-import-ui.js`:
+  Alış faturaları → **"Hazır kayıt dosyası yükle"**. Kendi SQL'ini yazmaz, mevcut fatura ucundan geçer.
+  Önizleme hiçbir şey yazmaz; uygulama yalnız **taslak** açar (borç ve stok yazmaz).
+  Aynı dosya, aynı fatura ve örtüşen dosya ikinci kayıt yaratmaz (`import_items(kind,source_key)` tekil).
+  Tedarikçi adı verilmeyen kayıt **uydurulmaz**, incelemede kalır ve ad verilince **yeniden denenebilir**.
+- **Codex paketi** çalışma ağacında doğrulandı (ön kontrol: 12 dosya güncel, 0 çakışma): 0036, ürün kartı
+  marka/kategori/tedarikçi, liste kolaylıkları, katalog yükleme, set matematiği, PDF önizleme için `object-src blob:`.
+
+### Bu turda bulunan iki gerçek hata → düzeltildi
+1. **Türkçe büyük İ hatası:** `/iade/i` deseni `İade Edildi` durumunu **yakalamıyordu** (JS basit harf katlaması
+   U+0130'u i'ye eşlemez). Düzeltilmeseydi iade/iptal kaydı **yeni satışa dönüşebilirdi**.
+   Artık karşılaştırmadan önce `toLocaleLowerCase('tr-TR')` uygulanıyor.
+2. **İnceleme kaydı kilitleniyordu:** eksik bilgiyle "inceleme" sayılan kayıt tekil anahtarı tutuyordu ve bilgi
+   tamamlansa bile bir daha aktarılamıyordu. Artık yalnız sonuçlanmış kayıtlar anahtarı tutar.
+
+### Yerel prova (canlı değil, bellek içi test veritabanı)
+| Ölçüm | Sonuç |
+|---|---|
+| Katalog | 32 kart, 51 ilan bağlantısı, 3 çeşit ailesi, 8 bekleyen, **0 çakışma** |
+| Alış faturaları | **30 taslak / 71 satır / 98.521,20 TL** — kaynakla birebir |
+| Satır eşleşmesi | 47 eşleşti, **24 satır incelemede** (13 kimlik + 11 Tropikal çeşit dağılımı) |
+| Cari borç / stok | **0 / 0** — taslak aşaması hiçbir mali kayıt yazmaz |
+| İkinci çalıştırma | 0 yeni, 30 atlandı; fatura ve stok **çoğalmadı** |
+
+### Testler
+Tam panel paketi **391/391** (13 yeni) · Codex katalog devri **10/10** · veri denetimi **7/7** ·
+`npm run build` başarılı. Testler gevşetilmedi.
+
+### Yalnız kullanıcıdan gelebilecekler
+1. Üç tedarikçinin **gerçek ticari unvanı** (VKN 9340990552, 8590551517, 5160067031) — ad olmadan fatura açılmaz.
+2. **Stok başlangıç tarihi ve sayımı** — girilmeden geçmiş siparişler stoktan düşülmez.
+3. **Tropikal çeşit dağılımı** (225 ml 240, 500 ml 60, 1000 ml 110 şişe) — her faturada ayrı girilir, geçmiş oran kopyalanmaz.
+4. Belirsiz ürün kimlikleri: REC876 200/210 L, 70 L torf modeli, hacimsiz parlatıcı/yeşil besin, 5'li set hacimleri, SAB torfları.
+5. TY istisnaları: 4 teslim faturası eksik, 11556015519 kısmi, 11534399836'da 12 TL fark, 11595298222 faturası bekleniyor.
+
+### Kalanlar
+- Gerçek kayıtların **canlıya** aktarılması (kullanıcı oturumuyla, ekrandan).
+- 265 TY/HB mali özeti ile 193 TY satış faturası: özgün Excel/CSV **Rapor Kutusu**'ndan yüklenmeli
+  (denetim izi dosya + profil üzerinden kurulur). Bu tur alış faturası aktarımı tamamlandı.
+- Banka mutabakatı, kargo (desi) tahmini, EDM salt-okuma satış faturası, günlük tarayıcıdan rapor indirme: **yok**.
+- Mağaza sitesi istekleri ayrı projedir; panel dağıtımı onları yayımlamaz.
+
+---
+
+## 12 Eylül 2026 — Birleşik gerçek veri ve canlıya geçiş devri (en yeni kayıt)
+
+- Güncel devir: C:/Users/baran/Documents/Codex/2026-09-08/referenced-chatgpt-conversation-this-is-an/deliverables/CLAUDE-CANLIYA-GECIS-2026-09-12/README.md ve INTEGRASYON-VE-YAYIN.md. Önceki paketlerin sayıları bu kayda göre güncellenir.
+- Claude son HEAD 1aee500 yalnız devam belgesi/0035 durum düzeltmesi. Katalog/liste kodu çalışma ağacında; henüz commit/deploy edilmedi.
+- 30 alış faturası / 71 satır / 98.521,20 TL; 265 TY/HB finans özeti; HB 73 detay/66 sipariş; TY 193 fatura/183 sipariş/206 satır. TY 181 sipariş tutar ve adet uyumlu; 4 teslim edilmiş siparişte fatura yok, 1 kısmi fatura ve 12 TL fark bekliyor. Ayrıntılar özel veri klasöründe.
+- Kullanıcı teyitleri: HB 4611462604 ilk 5 şişe satılabilir geri geldi, 5 yeniden gönderildi; tek satış. HB 3'lü set 225 ml çiçek+yeşil+kaktüs. HB temizleyici 250 ml. TY 11590920604 8 tekil fatura/15 torba/14.220 TL; 3 dosya kopyası elendi, bir paket taşımada.
+- 0035 uygulanmış kaydı var; bu tur canlı yeniden sorgulanmadı. 0036 yerel hazır. preview_database_id sıfır, gerçek database_id ae7a9444-838e-4d0f-b547-ce01c23f0328; dry-run preview çıktısı gerçek DB sanılmamalı.
+- Bu tur güncel kod 378/378, katalog/set 10/10 test ve dry-run build başarılı. Canlı veri aktarımı, stok, ödeme, yayın veya push yapılmadı.
+- P0: rapor-stok taslak adaptörünü gerçek API/ekran/audit akışına bağla; özel verileri tekil ve tekrarlanabilir taslak ithalatıyla işle; açık eşleşmeleri uydurma. Açılış stok tarihi/sayımı bilinmiyor, Tropikal 11 satır çeşit dağılımı bekliyor.
+- Kullanıcı Claude'un bütünleştirip kontrollü canlıya almasını istiyor. Özel PDF/Excel/CSV/JSON ve devir ZIP'ini Git/public'e koyma. Sonuçta commit/deploy, gerçek/taslak sayıları ve kalan bilgi ihtiyaçları raporlansın.
+
+---
+
+## 12 Eylül 2026 — Önceki katalog / arayüz devri (tarihsel)
 
 Bu kayıt önceki bölümlerin üstüne eklenmiştir. Kullanıcı Claude'a uygulanabilir paket istedi; bu tur CANLI dağıtım, gerçek ürün/stoğa kayıt veya Git commit/push yapılmadı. Yerel kod düzenlendi ve test edildi.
 
@@ -124,21 +204,10 @@ Testler gevşetilmedi; beklentiler Codex'in yazdığı gibi bırakıldı.
 - Müşteri mağazası (`/magaza/*`) canlıda kapalı kalır.
 - Barkod işleri yalnızca üretim tarafındadır.
 
-## 6. Kalanlar / açık işler
+## 6. Güncel kalan işler
 
-1. **0035'i canlı veritabanına uygula** (yukarıdaki uyarı).
-2. **Gerçek belgeyle doğrulama:** Tropikal PDF örneği ile sütun/satır okuma, toplam ve KDV kontrolü.
-   PDF satır çıkarma sezgiseldir; gerçek belge görülmeden "çalışıyor" denemez.
-3. **Gerçek TY/HB Excel örneği:** sütun adları, işlem türü metinleri, işaret kuralı, kesintilerin KDV durumu,
-   sipariş düzeyindeki kesintinin paketlere gerçekte nasıl yansıdığı.
-4. **Taranmış belge (OCR):** panelde erişim yok. İstenirse ayrı bir karar ve erişim gerekir.
-5. **Büyük dosyanın gerçek Worker/D1 sınırlarında** parti parti işlenmesi ölçülmedi (bellek içi test bunu kanıtlamaz).
-6. **Banka eşleştirmesi** yok.
-7. **Kargo (desi) tarifesiyle tahmin** bağlanmadı.
-8. **Günlük tarayıcı indirme yardımcısı** yok.
-9. Ekranlar tarayıcıda elle denenmedi (yönetici girişi gerekiyor); sözdizimi ve uçlar testlerle doğrulandı.
+En üstteki birleşik devir ve INTEGRASYON-VE-YAYIN.md geçerlidir. Gerçek belgeler artık verildi ve yerelde çözümlendi; kullanıcıdan yeniden örnek isteme. 0035'i yeniden uygulama. Rapor-stok bağlantısı, gerçek taslak ithalatı, kullanıcı bilgisi bekleyen satırlar, büyük dosya sınırları ve canlı oturum testleri tamamlanmalı. Banka eşleştirmesi, kargo tahmini, günlük tarayıcı indirme ve EDM satış PDF ayrı açık işlerdir. Panelin kendi OCR özelliği halen yok; TY OCR'si yerelde yapıldı.
 
 ## 7. Sıradaki adım
 
-Kullanıcı bir **gerçek Tropikal alış faturası PDF'i** ve bir **gerçek Trendyol sipariş + finans Excel'i** versin.
-Önce 0035 canlıya uygulanır, sonra bu iki belgeyle sütun/satır okuma ve toplamlar birlikte doğrulanır.
+Birleşik devirdeki kod/veri ön kontrolünü çalıştır, eksik entegrasyonu tamamla, yedek ve hedef doğrulaması sonrası kullanıcının istediği kontrollü canlıya geçişi yap. Belirsiz stok ve maliyeti kesinleştirme. Günlük işlerin yapılabildiği ekranları aç ve yayın kanıtlarını kaydet.

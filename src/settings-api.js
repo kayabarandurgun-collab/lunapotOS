@@ -22,7 +22,7 @@ export async function settingsApi(request,env,path,readBody){
   // Rapor Kutusu, alış belgeleri ve ürün ailesi tabloları bu küçük JSON dışa aktarımına girmez:
   // e-ticaret alanı 40 tablo sınırındadır (D1 sorgu kotası). Ham belge parçaları zaten bu boyuttaki
   // bir JSON'a sığmaz. Hepsi tam D1 yedeğinde ve zaman yolculuğu geri sarmasında durur.
-  const names=all.filter(n=>n.startsWith(ns+'_')&&!/connections|cursors|records|_report_|purchase_document|product_famil|purchase_family/.test(n));
+  const names=all.filter(n=>n.startsWith(ns+'_')&&!/connections|cursors|records|_report_|purchase_document|product_famil|purchase_family|import_batches|import_items/.test(n));
   if(ns==='lp')names.push('products','materials','recipes','recipe_items');
   if(names.some(n=>!/^\w+$/.test(n)))fail('Yedek tablo adı doğrulanamadı.',500);
   if(!names.length||names.length>40)fail('Bu dışa aktarma en fazla 40 veri tablosunu destekler; D1 dışa aktarımını kullanın.',409);

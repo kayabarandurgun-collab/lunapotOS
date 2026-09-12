@@ -23,7 +23,7 @@ function b64(bytes) {
 export function mountReports(root, namespace = 'ec') {
   const controller = new AbortController(), signal = controller.signal;
   const state = {tab: 'upload', data: null, draft: null, busy: false, message: '', error: '', orders: null, reviews: null, storeFilter: '',
-    orderPage: 1, orderQuery: '', orderStatus: '', backfill: null};
+    orderPage: 1, orderQuery: '', orderStatus: '', backfill: null, stockLink: null, inventoryStart: undefined};
   const api = async (path = '', body) => {
     const r = await fetch('/api/' + namespace + '/reports' + path, {method: body === undefined ? 'GET' : 'POST', headers: {'Content-Type': 'application/json'}, ...(body === undefined ? {} : {body: JSON.stringify(body)}), signal});
     let x; try { x = await r.json(); } catch { throw new Error('Sunucudan yanıt alınamadı.'); }
@@ -165,7 +165,18 @@ export function mountReports(root, namespace = 'ec') {
       <div class="rb-actions"><button type="button" class="secondary" data-rb-act="page-prev" ${(o.page || 1) <= 1 ? 'disabled' : ''}>← Önceki</button>
       <button type="button" class="secondary" data-rb-act="page-next" ${(o.page || 1) >= pages ? 'disabled' : ''}>Sonraki →</button></div></div>` : '';
     const cell = r => r.contribution_cents !== null ? `<strong class="rb-num">${money(r.contribution_cents)}</strong>` : `<span class="rb-chip warn">Hesaplanamadı</span><small>${r.contribution_missing.slice(0, 3).map(esc).join('<br>')}</small>`;
-    return `<section class="v2-card"><h3>Sipariş sonuçları</h3>
+    const link = state.stockLink;
+    const linkPanel = link ? `<section class="v2-card rb-link"><h3>Stoğa aktarma · paket ${esc(link.package_id)}</h3>
+      ${link.outcome === 'draft' ? `<p class="rb-alert warn">Bu paket <b>taslak sipariş</b> olarak açılacak. Stok bu adımda DEĞİŞMEZ; yalnızca "Stok ayır" ve "Gönder" adımlarında bir kez düşer.</p>
+        <dl class="rb-kv"><div><dt>Sipariş</dt><dd>${esc(link.order.order_no)}</dd></div><div><dt>Tarih</dt><dd>${esc(link.order.occurred_on)}</dd></div>
+        <div><dt>Kalem</dt><dd>${num(link.order.lines.length)}</dd></div></dl>
+        <ul class="rb-list">${link.order.lines.map(l => `<li>${esc(l.name || l.sku)} × ${num(l.quantity)}${l.vat_rate === null ? ' <span class="rb-chip warn">KDV oranı yok</span>' : ''}</li>`).join('')}</ul>
+        <label class="rb-check"><input type="checkbox" data-rb="complete-package"> Bu paketin <b>bütün kalemleri</b> raporda var; eksik kalem yok.</label>`
+        : `<p class="rb-alert ${link.outcome === 'existing' ? 'ok' : 'warn'}">${esc(link.reason || '')}</p>
+           ${(link.issues || []).length ? '<ul class="rb-list">' + link.issues.map(i => '<li>' + esc(i) + '</li>').join('') + '</ul>' : ''}`}
+      <div class="rb-actions"><button type="button" class="secondary" data-rb-act="stock-link-close">Kapat</button>
+        ${link.outcome === 'draft' ? '<button type="button" class="primary" data-rb-act="stock-link-apply" data-package="' + esc(link.package_id) + '">Taslak siparişi oluştur</button>' : ''}</div></section>` : '';
+    return `<section class="v2-card"><h3>Sipariş sonuçları</h3>${linkPanel}
       <div class="rb-grid"><label>Mağaza<select data-rb="order-store">${storeOptions(state.storeFilter)}</select></label></div>
       ${state.storeFilter ? toolbar + cards : ''}
       <p class="rb-muted">Dört sayı ayrı tutulur: <b>pazaryerinin bildirdiği net</b>, <b>bankada doğrulanan tahsilat</b>, <b>bilinen doğrudan maliyetlerden sonraki katkı</b> (KDV hariç satış − ürün maliyeti − kesintiler; stopaj dahil edilmez) ve <b>tahmin</b>. Eksik maliyet sıfır sayılmaz.</p>
@@ -175,7 +186,9 @@ export function mountReports(root, namespace = 'ec') {
         <td class="rb-num">${money(r.reported_net_cents)}${r.computed_net_cents !== null && r.reported_net_cents !== null && r.computed_net_cents !== r.reported_net_cents ? `<small>Bileşenlerden: ${money(r.computed_net_cents)}</small>` : ''}${r.withholding_cents ? `<small>Stopaj: ${money(r.withholding_cents)} (ayrı takip)</small>` : ''}</td>
         <td><small>${esc(r.bank_note)}</small></td><td>${cell(r)}${r.notes.length ? `<small>${r.notes.map(esc).join('<br>')}</small>` : ''}</td>
         <td>${r.estimates.map(e => `<div>${esc(e.label)}: ${e.value !== null ? `<span class="rb-num">${money(e.value)}</span>${e.low !== e.high ? ` <small>(${money(e.low)} – ${money(e.high)})</small>` : ''}` : ''}<small>${esc(e.basis)}</small></div>`).join('')}${r.estimated_result_cents !== null ? `<small>Tahmini sonuç: ${money(r.estimated_result_cents)}</small>` : ''}</td>
-        <td>${r.fee_events.some(e => !e.invoice_line_id) ? `<button type="button" class="secondary" data-rb-act="evidence" data-order="${esc(r.group)}">Fatura bağla</button>` : r.fee_events.length ? '<small>Belgeler bağlı</small>' : ''}</td></tr>`).join('')}
+        <td>${r.fee_events.some(e => !e.invoice_line_id) ? `<button type="button" class="secondary" data-rb-act="evidence" data-order="${esc(r.group)}">Fatura bağla</button>` : r.fee_events.length ? '<small>Belgeler bağlı</small>' : ''}
+          ${r.package_id ? `<button type="button" class="secondary" data-rb-act="stock-link" data-package="${esc(r.package_id)}">Stoğa aktar…</button>` : ''}
+          ${r.erp_package_id ? '<small>Siparişe bağlı</small>' : ''}</td></tr>`).join('')}
       </tbody></table></div>` + pager : '<p class="rb-muted">Bu aramaya uyan sipariş yok.</p>') : '<p class="rb-muted">Mağaza seçin.</p>'}</section>`;
   }
 
@@ -287,6 +300,20 @@ export function mountReports(root, namespace = 'ec') {
     if (a === 'apply') run(() => apply(id));
     if (a === 'accept' || a === 'reject') run(async () => { await api('/reviews/' + id, {decision: a}); state.reviews = (await api('/reviews')).reviews; await load(); say(a === 'accept' ? 'Kabul edildi.' : 'Reddedildi; mevcut bilgi korundu.'); });
     if (a === 'evidence') run(() => evidenceDialog(act.dataset.order));
+    if (a === 'stock-link') run(async () => {
+      const result = await api('/stock-link/preview', {store_id: state.storeFilter, package_id: act.dataset.package});
+      state.stockLink = {...result, package_id: act.dataset.package};
+      if (result.outcome === 'blocked') say(result.reason, true);
+    });
+    if (a === 'stock-link-close') { state.stockLink = null; render(); }
+    if (a === 'stock-link-apply') run(async () => {
+      if (!root.querySelector('[data-rb="complete-package"]')?.checked)
+        throw new Error('Paketin bütün kalemlerinin raporda bulunduğunu onaylayın.');
+      const result = await api('/stock-link/apply', {store_id: state.storeFilter, package_id: act.dataset.package, complete_package_confirmed: true});
+      state.stockLink = null;
+      await loadOrders();
+      say(result.applied ? result.notice : (result.reason || 'Aktarılmadı.'), !result.applied);
+    });
     if (a === 'page-prev' || a === 'page-next') { state.orderPage = Math.max(1, state.orderPage + (a === 'page-next' ? 1 : -1)); run(loadOrders); }
     // Sonradan tanımlanan ürün/set eşleştirmesini eski kayıtlara uygular. Daha önce kaydedilmiş
     // tarihî set içerikleri DEĞİŞMEZ; yalnız eşleşmesi hiç olmayan kayıtlar doldurulur.
