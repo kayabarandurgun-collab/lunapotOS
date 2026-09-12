@@ -4,7 +4,63 @@ Bu dosya deponun **tek yetkili devam belgesidir**. Her iş, kodla **aynı commit
 Depo dışındaki eski başlangıç notları (`Desktop/site/CLAUDE-*.md`) tarihseldir; çelişki olursa **bu dosya geçerlidir**.
 Sohbet geçmişine güvenilmez.
 
-Son güncelleme: 13 Eylül 2026 (ikinci inceleme düzeltmeleri)
+Son güncelleme: 13 Eylül 2026 (GERÇEK VERİ CANLIYA AKTARILDI)
+
+## 13 Eylül 2026 — Katalog ve 30 alış faturası CANLIYA aktarıldı (EN YENİ KAYIT)
+
+Bu bölüm daha eski bölümlerin üstündedir. Çelişki olursa **bu bölüm geçerlidir**.
+
+### Aktarım: uygulandı (canlı, kullanıcının yetkili oturumuyla, ekranlardan)
+Kullanıcı panele girdi; aktarım gerçek ekranlardan yapıldı (Ürünler ve stok → "Katalog dosyası yükle",
+Alış faturaları → "Hazır kayıt dosyası yükle"). Her adımda önce ön kontrol çalıştırıldı.
+
+| Ölçüm | Önce | Sonra |
+|---|---:|---:|
+| Ürün kartı | 1 | **33** (32 yeni) |
+| İlan bağlantısı | 0 | **51** |
+| Çeşit ailesi (üye) | 0 | **3** (12 üye) |
+| Tedarikçi | 0 | **3** |
+| Alış faturası (hepsi taslak) | 0 | **30** |
+| Fatura satırı | 0 | **71** |
+| Fatura tutarı | 0 | **98.521,20 TL** |
+| Stok hareketi | 0 | **0** |
+| Cari borç kaydı | 0 | **0** |
+
+**Tutar mutabakatı kaynakla birebir:** 9.852.120 kuruş. Tedarikçi kırılımı:
+Karakuş 21 fatura / 40 satır / 47.611,20 TL · Tropikal 6 / 28 / 30.750,00 TL · Seçkin 3 / 3 / 20.160,00 TL.
+Satır eşleşmesi: **47 satır ürüne bağlandı, 24 satır incelemede.**
+
+**Stok ve borç bilerek 0:** taslak aşaması mali kayıt yazmaz. Borç "Muhasebeleştir", stok "Mal teslimi" ile oluşur.
+
+### Mükerrer kontrolü canlıda kanıtlandı
+Aynı dosya aynı özetle (`880a126a…`) ikinci kez uygulandı: **HTTP 200, deneme no 2, 0 yeni / 30 atlandı.**
+Fatura 30'da kaldı, tutar değişmedi, parti sayaçları **birikmedi** (created:30, review:0, pending_lines:24).
+
+### İnceleme kuyruğunda bekleyenler (uydurulmadı)
+- **11 satır Tropikal çeşit dağılımı** — 410 adet / 14.424 TL (225 ml, 500 ml, 1000 ml). Her faturada ayrı girilecek.
+- **13 satır ürün kimliği belirsiz** — 29 adet / 28.428 TL: Gartengold 80 L torf, Klasmann REC876 200 L (katalog 210 L),
+  SAB Substrate 0–10 / 0–40 / 0–20 mm torfları.
+- **Katalogda 8 ilan bekliyor:** hacmi yazmayan yaprak parlatıcı, 70 L torfun modeli (P/H), hacmi belirsiz yeşil
+  yaprak besini, 5'li set şişe hacimleri, farklı markalı 500 ml temizleyici, çiçek vitamin seti, bitki besini+ilaç paketi.
+- Karma setlerde gelir dağılımı **yönetimsel** (fiziksel adet oranında); gerçek tekli satış fiyatı değildir.
+
+### Codex ikinci incelemesi (aynı turda)
+Dört bulgu kapatıldı: kaynak denetimi stok eylemine taşındı, iptal sonrası sevk engellendi, parmak izine
+ürün kimliği eklendi, önizleme salt okunur yapıldı. Ayrıca kendi kusurum düzeltildi: parti sayaçları
+birikiyordu → parti = güncel durum, denemeler = append-only `import_attempts`.
+Migration **0039 + 0040** canlıda. Dağıtım **4cbee44c-7c89-47ec-8f06-0b8b9bbed243**.
+
+### Testler
+`remaining.test.mjs` 4/4 · `review.test.mjs` 7/7 · tam panel **398/398** · build temiz.
+
+### Sırada (YAPILMADI)
+- 265 TY/HB finans özeti, 73 HB paket detayı, 193 TY satış faturası aktarımı.
+- HB para hücresi (`-54.12 TL (%19.54)`) profil entegrasyonu; tarihsiz HB finansı `event_date=null`.
+- Faturaların özgün PDF/sayfa bağlantısı; tek birleşik inceleme kuyruğu ekranı.
+- Stok başlangıç tarihi ve açılış sayımı **hâlâ girilmedi** → geçmiş siparişler stoğa uygulanamaz.
+- Canlıda "qwewqe" adlı eski deneme ürünü duruyor; kullanıcı kararı bekliyor (silinmedi).
+
+---
 
 ## 13 Eylül 2026 — Codex ikinci incelemesi: dört bulgu + sayaç kusuru (EN YENİ KAYIT)
 
