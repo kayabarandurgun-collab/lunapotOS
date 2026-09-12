@@ -6,6 +6,26 @@ Sohbet geçmişine güvenilmez.
 
 Son güncelleme: 12 Eylül 2026
 
+## 12 Eylül 2026 — Codex katalog / arayüz devri (en yeni kayıt)
+
+Bu kayıt önceki bölümlerin üstüne eklenmiştir. Kullanıcı Claude'a uygulanabilir paket istedi; bu tur CANLI dağıtım, gerçek ürün/stoğa kayıt veya Git commit/push yapılmadı. Yerel kod düzenlendi ve test edildi.
+
+- Ana kart = marka + çeşit + hacim; şişe/torba birimi adet. Set ve saksı stok kartı açılmaz. Paket adedi × bileşen adedi; tekli ve set aynı stoğu kullanır.
+- 32 kart (Klasmann 4, Tropikal 20, Gartengold 8), 52 ilan bileşen planı. 51 kimliği hazır, 1 set bileşeni ve ayrıca 7 ilan teyit bekliyor. 14 saksı + 1 Sleepy hariç.
+- Yeni 0036 migration; marka/tedarikçi, seçilebilir/yeni kategori, ortalama alış fiyatı, stok kartları/filtreler/sıralama, genel uygun tablolarda seçim/CSV/kart görünümü. Katalog JSON ön kontrol/uygulama ekranı + üç besin ailesi hazır.
+- PDF object preview için yalnız blob nesneleri açıldı. Para gizleme ve çalışma alanı ayrımı testleri geçiyor.
+- 378 mevcut test + 10 paket testi geçti. 15 panel sayfasında masaüstü/telefon toplam 30 görünüm ve katalog akışı test edildi. Canlı işletme verisi üzerinde test değildir.
+- KRİTİK: Rapor Kutusu stok veya yeni sipariş oluşturmaz. report-stock-draft.mjs uyarlama kodu hazır, ancak uç/ekran/audit bağlantısı tamamlanmadı. Bu bağlantı yapılmadan Excel'den otomatik stok aktif denmeyecek. Mevcut sipariş motorunun çoklu paket ve karma set stok hesabı çalışıyor.
+- Gerçek başlangıç sayımı, maliyet ve tarih yok; tahmin edilmedi. Firma/VKN markadan türetilmedi. Karma set gelir dağılımı açık seçimli yönetimsel öneridir.
+- Devir paketi: C:/Users/baran/Documents/Codex/2026-09-08/referenced-chatgpt-conversation-this-is-an/deliverables/CLAUDE-DEVIR-2026-09-12/
+- README.md ve MANTIK-VE-KALAN-ISLER.md: uygulama sırası, bekleyen kimlikler, rapor-stok köprüsü, eski site talepleri, otomatik rapor indirme ve EDM satış PDF isteği dahil bütün kararlar kaydedildi.
+- Önceki turda 0035 remote migration 12 Eylül 13:46 TR olarak doğrulanmıştı; aşağıdaki eski 'uygulanmadı' notu tarihseldir. Bu tur hedef profil/deploy yeniden doğrulanmadı; dry-run DB kimliği 00000000... gösterdi. Canlı hedefi mevcut dağıtım akışından teyit et.
+- Çalışma ağacında Claude'dan kalan başka değişiklikler var. Toplu git add/reset yapma; paket sadece kendi dosyalarını ve baz sürümlerini taşır.
+
+---
+
+
+
 ---
 
 ## 1. Bu turda tamamlananlar
@@ -78,12 +98,13 @@ Testler gevşetilmedi; beklentiler Codex'in yazdığı gibi bırakıldı.
 
 ## 3. Veritabanı durumu — DİKKAT
 
-- **0035_purchase_documents.sql** yazıldı ve **yalnızca yerelde/testlerde** uygulandı.
-- **Uzak (canlı) veritabanına HENÜZ UYGULANMADI.** Uygulamak Cloudflare oturumu gerektirir; bu turda yapılmadı.
-- Bu migration uygulanmadan **PDF yükleme ve çeşit ailesi ekranları canlıda çalışmaz**.
-- Uygulama komutu: `npm run db:remote` (bookmark alıp doğrulayan betik). Sonrasında bu belge güncellenmeli.
-- Mevcut migrationlar (0001–0034) **değiştirilmedi**; 0035 yalnızca yeni nesne ekler ve çeşit dağıtımının
-  alt sınırını 1'e indirir.
+- **0035_purchase_documents.sql CANLI VERİTABANINA UYGULANDI** (12 Eylül 2026, kullanıcı onayıyla).
+- Uygulama öncesi geri dönüş noktası: `00000023-00000000-000050e4-0cf4bc85e00b508f84a412e82ddf77e4`.
+- Uygulama sonrası canlıda doğrulandı: **10 yeni tablo**, `ec_split_validate` ve `lp_split_validate`
+  tetikleri yeni sürümde (alt sınır 1), `d1_migrations` kaydı mevcut. Var olan alış faturası kayıtlarına
+  dokunulmadı. Panel sağlık kontrolü: `/eticaret/` 200, `/uretim/` 200, `/magaza/` 404 (kapalı kalmalı),
+  oturumsuz `/api/ec/reports` 401.
+- Mevcut migrationlar (0001–0034) **değiştirilmedi**.
 
 ## 4. Yedek ve geri dönüş
 
