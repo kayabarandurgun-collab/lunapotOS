@@ -40,3 +40,39 @@
 .rb td small{display:block;color:var(--muted,#5e6b63)}
 .rb-busy{position:fixed;right:18px;bottom:18px;background:var(--ink,#1f2a24);color:#fff;padding:8px 14px;border-radius:999px;margin:0}
 @media (max-width:760px){.rb-intro{grid-template-columns:1fr}}
+
+/* Codex görsel incelemesi: kart metinleri kenara dayanıyordu; ortak iç boşluk ve başlık ölçeği.
+   Mobilde önce YÜKLEME görünsün: açıklamalar açılır kutuya iner. */
+.rb .v2-card{padding:20px 22px}
+.rb .v2-card>h2,.rb .v2-card>h3{margin:0 0 8px;font-size:17px;letter-spacing:-.2px}
+.rb .v2-card>h3+.rb-muted,.rb .v2-card>h2+p{margin-top:0}
+.rb .v2-card h4{margin:16px 0 6px;font-size:14px}
+.rb-intro{padding:20px 22px}
+.rb-help summary{cursor:pointer;font-weight:600;font-size:13px;color:var(--brand,#4e56a6)}
+.rb-help[open] summary{margin-bottom:8px}
+/* Sayılı durum kartları: bekleyen iş görünür olsun. */
+.rb-status{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:0 0 4px}
+.rb-status a,.rb-status button{text-align:left;border:1px solid var(--line,#d8ded8);border-radius:12px;padding:12px 14px;background:#fff;display:grid;gap:3px;font:inherit;cursor:pointer}
+.rb-status button:hover{border-color:var(--brand,#4e56a6);background:var(--brand-soft,#eff0fa)}
+.rb-status span{font-size:12px;color:var(--muted,#5e6b63)}
+.rb-status strong{font-size:23px;font-variant-numeric:tabular-nums}
+.rb-status .warn strong{color:#7a2a22}
+/* Sipariş sonuçları: arama satırı ve sayfalama. */
+.rb-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin:10px 0}
+.rb-toolbar label{display:grid;gap:4px;flex:1 1 190px;min-width:0}
+.rb-toolbar button{flex:0 0 auto}
+.rb-pager{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-top:12px}
+.rb-pager .rb-muted{margin:0}
+@media (max-width:760px){
+ .rb .v2-card,.rb-intro{padding:16px}
+ .rb-tabs{gap:4px;padding-bottom:6px}
+ .rb-tabs button{padding:6px 11px;font-size:13px}
+ .rb-drop{padding:22px 14px}
+ .rb-grid{gap:10px;margin:8px 0}
+ .rb-kv{grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:8px}
+ .rb-kv dd{font-size:17px}
+ .rb-status{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .rb-status strong{font-size:19px}
+ .rb-actions{justify-content:stretch}
+ .rb-actions button{flex:1 1 auto}
+}

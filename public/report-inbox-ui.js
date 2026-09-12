@@ -22,7 +22,8 @@ function b64(bytes) {
 
 export function mountReports(root, namespace = 'ec') {
   const controller = new AbortController(), signal = controller.signal;
-  const state = {tab: 'upload', data: null, draft: null, busy: false, message: '', error: '', orders: null, reviews: null, storeFilter: ''};
+  const state = {tab: 'upload', data: null, draft: null, busy: false, message: '', error: '', orders: null, reviews: null, storeFilter: '',
+    orderPage: 1, orderQuery: '', orderStatus: '', backfill: null};
   const api = async (path = '', body) => {
     const r = await fetch('/api/' + namespace + '/reports' + path, {method: body === undefined ? 'GET' : 'POST', headers: {'Content-Type': 'application/json'}, ...(body === undefined ? {} : {body: JSON.stringify(body)}), signal});
     let x; try { x = await r.json(); } catch { throw new Error('Sunucudan yanıt alınamadı.'); }
@@ -33,6 +34,10 @@ export function mountReports(root, namespace = 'ec') {
   const run = async fn => { if (state.busy) return; state.busy = true; say(''); render(); try { await fn(); } catch (e) { if (e.name !== 'AbortError') say(e.message, true); } finally { state.busy = false; render(); } };
 
   async function load() { state.data = await api(); }
+  const loadOrders = async () => {
+    if (!state.storeFilter) { state.orders = null; return; }
+    state.orders = await api('/orders?' + new URLSearchParams({store_id: state.storeFilter, page: state.orderPage, q: state.orderQuery, status: state.orderStatus}));
+  };
 
   /* ---------- görünüm parçaları ---------- */
   const tabs = () => `<div class="rb-tabs" role="tablist">${[['upload', 'Dosya yükle'], ['files', 'Yüklenen dosyalar'], ['reviews', 'İnceleme' + (state.data?.open_reviews ? ' (' + state.data.open_reviews + ')' : '')], ['orders', 'Sipariş sonuçları']]
@@ -42,8 +47,18 @@ export function mountReports(root, namespace = 'ec') {
 
   function uploadView() {
     const d = state.draft;
-    const head = `<section class="v2-card rb-intro"><div><h2>Rapor Kutusu</h2><p>Trendyol ve Hepsiburada panelinden indirdiğin sipariş ve finans raporlarını buraya bırak. İlk sefer geçmişi, sonra örtüşen son 7 veya 30 günü yükleyebilirsin; aynı kayıt ikinci kez sayılmaz.</p></div>
-      <ul class="rb-facts"><li><strong>Stok, sevkiyat ve fatura oluşturmaz.</strong> ERP'de olan siparişe yalnızca bağlanır.</li><li>Pazaryeri API'si kullanılmaz; yalnızca yüklediğin dosya.</li><li>Günlük otomatik indirme yardımcısı: <em>henüz yok</em>.</li></ul></section>`;
+    const noStore = !(state.data?.stores || []).length;
+    const head = `<section class="v2-card rb-intro"><h2>Rapor Kutusu</h2>
+      <p>Trendyol ve Hepsiburada panelinden indirdiğin sipariş ve finans raporlarını buraya bırak. Aynı kayıt ikinci kez sayılmaz.</p>
+      <details class="rb-help"><summary>Bu ekran ne yapar, ne yapmaz?</summary>
+        <ul class="rb-facts"><li><strong>Stok, sevkiyat ve fatura oluşturmaz.</strong> Panelde zaten olan siparişe yalnızca bağlanır.</li>
+        <li>Pazaryeri bağlantısı kullanılmaz; yalnızca senin yüklediğin dosya okunur.</li>
+        <li>Günlük otomatik indirme yardımcısı: <em>henüz yok</em>.</li></ul></details></section>`
+      + (noStore ? `<section class="v2-card"><h3>Önce mağazanı ekle</h3><p class="rb-muted">Rapor yükleyebilmek için dosyanın hangi mağazaya ait olduğunu bilmemiz gerekiyor.</p>
+        <form data-rb-form="store" class="rb-grid"><label>Pazaryeri<select name="provider">${Object.entries(PROVIDERS).map(([k, t]) => `<option value="${k}">${esc(t)}</option>`).join('')}</select></label>
+        <label>Mağaza kodu / satıcı no<input name="code" required maxlength="80"></label><label>Görünen ad<input name="name" required maxlength="120"></label>
+        <button class="primary" type="submit">Mağazayı ekle</button></form></section>` : '');
+    if (noStore) return head;
     if (!d || d.step === 'pick') return head + pickForm();
     if (d.step === 'map') return head + mapForm();
     if (d.step === 'check') return head + checkView();
@@ -135,9 +150,24 @@ export function mountReports(root, namespace = 'ec') {
 
   function ordersView() {
     const o = state.orders;
+    const missing = o ? o.results.filter(r => r.contribution_missing.length).length : 0;
+    const cards = o ? `<div class="rb-status">
+      <button type="button" data-rb-tab="reviews" class="${state.data?.open_reviews ? 'warn' : ''}"><span>İnceleme bekleyen</span><strong>${num(state.data?.open_reviews || 0)}</strong></button>
+      <button type="button" data-rb-act="backfill" class="${missing ? 'warn' : ''}"><span>Ürün eşleşmesi eksik · bu sayfada</span><strong>${num(missing)}</strong></button>
+      <button type="button" data-rb-tab="files"><span>Bu mağazadaki sipariş</span><strong>${num(o.total || 0)}</strong></button></div>
+      ${state.backfill ? `<p class="rb-alert ${state.backfill.remaining ? 'warn' : 'ok'}">Tamamlanan eski kayıt: ${num(state.backfill.filled)} · eşleşmesi hâlâ bulunamayan: ${num(state.backfill.remaining)}. ${esc(state.backfill.notice || '')}</p>` : ''}` : '';
+    const pages = o ? Math.max(1, Math.ceil((o.total || 0) / (o.page_size || 100))) : 1;
+    const toolbar = `<form data-rb-form="orders" class="rb-toolbar">
+      <label>Sipariş, paket, barkod veya ürün ara<input name="q" type="search" value="${esc(state.orderQuery)}" maxlength="100"></label>
+      <label>Durum<select name="status"><option value="">Tüm durumlar</option>${(o?.statuses || []).map(st => `<option value="${esc(st)}" ${state.orderStatus === st ? 'selected' : ''}>${esc(st)}</option>`).join('')}</select></label>
+      <button class="secondary" type="submit">Ara</button></form>`;
+    const pager = o ? `<div class="rb-pager"><p class="rb-muted">${num(o.total || 0)} sipariş · sayfa ${o.page || 1} / ${pages}</p>
+      <div class="rb-actions"><button type="button" class="secondary" data-rb-act="page-prev" ${(o.page || 1) <= 1 ? 'disabled' : ''}>← Önceki</button>
+      <button type="button" class="secondary" data-rb-act="page-next" ${(o.page || 1) >= pages ? 'disabled' : ''}>Sonraki →</button></div></div>` : '';
     const cell = r => r.contribution_cents !== null ? `<strong class="rb-num">${money(r.contribution_cents)}</strong>` : `<span class="rb-chip warn">Hesaplanamadı</span><small>${r.contribution_missing.slice(0, 3).map(esc).join('<br>')}</small>`;
     return `<section class="v2-card"><h3>Sipariş sonuçları</h3>
       <div class="rb-grid"><label>Mağaza<select data-rb="order-store">${storeOptions(state.storeFilter)}</select></label></div>
+      ${state.storeFilter ? toolbar + cards : ''}
       <p class="rb-muted">Dört sayı ayrı tutulur: <b>pazaryerinin bildirdiği net</b>, <b>bankada doğrulanan tahsilat</b>, <b>bilinen doğrudan maliyetlerden sonraki katkı</b> (KDV hariç satış − ürün maliyeti − kesintiler; stopaj dahil edilmez) ve <b>tahmin</b>. Eksik maliyet sıfır sayılmaz.</p>
       ${o ? (o.results.length ? `<div class="v2-table-wrap"><table class="v2-table"><thead><tr><th>Sipariş</th><th>Ürünler</th><th>Pazaryeri neti</th><th>Banka</th><th>Katkı</th><th>Tahmin</th><th></th></tr></thead><tbody>
       ${o.results.map(r => `<tr><td><strong>${esc(r.order_no)}</strong><small>${esc(r.order_date)}${r.status ? ' · ' + esc(r.status) : ''}${r.erp_package_id ? ' · ERP\'de bağlı' : ''}</small></td>
@@ -146,7 +176,7 @@ export function mountReports(root, namespace = 'ec') {
         <td><small>${esc(r.bank_note)}</small></td><td>${cell(r)}${r.notes.length ? `<small>${r.notes.map(esc).join('<br>')}</small>` : ''}</td>
         <td>${r.estimates.map(e => `<div>${esc(e.label)}: ${e.value !== null ? `<span class="rb-num">${money(e.value)}</span>${e.low !== e.high ? ` <small>(${money(e.low)} – ${money(e.high)})</small>` : ''}` : ''}<small>${esc(e.basis)}</small></div>`).join('')}${r.estimated_result_cents !== null ? `<small>Tahmini sonuç: ${money(r.estimated_result_cents)}</small>` : ''}</td>
         <td>${r.fee_events.some(e => !e.invoice_line_id) ? `<button type="button" class="secondary" data-rb-act="evidence" data-order="${esc(r.group)}">Fatura bağla</button>` : r.fee_events.length ? '<small>Belgeler bağlı</small>' : ''}</td></tr>`).join('')}
-      </tbody></table></div>` : '<p class="rb-muted">Bu mağazada işlenmiş sipariş raporu yok.</p>') : '<p class="rb-muted">Mağaza seçin.</p>'}</section>`;
+      </tbody></table></div>` + pager : '<p class="rb-muted">Bu aramaya uyan sipariş yok.</p>') : '<p class="rb-muted">Mağaza seçin.</p>'}</section>`;
   }
 
   function render() {
@@ -238,7 +268,7 @@ export function mountReports(root, namespace = 'ec') {
     dialog.addEventListener('close', () => {
       const f = new FormData(dialog.querySelector('form')), ok = dialog.returnValue === 'ok', rec = f.get('record'), line = f.get('line');
       dialog.remove();
-      if (ok && rec && line) run(async () => { const r = await api('/records/' + rec + '/evidence', {invoice_line_id: line}); say(r.notice); state.orders = await api('/orders?store_id=' + state.storeFilter); });
+      if (ok && rec && line) run(async () => { const r = await api('/records/' + rec + '/evidence', {invoice_line_id: line}); say(r.notice); await loadOrders(); });
     }, {once: true});
     dialog.showModal();
   }
@@ -246,7 +276,7 @@ export function mountReports(root, namespace = 'ec') {
   /* ---------- olaylar ---------- */
   root.addEventListener('click', e => {
     const tab = e.target.closest('[data-rb-tab]');
-    if (tab) { state.tab = tab.dataset.rbTab; run(async () => { if (state.tab === 'reviews') state.reviews = (await api('/reviews')).reviews; if (state.tab === 'orders' && state.storeFilter) state.orders = await api('/orders?store_id=' + state.storeFilter); if (state.tab === 'files') await load(); }); return; }
+    if (tab) { state.tab = tab.dataset.rbTab; run(async () => { if (state.tab === 'reviews') state.reviews = (await api('/reviews')).reviews; if (state.tab === 'orders') await loadOrders(); if (state.tab === 'files') await load(); }); return; }
     const act = e.target.closest('[data-rb-act]');
     if (!act) return;
     const a = act.dataset.rbAct, id = act.dataset.id;
@@ -257,6 +287,21 @@ export function mountReports(root, namespace = 'ec') {
     if (a === 'apply') run(() => apply(id));
     if (a === 'accept' || a === 'reject') run(async () => { await api('/reviews/' + id, {decision: a}); state.reviews = (await api('/reviews')).reviews; await load(); say(a === 'accept' ? 'Kabul edildi.' : 'Reddedildi; mevcut bilgi korundu.'); });
     if (a === 'evidence') run(() => evidenceDialog(act.dataset.order));
+    if (a === 'page-prev' || a === 'page-next') { state.orderPage = Math.max(1, state.orderPage + (a === 'page-next' ? 1 : -1)); run(loadOrders); }
+    // Sonradan tanımlanan ürün/set eşleştirmesini eski kayıtlara uygular. Daha önce kaydedilmiş
+    // tarihî set içerikleri DEĞİŞMEZ; yalnız eşleşmesi hiç olmayan kayıtlar doldurulur.
+    if (a === 'backfill') run(async () => {
+      if (!state.storeFilter) throw new Error('Önce mağaza seçin.');
+      let cursor = '', filled = 0, guard = 0, last = null;
+      for (;;) {
+        last = await api('/backfill-components', {store_id: state.storeFilter, cursor});
+        filled += last.filled; cursor = last.next_cursor || '';
+        if (last.done || ++guard > 400) break;
+      }
+      state.backfill = {filled, remaining: last.remaining, notice: last.notice};
+      await loadOrders();
+      say('Eksik ürün eşleştirmeleri tarandı.');
+    });
   }, {signal});
   root.addEventListener('change', e => {
     const t = e.target.dataset.rb;
@@ -266,7 +311,7 @@ export function mountReports(root, namespace = 'ec') {
     if (t === 'kind') state.draft.kind = e.target.value;
     if (t === 'snapshot') state.draft.snapshot_at = e.target.value;
     if (t === 'file' && e.target.files[0]) { const file = e.target.files[0]; run(() => takeFile(file)); }
-    if (t === 'order-store') { state.storeFilter = e.target.value; run(async () => { state.orders = state.storeFilter ? await api('/orders?store_id=' + state.storeFilter) : null; }); }
+    if (t === 'order-store') { state.storeFilter = e.target.value; state.orderPage = 1; state.backfill = null; run(loadOrders); }
   }, {signal});
   root.addEventListener('submit', e => {
     const form = e.target.closest('[data-rb-form]');
@@ -274,6 +319,7 @@ export function mountReports(root, namespace = 'ec') {
     e.preventDefault();
     if (form.dataset.rbForm === 'store') run(async () => { const s = await api('/stores', Object.fromEntries(new FormData(form))); await load(); state.draft = {...(state.draft || {step: 'pick', kind: 'orders', snapshot_at: localNow()}), store_id: s.id}; say('Mağaza eklendi.'); });
     if (form.dataset.rbForm === 'map') run(() => saveMapping(form));
+    if (form.dataset.rbForm === 'orders') { const x = new FormData(form); state.orderQuery = x.get('q') || ''; state.orderStatus = x.get('status') || ''; state.orderPage = 1; run(loadOrders); }
   }, {signal});
   // Sürükle-bırak
   root.addEventListener('dragover', e => { const z = e.target.closest('[data-rb-drop]'); if (z) { e.preventDefault(); z.classList.add('over'); } }, {signal});

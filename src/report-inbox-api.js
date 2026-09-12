@@ -160,13 +160,23 @@ async function observedFor(db, storeId, type, signature, date, excludeGroup) {
   return est ? {...est, basis: 'Aynı içerikli paketlerin son 90 gündeki gerçekleşen kayıtları: ' + est.samples + ' örnek'} : null;
 }
 
-export async function orderResults(db, storeId, {limit = 100, offset = 0} = {}) {
+export async function orderResults(db, storeId, {limit = 100, offset = 0, q = '', status = ''} = {}) {
   const store = await db.prepare('SELECT * FROM ec_report_stores WHERE id=?').bind(key(storeId)).first();
   if (!store) fail('Mağaza bulunamadı.', 404);
   // Sayfalama SİPARİŞ düzeyinde: bir paketin satırları sayfa sınırında bölünmez.
-  const orderNos = (await db.prepare("SELECT json_extract(data_json,'$.order_no') o,MAX(substr(json_extract(data_json,'$.order_date'),1,10)) d FROM ec_report_records WHERE store_id=? AND kind='order_line' GROUP BY o ORDER BY d DESC,o LIMIT ? OFFSET ?")
-    .bind(store.id, limit, offset).all()).results.map(r => r.o).filter(o => o !== null && o !== undefined);
-  if (!orderNos.length) return {store, results: []};
+  // Arama ve durum süzgeci sipariş düzeyinde uygulanır; sayfa sınırı paketi bölmez.
+  const needle = String(q || '').trim().toLocaleLowerCase('tr-TR').slice(0, 100);
+  const where = "store_id=? AND kind='order_line'"
+    + (needle ? " AND (instr(lower(COALESCE(json_extract(data_json,'$.order_no'),'')),?)>0 OR instr(lower(COALESCE(json_extract(data_json,'$.package_id'),'')),?)>0 OR instr(lower(COALESCE(json_extract(data_json,'$.barcode'),'')),?)>0 OR instr(lower(COALESCE(json_extract(data_json,'$.sku'),'')),?)>0 OR instr(lower(COALESCE(json_extract(data_json,'$.product_name'),'')),?)>0)" : '')
+    + (status ? " AND json_extract(data_json,'$.status')=?" : '');
+  const filterArgs = [...(needle ? [needle, needle, needle, needle, needle] : []), ...(status ? [String(status).slice(0, 100)] : [])];
+  const total = (await db.prepare('SELECT COUNT(*) n FROM (SELECT 1 FROM ec_report_records WHERE ' + where + " GROUP BY json_extract(data_json,'$.order_no'))")
+    .bind(store.id, ...filterArgs).first()).n;
+  const statuses = (await db.prepare("SELECT DISTINCT json_extract(data_json,'$.status') s FROM ec_report_records WHERE store_id=? AND kind='order_line' AND json_extract(data_json,'$.status') IS NOT NULL ORDER BY s LIMIT 50")
+    .bind(store.id).all()).results.map(r => r.s);
+  const orderNos = (await db.prepare("SELECT json_extract(data_json,'$.order_no') o,MAX(substr(json_extract(data_json,'$.order_date'),1,10)) d FROM ec_report_records WHERE " + where + ' GROUP BY o ORDER BY d DESC,o LIMIT ? OFFSET ?')
+    .bind(store.id, ...filterArgs, limit, offset).all()).results.map(r => r.o).filter(o => o !== null && o !== undefined);
+  if (!orderNos.length) return {store, results: [], total, statuses};
   const lines = (await db.prepare("SELECT * FROM ec_report_records WHERE store_id=? AND kind='order_line' AND json_extract(data_json,'$.order_no') IN (SELECT value FROM json_each(?)) ORDER BY record_key")
     .bind(store.id, JSON.stringify(orderNos)).all()).results;
   // Paket kimliği hangi siparişe ait? Finans satırında sipariş no boş olsa da olay bu yolla bulunur.
@@ -326,7 +336,7 @@ export async function orderResults(db, storeId, {limit = 100, offset = 0} = {}) 
       });
     }
   }
-  return {store, results};
+  return {store, results, total, statuses};
 }
 
 /* ---------------- uçlar ---------------- */
@@ -576,20 +586,25 @@ export async function reportInboxApi(request, env, path, readBody) {
     const x = await readBody(request);
     const store = await db.prepare('SELECT * FROM ec_report_stores WHERE id=?').bind(key(x.store_id)).first();
     if (!store) fail('Mağaza bulunamadı.', 404);
-    const rows = (await db.prepare("SELECT id,data_json FROM ec_report_records WHERE store_id=? AND kind='order_line' AND components_json IS NULL LIMIT 500").bind(store.id).all()).results;
+    const cursor = typeof x.cursor === 'string' && /^[w-]{0,100}$/.test(x.cursor) ? x.cursor : '';
+    const rows = (await db.prepare("SELECT id,data_json FROM ec_report_records WHERE store_id=? AND kind='order_line' AND components_json IS NULL AND id>? ORDER BY id LIMIT 500").bind(store.id, cursor).all()).results;
     const stmts = [];
     for (const r of rows) {
       const comps = await componentsFor(db, store.provider, parse(r.data_json, {}));
       if (comps) stmts.push(db.prepare('UPDATE ec_report_records SET components_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND components_json IS NULL').bind(JSON.stringify(comps), r.id));
     }
     if (stmts.length) await db.batch(stmts);
-    return {checked: rows.length, filled: stmts.length, remaining: rows.length - stmts.length,
+    // Kalan = bu partideki artık değil, mağazadaki GERÇEK toplam çözülememiş kayıt sayısı.
+    const remaining = (await db.prepare("SELECT COUNT(*) n FROM ec_report_records WHERE store_id=? AND kind='order_line' AND components_json IS NULL").bind(store.id).first()).n;
+    return {checked: rows.length, filled: stmts.length, remaining, next_cursor: rows.length ? rows.at(-1).id : cursor, done: rows.length < 500,
       notice: 'Yalnızca eşleşmesi olmayan kayıtlar dolduruldu; daha önce kaydedilmiş set içerikleri değişmedi.'};
   }
 
   if (sub === '/orders' && method === 'GET') {
     const page = Math.max(1, Math.min(1000, Number(url.searchParams.get('page')) || 1));
-    return await orderResults(db, url.searchParams.get('store_id') || '', {limit: 100, offset: (page - 1) * 100});
+    const result = await orderResults(db, url.searchParams.get('store_id') || '', {limit: 100, offset: (page - 1) * 100,
+      q: url.searchParams.get('q') || '', status: url.searchParams.get('status') || ''});
+    return {...result, page, page_size: 100};
   }
 
   if (sub === '/evidence-candidates' && method === 'GET') {
