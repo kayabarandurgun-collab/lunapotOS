@@ -46,7 +46,8 @@ export function mountSalesDocuments(root, namespace = 'ec') {
   const controller = new AbortController(), signal = controller.signal;
   const state = {tab: 'sales', busy: false, message: '', error: '',
     sales: null, purchases: null, invoices: null,
-    kuyruk: [],            // seçilen dosyalar: {file, provider, durum, ilerleme, sonuc, hata}
+    kuyruk: [],            // seçilen satış dosyaları
+    alisKuyruk: [],        // seçilen alış belgeleri
     sayfalar: null,        // açık belgenin sayfa listesi
     acikBelge: null};
 
@@ -102,6 +103,50 @@ export function mountSalesDocuments(root, namespace = 'ec') {
     item.sonuc = turev.origin_filename
       ? 'Arşivlendi · türev: ' + turev.origin_filename + ' sayfa ' + turev.origin_first_page + '–' + turev.origin_last_page
       : 'Arşivlendi';
+  }
+
+  // ALIS belgesi yukleme. Ayni parcali yol ve sunucu tarafi SHA-256 muhru.
+  // Neden burada: panelin alis sihirbazindaki dosya girdisi gizli ve tek belgelik bir akisa bagli;
+  // "tum zamanlar" dokumu gibi cok faturali belgeyi once arsive alip sonra sayfa sayfa baglamak
+  // icin gorunur ve toplu bir giris gerekiyordu.
+  async function alisYukle(item) {
+    const bytes = new Uint8Array(await item.file.arrayBuffer());
+    if (bytes.length > MAX_BYTES) throw new Error(item.file.name + ': belge 20 MB sınırını aşıyor.');
+    const sha = await sha256Hex(bytes);
+    const chunks = Math.max(1, Math.ceil(bytes.length / CHUNK));
+    let sayfaSayisi = null, metinKatmani = 0;
+    try { const okunan = await readPdf(bytes); sayfaSayisi = okunan.pages; metinKatmani = okunan.textLayer ? 1 : 0; }
+    catch { sayfaSayisi = null; }
+
+    item.durum = 'kayıt'; render();
+    const created = await api('/invoices/documents', {kind: 'pdf', filename: item.file.name,
+      mime: item.file.type || 'application/pdf', size_bytes: bytes.length, sha256: sha, chunk_count: chunks,
+      ...(sayfaSayisi === null ? {} : {page_count: sayfaSayisi}), text_layer: metinKatmani});
+    if (created.duplicate) { item.durum = 'kopya'; item.sonuc = created.notice || 'Bu belge daha önce yüklendi.'; return; }
+
+    const id = created.id;
+    for (let i = 0; i < chunks; i++) {
+      item.durum = 'aktarılıyor'; item.ilerleme = {max: chunks, value: i}; render();
+      await api('/invoices/documents/' + id + '/chunk', {index: i, data: b64(bytes.subarray(i * CHUNK, (i + 1) * CHUNK))});
+    }
+    item.ilerleme = null; item.durum = 'mühürleniyor'; render();
+    await api('/invoices/documents/' + id + '/seal', {});
+    item.durum = 'tamam'; item.belgeId = id;
+    item.sonuc = 'Arşivlendi' + (sayfaSayisi ? ' · ' + sayfaSayisi + ' sayfa' : '');
+  }
+
+  async function alisKuyrugaBas() {
+    const bekleyen = state.alisKuyruk.filter(i => !i.durum || i.durum === 'hata');
+    if (!bekleyen.length) throw new Error('Yüklenecek belge yok.');
+    let tamam = 0, kopya = 0, hata = 0;
+    for (const item of bekleyen) {
+      try { await alisYukle(item); item.durum === 'kopya' ? kopya++ : tamam++; }
+      catch (e) { item.durum = 'hata'; item.hata = e.message; hata++; }
+      render();
+    }
+    await load();
+    say(tamam + ' alış belgesi arşivlendi · ' + kopya + ' kopya atlandı' + (hata ? ' · ' + hata + ' hata' : '') +
+      '. Belgeler faturaya bağlanmadı; aşağıdan sayfa sayfa bağlayın.');
   }
 
   async function kuyrugaBas() {
@@ -191,9 +236,40 @@ export function mountSalesDocuments(root, namespace = 'ec') {
     </section>${sayfaPaneli('sales')}`;
   }
 
+  function alisKuyrukTablosu() {
+    if (!state.alisKuyruk.length) return '<p class="rb-muted">Henüz belge seçilmedi.</p>';
+    return `<div class="v2-table-wrap"><table class="v2-table"><thead><tr>
+      <th>Dosya</th><th>Boyut</th><th>Durum</th></tr></thead><tbody>
+      ${state.alisKuyruk.map(i => `<tr><td>${esc(i.file.name)}</td><td>${esc(mb(i.file.size))}</td>
+      <td>${durumRozeti(i)}${i.ilerleme ? `<progress max="${i.ilerleme.max}" value="${i.ilerleme.value}"></progress>` : ''}
+        ${i.sonuc ? '<br><small>' + esc(i.sonuc) + '</small>' : ''}${i.hata ? '<br><small class="error">' + esc(i.hata) + '</small>' : ''}</td></tr>`).join('')}
+      </tbody></table></div>`;
+  }
+
   function alisGorunumu() {
     const docs = state.purchases || [];
-    return `<section class="v2-card"><h3>Alış belgelerinde sayfa → fatura bağlantısı</h3>
+    return `<section class="v2-card"><h3>1 · Alış belgesi yükle</h3>
+      <p class="rb-muted">Tedarikçinin "tüm zamanlar" dökümü tek PDF olabilir; içinde onlarca fatura bulunur.
+        Önce belgeyi arşive al, sonra aşağıdan her faturayı kendi sayfasına bağla.
+        <strong>Yükleme borç, stok ya da fatura kaydı oluşturmaz.</strong></p>
+      <label class="rb-drop" data-sd-alis-drop>
+        <strong>Alış faturası PDF'lerini seç</strong>
+        <span>ya da buraya sürükle · dosya başına en çok 20 MB</span>
+        <input type="file" accept=".pdf,application/pdf" multiple data-sd="alis-file" aria-label="Alış faturası PDF dosyalarını seç">
+      </label>
+      ${alisKuyrukTablosu()}
+      <div class="rb-actions">
+        ${state.alisKuyruk.length ? '<button type="button" class="secondary" data-sd-act="alis-temizle">Listeyi temizle</button>' : ''}
+        <button type="button" class="primary" data-sd-act="alis-yukle" ${state.alisKuyruk.some(i => !i.durum || i.durum === 'hata') ? '' : 'disabled'}>Arşive yükle</button>
+      </div>
+    </section>
+
+    <section class="v2-card"><h3>2 · Sayfa → fatura bağlantısı</h3>`;
+  }
+
+  function alisBaglantiGovdesi() {
+    const docs = state.purchases || [];
+    return `
       <p class="rb-muted">Tedarikçi "tüm zamanlar" dökümünü tek PDF olarak verir: bir belgenin içinde onlarca fatura olabilir.
         Her faturayı kendi sayfasına bağla. Bağlantı kanıttır: kurulduktan sonra taşınmaz, silinmez ve
         <strong>aynı fatura ikinci kez bağlanmaz</strong>.</p>
@@ -249,6 +325,15 @@ export function mountSalesDocuments(root, namespace = 'ec') {
 
   /* ---------------- olaylar ---------------- */
 
+  const alisDosyalariAl = (liste) => {
+    for (const f of liste) {
+      if (!/\.pdf$/i.test(f.name)) { state.error = f.name + ': yalnız PDF kabul edilir.'; continue; }
+      if (state.alisKuyruk.some(i => i.file.name === f.name && i.file.size === f.size)) continue;
+      state.alisKuyruk.push({file: f, durum: '', ilerleme: null, sonuc: '', hata: ''});
+    }
+    render();
+  };
+
   const dosyalariAl = (liste) => {
     for (const f of liste) {
       if (!/\.pdf$/i.test(f.name)) { state.error = f.name + ': yalnız PDF kabul edilir.'; continue; }
@@ -263,6 +348,7 @@ export function mountSalesDocuments(root, namespace = 'ec') {
 
   root.addEventListener('change', e => {
     if (e.target.dataset.sd === 'file') { dosyalariAl([...e.target.files]); e.target.value = ''; return; }
+    if (e.target.dataset.sd === 'alis-file') { alisDosyalariAl([...e.target.files]); e.target.value = ''; return; }
     if (e.target.dataset.sdProvider !== undefined) { state.kuyruk[Number(e.target.dataset.sdProvider)].provider = e.target.value; return; }
   }, {signal});
 
@@ -273,6 +359,8 @@ export function mountSalesDocuments(root, namespace = 'ec') {
     if (!b) return;
     const a = b.dataset.sdAct;
     if (a === 'temizle') { state.kuyruk = state.kuyruk.filter(i => i.durum === 'tamam'); render(); return; }
+    if (a === 'alis-temizle') { state.alisKuyruk = state.alisKuyruk.filter(i => i.durum === 'tamam'); render(); return; }
+    if (a === 'alis-yukle') { run(alisKuyrugaBas); return; }
     if (a === 'yukle') { run(kuyrugaBas); return; }
     if (a === 'kapat') { state.acikBelge = null; state.sayfalar = null; render(); return; }
     if (a === 'sayfalar') {
@@ -290,13 +378,13 @@ export function mountSalesDocuments(root, namespace = 'ec') {
     run(() => alisSayfasiBagla(form));
   }, {signal});
 
-  root.addEventListener('dragover', e => { const z = e.target.closest('[data-sd-drop]'); if (z) { e.preventDefault(); z.classList.add('over'); } }, {signal});
-  root.addEventListener('dragleave', e => { e.target.closest('[data-sd-drop]')?.classList.remove('over'); }, {signal});
+  root.addEventListener('dragover', e => { const z = e.target.closest('[data-sd-drop],[data-sd-alis-drop]'); if (z) { e.preventDefault(); z.classList.add('over'); } }, {signal});
+  root.addEventListener('dragleave', e => { e.target.closest('[data-sd-drop],[data-sd-alis-drop]')?.classList.remove('over'); }, {signal});
   root.addEventListener('drop', e => {
-    const z = e.target.closest('[data-sd-drop]');
-    if (!z) return;
-    e.preventDefault(); z.classList.remove('over');
-    dosyalariAl([...e.dataTransfer.files]);
+    const z = e.target.closest('[data-sd-drop]'), za = e.target.closest('[data-sd-alis-drop]');
+    if (!z && !za) return;
+    e.preventDefault(); (z || za).classList.remove('over');
+    (z ? dosyalariAl : alisDosyalariAl)([...e.dataTransfer.files]);
   }, {signal});
 
   render();
