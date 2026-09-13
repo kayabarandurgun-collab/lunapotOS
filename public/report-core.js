@@ -66,6 +66,24 @@ export function suggestMapping(kind, headers) {
   return out;
 }
 
+/**
+ * Hicbir alana eslenmemis ama icinde sifirdan farkli para degeri olan sutunlar.
+ * Bunlar genelde ikinci bir kargo kalemi, indirim ya da iptal sutunudur; sorulmazsa
+ * tutar sessizce duser ve rapor kendi net tutariyla tutmaz.
+ */
+export function extraFeeCandidates(headers, rows, mapping = {}, date1904 = false) {
+  const used = new Set(Object.values(mapping || {}).filter(Boolean));
+  return headers.filter((header, at) => {
+    if (used.has(header)) return false;
+    return rows.some(r => {
+      const cell = r.cells[at];
+      if (!cell || cell.v === null || cell.v === undefined) return false;
+      const read = readers.money(cell, date1904);
+      return !read.error && Number.isSafeInteger(read.value) && read.value !== 0;
+    });
+  });
+}
+
 /** Profil, bu dosyanın başlıklarıyla birebir kullanılabilir mi? Değişmiş/eksik sütun sorulur. */
 export function profileFits(profile, headers) {
   const set = new Set(headers);

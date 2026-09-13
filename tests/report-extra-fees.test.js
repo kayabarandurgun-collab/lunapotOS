@@ -51,3 +51,28 @@ test('Ek kesinti sütunu sunucuda doğrulanır: uydurma sütun ve çift eşleme 
     assert.equal(kotuTur.status, 400, 'hakediş bir kesinti türü değildir');
   } finally { f.close(); }
 });
+
+// Aday seçimi şablonun içinde yazılıydı; bozuk bir düzenli ifade bütün adayları eleyip
+// bölümü hiç göstermedi ve üç kesinti sütunu sessizce dışarıda kaldı. Ayrıca yalnız ilk 40
+// satıra bakılıyordu: tek dolu satırı daha aşağıda olan sütun hiç sorulmuyordu.
+test('İçinde para olan eşleşmemiş sütun sorulur; satır 100 bile olsa kaçmaz', async () => {
+  const {extraFeeCandidates} = await import('../public/report-core.js');
+  const basliklar = ['Sipariş No', 'Sipariş Tutarı', 'Komisyon', 'Geç Kalan Kesinti', 'Hep Boş', 'Hep Sıfır', 'Açıklama'];
+  const satir = (no, tutar, komisyon, gec, aciklama) => ({row: no + 1,
+    cells: [cell(String(no)), cell(tutar), cell(komisyon), gec === null ? null : cell(gec), null, cell(0), cell(aciklama)]});
+  const rows = [];
+  for (let i = 1; i <= 120; i++) rows.push(satir(11408249000 + i, 100, -10, i === 100 ? -7 : 0, 'satır ' + i));
+
+  const aday = extraFeeCandidates(basliklar, rows, {order_no: 'Sipariş No', sale: 'Sipariş Tutarı', commission: 'Komisyon'});
+  assert.ok(aday.includes('Geç Kalan Kesinti'), 'tek dolu satırı 100. sırada olan sütun da sorulur');
+  assert.ok(!aday.includes('Sipariş Tutarı'), 'eşlenmiş sütun tekrar sorulmaz');
+  assert.ok(!aday.includes('Komisyon'), 'eşlenmiş sütun tekrar sorulmaz');
+  assert.ok(!aday.includes('Hep Boş'), 'boş sütun sorulmaz');
+  assert.ok(!aday.includes('Hep Sıfır'), 'sıfır sütun sorulmaz');
+  assert.ok(!aday.includes('Açıklama'), 'metin sütunu tutar sayılmaz');
+
+  // Türkçe biçimli metin tutarlar da para sayılır (1.234,56).
+  const metinBaslik = ['Sipariş No', 'Kesinti'];
+  const metinSatir = [{row: 2, cells: [cell('11408249438'), cell('-1.234,56')]}];
+  assert.deepEqual(extraFeeCandidates(metinBaslik, metinSatir, {order_no: 'Sipariş No'}), ['Kesinti']);
+});

@@ -2,7 +2,7 @@
 // Dosya tarayıcıda okunur; sunucuya ham dosya (denetim) ve kaynak satırlar küçük partilerle gider.
 // Aktarım stok, sevkiyat, satış kaydı veya fatura OLUŞTURMAZ.
 import {readTable, sha256Hex, LIMITS} from './xlsx-read.js';
-import {FIELDS, REPORT_KINDS, PROVIDERS, EVENT_TYPES, headerSignature, suggestMapping, profileFits, normalizeRows} from './report-core.js';
+import {FIELDS, REPORT_KINDS, PROVIDERS, EVENT_TYPES, headerSignature, suggestMapping, profileFits, normalizeRows, extraFeeCandidates} from './report-core.js';
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 const money = v => v === null || v === undefined ? '—' : new Intl.NumberFormat('tr-TR', {style: 'currency', currency: 'TRY'}).format(v / 100);
@@ -101,11 +101,7 @@ export function mountReports(root, namespace = 'ec') {
         <label>Kesinti tutarları KDV dahil mi?<select name="fee_vat"><option value="">Bilmiyorum (katkı yaklaşık gösterilir)</option><option value="inc" ${d.options.fee_amounts_include_vat === true ? 'selected' : ''}>KDV dahil</option><option value="exc" ${d.options.fee_amounts_include_vat === false ? 'selected' : ''}>KDV hariç</option></select></label>
         <label>Kesintilerin KDV oranı %<input name="fee_vat_rate" type="number" min="0" max="100" step="0.01" value="${d.options.fee_vat_bps !== null && d.options.fee_vat_bps !== undefined ? d.options.fee_vat_bps / 100 : ''}" placeholder="Faturadan bak"></label></fieldset>
         ${(() => {
-          const esli = new Set(Object.values(d.mapping || {}));
-          const aday = d.table.headers.filter((h, i) => !esli.has(h) &&
-            d.table.rows.slice(0, 40).some(r => { const c = r.cells[i]; if (!c || c.v === null || c.v === undefined) return false;
-              const n = typeof c.v === 'number' ? c.v : Number(String(c.v).replace(/[^0-9,.-]/g, '').replace(/./g, '').replace(',', '.'));
-              return Number.isFinite(n) && n !== 0; }));
+          const aday = extraFeeCandidates(d.table.headers, d.table.rows, d.mapping, d.table.date1904);
           if (!aday.length) return '';
           const secili = Object.fromEntries((d.options.extra_fees || []).map(e => [e.header, e.type]));
           return `<fieldset><legend>Eşleşmeyen tutar sütunları — bunlar ne?</legend>
