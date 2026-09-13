@@ -12,6 +12,10 @@ export function level(user,ns,key){if(user?.owner)return 'write';const envelope=
  return levels[selected]<levels[envelope]?selected:envelope;}
 export const can=(user,ns,key,write=false)=>levels[level(user,ns,key)]>=(write?2:1);
 export const any=(user,ns,keys)=>keys.some(k=>can(user,ns,k));
-export const routeKey=(ns,route)=>ns==='lp'?route:route;
+// Bazi ekranlar mevcut bir yetkinin altinda calisir; her ekran icin yeni yetki acmak,
+// kayitli personel yetkilerinde o anahtar bulunmadigi icin herkesi disarida birakirdi.
+// 'documents' (Fatura belgeleri) alis ve satis fatura BELGELERINI gosterir: 'invoices' yetkisi.
+const routeAliases={ec:{documents:'invoices'},lp:{}};
+export const routeKey=(ns,route)=>routeAliases[ns]?.[route]||route;
 export function parsePermissions(value){if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(k=>!['ec','lp','delete_records'].includes(k)))throw Error('Yetki seçimini kontrol edin.');const out={ec:{},lp:{},delete_records:value.delete_records===true};if(value.delete_records!==undefined&&typeof value.delete_records!=='boolean')throw Error('Silme izni geçersiz.');for(const ns of ['ec','lp']){const group=value[ns]||{};if(typeof group!=='object'||Array.isArray(group)||Object.keys(group).some(k=>!modules[ns][k]))throw Error('Bilinmeyen yetki alanı.');for(const key of Object.keys(modules[ns])){const v=group[key]||'none';if(!Object.hasOwn(levels,v))throw Error('Yetki seviyesi geçersiz.');out[ns][key]=v;}}return out;}
 export const envelope=(permissions,ns)=>Object.values(permissions[ns]).includes('write')?'write':Object.values(permissions[ns]).includes('read')?'read':'none';

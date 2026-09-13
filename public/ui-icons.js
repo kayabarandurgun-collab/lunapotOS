@@ -13,6 +13,7 @@ const paths={
  costs:'M6 3h12v18H6z M9 7h6 M9 12h1 M14 12h1 M9 16h1 M14 16h1',
  sales:'M4 19V9 M10 19V5 M16 19v-7 M22 19H2',
  invoices:'M6 3h9l4 4v14H6z M14 3v5h5 M9 12h7 M9 16h5',
+ documents:'M5 3h8l4 4v14H5z M13 3v4h4 M8 11h6 M8 15h6 M17 17l2 2 3-4',
  ledger:'M4 4h16v16H4z M8 8h8 M8 12h4 M8 16h6',
  accounts:'M4 4h16v16H4z M8 8h8 M8 12h4 M8 16h6',
  expenses:'M3 6h18v14H3z M3 10h18 M15 15h3',
