@@ -13,6 +13,7 @@
 //  · Bu ekran SATIŞ, GELİR, BORÇ ya da STOK kaydı OLUŞTURMAZ. Arşiv ve bağlantı kaydıdır.
 //  · Aynı dosya ikinci kez yüklenmez; kopya dosya ikinci fatura sayılmaz.
 import {sha256Hex} from './xlsx-read.js';
+import {readPdf} from './pdf-read.js';
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 const num = v => new Intl.NumberFormat('tr-TR').format(v || 0);
@@ -77,10 +78,16 @@ export function mountSalesDocuments(root, namespace = 'ec') {
     const sha = await sha256Hex(bytes);
     const chunks = Math.max(1, Math.ceil(bytes.length / CHUNK));
     const turev = turevBilgisi(item.file.name) || {};
+    // Sayfa sayısı olmadan sunucudaki "belgede olmayan sayfaya bağlama" denetimi çalışmaz.
+    // Okunamayan belgede alan boş bırakılır; uydurulmaz.
+    let sayfaSayisi = null, metinKatmani = 0;
+    try { const okunan = await readPdf(bytes); sayfaSayisi = okunan.pages; metinKatmani = okunan.textLayer ? 1 : 0; }
+    catch { sayfaSayisi = null; }
 
     item.durum = 'kayıt'; render();
     const created = await api('/sales/documents', {kind: 'pdf', provider: item.provider, filename: item.file.name,
-      mime: item.file.type || 'application/pdf', size_bytes: bytes.length, sha256: sha, chunk_count: chunks, ...turev});
+      mime: item.file.type || 'application/pdf', size_bytes: bytes.length, sha256: sha, chunk_count: chunks,
+      ...(sayfaSayisi === null ? {} : {page_count: sayfaSayisi}), text_layer: metinKatmani, ...turev});
     if (created.duplicate) { item.durum = 'kopya'; item.sonuc = 'Bu dosya daha önce yüklendi; ikinci kez işlenmedi.'; return; }
 
     const id = created.id;
