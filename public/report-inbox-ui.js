@@ -100,6 +100,21 @@ export function mountReports(root, namespace = 'ec') {
         <label class="rb-check"><input type="checkbox" name="fees_positive" ${d.options.fees_positive ? 'checked' : ''}> Kesinti ve iadeler raporda artı (+) yazılıyor</label>
         <label>Kesinti tutarları KDV dahil mi?<select name="fee_vat"><option value="">Bilmiyorum (katkı yaklaşık gösterilir)</option><option value="inc" ${d.options.fee_amounts_include_vat === true ? 'selected' : ''}>KDV dahil</option><option value="exc" ${d.options.fee_amounts_include_vat === false ? 'selected' : ''}>KDV hariç</option></select></label>
         <label>Kesintilerin KDV oranı %<input name="fee_vat_rate" type="number" min="0" max="100" step="0.01" value="${d.options.fee_vat_bps !== null && d.options.fee_vat_bps !== undefined ? d.options.fee_vat_bps / 100 : ''}" placeholder="Faturadan bak"></label></fieldset>
+        ${(() => {
+          const esli = new Set(Object.values(d.mapping || {}));
+          const aday = d.table.headers.filter((h, i) => !esli.has(h) &&
+            d.table.rows.slice(0, 40).some(r => { const c = r.cells[i]; if (!c || c.v === null || c.v === undefined) return false;
+              const n = typeof c.v === 'number' ? c.v : Number(String(c.v).replace(/[^0-9,.-]/g, '').replace(/./g, '').replace(',', '.'));
+              return Number.isFinite(n) && n !== 0; }));
+          if (!aday.length) return '';
+          const secili = Object.fromEntries((d.options.extra_fees || []).map(e => [e.header, e.type]));
+          return `<fieldset><legend>Eşleşmeyen tutar sütunları — bunlar ne?</legend>
+            <p class="rb-muted">Boş bırakılan sütun aktarılmaz. Raporun kendi net tutarıyla tutması için dolu her tutar sütunu ya bir alana ya da buraya bağlanmalı.</p>
+            <div class="rb-grid">${aday.map((h, i) => `<label>${esc(h)}<select name="extra_${i}" data-extra-header="${esc(h)}">
+              <option value="">Aktarma</option>${Object.entries(EVENT_TYPES).filter(([k]) => k !== 'ignore' && k !== 'payout')
+                .map(([k, v]) => `<option value="${k}" ${secili[h] === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}
+            </select></label>`).join('')}</div></fieldset>`;
+        })()}
         ${d.unknownTypes?.length ? `<fieldset><legend>Dosyada geçen işlem türleri — her biri ne anlama geliyor?</legend><div class="rb-grid">${d.unknownTypes.map((t, i) => `<label>${esc(t || '(boş)')}<select name="type_${i}" data-type-text="${esc(t)}"><option value="">Seçin…</option>${Object.entries(EVENT_TYPES).map(([k, v]) => `<option value="${k}" ${d.options.type_map?.[t] === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>`).join('')}</div></fieldset>` : ''}` : ''}
       <div class="rb-actions"><button type="button" class="secondary" data-rb-act="restart">Vazgeç</button><button class="primary" type="submit">Eşleştirmeyi kaydet ve kontrol et</button></div></form></section>`;
   }
@@ -225,9 +240,11 @@ export function mountReports(root, namespace = 'ec') {
     const typeMap = {...(d.options.type_map || {})};
     form.querySelectorAll('[data-type-text]').forEach(s => { if (s.value) typeMap[s.dataset.typeText] = s.value; });
     const vat = x.get('fee_vat'), rate = x.get('fee_vat_rate');
+    const extraFees = [];
+    form.querySelectorAll('[data-extra-header]').forEach(sel => { if (sel.value) extraFees.push({header: sel.dataset.extraHeader, type: sel.value}); });
     const undated = x.get('undated') === 'on';
     if (undated) delete mapping.event_date;
-    const options = {type_map: typeMap, undated, fees_positive: x.get('fees_positive') === 'on', fee_amounts_include_vat: vat === 'inc' ? true : vat === 'exc' ? false : null,
+    const options = {type_map: typeMap, undated, extra_fees: extraFees, fees_positive: x.get('fees_positive') === 'on', fee_amounts_include_vat: vat === 'inc' ? true : vat === 'exc' ? false : null,
       fee_vat_bps: rate === null || rate === '' ? null : Math.round(Number(rate) * 100)};
     d.mapping = mapping; d.options = options; refreshLocal(d);
     if (d.unknownTypes.length) { say('Dosyada karşılığı seçilmemiş işlem türleri var; aşağıdan seçin.', true); return; }

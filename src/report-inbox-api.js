@@ -397,10 +397,20 @@ export async function reportInboxApi(request, env, path, readBody) {
     if (x.kind === 'finance' && !FIELDS.finance.some(f => (f.type === 'money') && mapping[f.key])) fail('En az bir tutar sütunu eşlenmeli.');
     const typeMap = {};
     for (const [t, v] of Object.entries(x.options?.type_map || {})) { if (!EVENT_TYPES[v]) fail('İşlem türü karşılığı geçersiz.'); typeMap[String(t).slice(0, 200)] = v; }
-    const options = {type_map: typeMap, fees_positive: x.options?.fees_positive === true, undated,
+    const extraFees = [];
+    for (const e of (Array.isArray(x.options?.extra_fees) ? x.options.extra_fees : [])) {
+      if (x.kind !== 'finance') fail('Ek kesinti sütunu yalnız finans raporunda olur.');
+      const h = String(e?.header ?? '');
+      if (!headers.includes(h)) fail('Ek kesinti için seçilen sütun dosyada yok: ' + h);
+      if (Object.values(mapping).includes(h)) fail('"' + h + '" hem bir alana hem ek kesintiye eşlenemez.');
+      if (extraFees.some(v => v.header === h)) fail('"' + h + '" iki kez eklenemez.');
+      if (!EVENT_TYPES[e?.type] || e.type === 'ignore' || e.type === 'payout') fail('Ek kesinti türü geçersiz: ' + h);
+      extraFees.push({header: h, type: e.type});
+    }
+    const options = {type_map: typeMap, fees_positive: x.options?.fees_positive === true, undated, extra_fees: extraFees,
       fee_amounts_include_vat: x.options?.fee_amounts_include_vat === true ? true : x.options?.fee_amounts_include_vat === false ? false : null,
       fee_vat_bps: Number.isInteger(x.options?.fee_vat_bps) && x.options.fee_vat_bps >= 0 && x.options.fee_vat_bps <= 10000 ? x.options.fee_vat_bps : null,
-      ignored: headers.filter(h => !Object.values(mapping).includes(h))};
+      ignored: headers.filter(h => !Object.values(mapping).includes(h) && !extraFees.some(v => v.header === h))};
     const signature = headerSignature(headers);
     const prev = await db.prepare('SELECT MAX(version) v FROM ec_report_profiles WHERE provider=? AND kind=? AND signature=?').bind(x.provider, x.kind, signature).first();
     const row = {id: id(), version: (prev?.v || 0) + 1};

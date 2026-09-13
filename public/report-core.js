@@ -211,6 +211,13 @@ export function normalizeRows(profile, headers, rows, {date1904 = false} = {}) {
       if (type !== 'ignore' && data.amount !== undefined) events.push({type: type || null, amount: data.amount, field: 'amount'});
     }
     for (const field of fields.filter(f => f.event)) if (data[field.key] !== undefined) events.push({type: field.event, amount: data[field.key], field: field.key});
+    for (const extra of profile.extra_fees || []) {
+      const at = headers.indexOf(extra.header);
+      if (at < 0) continue;
+      const okunan = readers.money(cells[at], date1904);
+      if (okunan.error || okunan.value === undefined) continue;
+      events.push({type: extra.type, amount: okunan.value, field: 'ek:' + extra.header});
+    }
     if (data.net_payout !== undefined && !events.length) events.push({type: 'payout', amount: data.net_payout, field: 'net_payout'});
     for (const e of events) {
       // İşaret: kullanıcı raporda kesintilerin pozitif yazıldığını söylediyse kesinti/iade eksiye çevrilir.
