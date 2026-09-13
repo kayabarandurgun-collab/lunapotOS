@@ -83,6 +83,13 @@ export function parseMoney(cell) {
   if (!cell || cell.v === null || cell.v === undefined) return {missing: true};
   let s = String(cell.v).replace(/[\s ]/g, '').replace(/₺|TL|TRY/gi, '');
   if (!s) return {missing: true};
+  // Hepsiburada komisyon hücresi tutarı ve ORANI tek hücrede verir: "-54.12 TL (%19.54)".
+  // Oran tutarın parçası değildir; ayrı okunur ve ham hücre korunur. Oran eki olmayan hücreler
+  // eskisi gibi çalışır; "(123,45)" muhasebe eksi gösterimi bundan ayrıdır çünkü % işareti yoktur.
+  let ratePercent = null;
+  const rateSuffix = s.match(/\(%(\d+(?:[.,]\d+)?)\)$/);
+  if (rateSuffix) { ratePercent = rateSuffix[1].replace(',', '.'); s = s.slice(0, rateSuffix.index); }
+  if (!s) return {missing: true};
   let negative = false;
   if (/^\(.*\)$/.test(s)) { negative = true; s = s.slice(1, -1); }
   if (s.startsWith('-')) { negative = !negative; s = s.slice(1); } else if (s.startsWith('+')) s = s.slice(1);
@@ -98,7 +105,7 @@ export function parseMoney(cell) {
   if (frac.length > 2 && /[1-9]/.test(frac.slice(2))) return {error: 'Tutarda kuruştan küçük basamak var; yuvarlanmadı.'};
   const cents = BigInt(whole) * 100n + BigInt((frac + '00').slice(0, 2));
   if (cents > BigInt(Number.MAX_SAFE_INTEGER)) return {error: 'Tutar sınırı aşıldı.'};
-  return {value: Number(cents) * (negative ? -1 : 1)};
+  return {value: Number(cents) * (negative ? -1 : 1), ...(ratePercent === null ? {} : {rate_percent: ratePercent})};
 }
 
 export function parseInt10(cell) {
@@ -165,6 +172,11 @@ export function normalizeRows(profile, headers, rows, {date1904 = false} = {}) {
       if (cell?.f && !r.missing) issues.push(issue('formula', field.key, 'Değer bir formülün kayıtlı sonucu.'));
       if (r.error) issues.push(issue(field.type === 'id' ? 'id_precision' : 'bad_value', field.key, r.error));
       if (r.value !== undefined && !(r.error && field.type !== 'id')) data[field.key] = r.value;
+      // Tutar, oran ve ham hücre AYRI kalır: oran tekrar gider diye toplanmaz, ham metin kaybolmaz.
+      if (r.rate_percent !== undefined) {
+        data[field.key + '_rate_percent'] = r.rate_percent;
+        data[field.key + '_raw'] = String(cell.v);
+      }
       if (field.type === 'money' && Number.isSafeInteger(data[field.key])) totals[field.key] = (totals[field.key] || 0) + data[field.key];
     }
     // Toplam satırı işlem sayılmaz: kimlik alanları boş ve satırda "toplam" yazıyor.
@@ -174,7 +186,14 @@ export function normalizeRows(profile, headers, rows, {date1904 = false} = {}) {
       for (const [k, v] of Object.entries(data)) if (Number.isSafeInteger(v) && totals[k] !== undefined) totals[k] -= v;
       continue;
     }
-    for (const field of fields) if (field.required && data[field.key] === undefined) issues.push(issue('missing_required', field.key, field.label + ' boş.'));
+    for (const field of fields) {
+      if (!field.required || data[field.key] !== undefined) continue;
+      // Hepsiburada finans dökümünde işlem tarihi sütunu HİÇ YOK. Sipariş tarihini ya da dosya
+      // adındaki aralığı işlem tarihi saymak veri uydurmaktır. Profil bunu açıkça beyan ettiyse
+      // kayıt "tarihi bilinmeyen" olarak saklanır; tarih alanı boş kalır, tahmin edilmez.
+      if (kind === 'finance' && field.key === 'event_date' && profile.undated) { data.event_date = null; continue; }
+      issues.push(issue('missing_required', field.key, field.label + ' boş.'));
+    }
 
     if (kind === 'orders') {
       const item = data.line_id ? null : (data.barcode || data.sku || '');

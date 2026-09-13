@@ -383,12 +383,21 @@ export async function reportInboxApi(request, env, path, readBody) {
       if (Object.values(mapping).includes(h)) fail('"' + h + '" sütunu iki alana birden eşlenemez.');
       mapping[f.key] = h;
     }
-    for (const f of FIELDS[x.kind]) if (f.required && !mapping[f.key]) fail(f.label + ' eşlenmeli.');
+    // Hepsiburada finans dökümünde işlem tarihi sütunu yoktur. Profil bunu AÇIKÇA beyan ederse
+    // tarih alanı boş bırakılabilir; kayıtlar "tarihi bilinmeyen" olarak saklanır. Beyan edilmeden
+    // zorunlu alan atlanamaz ve beyan varken tarih sütunu eşlenemez: ikisi birbiriyle çelişir.
+    const undated = x.kind === 'finance' && x.options?.undated === true;
+    if (undated && mapping.event_date) fail('Tarihsiz rapor işaretlendi ama bir tarih sütunu da eşlendi. Birini seçin.');
+    for (const f of FIELDS[x.kind]) {
+      if (!f.required || mapping[f.key]) continue;
+      if (undated && f.key === 'event_date') continue;
+      fail(f.label + ' eşlenmeli.');
+    }
     if (x.kind === 'orders' && !mapping.barcode && !mapping.sku) fail('Barkod ya da stok kodu eşlenmeli; set ve maliyet bununla bulunur.');
     if (x.kind === 'finance' && !FIELDS.finance.some(f => (f.type === 'money') && mapping[f.key])) fail('En az bir tutar sütunu eşlenmeli.');
     const typeMap = {};
     for (const [t, v] of Object.entries(x.options?.type_map || {})) { if (!EVENT_TYPES[v]) fail('İşlem türü karşılığı geçersiz.'); typeMap[String(t).slice(0, 200)] = v; }
-    const options = {type_map: typeMap, fees_positive: x.options?.fees_positive === true,
+    const options = {type_map: typeMap, fees_positive: x.options?.fees_positive === true, undated,
       fee_amounts_include_vat: x.options?.fee_amounts_include_vat === true ? true : x.options?.fee_amounts_include_vat === false ? false : null,
       fee_vat_bps: Number.isInteger(x.options?.fee_vat_bps) && x.options.fee_vat_bps >= 0 && x.options.fee_vat_bps <= 10000 ? x.options.fee_vat_bps : null,
       ignored: headers.filter(h => !Object.values(mapping).includes(h))};

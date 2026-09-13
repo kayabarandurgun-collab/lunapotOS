@@ -7,6 +7,8 @@
 //   GET  /api/invoices/documents/:id             belge bilgisi + okunan alanlar (aday)
 //   GET  /api/invoices/documents/:id/part?index  özgün belgenin bir parçası (önizleme/indirme)
 //   POST /api/invoices/documents/:id/link        {invoice_id} belgeyi mevcut fatura kaydına bağlar
+//   GET  /api/invoices/documents/:id/pages       belgedeki sayfa → fatura bağlantıları
+//   POST /api/invoices/documents/:id/pages       {pages:[{page_no,invoice_id}]} çok faturalı belge
 //   GET  /api/invoices/families                  ürün aileleri + üyeleri + tedarikçi hatırlatmaları
 //   POST /api/invoices/families                  {name,size_label,stock_unit,product_ids}
 //   POST /api/invoices/families/link             tedarikçi satırı → aile (ADETLER hatırlanmaz)
@@ -148,7 +150,7 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
     return {id: row.id};
   }
 
-  const docMatch = path.match(/^\/api\/invoices\/documents\/([\w-]+)(?:\/(chunk|seal|part|link))?$/);
+  const docMatch = path.match(/^\/api\/invoices\/documents\/([\w-]+)(?:\/(chunk|seal|part|link|pages))?$/);
   if (!docMatch) return null;
   const doc = await db.prepare('SELECT * FROM purchase_documents WHERE id=?').bind(key(docMatch[1])).first();
   if (!doc) fail('Belge bulunamadı.', 404);
@@ -199,6 +201,55 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
     if (taken) fail('Bu fatura kaydına başka bir belge bağlı.', 409);
     await db.prepare("UPDATE purchase_documents SET status='linked',invoice_id=? WHERE id=? AND invoice_id IS NULL").bind(invoice.id, doc.id).run();
     return {ok: true, invoice_id: invoice.id, notice: 'Özgün belge fatura kaydına bağlandı. Belge saklanır; kayıt silinemez.'};
+  }
+
+  // Bir belge birden çok faturayı içerebilir ("tüm zamanlar" dökümü). Her faturanın SAYFASI
+  // ayrı bağlanır; dosya çoğaltılmaz. Bu, not alanına "sayfa 7" yazmanın yerini alır.
+  if (action === 'pages' && method === 'GET') {
+    const rows = (await db.prepare(`SELECT p.id,p.page_no,p.invoice_id,p.doc_no,p.doc_uuid,p.created_at,
+      i.invoice_no,i.invoice_date,i.status invoice_status FROM purchase_document_pages p
+      JOIN purchase_invoices i ON i.id=p.invoice_id WHERE p.document_id=? ORDER BY p.page_no`).bind(doc.id).all()).results;
+    return {document_id: doc.id, filename: doc.filename, page_count: doc.page_count, pages: rows,
+      notice: 'Sayfa bağlantısı kanıttır: kurulduktan sonra taşınmaz ve silinmez.'};
+  }
+
+  if (action === 'pages' && method === 'POST') {
+    const x = await readBody(request);
+    if (doc.status === 'receiving') fail('Önce belgenin yüklenmesini tamamlayın.', 409);
+    if (!Array.isArray(x.pages) || !x.pages.length || x.pages.length > 200) fail('Sayfa listesi 1–200 satır olmalı.');
+    const wanted = x.pages.map(p => {
+      if (!Number.isSafeInteger(p?.page_no) || p.page_no < 1) fail('Sayfa numarası geçersiz.');
+      if (doc.page_count && p.page_no > doc.page_count) fail('Sayfa ' + p.page_no + ' bu belgede yok (' + doc.page_count + ' sayfa).');
+      return {page_no: p.page_no, invoice_id: key(p.invoice_id), doc_no: optional(p.doc_no, 60), doc_uuid: optional(p.doc_uuid, 60).toLowerCase()};
+    });
+    if (new Set(wanted.map(p => p.page_no)).size !== wanted.length) fail('Aynı sayfa listede birden çok kez var.');
+    if (new Set(wanted.map(p => p.invoice_id)).size !== wanted.length) fail('Aynı fatura listede birden çok kez var.');
+
+    const ids = JSON.stringify(wanted.map(p => p.invoice_id));
+    const known = new Set((await db.prepare('SELECT id FROM purchase_invoices WHERE id IN (SELECT value FROM json_each(?))').bind(ids).all()).results.map(r => r.id));
+    const missing = wanted.filter(p => !known.has(p.invoice_id));
+    if (missing.length) fail(missing.length + ' fatura kaydı bulunamadı; bağlantı kurulmadı.', 404);
+
+    // Mevcut bağlantılar ÜSTÜNE YAZILMAZ. Aynısı zaten varsa tekrar sayılmaz; çelişki varsa
+    // bildirilir ve o satır atlanır. Sessiz düzeltme yok.
+    const prior = (await db.prepare(`SELECT page_no,invoice_id FROM purchase_document_pages
+      WHERE document_id=? OR invoice_id IN (SELECT value FROM json_each(?))`).bind(doc.id, ids).all()).results;
+    const byPage = new Map(prior.filter(r => r.page_no !== undefined).map(r => [r.page_no, r.invoice_id]));
+    const byInvoice = new Map(prior.map(r => [r.invoice_id, r.page_no]));
+    const created = [], same = [], conflicts = [];
+    for (const p of wanted) {
+      const pageHas = byPage.get(p.page_no), invoiceHas = byInvoice.get(p.invoice_id);
+      if (pageHas === p.invoice_id) { same.push(p.page_no); continue; }
+      if (pageHas !== undefined) { conflicts.push({page_no: p.page_no, reason: 'Bu sayfa başka bir faturaya bağlı.'}); continue; }
+      if (invoiceHas !== undefined) { conflicts.push({page_no: p.page_no, reason: 'Bu fatura zaten ' + invoiceHas + '. sayfaya bağlı.'}); continue; }
+      created.push(p);
+    }
+    if (created.length) {
+      await db.batch(created.map(p => db.prepare('INSERT INTO purchase_document_pages(id,document_id,page_no,invoice_id,doc_no,doc_uuid,created_by) VALUES(?,?,?,?,?,?,?)')
+        .bind(id(), doc.id, p.page_no, p.invoice_id, p.doc_no, p.doc_uuid, user.id || 'owner')));
+    }
+    return {document_id: doc.id, created: created.length, already_linked: same.length, conflicts,
+      notice: 'Belge tek kopya olarak durur; her fatura kendi sayfasına bağlandı. Bu işlem borç veya stok yazmaz.'};
   }
   return null;
 }
