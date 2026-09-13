@@ -40,7 +40,7 @@ const now=()=>Math.floor(Date.now()/1000);
 const json=(data,status=200,headers={})=>Response.json(data,{status,headers:{'Cache-Control':'no-store',...headers}});
 const activity=(db,description)=>db.prepare('INSERT INTO activity(id,description) VALUES(?,?)').bind(crypto.randomUUID(),description);
 // Rapor Kutusu dosya parçası ve satır partileri daha büyük olabilir; sınır yalnızca bu iki uçta yükselir.
-const bodyLimit=request=>/^\/api\/ec\/reports\/files\/[\w-]{1,100}\/(chunk|rows)$/.test(new URL(request.url).pathname)||/^\/api\/(ec|lp)\/invoices\/documents\/[\w-]{1,100}\/chunk$/.test(new URL(request.url).pathname)?1000000:64000;
+const bodyLimit=request=>/^\/api\/ec\/reports\/files\/[\w-]{1,100}\/(chunk|rows)$/.test(new URL(request.url).pathname)||/^\/api\/(ec|lp)\/invoices\/documents\/[\w-]{1,100}\/chunk$/.test(new URL(request.url).pathname)||/^\/api\/ec\/sales\/documents\/[\w-]{1,100}\/chunk$/.test(new URL(request.url).pathname)?1000000:64000;
 async function body(request){const limit=bodyLimit(request);if(Number(request.headers.get('content-length'))>limit)fail('İstek çok büyük.',413);const raw=await request.text();if(raw.length>limit)fail('İstek çok büyük.',413);try{return JSON.parse(raw);}catch{fail('Geçersiz veri.');}}
 const session=currentSession;
 // Tek bayt aralığı ("bytes=a-b", "bytes=a-", "bytes=-n"). Çoklu aralık desteklenmez; tam dosya döner.
