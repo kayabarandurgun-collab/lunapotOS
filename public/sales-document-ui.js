@@ -297,7 +297,7 @@ export function mountSalesDocuments(root, namespace = 'ec') {
         <th>Sayfa</th>${tur === 'sales' ? '<th>Özgün sayfa</th><th>Fatura no</th><th>Sipariş</th>' : '<th>Fatura no</th><th>Tarih</th>'}
         </tr></thead><tbody>
         ${satirlar.map(p => tur === 'sales'
-          ? `<tr><td>${num(p.page_no)}</td><td>${num(p.origin_page_no)}</td><td>${esc(p.invoice_no || '—')}</td><td>${esc(p.order_no || '—')}</td></tr>`
+          ? `<tr><td>${num(p.page_no)}</td><td>${num(p.origin_page_no)}</td><td>${esc(p.invoice_no || '—')}${p.corrected ? ' <span class="rb-tag" title="' + esc(p.correction_reason || '') + '">düzeltildi</span>' : ''}</td><td>${esc(p.order_no || '—')}</td></tr>${p.corrected ? `<tr class="rb-muted"><td></td><td></td><td colspan="2"><small>Önce yanlış yazılmıştı: ${esc(p.wrong_invoice_no || '—')} · ${esc(p.wrong_order_no || '—')}</small></td></tr>` : ''}`
           : `<tr><td>${num(p.page_no)}</td><td>${esc(p.invoice_no || '—')}</td><td>${esc(p.invoice_date || '—')}</td></tr>`).join('')}
         </tbody></table></div>` : '<p class="rb-muted">Bu belgede henüz sayfa kaydı yok.</p>'}
       ${tur === 'purchase' ? `<form data-sd-form="sayfa" class="rb-grid">

@@ -8,6 +8,7 @@
 //   GET  /api/sales/documents/:id/part?index     özgün belgenin bir parçası
 //   GET  /api/sales/documents/:id/pages          sayfa → fatura bağlantıları
 //   POST /api/sales/documents/:id/pages          {pages:[{page_no,invoice_no,ettn,order_no,gross}]}
+//   POST /api/sales/documents/:id/pages/correct  {reason,corrections:[{page_no,invoice_no,order_no,gross}]}
 //   POST /api/sales/documents/:id/pages/link     {links:[{page_no,package_id}]} sonradan sipariş bağı
 //
 // Alış belgesinden AYRI bir tablodur: karşı taraf tedarikçi değil müşteridir ve kayıt bir alış
@@ -89,7 +90,7 @@ export async function salesDocumentApi(request, env, path, readBody) {
     return {id: row.id};
   }
 
-  const match = path.match(/^\/api\/sales\/documents\/([\w-]+)(?:\/(chunk|seal|part|pages))?(?:\/(link))?$/);
+  const match = path.match(/^\/api\/sales\/documents\/([\w-]+)(?:\/(chunk|seal|part|pages))?(?:\/(link|correct))?$/);
   if (!match) return null;
   const doc = await db.prepare('SELECT * FROM ec_sales_documents WHERE id=?').bind(key(match[1])).first();
   if (!doc) fail('Belge bulunamadı.', 404);
@@ -133,8 +134,16 @@ export async function salesDocumentApi(request, env, path, readBody) {
   }
 
   if (action === 'pages' && !sub && method === 'GET') {
-    const rows = (await db.prepare(`SELECT p.*,o.order_no package_order_no,o.status package_status
+    const rows = (await db.prepare(`SELECT p.id,p.document_id,p.page_no,p.origin_page_no,p.package_id,p.created_by,p.created_at,
+      CASE WHEN c.id IS NULL THEN p.invoice_no ELSE c.invoice_no END invoice_no,
+      CASE WHEN c.id IS NULL THEN p.ettn ELSE c.ettn END ettn,
+      CASE WHEN c.id IS NULL THEN p.order_no ELSE c.order_no END order_no,
+      CASE WHEN c.id IS NULL THEN p.gross_cents ELSE c.gross_cents END gross_cents,
+      CASE WHEN c.id IS NULL THEN 0 ELSE 1 END corrected,
+      c.wrong_invoice_no,c.wrong_order_no,c.reason correction_reason,
+      o.order_no package_order_no,o.status package_status
       FROM ec_sales_document_pages p LEFT JOIN ec_order_packages o ON o.id=p.package_id
+      LEFT JOIN ec_sales_document_page_corrections c ON c.page_id=p.id
       WHERE p.document_id=? ORDER BY p.page_no`).bind(doc.id).all()).results;
     return {document_id: doc.id, filename: doc.filename, page_count: doc.page_count,
       origin_filename: doc.origin_filename, origin_first_page: doc.origin_first_page, pages: rows,
@@ -179,6 +188,44 @@ export async function salesDocumentApi(request, env, path, readBody) {
     }
     return {document_id: doc.id, created: created.length, already_recorded: same.length, conflicts,
       notice: 'Belge tek kopya olarak durur; her fatura kendi sayfasıyla arşivlendi. Bu işlem satış veya stok kaydı oluşturmaz.'};
+  }
+
+  // DUZELTME. Muhurlu sayfa kaydi silinmez ve degistirilmez; yanlis satir yerinde kalir,
+  // dogrusu yanina yazilir ve okuma tarafi dogruyu gosterir. Gerekce zorunludur.
+  // Bu uc mali kayit olusturmaz; yalniz hangi sayfanin hangi faturaya ait oldugunu duzeltir.
+  if (action === 'pages' && sub === 'correct' && method === 'POST') {
+    const x = await readBody(request);
+    const reason = optional(x.reason, 400).trim();
+    if (reason.length < 10) fail('Düzeltme gerekçesi zorunludur (en az 10 karakter).');
+    if (!Array.isArray(x.corrections) || !x.corrections.length || x.corrections.length > 200)
+      fail('Düzeltme listesi 1–200 satır olmalı.');
+    const wanted = x.corrections.map(c => {
+      if (!Number.isSafeInteger(c?.page_no) || c.page_no < 1) fail('Sayfa numarası geçersiz.');
+      return {page_no: c.page_no, invoice_no: optional(c.invoice_no, 60), ettn: optional(c.ettn, 60).toLowerCase(),
+        order_no: optional(c.order_no, 60), gross_cents: centsFrom(c.gross, 'Fatura')};
+    });
+    if (new Set(wanted.map(c => c.page_no)).size !== wanted.length) fail('Aynı sayfa listede birden çok kez var.');
+
+    const rows = (await db.prepare(`SELECT p.id,p.page_no,p.invoice_no,p.order_no,c.id corr_id
+      FROM ec_sales_document_pages p LEFT JOIN ec_sales_document_page_corrections c ON c.page_id=p.id
+      WHERE p.document_id=?`).bind(doc.id).all()).results;
+    const byPage = new Map(rows.map(r => [r.page_no, r]));
+    const yazilacak = [], atlanan = [], conflicts = [];
+    for (const c of wanted) {
+      const row = byPage.get(c.page_no);
+      if (!row) { conflicts.push({page_no: c.page_no, reason: 'Bu sayfa belgede kayıtlı değil.'}); continue; }
+      if (row.corr_id) { conflicts.push({page_no: c.page_no, reason: 'Bu sayfa zaten bir kez düzeltildi; düzeltme de mühürlüdür.'}); continue; }
+      if (row.invoice_no === c.invoice_no && row.order_no === c.order_no) { atlanan.push(c.page_no); continue; }
+      yazilacak.push({...c, page_id: row.id, wrong_invoice_no: row.invoice_no, wrong_order_no: row.order_no});
+    }
+    if (yazilacak.length) {
+      await db.batch(yazilacak.map(c => db.prepare(`INSERT INTO ec_sales_document_page_corrections
+        (id,page_id,document_id,page_no,wrong_invoice_no,wrong_order_no,invoice_no,ettn,order_no,gross_cents,reason,created_by)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).bind(id(), c.page_id, doc.id, c.page_no, c.wrong_invoice_no, c.wrong_order_no,
+        c.invoice_no, c.ettn, c.order_no, c.gross_cents, reason, user.id || 'owner')));
+    }
+    return {document_id: doc.id, corrected: yazilacak.length, unchanged: atlanan.length, conflicts,
+      notice: 'Yanlış kayıt silinmedi; düzeltme yanına yazıldı ve listede doğru değer gösterilir.'};
   }
 
   // Sipariş sisteme belgeden SONRA girebilir: bağlantı sonradan bir kez kurulur, geri alınmaz.

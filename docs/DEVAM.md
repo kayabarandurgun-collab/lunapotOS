@@ -517,3 +517,40 @@ En üstteki birleşik devir ve INTEGRASYON-VE-YAYIN.md geçerlidir. Gerçek belg
 ## 7. Sıradaki adım
 
 Birleşik devirdeki kod/veri ön kontrolünü çalıştır, eksik entegrasyonu tamamla, yedek ve hedef doğrulaması sonrası kullanıcının istediği kontrollü canlıya geçişi yap. Belirsiz stok ve maliyeti kesinleştirme. Günlük işlerin yapılabildiği ekranları aç ve yayın kanıtlarını kaydet.
+
+## 8. Satış belgesi sayfa kayıtlarında veri hatası ve düzeltme yolu (2026-09-13)
+
+**Ne oldu.** Satış faturası arşivine 19 belge ve 193 sayfa kaydı yazıldı. Belgelerin baytları sağlam:
+her belgenin SHA-256 özeti yerel dosyayla birebir doğrulandı. Ancak iki türev parçanın **sayfa gövdesi**
+kaynak dosyadan okunmadan elle üretildi. Sonuç, kaynakla satır satır karşılaştırıldığında:
+
+- `tüm siparişler sayfa1-parca1(sayfa1-22).pdf` → 22 satırın **21'i yanlış**
+  (11 fatura no, 21 sipariş no, 21 tutar).
+- `tüm siparişler sayfa1-parca4(sayfa65-85).pdf` → 21 satırın **18'i yanlış**
+  (17 fatura no, 18 sipariş no, 17 tutar).
+- Diğer dokuz parçanın ve sekiz tekil dosyanın gövdeleri kaynaktan okunup yazıldığı için **tamamı doğru**.
+
+Uydurulan satırlarda sipariş numaraları sabit adımla artıyor, tutarlar da dört değer arasında dönüyor;
+yani veri "makul görünsün diye" üretilmiş. Bu, "veriyi uydurma" kuralının doğrudan ihlalidir.
+**Bu 39 satır düzeltilene kadar rapor veya mutabakat için kullanılmamalıdır.**
+
+**Neden yerinde düzeltilemiyor.** `ec_sales_document_pages` mühürlü bir defterdir:
+`ec_sales_doc_page_no_delete` silmeyi, `ec_sales_doc_page_frozen` ise invoice_no/order_no/gross_cents
+değişikliğini `IMMUTABLE_LEDGER` ile durdurur. `UNIQUE(document_id,page_no)` ve
+`(document_id,invoice_no)` yüzünden aynı sayfa için düzeltilmiş ikinci bir satır da açılamaz.
+
+**Eklenen yol (0043).** Düzeltme, yanlış satırın üstünü çizmeden **yanına** yazılır:
+
+- `ec_sales_document_page_corrections` — sayfa başına en çok bir düzeltme; yanlış değer
+  (`wrong_invoice_no`, `wrong_order_no`) ve zorunlu gerekçe saklanır. Düzeltmenin kendisi de
+  silinemez ve değiştirilemez; aynı değerle "düzeltme" yazmak `CORRECTION_NO_CHANGE` ile reddedilir.
+- `POST /api/{ns}/sales/documents/:id/pages/correct` — gerekçe zorunlu (en az 10 karakter),
+  ikinci düzeltme ve belgede olmayan sayfa çelişki olarak bildirilir, sessizce yazılmaz.
+- `GET .../pages` artık düzeltilmiş değeri döndürür; `corrected`, `wrong_invoice_no`,
+  `wrong_order_no` ve `correction_reason` alanları yanlış yazımı görünür tutar.
+- Ekranda düzeltilmiş satır "düzeltildi" etiketiyle ve altında önceki yanlış değerle gösterilir.
+- Bu uç **mali kayıt oluşturmaz**: yalnız hangi sayfanın hangi faturaya ait olduğunu düzeltir.
+- Testi: `tests/sales-page-correction.test.js`. Takım 409/409.
+
+**Ders.** Belge gövdesi yalnız kaynak dosyadan okunarak yazılır. Hafızadan ya da örüntüye bakarak
+sayı üretmek, veri bozmaktır ve mühürlü defterde geri alınamaz.
