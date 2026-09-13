@@ -206,7 +206,7 @@ export async function salesDocumentApi(request, env, path, readBody) {
     });
     if (new Set(wanted.map(c => c.page_no)).size !== wanted.length) fail('Aynı sayfa listede birden çok kez var.');
 
-    const rows = (await db.prepare(`SELECT p.id,p.page_no,p.invoice_no,p.order_no,c.id corr_id
+    const rows = (await db.prepare(`SELECT p.id,p.page_no,p.invoice_no,p.order_no,p.ettn,p.gross_cents,c.id corr_id
       FROM ec_sales_document_pages p LEFT JOIN ec_sales_document_page_corrections c ON c.page_id=p.id
       WHERE p.document_id=?`).bind(doc.id).all()).results;
     const byPage = new Map(rows.map(r => [r.page_no, r]));
@@ -215,7 +215,8 @@ export async function salesDocumentApi(request, env, path, readBody) {
       const row = byPage.get(c.page_no);
       if (!row) { conflicts.push({page_no: c.page_no, reason: 'Bu sayfa belgede kayıtlı değil.'}); continue; }
       if (row.corr_id) { conflicts.push({page_no: c.page_no, reason: 'Bu sayfa zaten bir kez düzeltildi; düzeltme de mühürlüdür.'}); continue; }
-      if (row.invoice_no === c.invoice_no && row.order_no === c.order_no) { atlanan.push(c.page_no); continue; }
+      if (row.invoice_no === c.invoice_no && row.order_no === c.order_no
+        && row.ettn === c.ettn && row.gross_cents === c.gross_cents) { atlanan.push(c.page_no); continue; }
       yazilacak.push({...c, page_id: row.id, wrong_invoice_no: row.invoice_no, wrong_order_no: row.order_no});
     }
     if (yazilacak.length) {

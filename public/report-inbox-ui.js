@@ -79,7 +79,7 @@ export function mountReports(root, namespace = 'ec') {
         <label>Mağaza kodu / satıcı no<input name="code" required maxlength="80"></label>
         <label>Görünen ad<input name="name" required maxlength="120"></label>
         <button class="secondary" type="submit">Mağazayı ekle</button></form></details>
-      <label class="rb-drop" data-rb-drop><input type="file" accept=".xlsx,.csv" data-rb="file" hidden>
+      <label class="rb-drop" data-rb-drop><input type="file" accept=".xlsx,.csv" data-rb="file" aria-label="Excel ya da CSV rapor dosyasını seç">
         <strong>Excel (.xlsx) ya da CSV dosyasını buraya sürükle</strong><span>ya da tıklayıp seç · en çok ${LIMITS.fileBytes / 1024 / 1024} MB</span></label>
       <p class="rb-muted">"Rapor ne zaman indirildi" hangi bilginin daha yeni olduğunu belirler: eski tarihli bir rapor güncel durumu geri almaz.</p></section>`;
   }

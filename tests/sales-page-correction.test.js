@@ -20,6 +20,16 @@ async function storeDoc(f) {
   return doc.id;
 }
 
+const bytes2 = new Uint8Array([37, 80, 68, 70, 45, 49, 46, 52, 10, 11, 12, 13, 14, 15]);
+async function storeDoc2(f) {
+  const doc = await f.ok('/ec/sales/documents', {kind: 'pdf', provider: 'trendyol',
+    filename: 'ikinci-belge.pdf', sha256: await sha256Hex(bytes2), size_bytes: bytes2.length,
+    chunk_count: 1, page_count: 1});
+  await f.ok('/ec/sales/documents/' + doc.id + '/chunk', {index: 0, data: Buffer.from(bytes2).toString('base64')});
+  await f.ok('/ec/sales/documents/' + doc.id + '/seal', {});
+  return doc.id;
+}
+
 test('Yanlış yazılmış sayfa kaydı silinmeden düzeltilir ve liste doğruyu gösterir', async () => {
   const f = appFixture(); await f.setup(); try {
     const doc = await storeDoc(f);
@@ -67,15 +77,28 @@ test('Yanlış yazılmış sayfa kaydı silinmeden düzeltilir ve liste doğruyu
     assert.throws(() => f.sqlite.exec('DELETE FROM ec_sales_document_page_corrections'), /IMMUTABLE_LEDGER/);
     assert.throws(() => f.sqlite.exec("UPDATE ec_sales_document_page_corrections SET invoice_no='X'"), /IMMUTABLE_LEDGER/);
 
+    // Yalnız TUTARI yanlış olan satır da düzeltilebilmeli: numaralara bakıp tutarı atlamak,
+    // hatalı tutarın defterde kalması demektir.
+    const tutar = await f.ok('/ec/sales/documents/' + doc + '/pages/correct', {
+      reason: 'Tutar kaynak dökümden okunmadan komşu satırlara bakılarak yazılmıştı.',
+      corrections: [{page_no: 2, invoice_no: 'TEA2026000000014', order_no: '11446249637', gross: 948}]});
+    assert.equal(tutar.corrected, 1, 'yalnız tutar farkı da düzeltme sayılır');
+    const listeTutar = await f.ok('/ec/sales/documents/' + doc + '/pages');
+    assert.equal(listeTutar.pages.find(p => p.page_no === 2).gross_cents, 94800);
+
     // Belgede olmayan sayfa düzeltilemez; aynı değerle "düzeltme" yazılmaz.
     const yok = await f.ok('/ec/sales/documents/' + doc + '/pages/correct', {
       reason: 'Belgede olmayan sayfa için düzeltme denemesi.',
       corrections: [{page_no: 9, invoice_no: 'TEA2026000000099', order_no: '1', gross: 1}]});
     assert.equal(yok.corrected, 0);
     assert.equal(yok.conflicts.length, 1);
-    const ayni = await f.ok('/ec/sales/documents/' + doc + '/pages/correct', {
+    // Aynı değerle "düzeltme" yazılmaz: 3. sayfa hiç yazılmadığı için çelişki, 2. sayfa ise
+    // düzeltilmiş durumda. Değişiklik içermeyen istek için ayrı bir belge açılır.
+    const doc2 = await storeDoc2(f);
+    await f.ok('/ec/sales/documents/' + doc2 + '/pages', {pages: [{page_no: 1, invoice_no: 'TEA2026000000500', order_no: '9', gross: 10}]});
+    const ayni = await f.ok('/ec/sales/documents/' + doc2 + '/pages/correct', {
       reason: 'Aynı değerle düzeltme denemesi; kayıt açılmamalı.',
-      corrections: [{page_no: 2, invoice_no: 'TEA2026000000014', order_no: '11446249637', gross: 432.55}]});
+      corrections: [{page_no: 1, invoice_no: 'TEA2026000000500', order_no: '9', gross: 10}]});
     assert.equal(ayni.corrected, 0);
     assert.equal(ayni.unchanged, 1);
   } finally { f.close(); }
