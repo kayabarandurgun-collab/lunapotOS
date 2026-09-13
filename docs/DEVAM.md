@@ -41,6 +41,35 @@ tutarı olmadığı için mali kayıt olmadı.
    dizisi vardı (her karakteri siliyordu) ve yalnız ilk 40 satıra bakıyordu. Seçim
    `report-core`'a taşındı, dosyanın tamamını tarıyor ve testi var.
 
+## Doğrulama sonuçları (canlı, aktarım sonrası)
+
+**Mükerrer kontrolü — iki düzeyde kapalı.**
+- Dosya düzeyi: aynı CSV ikinci kez yüklendi, panel "Bu dosya bu mağazaya daha önce
+  yüklendi; ikinci kez işlenmez." dedi. Dosya sayısı 5 → 5, kayıt 2.260 → 2.260, değişmedi.
+- Kayıt düzeyi: uygulanmış her dosya için önizleme yeniden çalıştırıldı; 1791, 396, 2, 12
+  ve 59 kaydın **tamamı "aynı (tekrar)"** döndü, yeni 0. Örtüşen dönemli üç CSV dahil.
+
+**Kuruş mutabakatı — sunucunun sakladığı satırlardan yeniden hesaplandı.**
+- TY: satış 140.669,67 · komisyon −23.557,81 · kargo −21.117,73 · net hakediş 79.151,54
+- HB: satış 23.534,30 · komisyon −4.417,43 · kargo −5.031,79 · net hakediş 13.919,83
+- CSV brüt: 480,00 + 4.138,40 + 19.580,90 = 24.199,30
+Not: yukarıdaki "kargo" alan toplamıdır; iade kargosunu da içeren olay toplamı −21.272,73'tür.
+
+**Günlük kullanım akışı.** Fatura belgeleri: 19 satış belgesi / 193 sayfa, 3 alış belgesi /
+30 sayfa. Alış faturaları: 30 (taslak). Rapor Kutusu: 5 dosya, 2 mağaza, 3 profil.
+İnceleme sekmesinde 1 açık kayıt var ve karar verilebilir durumda.
+
+**Mali etki yok.** Sipariş paketi 0, sipariş satırı 0, rezervasyon 0, ürün 34.
+Rapor ve belge aktarımı stok hareketi, satış kaydı ya da fatura oluşturmadı.
+
+## Geri dönüş noktası
+
+Aktarım sonrası D1 kurtarma noktası (zaman yolculuğu işareti):
+`0000005f-00000000-000050e5-aa5a397baace456759be91763c261d37`
+
+Geri almak gerekirse `scripts/recovery.mjs` ile plan çıkarılır ve açık onayla uygulanır
+(7 günlük ücretsiz pencere). Uygulama kodu geri alınmaz; yalnız veri geri sarılır.
+
 ## Kurallara uyum
 
 - Oturum güvenliği atlatılmadı, sahte oturum üretilmedi, veritabanına doğrudan yazılmadı.
