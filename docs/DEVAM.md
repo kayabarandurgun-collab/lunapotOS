@@ -4,8 +4,79 @@ Bu dosya deponun **tek yetkili devam belgesidir**. Her iş, kodla **aynı commit
 Depo dışındaki eski başlangıç notları (`Desktop/site/CLAUDE-*.md`) tarihseldir; çelişki olursa **bu dosya geçerlidir**.
 Sohbet geçmişine güvenilmez.
 
-Son güncelleme: 13 Eylül 2026 (GERÇEK VERİ CANLIYA AKTARILDI)
+Son güncelleme: 13 Eylül 2026 (yayın + katalog canlıda, dosya yüklemesi kullanıcıda)
 
+## 13 Eylül 2026 — Sevk yarışı kapatıldı, sayfa bağlantısı geldi, katalog canlıya yazıldı (EN YENİ KAYIT)
+
+Bu bölüm daha eski bölümlerin üstündedir. Çelişki olursa **bu bölüm geçerlidir**.
+
+### Kod: dört inceleme bulgusu + üç yapısal eksik kapatıldı
+- **Sevk yarışı (P1).** Önceki koruma siparişin KENDİ saklı özetini kendisiyle karşılaştırıyordu;
+  rapor yeniden yüklenince bu alan değişmediği için koşul her zaman tutuyordu, yani koruma boştu.
+  Artık bağlı rapor kaydının içeriği değiştiği anda tetikleyici siparişi `source_changed` işaretliyor,
+  mevcut geçiş tetikleyicisi rezervasyon ve sevki ABORT ediyor. Sevk tek işlem olduğu için satış
+  satırları ve stok çıkışı da birlikte geri alınıyor; uygulama 409 dönüyor.
+- **NULL bağlantı (P2).** Bağlılık artık özet sütunundan değil rapor kayıtlarından belirleniyor.
+  Bağlı ama özeti olmayan paket "aynı" sayılmıyor, incelemeye düşüyor. `report_linked` bayrağı
+  sayesinde rapora bağlı OLMAYAN sipariş sıfır ek sorgu harcıyor (20 bileşenli sevk D1 bütçesinde kalıyor).
+- **Parti sayacı (P2).** `pending_lines` artık faturaların veritabanındaki gerçek durumundan okunuyor;
+  aynı dosya yeniden yüklendiğinde çözülmemiş satırlar 0 görünmüyor, kullanıcı eşleştirince gerçekten azalıyor.
+- **Sayfa düzeyinde belge bağlantısı (YENİ, 0042).** Bir belge birden çok faturayı içerebiliyor.
+  Karakuş'un 21 faturası tek PDF'te; eski bire bir `invoice_id` alanı bunu karşılamıyordu ve
+  sayfa bilgisi yalnızca not alanında metin olarak kalıyordu.
+- **Satış belgesi arşivi (YENİ, 0042).** Pazaryeri satış faturaları kendi tablosunda; sipariş paketine
+  bağlanıyor. Boyut sınırı nedeniyle bölünerek yüklenen dosyada ÖZGÜN sayfa aralığı saklanıyor.
+- **Tarihsiz finans (YENİ).** HB finans dökümünde işlem tarihi sütunu YOK. Sipariş tarihini ya da dosya
+  adındaki aralığı işlem tarihi saymak veri uydurmaktır; profil bunu açıkça beyan ederse `event_date`
+  boş kalıyor. Beyan etmeden zorunlu alan atlanamıyor, beyanla birlikte tarih sütunu eşlenemiyor.
+- **Komisyon oranı (YENİ).** HB komisyon hücresi tutarı ve oranı birlikte veriyor. Tutar, oran ve ham
+  metin AYRI alanlarda tutuluyor; oran ikinci bir kesinti olarak toplanmıyor.
+
+Testler: **404/404** (7 yeni test), `npm run build` temiz.
+Commitler: 2c204c2 (yarış + sayaç), d0aff6e (sayfa bağlantısı + tarihsiz finans), 1b852e7 (gövde sınırı).
+
+### Canlı: yayınlandı ve katalog yazıldı
+Yayın öncesi tam D1 yedeği alındı (depo dışında) ve geri dönüş işareti kaydedildi:
+0000003a-00000012-000050e5-029413ec465b6bfcc8e99c2fd68b9a7d.
+Migration **0041 + 0042** uygulandı ve doğrulandı. Dağıtım **587c7ad3-a06d-46ae-9822-fc15d62e2974**
+(öncesi 48b3d3ce). Kontrol: /eticaret 200 · /uretim 200 · **/magaza 404 (kapalı kaldı)**.
+
+| Ölçüm | Önce | Sonra |
+|---|---:|---:|
+| Ürün kartı | 32 | **34** |
+| İlan bağlantısı (TY / HB) | 51 / 0 | **51 / 12** |
+| Rapor mağazası | 0 | **2** |
+| Alış faturası (taslak) | 30 | 30 |
+| Rapor dosyası · sipariş · stok · satış | 0 | **0** |
+
+Açılan kartlar: TR-ORKIDE-1000ML, TR-YESIL-500ML. Bağlanan 12 HB ilanı 97 satılan adedin **74'ünü**
+kapsıyor. Kimliği belirsiz 4 ilan (23 adet) **bilerek bağlanmadı**: HBCV0000DSXM6Q, HBCV000007EJ04,
+HBV0000135Y1R, HBCV00006H2QMB.
+
+### Yerel prova: aktarımın tamamı gerçek uçlardan geçirildi (CANLI DEĞİL)
+Bellek içi veritabanında canlı durum baştan kuruldu ve her adım gerçek API uçlarından geçti:
+30 fatura / 71 satır / **98.521,20 TL**, **30/30 sayfa bağlantısı** (sıfır çelişki),
+TY 1194 finans kaydı, HB 462 kayıt + 1 inceleme (yalnız "Toplam" satırı), HB detay 73 kayıt,
+8 satış belgesi. Mutabakat kaynakla birebir: **TY 140.669,67 TL**, **HB 23.534,30 TL**.
+Stok hareketi 0, satış 0, sipariş 0 — hiçbir mali kayıt yazılmadı. Bu sonuçlar canlı aktarım DEĞİLDİR.
+
+### YAPILAMAYAN: rapor ve PDF dosyalarının canlıya taşınması
+Tarayıcı aracı, sayfaya sonradan eklenen ya da gizli `input[type=file]` öğelerini erişilebilirlik
+ağacında göstermiyor ve `file_upload` bir ref istiyor; Rapor Kutusu'nun sürükle-bırak girdisi de
+gizli olduğu için hedeflenemedi. Baytları koda gömme yolu denendi ve **ikili dosyada bayt bozulması**
+saptandı (10.066 bayt, aynı boyut, SHA 688d2e37 yerine 3e1bc851 olmalıydı). Bozuk belge arşive
+ALINMADI. Parçalı gömme (8.000 karakter) doğrulandı ama 73 MB'lık PDF arşivi için uygun değil.
+
+Dosyalar kullanıcı için tek klasörde hazırlandı: **C:/Users/baran/Desktop/LUNAPOT-YUKLE**
+(1-rapor-kutusu 5 dosya, 2-alis-pdf 3 dosya, 3-satis-pdf 20 dosya, yönerge OKU-BENI.txt).
+
+### Profil tuzakları (yükleme sırasında sihirbaz sorarsa)
+- HB sipariş raporunda ürün kimliği **Satıcı Stok Kodu**; `Barkod` sütunu kargo takip numarasıdır.
+- `Kalem Numarası` sipariş içi sıra numarasıdır; kalem kimliği olarak eşlenirse 73 satır 7 kayda çöker.
+- HB finansında komisyon `Komisyon (KDV dahil)` sütunundan alınır; başlıksız son sütun aynı tutarın
+  kopyasıdır ve eklenirse komisyon iki kez sayılır.
+
+---
 ## 13 Eylül 2026 — Katalog ve 30 alış faturası CANLIYA aktarıldı (EN YENİ KAYIT)
 
 Bu bölüm daha eski bölümlerin üstündedir. Çelişki olursa **bu bölüm geçerlidir**.
