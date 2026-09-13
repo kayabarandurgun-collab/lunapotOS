@@ -1,3 +1,85 @@
+# GÜNCEL DURUM — 13 Eylül 2026 (aktarım turu)
+
+Bu bölüm dosyanın en güncel kaydıdır; aşağıdaki eski bölümler tarihsel kalır.
+
+## Canlıya ne girdi
+
+**Alış belgeleri (3 PDF, 30 fatura sayfası).** Tedarikçilerin "tüm zamanlar" dökümleri
+diskteki özgün baytlarıyla okunup panelin kendi parçalı yükleme ucundan gönderildi:
+karakuş 21 sayfa, tropikal 6, seçkin 3. Sunucu her belgenin SHA-256 özetini kendisi
+doğruladı ve üçü de yerel dosyayla birebir aynı çıktı. Sayfa sayıları, kaynak
+metinden çıkarılan sayfa planıyla birebir örtüştü.
+
+**30 sayfa → fatura bağlantısı.** Canlıdaki 30 alış faturası TEKRAR OLUŞTURULMADI
+(işlem öncesi ve sonrası sayım 30). Her faturanın özgün PDF sayfası bağlandı:
+30 sayfa kaydı, 30 farklı fatura, 0 çelişki. Eşleştirme, PDF metnindeki "Fatura No"
+ile canlıdaki invoice_no üzerinden yapıldı; sıra varsayımı kullanılmadı.
+Faturalar `draft` kaldı: borç, mal kabul ve ödeme ayrı işlemlerdir.
+
+**TY finans raporu.** 199 satır → 1.791 finans kaydı, 0 inceleme.
+Satış 140.669,67 · komisyon −23.557,81 · kargo −21.272,73 · hizmet −1.962,71
+· iade/iptal −10.696,58 · diğer −4.028,30 = **79.151,54 TL**, dosyanın kendi
+"Net Tutar" toplamıyla kuruşu kuruşuna aynı.
+
+**HB finans raporu.** 67 satır → 396 kayıt + 1 inceleme.
+23.534,30 − 4.417,43 − 5.031,79 − 153,29 − 159,66 + 147,70 = **13.919,83 TL**,
+yine dosyanın kendi netiyle birebir. İnceleme satırı dosyanın "Toplam" satırıdır;
+tutarı olmadığı için mali kayıt olmadı.
+
+## Bu turda kapatılan üç gerçek kusur
+
+1. **Aynı türden ikinci tutar sütunu aktarılamıyordu.** TY dökümünde giden kargo ile
+   iade kargosu ayrı sütunlar, indirim/ceza/iptal ise üç ayrı kesinti. "Alan başına tek
+   sütun" kuralı bunlardan üçünü dışarıda bırakıyor ve **13.319,88 TL** sessizce
+   düşüyordu; rapor kendi net tutarıyla tutmuyordu. Artık eşleşmeyen tutar sütunları
+   adıyla soruluyor ve her biri ne olduğuna bağlanıyor (0043 değil, yalnız eşleştirme
+   katmanı — göç gerekmedi).
+2. **Tarihsiz rapor ekrandan aktarılamıyordu.** Sunucu "işlem tarihi yok" beyanını zaten
+   kabul ediyordu ama formda karşılığı yoktu. Her iki pazaryeri raporunda da işlem
+   tarihi yok; sipariş tarihini işlem tarihi diye yazmak kaydı yanlışlar.
+3. **Eşleşmeyen sütun sorusu hiç görünmüyordu.** Aday seçen süzgeçte bozuk bir kaçış
+   dizisi vardı (her karakteri siliyordu) ve yalnız ilk 40 satıra bakıyordu. Seçim
+   `report-core`'a taşındı, dosyanın tamamını tarıyor ve testi var.
+
+## Kurallara uyum
+
+- Oturum güvenliği atlatılmadı, sahte oturum üretilmedi, veritabanına doğrudan yazılmadı.
+  Her şey panelin kendi kimlik doğrulamalı uçlarından geçti.
+- Dosyalar elle base64'e çevrilmedi; diskten özgün baytlarıyla okundu.
+- Canlıdaki 30 alış faturası ve 19 satış belgesi çoğaltılmadı.
+- Tarih uydurulmadı; belirsiz satır incelemede bırakıldı.
+- Özel belgeler ve müşteri verisi Git'e gönderilmedi.
+
+**HB sipariş detayı (3 CSV).** 2 + 12 + 59 = **73 sipariş kalemi**, 0 sorun.
+Brüt satış 480,00 + 4.138,40 + 19.580,90 = **24.199,30 TL**. Üç dosyanın dönemleri
+örtüşüyor ama tek bir kalem bile iki kez sayılmadı: 73 satır 73 ayrı anahtar üretti,
+çakışan anahtar 0. Birinci dosyadan sonra eşleştirme bir daha sorulmadı; başlık imzası
+aynı olduğu için kayıtlı profil kendiliğinden kullanıldı.
+
+İki eşleştirme kararı, veri kaybını önlemek için bilerek boş bırakıldı:
+- **line_id** ("Kalem Numarası") bağlanmadı: sipariş içi sıra numarasıdır (10, 20, 30),
+  evrensel kimlik değildir. Bağlansaydı 73 satır **7 kayda** çökerdi.
+- **barcode** ("Barkod") bağlanmadı: HB'de bu kargo takip numarasıdır, ürün kimliği değil.
+  Ürün kimliği "Satıcı Stok Kodu"dur. Bağlansaydı 73 satır 67'ye düşer, 11 sorun çıkardı.
+- HB finansındaki başlıksız "Sütun 13" de bağlanmadı: 66 satırın 66'sında komisyonla
+  birebir aynı; bağlansaydı komisyon iki kez düşülürdü.
+
+## Kalan gerçek belirsizlikler (uydurulmadı, görünür bırakıldı)
+
+- **Stok açılış tarihi ve sayımı bilinmiyor.** Bu yüzden hiçbir stok hareketi yazılmadı;
+  canlıda stok, satış kaydı ve sipariş paketi 0 kaldı. Rapor kayıtları mali kayıt değildir.
+- **Tropikal'in 11 satırında çeşit dağılımı belirsiz**; kesin fiziksel stok/maliyet yazılmadı.
+- **13 ürün kimliği ve 4 HB ilanı (23 adet)** hâlâ eşleşmemiş durumda.
+- **Her iki finans raporunda işlem tarihi yok.** Kayıtlar "tarihi bilinmeyen" olarak
+  saklandı; sipariş tarihi işlem tarihi sayılmadı.
+- **Dönem kapsamı:** satış raporları Temmuz–12 Eylül'ü kapsıyor, alışlar Şubat'a uzanıyor.
+  Şubat–Haziran satışları elimizde yok; sıfır varsayılmadı.
+- Eşleştirmeler "gerçek raporla doğrulandı" diye **işaretlenmedi**: o işaret pazaryeri
+  ekranındaki toplamlarla karşılaştırma beyanıdır; karşılaştırma dosyanın kendi net
+  tutarıyla yapıldı. İşaretlemek kullanıcıya bırakıldı.
+
+---
+
 # Devam belgesi — tek yetkili güncel durum
 
 Bu dosya deponun **tek yetkili devam belgesidir**. Her iş, kodla **aynı committe** burayı da günceller.
