@@ -96,6 +96,7 @@ export function mountReports(root, namespace = 'ec') {
         return `<tr><td>${esc(f.label)}${f.required ? ' <span class="rb-req">zorunlu</span>' : ''}${d.suggested[f.key] && d.suggested[f.key] === h ? ' <span class="rb-chip">öneri</span>' : ''}</td><td><select name="${f.key}">${option(f.key)}</select></td><td class="rb-sample">${esc(sample.slice(0, 80))}</td></tr>`; }).join('')}
       </tbody></table></div>
       ${d.kind === 'finance' ? `<fieldset class="rb-grid"><legend>Tutarların anlamı (senin raporuna göre)</legend>
+        <label class="rb-check"><input type="checkbox" name="undated" ${d.options.undated ? 'checked' : ''}> Bu raporda işlem tarihi yok (tarih uydurmadan, tarihsiz sakla)</label>
         <label class="rb-check"><input type="checkbox" name="fees_positive" ${d.options.fees_positive ? 'checked' : ''}> Kesinti ve iadeler raporda artı (+) yazılıyor</label>
         <label>Kesinti tutarları KDV dahil mi?<select name="fee_vat"><option value="">Bilmiyorum (katkı yaklaşık gösterilir)</option><option value="inc" ${d.options.fee_amounts_include_vat === true ? 'selected' : ''}>KDV dahil</option><option value="exc" ${d.options.fee_amounts_include_vat === false ? 'selected' : ''}>KDV hariç</option></select></label>
         <label>Kesintilerin KDV oranı %<input name="fee_vat_rate" type="number" min="0" max="100" step="0.01" value="${d.options.fee_vat_bps !== null && d.options.fee_vat_bps !== undefined ? d.options.fee_vat_bps / 100 : ''}" placeholder="Faturadan bak"></label></fieldset>
@@ -224,7 +225,9 @@ export function mountReports(root, namespace = 'ec') {
     const typeMap = {...(d.options.type_map || {})};
     form.querySelectorAll('[data-type-text]').forEach(s => { if (s.value) typeMap[s.dataset.typeText] = s.value; });
     const vat = x.get('fee_vat'), rate = x.get('fee_vat_rate');
-    const options = {type_map: typeMap, fees_positive: x.get('fees_positive') === 'on', fee_amounts_include_vat: vat === 'inc' ? true : vat === 'exc' ? false : null,
+    const undated = x.get('undated') === 'on';
+    if (undated) delete mapping.event_date;
+    const options = {type_map: typeMap, undated, fees_positive: x.get('fees_positive') === 'on', fee_amounts_include_vat: vat === 'inc' ? true : vat === 'exc' ? false : null,
       fee_vat_bps: rate === null || rate === '' ? null : Math.round(Number(rate) * 100)};
     d.mapping = mapping; d.options = options; refreshLocal(d);
     if (d.unknownTypes.length) { say('Dosyada karşılığı seçilmemiş işlem türleri var; aşağıdan seçin.', true); return; }
