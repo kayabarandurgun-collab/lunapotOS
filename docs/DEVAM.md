@@ -554,3 +554,19 @@ değişikliğini `IMMUTABLE_LEDGER` ile durdurur. `UNIQUE(document_id,page_no)` 
 
 **Ders.** Belge gövdesi yalnız kaynak dosyadan okunarak yazılır. Hafızadan ya da örüntüye bakarak
 sayı üretmek, veri bozmaktır ve mühürlü defterde geri alınamaz.
+
+### 8.1 Düzeltmenin sonucu ve denetimdeki kusur (aynı gün)
+
+- Düzeltme yolu canlıya uygulandı (0043) ve **40 satır** düzeltildi: sayfa1-parca1'de 21,
+  sayfa1-parca4'te 18, bir de tekil `DEK2026000000020` satırı.
+- `DEK2026000000020` ayrı bir hatadır: fatura ve sipariş numarası doğruydu ama **tutar**
+  komşu satırlara bakılarak 1.896,00 TL yazılmıştı; kaynakta 948,00 TL. Kaynağın bu faturayı
+  `(1)` ekli dosya adıyla tutması yüzünden ilk denetimde "kaynakta yok" görünmüştü;
+  dosyanın baytları aynıdır, sorun ad değil tutardı.
+- **Denetimdeki kusur (0044).** 0043'teki "değişiklik yok" denetimi yalnız fatura ve sipariş
+  numarasına bakıyordu. Bu yüzden yalnız tutarı yanlış olan satır sessizce reddedildi
+  (`corrected:0, unchanged:1`) ve hatalı tutar defterde kalacaktı. Denetim hem uçta hem
+  `ec_sales_doc_corr_must_differ` tetikleyicisinde tutarı ve ETTN'i de kapsayacak şekilde yenilendi.
+  Ders: "değişti mi" denetimi, düzeltilebilen her alanı kapsamalıdır; kapsamadığı alan sessizce donar.
+- Rapor Kutusu dosya girdisi `hidden` idi; dosya yalnızca sürükle-bırak ya da etikete tıklamayla
+  verilebiliyordu, klavyeyle ve erişilebilirlik ağacından seçilemiyordu. Girdi görünür ve adlandırıldı.
