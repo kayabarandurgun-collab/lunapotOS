@@ -4,7 +4,63 @@ Bu dosya deponun **tek yetkili devam belgesidir**. Her iş, kodla **aynı commit
 Depo dışındaki eski başlangıç notları (`Desktop/site/CLAUDE-*.md`) tarihseldir; çelişki olursa **bu dosya geçerlidir**.
 Sohbet geçmişine güvenilmez.
 
-Son güncelleme: 13 Eylül 2026 (yayın + katalog canlıda, dosya yüklemesi kullanıcıda)
+Son güncelleme: 13 Eylül 2026 (fatura belgeleri ekranı bağlandı)
+
+## 13 Eylül 2026 — "Fatura belgeleri" ekranı: sunucu ucu artık kullanıcıya açık (EN YENİ KAYIT)
+
+Bu bölüm daha eski bölümlerin üstündedir. Çelişki olursa **bu bölüm geçerlidir**.
+
+### Kapatılan boşluk
+Satış belgesi uçları vardı ama `public/` altında onları çağıran hiçbir şey yoktu; "satış arşivine
+yükle" talimatı **var olmayan bir ekranı** işaret ediyordu. Aynı boşluk alış tarafındaki sayfa
+bağlantısı ucunu da erişilemez bırakmıştı: mevcut 30 taslak, geldikleri birleşik PDF'in sayfalarına
+bağlanamıyordu. Sunucu ucu yazmak ekran yapmak değildir.
+
+Yeni ekran `public/sales-document-ui.js`, menüde **Fatura belgeleri** (`#documents`), iki sekme:
+- **Satış faturaları** — çoklu dosya seçimi, dosya başına pazaryeri, türev aralığı, ilerleme ve sonuç;
+  arşiv listesi ve sayfa görünümü.
+- **Alış sayfa bağlantısı** — belge seçilir, sayfa no + fatura seçilerek bağlanır. Dolu sayfaya ikinci
+  fatura ya da bağlı faturayı başka sayfaya bağlamak reddedilir.
+
+Dosya seçici **görünür ve etiketli**; gizli input'a bağlı otomasyon beklenmiyor. Baytlar
+`File.arrayBuffer` ile okunur, elle base64 üretilmez, mevcut parçalı yükleme ve sunucu tarafı
+SHA-256 mühürlemesi korunur: ulaşan dosya seçilen dosya değilse mühürlenmez.
+
+**Türev dosyalar.** 20 MB sınırı için bölünen PDF, adından tanınır (`parca2(sayfa23-43)`) ve özgün
+dosya adı + sayfa aralığı ayrıca saklanır. Türev kendi baytlarıyla doğrulanır; özgün dosyayla aynı
+özete sahip olması **beklenmez**.
+
+### Yetki: yeni anahtar İCAT EDİLMEDİ
+Yeni ekran için yeni bir yetki açmak, kayıtlı personel yetkilerinde o anahtar bulunmadığı için
+**herkesi dışarıda bırakırdı** — ekran yapılmış ama erişilemez olurdu. Bunun yerine rota mevcut
+`invoices` yetkisine eşlendi (`routeKey` artık gerçek eşleme yapıyor; daha önce kimliği
+döndüren ölü koddu). Sunucuda da `/api/ec/sales/documents` fatura yetkisine bağlandı:
+satış **kaydı** yetkisi, belge **arşivi** yetkisi değildir.
+
+Doğrudan sınandı: `/api/ec/sales` satışçıya izin / faturacıya 403 · `/api/ec/sales/documents`
+faturacıya izin / satışçıya 403 · `/api/ec/invoices/documents` faturacıya izin / satışçıya 403.
+
+**Bu turda yakalanan kendi regresyonum:** yama `sales` girdisini eklemek yerine değiştirmişti;
+`/api/ec/sales` yetki bulamayıp reddediliyordu. Geri kondu ve yukarıdaki sınamayla doğrulandı.
+
+### Düzeltilen sayım hatası
+Satış PDF klasörü fiilen **11 türev + 9 tekil = 20 dosya, 19 farklı hash**. İki `prod_…ce0c2893`
+dosyası bayt bayt aynı: tek fatura, ikinci satış sayılmaz. Önceki "8 tekil + 12 parça" ifadesi yanlıştı.
+Sayfa sayıları aralıklarla birebir: 22+21+21+21+12=97, 20+20+20+6=66, 20+2=22.
+
+### Testler ve depo
+**408/408** (4 yeni test: rota→yetki eşlemesi, satış belgesi ucunun iki yönlü yetki sınaması, türev
+ayrıştırması), `npm run build` temiz. Servis çalışanı önbellek anahtarı `v38-belgeler` yapıldı,
+yoksa mevcut kullanıcılara eski kabuk servis edilirdi.
+Önceki dört commit GitHub'a gönderildi (`b539d60..c13724f`); yalnız kod ve devam belgesi,
+özel belge/veri gönderilmedi.
+
+### Kalan
+Rapor dosyaları ve PDF'ler hâlâ canlıya taşınmadı. Ekranlar artık hazır; dosya seçimi kullanıcıda.
+Canlı sayılar bu turda değişmedi: rapor dosyası 0, rapor kaydı 0, alış belgesi 0, sayfa bağlantısı 0,
+satış belgesi 0, sipariş 0, stok hareketi 0.
+
+---
 
 ## 13 Eylül 2026 — Sevk yarışı kapatıldı, sayfa bağlantısı geldi, katalog canlıya yazıldı (EN YENİ KAYIT)
 
