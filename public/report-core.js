@@ -22,6 +22,7 @@ export const FIELDS = {
     {key: 'order_date', label: 'Sipariş tarihi', type: 'date', required: true, hint: ['sipariş tarihi']},
     {key: 'delivered_date', label: 'Teslim tarihi', type: 'date', hint: ['teslim']},
     {key: 'gross', label: 'Satış tutarı (müşterinin ödediği, KDV dahil)', type: 'money', hint: ['satış tutarı', 'faturalanacak']},
+    {key: 'vat_bps', label: 'KDV oranı (%)', type: 'percent', hint: ['kdv']},
     {key: 'carrier', label: 'Kargo firması', type: 'text', hint: ['kargo firması']},
     {key: 'cargo_package', label: 'Kargo ücreti (paket başına)', type: 'money', hint: ['kargo ücreti', 'kargo bedeli']}
   ],
@@ -167,7 +168,18 @@ export function parseDate(cell, date1904 = false) {
   return {error: 'Tarih biçimi tanınmadı: ' + s};
 }
 
-const readers = {id: parseId, text: c => (c?.v === null || c?.v === undefined || String(c.v).trim() === '' ? {missing: true} : {value: String(c.v).trim()}), int: parseInt10, money: parseMoney, date: parseDate};
+/** Yuzde hucresi: "20", "%20" ve "%20,00" kabul edilir; deger baz puana cevrilir. */
+function parsePercent(cell) {
+  if (cell === null || cell === undefined || cell.v === null || cell.v === undefined) return {missing: true};
+  const raw = String(cell.v).trim();
+  if (!raw) return {missing: true};
+  const cleaned = raw.split('%').join('').split(' ').join('').split(',').join('.');
+  const value = Number(cleaned);
+  if (!Number.isFinite(value)) return {error: 'KDV oranı okunamadı: ' + raw};
+  if (value < 0 || value > 100) return {error: 'KDV oranı 0 ile 100 arasında olmalı: ' + raw};
+  return {value: Math.round(value * 100)};
+}
+const readers = {percent: parsePercent, id: parseId, text: c => (c?.v === null || c?.v === undefined || String(c.v).trim() === '' ? {missing: true} : {value: String(c.v).trim()}), int: parseInt10, money: parseMoney, date: parseDate};
 
 /* ---------------- satır → kayıt ---------------- */
 /**
