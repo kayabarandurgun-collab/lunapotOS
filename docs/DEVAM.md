@@ -41,6 +41,52 @@ tutarı olmadığı için mali kayıt olmadı.
    dizisi vardı (her karakteri siliyordu) ve yalnız ilk 40 satıra bakıyordu. Seçim
    `report-core`'a taşındı, dosyanın tamamını tarıyor ve testi var.
 
+## Satışlar stoğa düşürüldü — sayım yapılmadan (14 Eylül 2026)
+
+Kullanıcı fiziksel sayım istemedi: "satışlar elimizde, stok alış eksi satış olmalı".
+Haklıydı ve eldeki veri bunu karşıladı. **Hiçbir sayım kaydı yazılmadı.**
+
+**Stok başlangıç tarihi: 2026-02-17.** Köprü, bu tarih girilmeden geçmiş siparişi bugünkü
+stoktan düşmüyor. Tarih ilk alış faturasının günüdür — stoğun fiilen var olmaya başladığı gün.
+Uydurulmadı.
+
+**Trendyol.** Köprüde aday paket yoktu: TY raporu finans olayı taşır, ürün satırı değil.
+Satırlar hazırlanmış fatura çıkarımından alındı. 193 faturanın **177'si** sipariş olarak
+açıldı (189 satır). 16 fatura dışarıda kaldı: 9 satırda bileşen eşleşmesi, 8 satırda ilan
+barkodu yok. KDV oranı 189 satırın 172'sinde dosyadan okundu; 17 satırda yok ve **uydurulmadı**.
+
+**Hepsiburada — iki engel, iki dürüst düzeltme.**
+1. Köprü her satırda sağlayıcı kalem kimliği şart koşuyordu. O alan bilerek eşlenmemişti
+   (sipariş içi sıra numarası; eşlenirse 73 satır 7 kayda çöker). Sessiz geri düşüş
+   eklenmedi — kimliksiz satırın incelemede kalması testi olan bilinçli bir kural.
+   Bunun yerine **beyana bağlı** istisna eklendi: çağrı açıkça beyan ederse kimlik paket
+   numarası + stok kodundan türetilir. Testi yazıldı; eski test aynen korundu ve geçiyor.
+2. Sonra ikinci engel çıktı: sipariş şemasında **KDV alanı hiç yoktu**, satır neti
+   hesaplanamadığı için sevk engelleniyordu. Şemaya satır bazlı KDV oranı alanı eklendi
+   (tek profil seçeneği yanlış olurdu: HB dosyasında %10 ve %20 birlikte). Bu değişiklik
+   zaten aktarılmış kayıtları düzeltmediği için köprüden açılan 67 taslak **gerekçesiyle
+   iptal edildi** ve aynı satışlar kaynak dosyadan, satır bazlı KDV ile doğrudan kuruldu:
+   67 paket, 73 satır, hepsi tam fiyatlı.
+
+**Sevkiyat.** Stok yalnızca gönderim adımında düşer; taslak ve rezervasyon hareket yazmaz.
+**226 paket** rezerve edilip sevk edildi (160 TY + 66 HB) ve **257 satış kaydı** oluştu.
+
+**Doğrulama — defter birebir tutuyor.** 35 ürünün **35'inde** `alınan − sevk = canlı stok`,
+fark **sıfır**. Toplam 938 adet alınmış, 383 adet satılmış, **555 adet** stokta.
+Stok değeri 82.101,00 → **38.868,99 TL**. Tedarikçi borcu 98.521,20 TL değişmedi
+(satış borcu etkilemez).
+
+**Kalan 17 taslak, kapatılmadı:** 14'ü Trendyol, kaynakta KDV oranı olmadığı için tutar
+hesaplanamıyor; 3'ü gerçek stok açığı. 68 paket iptal (67 KDV'siz köprü taslağı + 1 ilk deneme).
+
+**İki gerçek açık, görünür bırakıldı:**
+- `KL-TS1-210L`: 11 alınmış, 11 sevk edilmiş, 2 adet daha sevk bekliyor (TY'de 13 satılmış).
+  Ya 17 Şubat öncesi elde stok vardı ya da bir alış faturası eksik.
+- `TR-YESIL-500ML`: hiç alınmamış ama 3 adet sevk bekliyor. Kullanıcının çeşit dağılımında
+  500 ml'ye hiç "yeşil yapraklar" düşmemişti; ya dağılım bu satırda eksik ya da alış eksik.
+
+Testler 416/416. Dağıtımlar: 39d4d39b (köprü beyanı), dc1de430 (satır bazlı KDV).
+
 ## Alış zinciri tamamlandı — 30/30 (14 Eylül 2026)
 
 Kullanıcı çeşit dağılımını doldurdu; kalan 11 Tropikal satırı da açıldı ve **30 faturanın
