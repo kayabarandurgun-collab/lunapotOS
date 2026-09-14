@@ -1,4 +1,65 @@
-# GÜNCEL DURUM — 13 Eylül 2026 (aktarım turu)
+# GÜNCEL DURUM — 14 Eylül 2026 (canlıya geçiş turu)
+
+Bu bölüm dosyanın en güncel kaydıdır; aşağıdaki bölümler tarihsel kalır.
+
+## Sistem canlıda ve satışların tamamı stoktan düşmüş durumda
+
+Bekleyen 3 paket de sevk edildi: taslak **0**, sevk **243**, satış kaydı **329**,
+stok hareketi **417**. Her paket kendi tarihiyle işlendi (TEA…085 ve TEA…086 →
+2026-09-01, HB-5515871961 → 2026-09-10); tarih uydurulmadı.
+
+## Stok eksiye düşebilir — ama yalnız açık beyanla (göç 0045)
+
+Kullanıcı, kaydı olmayan bir alıştan satılmış mal olduğu için stoğun eksiye
+düşebilmesini istedi. **Koruma kaldırılmadı, beyana bağlandı:**
+`workspace_settings.allow_negative_stock`, varsayılan **0 (kapalı)**.
+
+Teknik sürpriz: eksi yasağı tetikleyicilerde değil, `ec_stock_balances` tablosunun
+kendi `CHECK(quantity_milli>=0)` kısıtındaydı. SQLite bunu tablo yeniden kurulmadan
+kaldıramıyor. Ölçüldü: "yeni tablo → eskiyi düşür → adını değiştir" yolu **çalışmıyor**
+(SQLite yeniden adlandırma sırasında bütün tetikleyicileri yeniden ayrıştırıyor).
+Deponun kendi 0012 örneği izlendi: bağımlı **10 tetikleyici düşürüldü, tablo yeniden
+kuruldu, 10'u da aynen geri yazıldı.**
+
+Tetikleyici metinleri elle kopyalanmadı: `sqlite_master`'dan alınıp programla şarta
+bağlandı, sonra **eklenen parça geri çıkarılıp orijinalle karşılaştırılarak** başka
+hiçbir şeyin değişmediği kanıtlandı. Kaldırılan CHECK yerine aynı gücü koruyan
+`ec_stock_quantity_floor` tetikleyicisi eklendi: beyan yokken bakiye eksiye düşemez.
+
+**Yakalanan kendi hatam:** ilk yamada `ec_stock_reservations_guard` eski 0012
+metninden yeniden yazılmıştı; yürürlükteki 0029 metni web mağaza ayırmalarını **da**
+sayıyor. Yani web'in ayırdığı stok pazaryerinden tüketilebilir hale gelmişti. İki
+webshop testi bunu yakaladı. Testler gevşetilmedi, yama düzeltildi.
+
+Canlı doğrulama — göç öncesi ve sonrası **birebir aynı**: 37 kart, 519 adet,
+36.659,42 TL, 412 hareket, 326 satış. Miktar CHECK'i kalktı, **değer koruması
+duruyor**, 11 tetikleyici yerinde, üretim alanı `lp_` hiç değişmedi.
+Geri dönüş işareti (göç öncesi):
+`00000073-00000000-000050e6-a450eb0f69c84cf2b0c141d6466cadb9`.
+
+## 500 ml çeşit düzeltmesi (kullanıcı bildirdi)
+
+4 Eylül faturasında (TRP2026000001037) 500 ml satırındaki 12 adet yanlışlıkla
+"Genel" yazılmış; aslı "Yeşil yapraklı". **Sistem, muhasebeleşmiş faturanın çeşit
+dağılımını değiştirmeye izin vermiyor** (split geri alma yalnız `draft` iken).
+Seçenekler kullanıcıya sunuldu, stok kartlarını düzeltmeyi seçti.
+
+Uygulanan: yanlış karta yapılan mal kabulü uygulamanın kendi ucundan geri alındı
+(−12 adet / −384,00 TL), doğru karta sayımla girildi (+12 adet / +384,00 TL).
+`TR-GENEL-500ML` 22→**10** adet, 704,00→**320,00** TL · `TR-YESIL-500ML` −3→**9**
+adet, 0→**384,00** TL. Toplam stok miktarı ve değeri değişmedi.
+
+**Kapanmayan fark (bilerek):** fatura satırı hâlâ `TR-GENEL-500ML`'ye bağlı ve o
+faturada 12 adet "teslim bekliyor" görünüyor. Bu, seçim öncesi kullanıcıya söylendi.
+
+## Açık kalan tek gerçek eksik
+
+`KL-TS1-210L` **−2 adet** (11 alınmış, 13 satılmış). Maliyeti 0 TL yazıldığı için o
+satışların kârı olduğundan yüksek görünür. Eksi bakiye bu boşluğu gizlemiyor,
+görünür kılıyor; eksik alış faturası girilince kapanır.
+
+---
+# 13 Eylül 2026 turu (tarihsel)
 
 Bu bölüm dosyanın en güncel kaydıdır; aşağıdaki eski bölümler tarihsel kalır.
 
