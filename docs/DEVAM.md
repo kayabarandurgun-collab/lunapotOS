@@ -41,6 +41,38 @@ tutarı olmadığı için mali kayıt olmadı.
    dizisi vardı (her karakteri siliyordu) ve yalnız ilk 40 satıra bakıyordu. Seçim
    `report-core`'a taşındı, dosyanın tamamını tarıyor ve testi var.
 
+## Kapanış — satışlar stoğa indi, sayım yapılmadı (14 Eylül 2026)
+
+Kullanıcı bütün satışların KDV oranının **%20** olduğunu bildirdi. Kaynakta oranı bulunmayan
+14 paketin 16 satırına bu oran işlendi ve paketler sevk edildi. Oran önce uydurulmadı, soruldu.
+
+**Canlı son durum**
+
+| | |
+|---|---|
+| Sevk edilen paket | **240** (174 Trendyol + 66 Hepsiburada) |
+| Satış kaydı | **282** |
+| Alınan / satılan / stokta | 938 / 419 / **519 adet** |
+| Stok değeri | **36.659,42 TL** |
+| Tedarikçi borcu | 98.521,20 TL (değişmedi; satış borcu etkilemez) |
+| Ürün kartı | 37 |
+
+**Defter doğrulaması:** hareketi olan her ürün kartında `alınan − sevk = canlı stok`,
+**fark sıfır**. Stok artık gerçekten alış eksi satış; hiçbir sayım kaydı yazılmadı.
+
+**Kalan 3 taslak — kapatılmadı, veri bekliyor:**
+- `KL-TS1-210L`: 11 alınmış, 13 satılmış; 2 adet sevk edilemiyor.
+- `TR-YESIL-500ML`: hiç alınmamış, 3 adet satılmış. Çeşit dağılımında 500 ml'ye hiç
+  "yeşil yapraklar" düşmemişti.
+
+İkisi de ya 17 Şubat öncesi elde stok olduğunu ya da bir alış faturasının eksik olduğunu
+gösterir. Tahminle kapatılmadı.
+
+**İptal 68 paket:** 67'si KDV taşımayan köprü taslağı (aynı satışlar kaynak dosyadan yeniden
+kuruldu), 1'i ilk deneme paketi. Hiçbiri stok hareketi üretmedi.
+
+**Açık kalan ayar:** şirket ticari unvanı ve vergi numarası hâlâ boş.
+
 ## Satışlar stoğa düşürüldü — sayım yapılmadan (14 Eylül 2026)
 
 Kullanıcı fiziksel sayım istemedi: "satışlar elimizde, stok alış eksi satış olmalı".
