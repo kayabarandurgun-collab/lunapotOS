@@ -41,6 +41,35 @@ tutarı olmadığı için mali kayıt olmadı.
    dizisi vardı (her karakteri siliyordu) ve yalnız ilk 40 satıra bakıyordu. Seçim
    `report-core`'a taşındı, dosyanın tamamını tarıyor ve testi var.
 
+## Alış zinciri yürütüldü — 14 Eylül 2026
+
+Kullanıcı ürün kimliği sorularını cevapladı; 24 bekleyen satırın 13'ü açıldı.
+
+**Eşleştirme.** Klasmann "REC876 TS1 Fine 200 L" = `KL-TS1-210L`, Gartengold "80 L Genel
+Kullanım Torfu" = `GG-TORF-COCO-80L` (ikisi de kullanıcı onayı). SAB Substrate için **tek**
+yeni kart açıldı (`SAB-SUBSTRATE`); kullanıcı tane boylarının ayrılmasını istemedi, bu yüzden
+250 L ve 80 L torbalar aynı kartta "adet" olarak toplanıyor — 1 adet bazen 250 L, bazen 80 L.
+10 fatura / 13 satır eşlendi.
+
+**Borca yazma.** 25 fatura `posted`, 0 hata. Borç yazıldıktan sonra stok hareketi sayısı
+hâlâ 0 idi: muhasebeleştirme stok oluşturmuyor, stok yalnız mal kabulünden geliyor.
+
+**Mal kabul.** 25 faturanın 44 ürün satırı, 253 adet. Stok 12 kartta oluştu.
+Maliyet mutabakatı: mal kabulü yapılan satırların net toplamı 58.276,00 TL,
+stok değeri 58.276,00 TL — **fark 0,00**.
+
+**Tedarikçi borcu.** Karakuş 47.611,20 + Seçkin 20.160,00 + Tropikal 2.160,00 = 69.931,20 TL.
+
+**HB ilanları.** Eşleşmeyen 4 ilan bağlandı: `HBCV0000DSXM6Q` → GG-TORF-5L;
+`HBCV000007EJ04`, `HBV0000135Y1R`, `HBCV00006H2QMB` → TR-GENEL-1000ML (kullanıcı üçünün de
+aynı ürünün ayrı ilanları olduğunu bildirdi). Canlı katalog 67 eşleştirme (51 TY + 16 HB).
+
+**Kalan.** 5 Tropikal faturası `draft`: içlerinde çeşidi bilinmeyen 11 besin satırı var
+(225 ml 240 adet, 500 ml 60, 1000 ml 110 = 410 adet). `UNMAPPED_INVOICE` kuralı bu faturaları
+zaten muhasebeleştirmiyor. Çeşit dağılımı ve bugünkü fiili sayım kullanıcıdan bekleniyor.
+Sayım farkı Şubat–Haziran satışlarını temsil edecek ve **sayım düzeltmesi olarak görünür**
+kalacak; o dönemin satış verisi elimizde olmadığı için uydurulmayacak.
+
 ## Doğrulama sonuçları (canlı, aktarım sonrası)
 
 **Mükerrer kontrolü — iki düzeyde kapalı.**
