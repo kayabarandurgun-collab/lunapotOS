@@ -41,6 +41,41 @@ tutarı olmadığı için mali kayıt olmadı.
    dizisi vardı (her karakteri siliyordu) ve yalnız ilk 40 satıra bakıyordu. Seçim
    `report-core`'a taşındı, dosyanın tamamını tarıyor ve testi var.
 
+## Alış zinciri tamamlandı — 30/30 (14 Eylül 2026)
+
+Kullanıcı çeşit dağılımını doldurdu; kalan 11 Tropikal satırı da açıldı ve **30 faturanın
+30'u** borca ve mal kabulüne geçti.
+
+**Çeşit dağılımı.** Kullanıcıya iki sayfalı bir çalışma kitabı verildi; 11 satırın çeşit
+kırılımını kendisi yazdı. 11 satırın 11'inde de çeşitlerin toplamı satır toplamıyla tuttu.
+Tek çeşitli 3 satır doğrudan eşlendi (bölme ucu en az iki çeşit istiyor); kalan 8 satır
+çeşit dağılımıyla bölündü ve 23 yeni satıra dönüştü. Net tutar ve KDV adetlere kuruş kuruş
+orantılı dağıtıldı; toplam tutmazsa veritabanı `SPLIT_TOTAL` ile zaten reddediyor.
+
+Dağılımda kartı olmayan iki kombinasyon çıktı ve açıldı: `TR-CICEK-500ML`,
+`TR-KAKTUS-1000ML`. Daha önce `SAB-SUBSTRATE` açılmıştı (kullanıcı tane boylarını
+ayırmak istemedi; 250 L ve 80 L torbalar aynı kartta "adet" olarak toplanıyor).
+
+**Çeşit doğrulaması.** 15 besin kartının 15'inde canlı adet, kullanıcının verdiği dağılımla
+birebir aynı — tek fark yok. Örnek: 225 ml genel 90 · orkide 70 · yeşil 30 · çiçek 10 ·
+kaktüs 10 · menekşe 30 = 240.
+
+**İki mutabakat, ikisi de sıfır farkla:**
+- Borç: fatura net 82.101,00 + KDV 16.420,20 = **98.521,20 TL**; tedarikçi borcu
+  98.521,20 TL (Karakuş 47.611,20 · Tropikal 30.750,00 · Seçkin 20.160,00). Fark 0,00.
+  Bu rakam, paketin beyan ettiği "30 fatura / 98.521,20 TL" ile aynıdır.
+- Maliyet: mal kabul değeri 82.101,00 TL; stok değeri 82.101,00 TL. Fark 0,00.
+
+**Canlı durum:** 30 fatura posted, 86 alış satırı (23'ü çeşit bölmesinden), 86 stok hareketi
+ve **hepsi `purchase` türünde** — beklenmedik hareket yok. 34 kartta stok. Satış kaydı 0,
+sipariş paketi 0: rapor ve belge aktarımı hâlâ mali kayıt üretmiyor.
+
+**Kalan tek şey: fiili sayım.** Çalışma kitabının "2 Stok sayimi" sayfası boş geldi.
+Sayım gelmeden açılış ya da sayım düzeltmesi YAZILMADI. Sayım yazıldığında, alınan mal ile
+bugün elde olan arasındaki fark Şubat–Haziran satışlarını temsil edecek ve **sayım
+düzeltmesi olarak görünür** kalacak; o dönemin satış verisi elimizde olmadığı için
+tahminle kapatılmayacak.
+
 ## Alış zinciri yürütüldü — 14 Eylül 2026
 
 Kullanıcı ürün kimliği sorularını cevapladı; 24 bekleyen satırın 13'ü açıldı.
