@@ -8,6 +8,31 @@ Bekleyen 3 paket de sevk edildi: taslak **0**, sevk **243**, satış kaydı **32
 stok hareketi **417**. Her paket kendi tarihiyle işlendi (TEA…085 ve TEA…086 →
 2026-09-01, HB-5515871961 → 2026-09-10); tarih uydurulmadı.
 
+## Teslim işaretlemesi — Hepsiburada tamam, Trendyol tarih bekliyor
+
+Kullanıcı "teslim edildi zaten çoğu" dedi ve **haklıydı**: kâr ekranının boş olmasının
+sebebi teslim durumunun hiç aktarılmamış olmasıydı.
+
+**Hepsiburada:** dökümde `Paket Durumu` ve `Teslim Tarihi` sütunları var. 67 paketin
+**50'si** "Teslim edildi", durumu çelişen paket 0, hepsinin tek ve okunur tarihi var.
+Canlıda 50/50 eşleşti, hiçbirinin teslim tarihi kendi sevkinden önce değil.
+**50 paket kendi tarihiyle işaretlendi** (0 hata). Teslim 0 → **50**, kargoda 243 → **193**.
+Mali kayıt değişmedi: satış 329, hareket 417, stok 514 adet / 36.659,42 TL — dördü de aynı.
+
+**Trendyol yapılmadı.** 176 paketin 176'sı dökümde bulundu, **158'i "Teslim Edildi"**;
+eşleştirme sipariş numarasıyla kusursuz çalışıyor. Ama dökümde **teslim tarihi sütunu yok**,
+yalnız sipariş tarihi var. Sipariş tarihini teslim tarihi diye yazmak kaydı yanlışlar;
+tarih **uydurulmadı**, kullanıcıdan teslim tarihi taşıyan rapor istendi.
+
+### Kâr ekranı hâlâ hesaplamıyor — ayrı bir sebep
+
+329 satış kaydının hepsinde komisyon, kargo ve diğer gider **NULL**, `fees_status=pending`.
+`package-profit.js`: "Bilinmeyen tutarlar sıfır sayılmaz." Kesinti verisi Rapor Kutusu'nda
+duruyor (2.187 finans kaydı) ama satışlara bağlanmamış: canlıda satış kesintisi olarak
+işlenmiş gider satırı **0** (86 alış satırının hepsi `product`). Bu, pazaryeri komisyon/kargo
+faturalarının girilmesini gerektiren ayrı bir iş.
+
+---
 ## Stok eksiye düşebilir — ama yalnız açık beyanla (göç 0045)
 
 Kullanıcı, kaydı olmayan bir alıştan satılmış mal olduğu için stoğun eksiye
