@@ -18,6 +18,18 @@ import {ordersApi} from './orders-api.js';
 import {reportLinkFingerprint} from './report-link-guard.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), {status}); };
+
+/**
+ * Siparis satirinin kimligi. Saglayici kalem kimligi verdiyse HER ZAMAN o kullanilir.
+ * Vermediyse kimlik ancak cagri bunu ACIKCA beyan ettiginde paket numarasi + stok kodu
+ * ikilisinden turetilir; beyan yoksa null doner ve satir incelemede kalir. Kimlik uydurulmaz.
+ */
+const lineIdentity = (data, packageId, declared) => {
+  if (data.line_id) return String(data.line_id);
+  if (!declared) return null;
+  const code = data.sku || data.barcode;
+  return code && packageId ? String(packageId) + String.fromCharCode(124) + String(code) : null;
+};
 const id = () => crypto.randomUUID();
 const key = v => { if (!/^[\w-]{1,100}$/.test(v || '')) fail('Mağaza veya paket seçimi geçersiz.'); return v; };
 const parse = (s, fallback) => { try { return JSON.parse(s); } catch { return fallback; } };
@@ -34,7 +46,7 @@ async function digest(parts) {
 const packageFingerprint = records => reportLinkFingerprint(records);
 
 /** Paketi okur ve aktarıma uygun olup olmadığını söyler. Yalnız eskimiş taslağı işaretler. */
-async function plan(env, storeId, packageId) {
+async function plan(env, storeId, packageId, lineIdentityDeclared = false) {
   const db = env.DB, rootDB = env.ROOT_DB || db;
   const store = await db.prepare('SELECT * FROM ec_report_stores WHERE id=?').bind(key(storeId)).first();
   if (!store) fail('Mağaza bulunamadı.', 404);
@@ -79,9 +91,10 @@ async function plan(env, storeId, packageId) {
   const issues = [];
   for (const r of records) {
     const d = r.data;
-    if (!d.line_id) issues.push('Kalem kimliği eksik; uydurma kimlikle stok çıkışı yapılmaz.');
-    else if (seen.has(d.line_id)) issues.push('Aynı kalem kimliği pakette birden fazla.');
-    seen.add(d.line_id);
+    const identity = lineIdentity(d, packageId, lineIdentityDeclared);
+    if (!identity) issues.push('Kalem kimliği eksik; uydurma kimlikle stok çıkışı yapılmaz.');
+    else if (seen.has(identity)) issues.push('Aynı kalem kimliği pakette birden fazla.');
+    seen.add(identity);
     if (!day(String(d.order_date || '').slice(0, 10))) issues.push('Sipariş tarihi eksik veya geçersiz.');
     else dates.add(String(d.order_date).slice(0, 10));
     if (!Number.isSafeInteger(d.quantity) || d.quantity <= 0) issues.push('Sipariş adedi geçersiz.');
@@ -96,7 +109,7 @@ async function plan(env, storeId, packageId) {
 
   const occurred = [...dates][0] || null;
   const lines = records.map(r => ({
-    external_id: r.data.line_id, name: r.data.product_name || r.data.barcode || r.data.sku,
+    external_id: lineIdentity(r.data, packageId, lineIdentityDeclared), name: r.data.product_name || r.data.barcode || r.data.sku,
     sku: r.data.barcode || r.data.sku, quantity: r.data.quantity,
     gross: r.data.gross == null ? null : r.data.gross / 100,
     vat_rate: r.data.vat_bps == null ? null : r.data.vat_bps / 100,
@@ -142,7 +155,7 @@ export async function reportStockLinkApi(request, env, path, readBody) {
 
   if (sub === '/preview' && method === 'POST') {
     const x = await readBody(request);
-    const result = await plan(env, x.store_id, x.package_id);
+    const result = await plan(env, x.store_id, x.package_id, x.line_identity_from_package_sku === true);
     return {...result, store: {id: result.store.id, name: result.store.name, provider: result.store.provider}};
   }
 
@@ -150,7 +163,7 @@ export async function reportStockLinkApi(request, env, path, readBody) {
     const x = await readBody(request);
     // Paketin BÜTÜN kalemlerinin elde olduğu açıkça doğrulanmalı: eksik kalemli paket stok çıkarmaz.
     if (x.complete_package_confirmed !== true) fail('Paketin bütün kalemlerinin raporda bulunduğunu doğrulayın.', 409);
-    const result = await plan(env, x.store_id, x.package_id);
+    const result = await plan(env, x.store_id, x.package_id, x.line_identity_from_package_sku === true);
     if (result.outcome !== 'draft')
       return {...result, store: {id: result.store.id, name: result.store.name, provider: result.store.provider}, applied: false};
 

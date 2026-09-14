@@ -170,3 +170,34 @@ test('Aktarılabilir paketler listelenir ve bağlanan paket işaretlenir', async
     assert.equal(list.candidates[0].linked, true, 'bağlanan paket işaretli');
   } finally { f.close(); }
 });
+
+test('Kalem kimliği yoksa istisna ancak AÇIKÇA beyan edilirse uygulanır', async () => {
+  const f = appFixture(); await f.setup(); try {
+    await fourPack(f);
+    startDate(f, DATE);
+
+    // Saglayici kalem kimligi vermemis; paket numarasi ve barkod var.
+    const s1 = store(f, {code: 'TY-9'});
+    record(f, s1, 'TY-9', {package_id: 'PK-BEYAN', order_no: 'O7', order_date: DATE, barcode: '785457868', quantity: 1, status: 'Teslim edildi'}, 1);
+
+    // 1) Beyan YOKSA eski kural aynen gecerli: incelemede kalir.
+    const beyansiz = await f.ok('/ec/reports/stock-link/preview', {store_id: s1, package_id: 'PK-BEYAN'});
+    assert.equal(beyansiz.outcome, 'review');
+    assert.ok(beyansiz.issues.some(i => /Kalem kimliği eksik/.test(i)));
+
+    // 2) Beyan VARSA kimlik paket + stok kodundan turetilir; onizleme yine hicbir sey yazmaz.
+    const beyanli = await f.ok('/ec/reports/stock-link/preview', {store_id: s1, package_id: 'PK-BEYAN', line_identity_from_package_sku: true});
+    assert.equal(beyanli.outcome, 'draft');
+    assert.equal(beyanli.stock_write, false);
+    assert.equal(beyanli.order.lines[0].external_id, 'PK-BEYAN|785457868');
+
+    // 3) Beyan olsa bile stok kodu ve barkod yoksa kimlik UYDURULMAZ.
+    const s2 = store(f, {code: 'TY-8'});
+    record(f, s2, 'TY-8', {package_id: 'PK-KODSUZ', order_no: 'O8', order_date: DATE, quantity: 1, status: 'Teslim edildi'}, 1);
+    const kodsuz = await f.ok('/ec/reports/stock-link/preview', {store_id: s2, package_id: 'PK-KODSUZ', line_identity_from_package_sku: true});
+    assert.equal(kodsuz.outcome, 'review');
+    assert.ok(kodsuz.issues.some(i => /Kalem kimliği eksik/.test(i)));
+
+    assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_packages').get().n, 0, 'önizleme sipariş açmaz');
+  } finally { f.close(); }
+});
