@@ -8,6 +8,66 @@ Bekleyen 3 paket de sevk edildi: taslak **0**, sevk **243**, satış kaydı **32
 stok hareketi **417**. Her paket kendi tarihiyle işlendi (TEA…085 ve TEA…086 →
 2026-09-01, HB-5515871961 → 2026-09-10); tarih uydurulmadı.
 
+## Hepsiburada raporları girdi — iki profil kusuru düzeltildi (15 Eylül)
+
+### 1. Sipariş profili teslim tarihini HİÇ okumuyormuş
+
+HB sipariş profili v1'de `delivered_date` ve `status` eşlenmemişti. HB'de teslim tarihli
+kayıt sayısının **sıfır** olmasının sebebi dosyalar değil, profilin kendisiydi.
+Profil v2 (`bfc0bce6`): `delivered_date` → Teslim Tarihi, `status` → Paket Durumu,
+`vat_bps` → KDV(%). Trendyol dökümünde KDV sütunu yoktu, HB'de var.
+
+Geçmişteki iki tuzak yeniden ölçülüp KAPALI tutuldu: **Barkod bağlanmadı** (HB'de kargo
+takip numarasıdır), **Kalem Numarası bağlanmadı** (sipariş içi sıra numarası; bağlansaydı
+73 satır 7 kayda çökerdi). Ürün kimliği Satıcı Stok Kodu olarak kaldı, yani anahtar
+biçimi `P:paket|sku` değişmedi ve mevcut kayıtlar çoğalmadı.
+
+| Dosya | Sonuç |
+|---|---|
+| 5-A (5 satır) | Güncellenen 5 |
+| 6-B (18 satır) | Güncellenen 18 |
+| 7-C (89 satır) | Yeni 32 · Güncellenen 50 · Aynı (tekrar) 7 |
+
+HB sipariş kaydı 73 → **105**, teslim tarihli 0 → **69**. Tutarlar dosyadan ayrıca
+hesaplanıp ekranla karşılaştırıldı: 1.503,40 · 9.222,90 · 22.195,90 — üçü de birebir.
+
+### 2. Finans raporunda KOMİSYON başka sütuna kaymış
+
+Yeni HB finans dökümünde **"Komisyon (KDV dahil)" sütunu 96 satırın hiçbirinde dolu değil**;
+komisyon başlıksız **"Sütun 13"** içinde (94 satırda dolu, satışa oranı %5,6–%24, ortanca
+%20,4 — HB komisyon aralığı). Eski dosyada durum TERSİYDİ: komisyon doluydu ve Sütun 13
+onun kopyasıydı, o yüzden v1'de bağlanmamıştı.
+
+Eski profil bu dosyaya uygulansaydı **komisyon hiç girmeyecek, 5.586,26 TL kesinti**
+**sessizce kaybolacaktı.** Mutabakat elle kuruldu:
+29.676,30 − 6.078,04 − 186,92 − 194,67 + 147,70 − **5.586,26** = **17.778,11** =
+dosyanın kendi net tutarı, kuruşu kuruşuna.
+
+Profil v2 (`542010d0`): `commission` → **Sütun 13**, ek kesintiler İptal/İade → iade,
+Ceza → diğer, Hizmet bedeli → hizmet; `undated: true` (HB finans dökümünde işlem tarihi
+sütunu yoktur). Boş kalan "Komisyon (KDV dahil)" göz ardı edildi.
+
+Sonuç: Yeni 504 · Güncellenen 45 · Aynı (tekrar) 306 · İnceleme 1 (dosyanın son toplam
+satırı, tutarı olmadığı için mali kayıt olmadı).
+
+### HB'de teslim işaretlenecek paket ÇIKMADI — ve bu doğru
+
+Teslim edilen HB paketleri zaten işaretliydi (50'si önceki turda). Kargoda kalan 17 paket
+raporda da "Kargoda"/"Gönderime Hazır" görünüyor. **Ama o 17 paketin hiçbiri yeni
+raporlarda geçmiyor** (7–11 Eylül sevkleri, rapor 15 Eylül'e kadar olduğu halde).
+İndirilen rapor bir tarih filtresiyle gelmiş olabilir; teslim durumları BİLİNMİYOR,
+tahmin edilmedi. Sonraki haftalık raporda görünürlerse kendiliğinden güncellenecekler.
+
+### Açık kalanlar
+
+- **9 HB stok kodunun katalog eşleşmesi yok** (14 satır ürüne bağlanmadı):
+  HBV00000X8JSU, HBV00000CGXO5, HBCV000002LBL0, HBV00000ANRQ2, HBCV000007EJ06,
+  HBV00000RQMQE, HBCV000085GUAV, HBCV00006H301U, HBCV00002590HV. Son dördü SET.
+- TY tarafında 2 barkod: 23245030333243, TYBX0SEAAPVZ6CX475.
+- Kâr ekranı hâlâ hesaplamıyor: kesintiler Rapor Kutusu'nda ama satışlara bağlı değil;
+  bağlanması için pazaryerinin kestiği komisyon/kargo FATURASI gerekiyor.
+
+---
 ## Trendyol raporları girdi, teslimler işaretlendi (15 Eylül)
 
 **Kullanıcının hedefi:** her gün son 7 günün raporunu Rapor Kutusu'na bırakmak; sistem yeni
