@@ -8,6 +8,43 @@ Bekleyen 3 paket de sevk edildi: taslak **0**, sevk **243**, satış kaydı **32
 stok hareketi **417**. Her paket kendi tarihiyle işlendi (TEA…085 ve TEA…086 →
 2026-09-01, HB-5515871961 → 2026-09-10); tarih uydurulmadı.
 
+## Yeni Tropikal faturası TRP2026000001080 (15 Eylül)
+
+Belgenin yeni olduğu **kanıtlandı**: SHA-256 canlıda yok, `1080` numarası da yok
+(en son `1074` idi). Uygulamanın kendi PDF okuyucusu bu belgede metin katmanı göremedi
+(önceki 3 belgede de öyle), ama `pdftotext` metni çıkardı.
+
+**Miktarlar üç ayrı yoldan doğrulandı, uydurulmadı:** ham akışta `Miktar 30 Adet 25 Adet`
+yazılı · birim fiyatla bölme aynı sonucu veriyor (2.070÷69=30, 1.150÷46=25) · satır
+toplamları belgenin kendi toplamıyla tutuyor.
+
+| Kalem | Adet | Net | KDV |
+|---|---|---|---|
+| TR-TOPRAK-10L | 30 | 2.070,00 | 414,00 |
+| TR-GENEL-1000ML | 25 | 1.150,00 | 230,00 |
+
+`TOPRAK3` kodu geçmişte iki kez aynı karta eşlenmiş ve birim fiyatı da 69 TL — tahmin
+değil, kayda dayanıldı.
+
+**Çeşit riski önceden soruldu.** `B.BESİNİ3` kodu geçmişte çiçek/genel/kaktüs/orkideye
+dağılmış; 500 ml'de tam burada yanılmıştık. Kullanıcı "artık yeni faturalarda çeşit
+açıklamada yazıyor, önceki kayıtlar doğru" dedi ve faturanın kendi açıklaması
+"GENEL BİTKİ BESİNİ 1000 ML" diyor.
+
+**Sıra bilerek şöyle kuruldu:** önce `draft` girildi ve satırlar faturayla karşılaştırıldı
+(2/2 birebir, 3.220,00 + 644,00 = **3.864,00 TL** = belgenin kendi toplamı), sonra `post`,
+sonra mal kabulü. Çeşit yanlış çıksaydı draft aşamasında geri alınabilirdi — 500 ml hatası
+faturayı muhasebeleştirdikten sonra ortaya çıktığı için düzeltilememişti.
+
+**Sonuç (hepsi ölçüldü, farkı sıfır):** TR-TOPRAK-10L 7→**37**, TR-GENEL-1000ML 6→**31**.
+Toplam stok 514→**569 adet**, 36.659,42→**39.879,42 TL** (artış tam olarak fatura neti).
+Mal kabul değeri 3.220,00 = fatura neti. Posted fatura 30→**31**, borç 98.521,20→
+**102.385,20 TL** (artış 3.864,00 = KDV dahil toplam).
+
+**Eksik kalan:** belge panelin belge arşivine yüklenmedi; o akış tarayıcıdan dosya seçmeyi
+gerektiriyor. Fatura kaydı ve mal kabulü tamamdır.
+
+---
 ## Teslim işaretlemesi — Hepsiburada tamam, Trendyol tarih bekliyor
 
 Kullanıcı "teslim edildi zaten çoğu" dedi ve **haklıydı**: kâr ekranının boş olmasının
