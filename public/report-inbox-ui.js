@@ -24,7 +24,7 @@ export function mountReports(root, namespace = 'ec') {
   const controller = new AbortController(), signal = controller.signal;
   const state = {tab: 'upload', data: null, draft: null, busy: false, message: '', error: '', orders: null, reviews: null, storeFilter: '',
     orderPage: 1, orderQuery: '', orderStatus: '', backfill: null, stockLink: null, inventoryStart: undefined,
-    summary: null, summaryList: '', feeTransfer: null};
+    summary: null, summaryList: '', feeTransfer: null, progress: ''};
   const api = async (path = '', body) => {
     const r = await fetch('/api/' + namespace + '/reports' + path, {method: body === undefined ? 'GET' : 'POST', headers: {'Content-Type': 'application/json'}, ...(body === undefined ? {} : {body: JSON.stringify(body)}), signal});
     let x; try { x = await r.json(); } catch { throw new Error('Sunucudan yanıt alınamadı.'); }
@@ -32,7 +32,8 @@ export function mountReports(root, namespace = 'ec') {
     return x;
   };
   const say = (message, error = false) => { state.message = error ? '' : message; state.error = error ? message : ''; };
-  const run = async fn => { if (state.busy) return; state.busy = true; say(''); render(); try { await fn(); } catch (e) { if (e.name !== 'AbortError') say(e.message, true); } finally { state.busy = false; render(); } };
+  const ilerle = metin => { state.progress = metin; render(); };
+  const run = async fn => { if (state.busy) return; state.busy = true; state.progress = ''; say(''); render(); try { await fn(); } catch (e) { if (e.name !== 'AbortError') say(e.message, true); } finally { state.busy = false; state.progress = ''; render(); } };
 
   async function load() { state.data = await api(); }
   const loadOrders = async () => {
@@ -45,6 +46,7 @@ export function mountReports(root, namespace = 'ec') {
     if (!state.storeFilter) { state.summary = null; return; }
     let cursor = 0, guard = 0, toplam = null;
     for (;;) {
+      ilerle('Mağaza özeti hesaplanıyor… ' + (cursor ? cursor + ' sipariş tarandı' : 'başlıyor'));
       const p = await api('/orders/summary?' + new URLSearchParams({store_id: state.storeFilter, q: state.orderQuery, status: state.orderStatus, cursor}));
       if (!toplam) toplam = {...p, worst: [...p.worst], blocked: [...p.blocked]};
       else {
@@ -266,7 +268,7 @@ export function mountReports(root, namespace = 'ec') {
   }
 
   function render() {
-    root.innerHTML = `<div class="rb">${tabs()}${status()}${state.tab === 'upload' ? uploadView() : state.tab === 'files' ? filesView() : state.tab === 'reviews' ? reviewsView() : ordersView()}</div>${state.busy ? '<p class="rb-busy" role="status">İşleniyor…</p>' : ''}`;
+    root.innerHTML = `<div class="rb">${tabs()}${status()}${state.tab === 'upload' ? uploadView() : state.tab === 'files' ? filesView() : state.tab === 'reviews' ? reviewsView() : ordersView()}</div>${state.busy ? '<p class="rb-busy" role="status">'+esc(state.progress||'İşleniyor…')+'</p>' : ''}`;
   }
 
   /* ---------- işlemler ---------- */
@@ -402,6 +404,8 @@ export function mountReports(root, namespace = 'ec') {
       if (!state.storeFilter) throw new Error('Önce mağaza seçin.');
       let cursor = 0, guard = 0, toplam = null;
       for (;;) {
+        ilerle((commit ? 'Kesintiler yazılıyor… ' : 'Önizleme hazırlanıyor… ') +
+          (toplam ? toplam.sale_entries_changed + ' satış kaydı · ' + cursor + ' sipariş tarandı' : 'başlıyor'));
         const p = commit
           ? await api('/apply-fees', {store_id: state.storeFilter, confirm: true, cursor})
           : await api('/apply-fees?' + new URLSearchParams({store_id: state.storeFilter, cursor}));
@@ -428,6 +432,7 @@ export function mountReports(root, namespace = 'ec') {
       if (!state.storeFilter) throw new Error('Önce mağaza seçin.');
       let cursor = '', filled = 0, guard = 0, last = null;
       for (;;) {
+        ilerle('Eski kayıtlar tamamlanıyor… ' + filled + ' kayıt dolduruldu');
         last = await api('/backfill-components', {store_id: state.storeFilter, cursor});
         filled += last.filled; cursor = last.next_cursor || '';
         if (last.done || ++guard > 400) break;
