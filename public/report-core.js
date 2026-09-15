@@ -10,6 +10,16 @@ export const REPORT_KINDS = {orders: 'Sipariş raporu', finance: 'Finans / haked
 export const PROVIDERS = {trendyol: 'Trendyol', hepsiburada: 'Hepsiburada'};
 
 export const FIELDS = {
+  bank: [
+    {key: 'occurred_on', label: 'İşlem tarihi', type: 'date', required: true, hint: ['işlem tarihi', 'tarih', 'valör']},
+    {key: 'description', label: 'Açıklama', type: 'text', hint: ['açıklama', 'izahat', 'detay']},
+    {key: 'amount', label: 'Tutar (tek sütunda, eksi = para çıkışı)', type: 'money', hint: ['tutar', 'işlem tutarı']},
+    {key: 'debit', label: 'Borç / çıkan (ayrı sütundaysa)', type: 'money', hint: ['borç', 'çıkan', 'gider']},
+    {key: 'credit', label: 'Alacak / giren (ayrı sütundaysa)', type: 'money', hint: ['alacak', 'giren', 'gelir']},
+    {key: 'balance', label: 'Bakiye', type: 'money', hint: ['bakiye']},
+    {key: 'reference', label: 'Dekont / işlem numarası', type: 'id', hint: ['dekont', 'işlem no', 'referans', 'fiş', 'sıra']},
+    {key: 'counterparty', label: 'Karşı taraf', type: 'text', hint: ['karşı', 'gönderen', 'alıcı', 'ünvan', 'unvan']}
+  ],
   orders: [
     {key: 'order_no', label: 'Sipariş numarası', type: 'id', required: true, hint: ['sipariş no', 'sipariş numarası']},
     {key: 'package_id', label: 'Paket / gönderi numarası', type: 'id', hint: ['paket', 'gönderi']},

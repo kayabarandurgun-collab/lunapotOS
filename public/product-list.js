@@ -2,10 +2,13 @@
 export const BRANDS=['Klasmann','Tropikal','Gartengold'];
 export const CATEGORIES=['Torf ve yetiştirme ortamı','Bitki besini','Toprak düzenleyici','Bitki bakım ürünü','Saksı ve aksesuar'];
 const norm=s=>String(s||'').toLocaleLowerCase('tr-TR');
+// Siralama ve gosterim ayni tedarikci kaynagini kullanir: once kartta secili olan,
+// yoksa alis gecmisinden turetilen. Ikisi de yoksa bos.
+const tedarikciAdi=p=>p.supplier_name||p.last_supplier_name||'';
 export function selectProducts(products,state){
  const result=products.filter(p=>(!state.stockQuery||norm([p.name,p.sku,p.brand,p.category,p.last_supplier_name].join(' ')).includes(norm(state.stockQuery)))&&(!state.stockBrand||p.brand===state.stockBrand)&&(!state.stockCategory||p.category===state.stockCategory)&&(!state.stockSupplier||p.supplier_id===state.stockSupplier||(!p.supplier_id&&p.last_supplier_id===state.stockSupplier))&&(!state.stockFilter||(state.stockFilter==='empty'?p.quantity_milli===0:p.quantity_milli-(p.reserved_milli||0)<=p.min_stock_milli)));
  const sort=state.stockSort||'brand';
- return result.sort((a,b)=>sort==='quantity'?b.quantity_milli-a.quantity_milli:sort==='available'?(b.quantity_milli-(b.reserved_milli||0))-(a.quantity_milli-(a.reserved_milli||0)):sort==='value'?(b.value_cents??-1)-(a.value_cents??-1):sort==='brand'?(a.brand||'ZZZ').localeCompare(b.brand||'ZZZ','tr')||a.name.localeCompare(b.name,'tr'):a.name.localeCompare(b.name,'tr'));
+ return result.sort((a,b)=>sort==='quantity'?b.quantity_milli-a.quantity_milli:sort==='available'?(b.quantity_milli-(b.reserved_milli||0))-(a.quantity_milli-(a.reserved_milli||0)):sort==='value'?(b.value_cents??-1)-(a.value_cents??-1):sort==='supplier'?(tedarikciAdi(a)||'ZZZ').localeCompare(tedarikciAdi(b)||'ZZZ','tr')||a.name.localeCompare(b.name,'tr'):sort==='brand'?(a.brand||'ZZZ').localeCompare(b.brand||'ZZZ','tr')||a.name.localeCompare(b.name,'tr'):a.name.localeCompare(b.name,'tr'));
 }
 export function saleAverage(sales,productId){
  const rows=sales.filter(s=>s.product_id===productId);
