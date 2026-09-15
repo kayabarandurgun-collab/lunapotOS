@@ -8,6 +8,57 @@ Bekleyen 3 paket de sevk edildi: taslak **0**, sevk **243**, satış kaydı **32
 stok hareketi **417**. Her paket kendi tarihiyle işlendi (TEA…085 ve TEA…086 →
 2026-09-01, HB-5515871961 → 2026-09-10); tarih uydurulmadı.
 
+## Kâr hesabı çalışır hale geldi — fatura GEREKMİYORMUŞ (15 Eylül)
+
+**Kullanıcı haklıydı, ben yanlış ekrana bakıyordum.** "Komisyon ve kargo faturasına
+ihtiyacımız yok ki, TY ve HB sipariş kayıtlarının içinde yok mu zaten bu veriler?"
+diye sordu. Doğruymuş. Sistemde İKİ ayrı kâr görünümü var:
+
+- **Kâr raporu (#performance):** resmî muhasebeye dayalı, `sale_entries.commission_cents`
+  alanlarını okur. O alanlar ancak `fee_allocations` üzerinden dolar, o da alış faturası
+  gider satırı ister. Bu ekran hâlâ fatura bekliyor ve beklemesi DOĞRU.
+- **Sipariş sonuçları (Rapor Kutusu):** pazaryeri raporundan komisyon/kargo/hizmet
+  kesintilerini paket bazında hesaplar. Fatura İSTEMEZ. Kullanıcının istediği buydu.
+
+### Katkının hesaplanmasını engelleyen iki gerçek eksik
+
+**1. KDV oranı hiçbir üründe tanımlı değildi.** `vatOf()` KDV'yi YALNIZCA
+`ec_price_profiles` tablosundan okuyor; rapor kaydındaki `vat_bps` bu hesapta
+kullanılmıyor (satır 261 üzerine yazıyor). Tablo boştu → net satış KDV hariç
+hesaplanamıyor → katkı null.
+
+HB dosyalarından ürün bazında gerçek oranlar çıkarıldı: 23 ürün %20, 2 ürün %10
+(Torf+Cocopeat 5 L ve Yaprak Parlatıcı 750 ml), çelişki yok. Kullanıcıya soruldu;
+"HB ilanlarında yanlış girilmiş, hepsi %20" dedi. 37 kartın hepsine %20 tanımlandı.
+Boyut/ağırlık alanları tabloda ZORUNLU olduğu için yer tutucu konuldu (10×10×10 cm,
+1000 g) ve bu kullanıcıya bildirildi: "Kaça satmalıyım?" ekranı gerçek ölçü ister.
+
+**2. Bugün kurulan eşleştirmeler eski kayıtlara işlememişti.** `components_json` kayıt
+oluşturulurken donduruluyor, `updated` dalında güncellenmiyor. Bunun için özel uç
+varmış: `POST /reports/backfill-components` — yalnız `components_json IS NULL` olanları
+doldurur, mevcut set içeriklerine dokunmaz. Çalıştırıldı: TY 10 + HB 36 = **46 kayıt**
+dolduruldu, eşleşmesiz kayıt **0**.
+
+### Sonuç: katkı hesaplanıyor
+
+| | Trendyol | Hepsiburada |
+|---|---|---|
+| Sayfadaki sipariş | 108 | 96 |
+| Katkısı hesaplanan | **108** | **93** |
+| Eksikli | 0 | 3 |
+| Sayfa katkı toplamı | **+6.816,57 TL** | **+3.304,78 TL** |
+
+Hesap ELLE doğrulandı, beş siparişte de fark 0,00:
+net satış − maliyet − kesintiler = sistemin katkısı. Kesinti iki kez sayılmıyor.
+Örnek: 161,67 − 84,00 − 24,25 − 46,49 − 13,19 = **−6,26 TL**.
+
+TY sayfasında 62 sipariş kârda, **46 sipariş zararda** — kargo ve komisyon küçük
+siparişleri götürüyor. Bu artık görülebiliyor.
+
+**Kalan 3 HB siparişi:** ürünün sipariş tarihinden ÖNCE stok girişi yok (satılmış ama
+alışı sonradan girilmiş), maliyet bilinmiyor ve uydurulmadı.
+
+---
 ## 11 ürün eşleştirmesi ve 8 inceleme kapatıldı (15 Eylül)
 
 ### Eşleştirmeler: 67 → 78
