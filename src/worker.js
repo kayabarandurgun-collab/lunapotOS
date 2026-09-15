@@ -31,6 +31,7 @@ import {stagedImportApi} from './staged-import-api.js';
 import {reportStockLinkApi} from './report-stock-link-api.js';
 import {attentionApi} from './attention-api.js';
 import {reportInboxApi} from './report-inbox-api.js';
+import {bankApi} from './bank-api.js';
 const fail = (message,status=400) => {throw Object.assign(new Error(message),{status});};
 const str=(v,name,max=200)=> {if(typeof v!=='string'||!v.trim()||v.length>max)fail(name+' alanını kontrol edin.');return v.trim();};
 const optional=(v,max=500)=>{if(v===undefined)return '';if(typeof v!=='string'||v.length>max)fail('Metin çok uzun veya geçersiz.');return v.trim();};
@@ -110,7 +111,7 @@ async function api(request,env,path){
  const workspace=path.match(/^\/api\/(ec|lp)(\/.*)?$/);
  if(workspace){
   const scoped={...env,DB:scopedDB(db,workspace[1]),ROOT_DB:db,WORKSPACE:workspace[1],USER:current.user},subpath=workspace[2]||'';
-  for(const handler of [stagedImportApi,purchaseDocumentApi,salesDocumentApi,reportStockLinkApi,reportInboxApi,lotApi,barcodeApi,offersApi,partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(scrubAmounts(result,current.user,workspace[1]));}
+  for(const handler of [stagedImportApi,purchaseDocumentApi,salesDocumentApi,reportStockLinkApi,reportInboxApi,bankApi,lotApi,barcodeApi,offersApi,partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(scrubAmounts(result,current.user,workspace[1]));}
   return json(scrubAmounts(await accountingApi(request,scoped,'/api/accounting'+subpath,body),current.user,workspace[1]));
  }
  if(path==='/api/auth/logout'&&request.method==='POST') {
