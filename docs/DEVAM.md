@@ -8,6 +8,68 @@ Bekleyen 3 paket de sevk edildi: taslak **0**, sevk **243**, satış kaydı **32
 stok hareketi **417**. Her paket kendi tarihiyle işlendi (TEA…085 ve TEA…086 →
 2026-09-01, HB-5515871961 → 2026-09-10); tarih uydurulmadı.
 
+## Trendyol raporları girdi, teslimler işaretlendi (15 Eylül)
+
+**Kullanıcının hedefi:** her gün son 7 günün raporunu Rapor Kutusu'na bırakmak; sistem yeni
+siparişi yazsın, kargodakini teslime çevirsin, çift kayıt yapmasın, elle veri girilmesin.
+Bu tur o düzenin kurulduğu ve ÖLÇÜLDÜĞÜ turdur.
+
+### Trendyol sipariş profili kuruldu (daha önce yoktu)
+
+Profil `7a88df7d`, sürüm 1, 56 sütunlu döküm. Eşleştirmede iki karar ölçüme dayandı:
+
+- **Ürün kimliği = Barkod.** 153 satırda 26 farklı değer, tekrar oranı 0,83 → ürün gibi
+  davranıyor; canlı katalogdaki 51 TY eşleştirmesi de aynı biçimde (`TYB…` ve düz rakam).
+- **"Stok Kodu" sütunu BAĞLANMADI.** 153 satırın hepsinde tek değer var, o da `merchantSku`
+  yazısının kendisi. Bağlansaydı bütün siparişler tek ürüne çökerdi (Hepsiburada'da
+  `line_id` ile yaşanan çökmenin aynısı).
+- `delivered_date` → **Teslim Tarihi**. Eski TY dökümünde bu sütun YOKTU; TY teslimleri
+  bu yüzden işaretlenememişti. Yeni döküm bu alanı taşıyor.
+- KDV oranı ve komisyon/kargo sütunları bağlanmadı: KDV sütunu dosyada yok (uydurulmaz),
+  kesintiler finans raporunun işi (iki yerden sayılmasın).
+
+### Çift kayıt testi — kullanıcının asıl endişesi
+
+Yüklemeden ÖNCE yerelde ölçtüm: üç dosyada 251 satır → 239 ayrı anahtar, 12 tekrar
+(A∩B=0, A∩C=1, B∩C=11). Sistem tam bu sayıları verdi:
+
+| Dosya | Sonuç |
+|---|---|
+| 1-A (35 satır) | Yeni 35 |
+| 2-B (63 satır) | Yeni 63 |
+| 3-C (153 satır) | Yeni 141 · **Aynı (tekrar) 12** |
+| Finans (224 satır → 2.016 kayıt) | Yeni 257 · **Güncellenen 103** · **Aynı 1.656** |
+
+Canlıda TY sipariş kaydı **239** oldu — 251 satır yüklendi, 12 tekrar yeni kayıt açmadı.
+Finans tarafında 103 kayıt GÜNCELLENDİ (çoğaltılmadı), 1.656 kayıt "aynı" deyip geçildi.
+Her dosyanın satış toplamı dosyadan ayrıca hesaplanıp ekranla karşılaştırıldı: üçü de
+kuruşu kuruşuna aynı (14.709,84 · 44.429,15 · 93.807,99).
+
+**Finans mutabakatı:** ekran özeti 96.841,20 gösteriyordu, dosyanın net tutarı 83.333,48.
+Aradaki 13.507,72 ek kesinti sütunlarıydı (İptal −9.256,58, İndirim −3.997,80, İade Kargo
+−253,34) ve profil bunları zaten bağlamış. Bütün sütunlar toplanınca fark **0,00**.
+
+### Trendyol teslimleri: 161 paket işaretlendi
+
+Aday 162 paket; **çelişkili teslim tarihi 0**. Bir paket atlandı: `TEA2026000000028`,
+raporda teslim 28 Temmuz, bizim sevk kaydımız 29 Temmuz — teslim sevkten önce görünüyor,
+zorlanmadı. Kalan **161 paket kendi teslim tarihiyle** işaretlendi (17 Tem – 15 Eyl).
+
+Teslim edildi 50 → **211**, kargoda 193 → **32**. Satış kaydı (329) ve stok hareketi (419)
+DEĞİŞMEDİ: teslim işareti mali kayıt yazmaz.
+
+### Açık kalanlar
+
+- **7 inceleme**, hepsi `erp_ambiguous`: bir sipariş numarasına canlıda birden çok paket
+  uyuyor; sistem yanlış pakete bağlamaktansa bağlamamayı seçti. Veri kaybı değil.
+- **2 barkodun kataloğu yok:** `23245030333243` (5'li Besin Seti), `TYBX0SEAAPVZ6CX475`
+  (Yaprak Parlatıcı Sprey). O satırlar ürüne bağlanmadı.
+- **Kâr ekranı hâlâ hesaplamıyor.** Artık paketleri görüyor (TY 128 + HB 50) ama satış
+  kayıtlarında komisyon/kargo alanları boş ve sistem bilinmeyeni sıfır saymıyor. Kesinti
+  verisi Rapor Kutusu'nda duruyor; satışlara bağlanması için pazaryerinin kestiği
+  komisyon/kargo FATURASININ alış belgesi olarak girilmesi gerekiyor. Ayrı iş.
+
+---
 ## Yeni Tropikal faturası TRP2026000001080 (15 Eylül)
 
 Belgenin yeni olduğu **kanıtlandı**: SHA-256 canlıda yok, `1080` numarası da yok
