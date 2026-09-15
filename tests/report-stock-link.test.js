@@ -201,3 +201,67 @@ test('Kalem kimliği yoksa istisna ancak AÇIKÇA beyan edilirse uygulanır', as
     assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_packages').get().n, 0, 'önizleme sipariş açmaz');
   } finally { f.close(); }
 });
+
+test('Sipariş panelde zaten varsa ikinci sipariş açılmaz; rapor mevcut siparişe bağlanır, stok değişmez', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const product = await fourPack(f);
+    // Sipariş panele BAŞKA yoldan girmiş: farklı paket kodu ('HB-...' gibi), aynı sipariş numarası.
+    const mevcut = await f.ok('/ec/orders', {channel: 'trendyol', external_id: 'ELLE-O1', order_no: 'O1', occurred_on: DATE,
+      lines: [{external_id: 'E1', sku: '785457868', name: '4 adet 225 ml', quantity: 2, gross: 500, vat_rate: 20}]});
+    const s = store(f);
+    record(f, s, 'TY-1', line(), 1);
+    startDate(f, DATE);
+
+    const plan = await f.ok('/ec/reports/stock-link/preview', {store_id: s, package_id: 'PK1'});
+    assert.equal(plan.outcome, 'match', 'mevcut sipariş bulunur');
+    assert.equal(plan.package_id, mevcut.id);
+
+    const stokOnce = stockOf(f, product.id), paketOnce = f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_packages').get().n;
+    const applied = await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PK1', complete_package_confirmed: true});
+    assert.equal(applied.outcome, 'match');
+    assert.equal(applied.package_id, mevcut.id);
+    assert.equal(applied.linked_records, 1);
+    assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_packages').get().n, paketOnce, 'ikinci sipariş açılmadı');
+    assert.equal(stockOf(f, product.id), stokOnce, 'stok değişmedi');
+    assert.equal(f.sqlite.prepare("SELECT erp_package_id FROM ec_report_records WHERE kind='order_line'").get().erp_package_id, mevcut.id);
+  } finally { f.close(); }
+});
+
+test('Farklı mağazanın aynı numaralı siparişine bağlanmaz', async () => {
+  const f = appFixture(); await f.setup(); try {
+    await fourPack(f);
+    const a = store(f, {code: 'TY-1'}), b = store(f, {code: 'TY-2'});
+    record(f, a, 'TY-1', line(), 1);
+    record(f, b, 'TY-2', line({line_id: 'L2'}), 2);
+    startDate(f, DATE);
+    const first = await f.ok('/ec/reports/stock-link/apply', {store_id: a, package_id: 'PK1', complete_package_confirmed: true});
+    // A mağazasının siparişi artık A'nın kaydına bağlı; B onu sahiplenemez.
+    const plan = await f.ok('/ec/reports/stock-link/preview', {store_id: b, package_id: 'PK1'});
+    assert.notEqual(plan.outcome, 'match', 'başka mağazanın siparişine bağlanmaz');
+    assert.equal(plan.outcome, 'draft');
+    const second = await f.ok('/ec/reports/stock-link/apply', {store_id: b, package_id: 'PK1', complete_package_confirmed: true});
+    assert.notEqual(second.package_id, first.package_id);
+  } finally { f.close(); }
+});
+
+test('İptal edilmiş siparişe bağlı kalmış rapor kaydı, gerçek siparişe yönlendirilir', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const product = await fourPack(f);
+    const s = store(f);
+    record(f, s, 'TY-1', line(), 1);
+    startDate(f, DATE);
+    // Önce kopya sipariş açılmış ve iptal edilmiş (eski hatalı bağlama).
+    const kopya = await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PK1', complete_package_confirmed: true});
+    await f.ok('/ec/orders/' + kopya.package_id + '/cancel', {reason: 'Kopya kayıt'});
+    // Siparişin gerçek karşılığı panelde ayrıca duruyor.
+    const gercek = await f.ok('/ec/orders', {channel: 'trendyol', external_id: 'ELLE-O1', order_no: 'O1', occurred_on: DATE,
+      lines: [{external_id: 'E1', sku: '785457868', name: '4 adet 225 ml', quantity: 2, gross: 500, vat_rate: 20}]});
+
+    const stokOnce = stockOf(f, product.id);
+    const applied = await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PK1', complete_package_confirmed: true});
+    assert.equal(applied.outcome, 'match');
+    assert.equal(applied.package_id, gercek.id, 'iptal edilene değil gerçek siparişe bağlanır');
+    assert.equal(f.sqlite.prepare("SELECT erp_package_id FROM ec_report_records WHERE kind='order_line'").get().erp_package_id, gercek.id);
+    assert.equal(stockOf(f, product.id), stokOnce, 'stok değişmedi');
+  } finally { f.close(); }
+});

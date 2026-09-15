@@ -23,7 +23,8 @@ function b64(bytes) {
 export function mountReports(root, namespace = 'ec') {
   const controller = new AbortController(), signal = controller.signal;
   const state = {tab: 'upload', data: null, draft: null, busy: false, message: '', error: '', orders: null, reviews: null, storeFilter: '',
-    orderPage: 1, orderQuery: '', orderStatus: '', backfill: null, stockLink: null, inventoryStart: undefined};
+    orderPage: 1, orderQuery: '', orderStatus: '', backfill: null, stockLink: null, inventoryStart: undefined,
+    summary: null, summaryList: '', feeTransfer: null};
   const api = async (path = '', body) => {
     const r = await fetch('/api/' + namespace + '/reports' + path, {method: body === undefined ? 'GET' : 'POST', headers: {'Content-Type': 'application/json'}, ...(body === undefined ? {} : {body: JSON.stringify(body)}), signal});
     let x; try { x = await r.json(); } catch { throw new Error('Sunucudan yanıt alınamadı.'); }
@@ -37,6 +38,11 @@ export function mountReports(root, namespace = 'ec') {
   const loadOrders = async () => {
     if (!state.storeFilter) { state.orders = null; return; }
     state.orders = await api('/orders?' + new URLSearchParams({store_id: state.storeFilter, page: state.orderPage, q: state.orderQuery, status: state.orderStatus}));
+  };
+  // Özet mağazanın TAMAMINI tarar; sayfa değiştikçe yeniden hesaplanmasın diye ayrı istenir.
+  const loadSummary = async () => {
+    if (!state.storeFilter) { state.summary = null; return; }
+    state.summary = await api('/orders/summary?' + new URLSearchParams({store_id: state.storeFilter, q: state.orderQuery, status: state.orderStatus}));
   };
 
   /* ---------- görünüm parçaları ---------- */
@@ -168,6 +174,45 @@ export function mountReports(root, namespace = 'ec') {
       <button type="button" data-rb-act="backfill" class="${missing ? 'warn' : ''}"><span>Ürün eşleşmesi eksik · bu sayfada</span><strong>${num(missing)}</strong></button>
       <button type="button" data-rb-tab="files"><span>Bu mağazadaki sipariş</span><strong>${num(o.total || 0)}</strong></button></div>
       ${state.backfill ? `<p class="rb-alert ${state.backfill.remaining ? 'warn' : 'ok'}">Tamamlanan eski kayıt: ${num(state.backfill.filled)} · eşleşmesi hâlâ bulunamayan: ${num(state.backfill.remaining)}. ${esc(state.backfill.notice || '')}</p>` : ''}` : '';
+
+    const s = state.summary;
+    const listRow = r => `<tr><td><strong>${esc(r.order_no)}</strong><small>${esc(r.order_date || '')}${r.delivered_on ? ' · teslim ' + esc(r.delivered_on) : ''}</small></td>
+      <td><small>${esc(r.products)}</small></td>
+      <td class="rb-num">${money(r.net_sales_ex_vat_cents)}</td><td class="rb-num">${money(r.cogs_cents)}</td>
+      <td><small>${(r.fees || []).map(x => esc(x.label) + ': ' + money(x.net_cents ?? x.actual_cents)).join('<br>') || '—'}</small></td>
+      <td>${r.contribution_cents !== null ? `<strong class="rb-num">${money(r.contribution_cents)}</strong>` : `<span class="rb-chip warn">Hesaplanamadı</span><small>${(r.missing || []).map(esc).join('<br>')}</small>`}</td></tr>`;
+    const listTable = rows => `<div class="v2-table-wrap"><table class="v2-table"><thead><tr><th>Sipariş</th><th>Ürünler</th><th>Net satış</th><th>Maliyet</th><th>Kesintiler</th><th>Katkı</th></tr></thead><tbody>${rows.map(listRow).join('')}</tbody></table></div>`;
+    const summaryPanel = s ? `<section class="v2-card"><h3>Bu mağazanın teslim edilen paketleri</h3>
+      <div class="rb-status">
+        <button type="button" data-rb-sum="delivered"><span>Teslim edilen paket</span><strong>${num(s.delivered)}</strong></button>
+        <button type="button" data-rb-sum="profit" class="${s.profitable ? 'ok' : ''}"><span>Kâr bırakan</span><strong>${num(s.profitable)}</strong></button>
+        <button type="button" data-rb-sum="loss" class="${s.losing ? 'warn' : ''}"><span>Zarar eden</span><strong>${num(s.losing)}</strong></button>
+        <button type="button" data-rb-sum="blocked" class="${s.uncomputed ? 'warn' : ''}"><span>Hesaplanamayan</span><strong>${num(s.uncomputed)}</strong></button></div>
+      <dl class="rb-kv">
+        <div><dt>Toplam katkı (KDV hariç)</dt><dd class="rb-num"><strong>${money(s.contribution_cents)}</strong></dd></div>
+        <div><dt>Kâr bırakanların toplamı</dt><dd class="rb-num">${money(s.profit_cents)}</dd></div>
+        <div><dt>Zarar edenlerin toplamı</dt><dd class="rb-num">${money(s.loss_cents)}</dd></div>
+        <div><dt>Henüz teslim edilmemiş</dt><dd>${num(s.not_delivered)} paket</dd></div></dl>
+      <p class="rb-muted">${esc(s.notice)}</p>
+      ${state.summaryList === 'loss' ? (s.worst.length ? `<h4>En çok zarar ettiren paketler</h4>${listTable(s.worst)}` : '<p class="rb-muted">Zarar eden paket yok.</p>') : ''}
+      ${state.summaryList === 'blocked' ? (s.blocked.length ? `<h4>Teslim edildi ama hesaplanamadı — neyin eksik olduğu</h4>${listTable(s.blocked)}` : '<p class="rb-muted">Teslim edilen her paketin katkısı hesaplandı.</p>') : ''}
+      </section>` : '';
+
+    const t = state.feeTransfer;
+    const transferPanel = state.storeFilter ? `<section class="v2-card"><h3>Kesintileri satış kayıtlarına aktar</h3>
+      <p class="rb-muted">Pazaryeri raporundaki komisyon, kargo ve hizmet kesintilerini, ERP'de bağlı <b>teslim edilmiş</b> paketlerin satış kayıtlarına yazar.
+        <b>Fatura gerekmez.</b> Stok, satış tutarı ve fatura DEĞİŞMEZ. Aynı rapor tekrar aktarılsa da tutar çoğalmaz.</p>
+      ${t ? `<dl class="rb-kv">
+        <div><dt>İşlenecek paket</dt><dd>${num(t.applied)}</dd></div>
+        <div><dt>Değişecek satış kaydı</dt><dd><strong>${num(t.sale_entries_changed)}</strong></dd></div>
+        <div><dt>Komisyon</dt><dd class="rb-num">${money(t.totals.commission)}</dd></div>
+        <div><dt>Kargo</dt><dd class="rb-num">${money(t.totals.shipping)}</dd></div>
+        <div><dt>Diğer (hizmet vb.)</dt><dd class="rb-num">${money(t.totals.other)}</dd></div>
+        <div><dt>Atlanan paket</dt><dd>${num(t.skipped_total)}</dd></div></dl>
+        <p class="rb-alert ${t.commit ? 'ok' : 'warn'}">${esc(t.notice)}</p>
+        ${t.skipped.length ? `<details><summary>Atlananlar ve gerekçeleri (${num(t.skipped_total)})</summary><ul class="rb-list">${t.skipped.map(x => `<li>${esc(x.group)}: ${esc(x.reason)}</li>`).join('')}</ul></details>` : ''}` : ''}
+      <div class="rb-actions"><button type="button" class="secondary" data-rb-act="fees-preview">Önizle (hiçbir şey yazmaz)</button>
+        ${t && !t.commit && t.sale_entries_changed ? '<button type="button" class="primary" data-rb-act="fees-apply">Onaylıyorum, satış kayıtlarına yaz</button>' : ''}</div></section>` : '';
     const pages = o ? Math.max(1, Math.ceil((o.total || 0) / (o.page_size || 100))) : 1;
     const toolbar = `<form data-rb-form="orders" class="rb-toolbar">
       <label>Sipariş, paket, barkod veya ürün ara<input name="q" type="search" value="${esc(state.orderQuery)}" maxlength="100"></label>
@@ -188,7 +233,7 @@ export function mountReports(root, namespace = 'ec') {
            ${(link.issues || []).length ? '<ul class="rb-list">' + link.issues.map(i => '<li>' + esc(i) + '</li>').join('') + '</ul>' : ''}`}
       <div class="rb-actions"><button type="button" class="secondary" data-rb-act="stock-link-close">Kapat</button>
         ${link.outcome === 'draft' ? '<button type="button" class="primary" data-rb-act="stock-link-apply" data-package="' + esc(link.package_id) + '">Taslak siparişi oluştur</button>' : ''}</div></section>` : '';
-    return `<section class="v2-card"><h3>Sipariş sonuçları</h3>${linkPanel}
+    return `${summaryPanel}${transferPanel}<section class="v2-card"><h3>Sipariş sonuçları</h3>${linkPanel}
       <div class="rb-grid"><label>Mağaza<select data-rb="order-store">${storeOptions(state.storeFilter)}</select></label></div>
       ${state.storeFilter ? toolbar + cards : ''}
       <p class="rb-muted">Dört sayı ayrı tutulur: <b>pazaryerinin bildirdiği net</b>, <b>bankada doğrulanan tahsilat</b>, <b>bilinen doğrudan maliyetlerden sonraki katkı</b> (KDV hariç satış − ürün maliyeti − kesintiler; stopaj dahil edilmez) ve <b>tahmin</b>. Eksik maliyet sıfır sayılmaz.</p>
@@ -305,7 +350,10 @@ export function mountReports(root, namespace = 'ec') {
   /* ---------- olaylar ---------- */
   root.addEventListener('click', e => {
     const tab = e.target.closest('[data-rb-tab]');
-    if (tab) { state.tab = tab.dataset.rbTab; run(async () => { if (state.tab === 'reviews') state.reviews = (await api('/reviews')).reviews; if (state.tab === 'orders') await loadOrders(); if (state.tab === 'files') await load(); }); return; }
+    if (tab) { state.tab = tab.dataset.rbTab; run(async () => { if (state.tab === 'reviews') state.reviews = (await api('/reviews')).reviews; if (state.tab === 'orders') { await loadOrders(); await loadSummary(); } if (state.tab === 'files') await load(); }); return; }
+    // Özet kartına tıklayınca ilgili liste açılır/kapanır: zarar edenler ve hesaplanamayanlar ekranda görünür.
+    const sum = e.target.closest('[data-rb-sum]');
+    if (sum) { const k = sum.dataset.rbSum; state.summaryList = state.summaryList === k ? '' : k; render(); return; }
     const act = e.target.closest('[data-rb-act]');
     if (!act) return;
     const a = act.dataset.rbAct, id = act.dataset.id;
@@ -333,6 +381,16 @@ export function mountReports(root, namespace = 'ec') {
     if (a === 'page-prev' || a === 'page-next') { state.orderPage = Math.max(1, state.orderPage + (a === 'page-next' ? 1 : -1)); run(loadOrders); }
     // Sonradan tanımlanan ürün/set eşleştirmesini eski kayıtlara uygular. Daha önce kaydedilmiş
     // tarihî set içerikleri DEĞİŞMEZ; yalnız eşleşmesi hiç olmayan kayıtlar doldurulur.
+    if (a === 'fees-preview') run(async () => {
+      if (!state.storeFilter) throw new Error('Önce mağaza seçin.');
+      state.feeTransfer = await api('/apply-fees?' + new URLSearchParams({store_id: state.storeFilter}));
+      say('Önizleme hazır. Hiçbir şey yazılmadı.');
+    });
+    if (a === 'fees-apply') run(async () => {
+      state.feeTransfer = await api('/apply-fees', {store_id: state.storeFilter, confirm: true});
+      say(state.feeTransfer.notice);
+      await Promise.all([loadOrders(), loadSummary()]);
+    });
     if (a === 'backfill') run(async () => {
       if (!state.storeFilter) throw new Error('Önce mağaza seçin.');
       let cursor = '', filled = 0, guard = 0, last = null;
@@ -354,7 +412,7 @@ export function mountReports(root, namespace = 'ec') {
     if (t === 'kind') state.draft.kind = e.target.value;
     if (t === 'snapshot') state.draft.snapshot_at = e.target.value;
     if (t === 'file' && e.target.files[0]) { const file = e.target.files[0]; run(() => takeFile(file)); }
-    if (t === 'order-store') { state.storeFilter = e.target.value; state.orderPage = 1; state.backfill = null; run(loadOrders); }
+    if (t === 'order-store') { state.storeFilter = e.target.value; state.orderPage = 1; state.backfill = null; state.feeTransfer = null; state.summaryList = ''; run(async () => { await loadOrders(); await loadSummary(); }); }
   }, {signal});
   root.addEventListener('submit', e => {
     const form = e.target.closest('[data-rb-form]');

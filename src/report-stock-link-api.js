@@ -59,7 +59,11 @@ async function plan(env, storeId, packageId, lineIdentityDeclared = false) {
   if (!rows.length) fail('Bu mağazada bu paket için rapor kaydı yok.', 404);
 
   const records = rows.map(r => ({...r, data: parse(r.data_json, {})}));
-  const linked = records.find(r => r.erp_package_id);
+  // İPTAL EDİLMİŞ siparişe bağlı kayıt "bağlı" sayılmaz: iptal paketin defterde karşılığı yoktur
+  // (stok çıkışı, satış kaydı ve kesinti alanı olmaz). Böyle bir bağ eskimiştir; yeniden aranır.
+  const linkedRow = records.find(r => r.erp_package_id);
+  const linkedDead = linkedRow ? await db.prepare("SELECT 1 FROM ec_order_packages WHERE id=? AND status='cancelled'").bind(linkedRow.erp_package_id).first() : null;
+  const linked = linkedDead ? null : linkedRow;
   if (linked) {
     // Bağlantı anındaki içerik ile ŞİMDİKİ içerik karşılaştırılır. Rapor güncellendiyse (iptal,
     // adet değişimi) eski taslak sessizce kullanılmaz: paket "kaynak değişti" diye işaretlenir ve
@@ -89,6 +93,39 @@ async function plan(env, storeId, packageId, lineIdentityDeclared = false) {
 
   const orders = new Set(records.map(r => r.data.order_no)), dates = new Set(), seen = new Set();
   const issues = [];
+
+  // Bu pazaryeri siparişi panele BAŞKA bir yoldan girmiş olabilir (elle, eski aktarım).
+  // O zaman ikinci bir sipariş açmak kaydı ikiye böler: stok ve satış bir tarafta, rapor
+  // kesintileri öbür tarafta kalır. Önce sipariş numarasıyla mevcut kayıt aranır.
+  // Eşleşme TEK ve BAŞKA bir rapor paketine bağlı değilse bağlanır; şüpheli durum incelemeye gider.
+  // Sipariş numarası MAĞAZA içinde tekildir, pazaryeri genelinde değil: aynı sağlayıcının iki
+  // mağazasında aynı numara bulunabilir. Bu yüzden başka bir mağazanın kayıtlarına bağlı paket
+  // aday sayılmaz; başka mağazada aynı numaralı rapor kaydı varsa da otomatik bağlanmaz.
+  const orderNo = orders.size === 1 ? orders.values().next().value : null;
+  if (orderNo) {
+    const rival = await db.prepare(
+      "SELECT 1 FROM ec_report_records WHERE kind='order_line' AND store_id!=? AND json_extract(data_json,'$.order_no')=? LIMIT 1")
+      .bind(store.id, String(orderNo)).first();
+    const twins = rival ? [] : (await db.prepare(
+      "SELECT p.id,p.external_id,p.status FROM ec_order_packages p WHERE p.channel=? AND p.order_no=? AND p.status!='cancelled'" +
+      " AND NOT EXISTS(SELECT 1 FROM ec_report_records r WHERE r.erp_package_id=p.id AND r.store_id!=?)")
+      .bind(store.provider, String(orderNo), store.id).all()).results;
+    if (twins.length === 1) {
+      const t = twins[0];
+      const otherPackage = await db.prepare(
+        "SELECT json_extract(data_json,'$.package_id') p FROM ec_report_records WHERE erp_package_id=? AND kind='order_line' AND json_extract(data_json,'$.package_id')!=? LIMIT 1")
+        .bind(t.id, packageId).first();
+      if (otherPackage) return {store, outcome: 'review', stock_write: false,
+        issues: ['Paneldeki ' + t.external_id + ' siparişi başka bir pazaryeri paketine (' + otherPackage.p + ') bağlı.'],
+        reason: 'Aynı sipariş numarası iki pakete işaret ediyor; hangisine bağlanacağı elle kararlaştırılmalı.'};
+      return {store, outcome: 'match', stock_write: false, package_id: t.id, external_id: t.external_id, status: t.status,
+        order_no: String(orderNo),
+        reason: 'Bu sipariş panelde ZATEN var (' + t.external_id + ', ' + t.status + '). İkinci sipariş açılmaz; ' +
+          'rapor kaydı mevcut siparişe bağlanır, stok ve satış tutarı değişmez.'};
+    }
+    // Birden fazla aday (bölünmüş sipariş) veya başka mağaza karışıyorsa otomatik bağlanmaz:
+    // eski davranış sürer, taslak açılır. Yanlış siparişe bağlamaktansa ayrı kayıt tercih edilir.
+  }
   for (const r of records) {
     const d = r.data;
     const identity = lineIdentity(d, packageId, lineIdentityDeclared);
@@ -164,6 +201,23 @@ export async function reportStockLinkApi(request, env, path, readBody) {
     // Paketin BÜTÜN kalemlerinin elde olduğu açıkça doğrulanmalı: eksik kalemli paket stok çıkarmaz.
     if (x.complete_package_confirmed !== true) fail('Paketin bütün kalemlerinin raporda bulunduğunu doğrulayın.', 409);
     const result = await plan(env, x.store_id, x.package_id, x.line_identity_from_package_sku === true);
+
+    // Sipariş panelde zaten var: YENİ sipariş açılmaz, stok ve satış tutarı değişmez.
+    // Yalnızca rapor kaydı mevcut siparişe bağlanır ki kesintiler doğru kayda yazılabilsin.
+    if (result.outcome === 'match') {
+      // Bağsız kayıtlar VE iptal edilmiş siparişe bağlı kalmış kayıtlar mevcut siparişe yönlendirilir.
+      const rows = (await db.prepare(
+        "SELECT id FROM ec_report_records WHERE store_id=? AND kind='order_line' AND json_extract(data_json,'$.package_id')=?" +
+        " AND (erp_package_id IS NULL OR erp_package_id IN (SELECT id FROM ec_order_packages WHERE status='cancelled'))")
+        .bind(result.store.id, key(x.package_id)).all()).results;
+      if (rows.length) await db.batch(rows.map(r =>
+        db.prepare("UPDATE ec_report_records SET erp_package_id=? WHERE id=? AND (erp_package_id IS NULL OR erp_package_id IN (SELECT id FROM ec_order_packages WHERE status='cancelled'))").bind(result.package_id, r.id)));
+      return {outcome: 'match', applied: rows.length > 0, stock_write: false, package_id: result.package_id,
+        external_id: result.external_id, order_no: result.order_no, linked_records: rows.length,
+        reason: result.reason,
+        notice: 'Rapor kaydı paneldeki mevcut siparişe bağlandı. Stok, satış tutarı ve sipariş durumu DEĞİŞMEDİ.'};
+    }
+
     if (result.outcome !== 'draft')
       return {...result, store: {id: result.store.id, name: result.store.name, provider: result.store.provider}, applied: false};
 

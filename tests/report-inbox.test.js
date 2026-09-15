@@ -8,13 +8,15 @@ import {parseMoney, parseDate, allocateCents, headerSignature} from '../public/r
 // TEMSİLİ test verisi: gerçek Trendyol/Hepsiburada sütun adları DEĞİLDİR. Sütunları kullanıcı eşler.
 const ORDER_COLUMNS = [
   {header: 'Sipariş No'}, {header: 'Paket No'}, {header: 'Kalem No'}, {header: 'Barkod'}, {header: 'Ürün'},
-  {header: 'Adet', type: 'number'}, {header: 'Durum'}, {header: 'Sipariş Tarihi'}, {header: 'Tutar'}, {header: 'Kargo'}
+  {header: 'Adet', type: 'number'}, {header: 'Durum'}, {header: 'Sipariş Tarihi'}, {header: 'Tutar'}, {header: 'Kargo'}, {header: 'Teslim Tarihi'}
 ];
 const ORDER_MAPPING = {order_no: 'Sipariş No', package_id: 'Paket No', line_id: 'Kalem No', barcode: 'Barkod', product_name: 'Ürün',
-  quantity: 'Adet', status: 'Durum', order_date: 'Sipariş Tarihi', gross: 'Tutar', cargo_package: 'Kargo'};
+  quantity: 'Adet', status: 'Durum', order_date: 'Sipariş Tarihi', gross: 'Tutar', cargo_package: 'Kargo', delivered_date: 'Teslim Tarihi'};
 const FIN_COLUMNS = [{header: 'İşlem No'}, {header: 'Sipariş No'}, {header: 'Paket No'}, {header: 'Barkod'}, {header: 'İşlem Tipi'}, {header: 'Tarih'}, {header: 'Tutar'}];
 const FIN_MAPPING = {event_id: 'İşlem No', order_no: 'Sipariş No', package_id: 'Paket No', barcode: 'Barkod', event_type: 'İşlem Tipi', event_date: 'Tarih', amount: 'Tutar'};
-const line = (order, pkg, lineId, barcode, qty, status, gross, cargo = '50,00') => [order, pkg, lineId, barcode, 'Ürün ' + barcode, qty, status, '01.09.2026', gross, cargo];
+// Teslim tarihi durumla tutarlı üretilir: teslim edilmeyen satırda tarih YOKTUR.
+const line = (order, pkg, lineId, barcode, qty, status, gross, cargo = '50,00', delivered = /teslim edildi/i.test(status) ? '05.09.2026' : '') =>
+  [order, pkg, lineId, barcode, 'Ürün ' + barcode, qty, status, '01.09.2026', gross, cargo, delivered];
 
 function seed(f) {
   f.sqlite.exec("INSERT INTO ec_products(id,name,sku,stock_unit) VALUES('nova','Nova','NV','adet'),('luna','Luna','LN','adet'),('yeni','Maliyetsiz','YN','adet')");
@@ -369,5 +371,42 @@ test('Aktarım partisi yalnız kendi satırlarını okur; dosya içi tekrar part
     let r; do { r = await f.ok('/ec/reports/files/' + file.id + '/apply', {}); } while (!r.done);
     assert.equal(r.counts.new, 300);
     assert.equal(r.counts.review, 1, 'farklı partideki tekrar yine incelemeye gider');
+  } finally { f.close(); }
+});
+
+test('Teslim edilmeyen paketin kârı HESAPLANMAZ; teslim edilince hesaplanır, tahmin ikisinde de durur', async () => {
+  const {f, store, profile, upload, applyAll} = await fixture(); try {
+    const s = await store();
+    await profile('orders', ORDER_COLUMNS, ORDER_MAPPING);
+    // Aynı içerik, tek fark teslim durumu: P1 kargoda, P2 teslim edilmiş.
+    await applyAll((await upload(s, 'orders', ORDER_COLUMNS, [
+      line('1001', 'P1', 'L1', 'NOVA-1', 1, 'Kargoda', '240,00', '0,00'),
+      line('1002', 'P2', 'L2', 'NOVA-1', 1, 'Teslim edildi', '240,00', '0,00')], '2026-09-01T10:00')).id);
+    const {results} = await f.ok('/ec/reports/orders?store_id=' + s);
+    const kargoda = results.find(r => r.group === 'P1'), teslim = results.find(r => r.group === 'P2');
+
+    assert.equal(teslim.delivered, true);
+    assert.equal(teslim.delivered_on, '2026-09-05');
+    assert.equal(teslim.contribution_cents, 20000 - 10000, 'teslim edilen: 240 TL brüt → 200 net − 100 maliyet');
+
+    assert.equal(kargoda.delivered, false);
+    assert.equal(kargoda.contribution_cents, null, 'kargodaki paketin kârı raporlanmaz');
+    assert.ok(kargoda.contribution_missing.some(m => /Teslim edilmedi/.test(m)), 'gerekçe yazılır');
+    // Hesabın kendisi bozulmaz: bileşenler durur, yalnız "gerçekleşmiş kâr" verilmez.
+    assert.equal(kargoda.net_sales_ex_vat_cents, 20000);
+    assert.equal(kargoda.cogs_cents, 10000);
+  } finally { f.close(); }
+});
+
+test('Teslim tarihi paketin BÜTÜN satırlarında olmalı; bir satırı eksikse paket teslim sayılmaz', async () => {
+  const {f, store, profile, upload, applyAll} = await fixture(); try {
+    const s = await store();
+    await profile('orders', ORDER_COLUMNS, ORDER_MAPPING);
+    await applyAll((await upload(s, 'orders', ORDER_COLUMNS, [
+      line('1001', 'P1', 'L1', 'NOVA-1', 1, 'Teslim edildi', '240,00', '0,00'),
+      line('1001', 'P1', 'L1b', 'NOVA-1', 1, 'Kargoda', '240,00', '0,00')], '2026-09-01T10:00')).id);
+    const row = (await f.ok('/ec/reports/orders?store_id=' + s)).results.find(r => r.group === 'P1');
+    assert.equal(row.delivered, false, 'yarısı teslim edilmiş paket teslim sayılmaz');
+    assert.equal(row.contribution_cents, null);
   } finally { f.close(); }
 });

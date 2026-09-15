@@ -111,17 +111,36 @@ async function componentsFor(db, provider, data) {
 }
 
 /* ---------------- sipariş sonuçları ---------------- */
-async function unitCostAt(db, productId, date) {
+async function unitCostAt(db, productId, date, memo) {
   // Sipariş tarihine kadarki açılış ve alış girişlerinin ortalaması. Giriş yoksa maliyet BİLİNMİYOR.
+  // memo: aynı çağrı içinde aynı ürün+tarih tekrar sorulmaz; sonuç değişmez, yalnızca sorgu sayısı azalır.
+  const k = productId + '|' + date;
+  if (memo?.has(k)) return memo.get(k);
   const r = await db.prepare("SELECT SUM(quantity_milli) q,SUM(value_cents) v FROM ec_stock_movements WHERE product_id=? AND kind IN ('opening','purchase') AND quantity_milli>0 AND occurred_on<=?")
     .bind(productId, date).first();
-  return r && r.q > 0 && r.v !== null ? {cents_per_unit: r.v * 1000 / r.q, historical: true} : null;
+  const out = r && r.q > 0 && r.v !== null ? {cents_per_unit: r.v * 1000 / r.q, historical: true} : null;
+  memo?.set(k, out);
+  return out;
 }
-async function vatOf(db, productIds) {
+async function vatOf(db, productIds, memo) {
+  const k = productIds.join('␟');
+  if (memo?.has(k)) return memo.get(k);
   const rows = (await db.prepare('SELECT product_id,vat_bps FROM ec_price_profiles WHERE product_id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(productIds)).all()).results;
   const rates = [...new Set(productIds.map(p => rows.find(r => r.product_id === p)?.vat_bps ?? null))];
-  return rates.length === 1 && rates[0] !== null ? rates[0] : null;
+  const out = rates.length === 1 && rates[0] !== null ? rates[0] : null;
+  memo?.set(k, out);
+  return out;
 }
+
+/**
+ * Paket teslim edildi mi? Ölçüt pazaryerinin durum metni DEĞİL, eşleştirilmiş teslim tarihi alanıdır:
+ * durum sözcükleri pazaryerine göre değişir, tarih alanı değişmez. Teslim edilmeyen pakette komisyon
+ * kesilmiş görünse de kargo maliyeti kesinleşmediği için kâr HESAPLANMAZ (bkz. contribution_cents).
+ */
+const deliveryOf = lines => {
+  const dates = lines.map(l => String(l.delivered_date || '').slice(0, 10)).filter(Boolean).sort();
+  return {delivered: dates.length > 0 && dates.length === lines.length, delivered_on: dates.at(-1) || null};
+};
 
 /** Satır bazında komisyon tarifesi. Kargo tarifesi (desi) henüz bağlı değildir. */
 async function tariffEstimate(db, provider, type, line, date) {
@@ -177,6 +196,15 @@ export async function orderResults(db, storeId, {limit = 100, offset = 0, q = ''
   const orderNos = (await db.prepare("SELECT json_extract(data_json,'$.order_no') o,MAX(substr(json_extract(data_json,'$.order_date'),1,10)) d FROM ec_report_records WHERE " + where + ' GROUP BY o ORDER BY d DESC,o LIMIT ? OFFSET ?')
     .bind(store.id, ...filterArgs, limit, offset).all()).results.map(r => r.o).filter(o => o !== null && o !== undefined);
   if (!orderNos.length) return {store, results: [], total, statuses};
+  return {store, results: await packagesFor(db, store, orderNos), total, statuses};
+}
+
+/**
+ * Verilen siparişlerin paket bazında sonucu. Sayfa görünümü, mağaza özeti ve kesinti aktarımı
+ * AYNI hesabı kullanır; böylece ekranda görünen tutarla deftere yazılan tutar ayrışamaz.
+ * memo: yalnızca sorgu tekrarını önler, sonucu değiştirmez.
+ */
+async function packagesFor(db, store, orderNos, memo = {cost: new Map(), vat: new Map()}) {
   const lines = (await db.prepare("SELECT * FROM ec_report_records WHERE store_id=? AND kind='order_line' AND json_extract(data_json,'$.order_no') IN (SELECT value FROM json_each(?)) ORDER BY record_key")
     .bind(store.id, JSON.stringify(orderNos)).all()).results;
   // Paket kimliği hangi siparişe ait? Finans satırında sipariş no boş olsa da olay bu yolla bulunur.
@@ -253,17 +281,21 @@ export async function orderResults(db, storeId, {limit = 100, offset = 0, q = ''
     for (const g of list) {
       const events = packageEvents.get(g.group);
       const missing = [...conflictNotes], notes = [...sharedNotes, ...conflictNotes], date = String(g.order_date || '').slice(0, 10);
+      // Teslim edilmeyen pakette kargo maliyeti kesinleşmez (iade, yeniden gönderim, ceza).
+      // Komisyon kesilmiş görünse bile kâr HESAPLANMAZ; tahmin bölümü ayrıca durur.
+      const {delivered, delivered_on} = deliveryOf(g.lines);
+      if (!delivered) missing.push('Teslim edilmedi' + (g.status ? ' (' + g.status + ')' : '') + ': kargo maliyeti kesinleşmediği için kâr hesaplanmaz.');
       let netSales = 0, cogs = 0;
       for (const line of g.lines) {
         const comps = line.components?.components || null;
         if (!comps) { missing.push('Ürün/set eşleşmesi yok: ' + (line.barcode || line.sku || line.product_name || 'ürün')); netSales = null; cogs = null; continue; }
         if (line.components.after_order) notes.push((line.barcode || line.sku) + ': set tanımı sipariş tarihinden sonra; eski içerik doğrulanmalı.');
-        line.vat_bps = await vatOf(db, comps.map(c => c.product_id));
+        line.vat_bps = await vatOf(db, comps.map(c => c.product_id), memo.vat);
         if (line.gross === undefined) { missing.push('Satış tutarı yok (sipariş ' + line.order_no + ')'); netSales = null; }
         else if (line.vat_bps === null) { missing.push('KDV oranı tanımlı değil: ' + (line.barcode || line.sku)); netSales = null; }
         else if (netSales !== null) netSales += exVat(line.gross, line.vat_bps);
         for (const c of comps) {
-          const cost = await unitCostAt(db, c.product_id, date);
+          const cost = await unitCostAt(db, c.product_id, date, memo.cost);
           if (!cost) { missing.push('Maliyet yok: ' + c.product_id + ' (' + date + ' öncesi giriş bulunamadı)'); cogs = null; continue; }
           // İki adet ikili set = her üründen 2 × set içindeki miktar.
           if (cogs !== null) cogs += Math.round(cost.cents_per_unit * c.quantity_milli * (line.quantity || 0) / 1000);
@@ -282,13 +314,15 @@ export async function orderResults(db, storeId, {limit = 100, offset = 0, q = ''
         if (!has(t)) continue;
         const rows = events.filter(e => e.type === t);
         const raw = rows.reduce((s, e) => s + e.amount_cents, 0);
-        for (const e of rows) { const v = feeVatOf(e); if (v === null) vatUnknown = true; fees += v ? exVat(e.amount_cents, v) : e.amount_cents; }
-        feeRows.push({type: t, label: EVENT_TYPES[t], actual_cents: raw, evidence: rows.filter(e => e.invoice_line_id).length, allocated: rows.some(e => e.allocated)});
+        // net_cents: katkıya giren KDV hariç tutar. Deftere de bu yazılır; ekranla defter ayrışmasın.
+        let net = 0;
+        for (const e of rows) { const v = feeVatOf(e); if (v === null) vatUnknown = true; const x = v ? exVat(e.amount_cents, v) : e.amount_cents; fees += x; net += x; }
+        feeRows.push({type: t, label: EVENT_TYPES[t], actual_cents: raw, net_cents: net, evidence: rows.filter(e => e.invoice_line_id).length, allocated: rows.some(e => e.allocated)});
       }
       // Sipariş raporundaki paket kargosu: finans kaydı yoksa ve paketteki bütün satırlarda aynıysa BİR kez.
       if (!has('cargo')) {
         const cargoValues = [...new Set(g.lines.map(l => l.cargo_package).filter(v => v !== undefined))];
-        if (cargoValues.length === 1) { const v = -Math.abs(cargoValues[0]); feeRows.push({type: 'cargo', label: 'Kargo (sipariş raporu, paket başına)', actual_cents: v, evidence: 0}); fees += v; vatUnknown = true; }
+        if (cargoValues.length === 1) { const v = -Math.abs(cargoValues[0]); feeRows.push({type: 'cargo', label: 'Kargo (sipariş raporu, paket başına)', actual_cents: v, net_cents: v, evidence: 0}); fees += v; vatUnknown = true; }
         else if (cargoValues.length > 1) missing.push('Paketin satırlarında farklı kargo ücretleri var; tek kargo kabul edilmedi.');
       }
       if (vatUnknown && feeRows.length) notes.push('Kesinti tutarlarının KDV durumu profilde belirtilmedi; katkı yaklaşık.');
@@ -319,11 +353,15 @@ export async function orderResults(db, storeId, {limit = 100, offset = 0, q = ''
       const reported = events.some(e => e.net_payout !== undefined) ? [...new Map(events.filter(e => e.net_payout !== undefined).map(e => [sourceKey(e), e.net_payout])).values()].reduce((s, v) => s + v, 0)
         : payouts.length ? payouts.reduce((s, e) => s + e.amount_cents, 0) : null;
       const computed = events.filter(e => e.type && e.type !== 'payout').reduce((s, e) => s + e.amount_cents, 0);
-      const contribution = conflictNotes.length || netSales === null || cogs === null ? null : netSales - cogs + fees;
+      // basis: hesabın kendisi. GERÇEKLEŞMİŞ katkı yalnızca teslim edilmiş pakette raporlanır;
+      // teslim edilmemiş paket için aynı hesap "tahmini sonuç" olarak ayrı alanda kalır.
+      const basis = conflictNotes.length || netSales === null || cogs === null ? null : netSales - cogs + fees;
+      const contribution = delivered ? basis : null;
       const complete = estimates.every(e => e.value !== null);
       const estimatedFees = estimates.reduce((s, e) => s + (e.value || 0), 0);
       results.push({
-        ...g, lines: g.lines.map(l => ({order_no: l.order_no, barcode: l.barcode, sku: l.sku, product_name: l.product_name, quantity: l.quantity, gross_cents: l.gross ?? null,
+        ...g, delivered, delivered_on,
+        lines: g.lines.map(l => ({order_no: l.order_no, barcode: l.barcode, sku: l.sku, product_name: l.product_name, quantity: l.quantity, gross_cents: l.gross ?? null,
           components: l.components?.components || null})),
         reported_net_cents: reported, computed_net_cents: events.length ? computed : null,
         bank_verified_cents: null, bank_note: 'Banka hareketleriyle eşleştirme henüz bağlanmadı.',
@@ -331,12 +369,139 @@ export async function orderResults(db, storeId, {limit = 100, offset = 0, q = ''
         net_sales_ex_vat_cents: netSales, cogs_cents: cogs, fees: feeRows,
         contribution_cents: contribution, contribution_missing: missing,
         fee_events: events.filter(e => FEE_TYPES.includes(e.type)).map(e => ({id: e.id, type: e.type, label: EVENT_TYPES[e.type], amount_cents: e.amount_cents, invoice_line_id: e.invoice_line_id || null, allocated: !!e.allocated})),
-        estimates, estimated_result_cents: contribution !== null && complete && estimates.length ? contribution + estimatedFees : null,
+        estimates, estimated_result_cents: basis !== null && complete && estimates.length ? basis + estimatedFees : null,
         notes
       });
     }
   }
-  return {store, results, total, statuses};
+  return results;
+}
+
+/** Bir mağazanın TÜM siparişleri için sonuç. Sayfa sınırı yoktur; özet ve aktarım bunu kullanır. */
+async function allPackages(db, store, {q = '', status = ''} = {}) {
+  const memo = {cost: new Map(), vat: new Map()}, out = [];
+  const needle = String(q || '').trim().toLocaleLowerCase('tr-TR').slice(0, 100);
+  const where = "store_id=? AND kind='order_line'"
+    + (needle ? " AND (instr(lower(COALESCE(json_extract(data_json,'$.order_no'),'')),?)>0 OR instr(lower(COALESCE(json_extract(data_json,'$.package_id'),'')),?)>0 OR instr(lower(COALESCE(json_extract(data_json,'$.barcode'),'')),?)>0 OR instr(lower(COALESCE(json_extract(data_json,'$.sku'),'')),?)>0 OR instr(lower(COALESCE(json_extract(data_json,'$.product_name'),'')),?)>0)" : '')
+    + (status ? " AND json_extract(data_json,'$.status')=?" : '');
+  const args = [...(needle ? [needle, needle, needle, needle, needle] : []), ...(status ? [String(status).slice(0, 100)] : [])];
+  const orderNos = (await db.prepare("SELECT DISTINCT json_extract(data_json,'$.order_no') o FROM ec_report_records WHERE " + where)
+    .bind(store.id, ...args).all()).results.map(r => r.o).filter(o => o !== null && o !== undefined);
+  // Parti parti: tek sorguya binlerce sipariş sığdırmak yerine sabit boyutlu dilimler.
+  for (const part of inChunks(orderNos, 60)) out.push(...await packagesFor(db, store, part, memo));
+  return out;
+}
+
+/** Mağaza geneli özet: kaç paket teslim edildi, kaçı kârda, kaçı zararda, toplam ne. */
+export async function orderSummary(db, storeId, {q = '', status = ''} = {}) {
+  const store = await db.prepare('SELECT * FROM ec_report_stores WHERE id=?').bind(key(storeId)).first();
+  if (!store) fail('Mağaza bulunamadı.', 404);
+  const all = await allPackages(db, store, {q, status});
+  const delivered = all.filter(r => r.delivered);
+  const computed = delivered.filter(r => r.contribution_cents !== null);
+  const losing = computed.filter(r => r.contribution_cents < 0).sort((a, b) => a.contribution_cents - b.contribution_cents);
+  const winning = computed.filter(r => r.contribution_cents >= 0);
+  const row = r => ({group: r.group, order_no: r.order_no, package_id: r.package_id, order_date: r.order_date, status: r.status,
+    delivered_on: r.delivered_on, contribution_cents: r.contribution_cents, net_sales_ex_vat_cents: r.net_sales_ex_vat_cents,
+    cogs_cents: r.cogs_cents, fees: r.fees, missing: r.contribution_missing.slice(0, 4),
+    products: r.lines.map(l => (l.product_name || l.barcode || l.sku || '') + ' ×' + (l.quantity ?? 1)).join(', ').slice(0, 200)});
+  return {
+    store,
+    packages: all.length,
+    delivered: delivered.length,
+    not_delivered: all.length - delivered.length,
+    computed: computed.length,
+    uncomputed: delivered.length - computed.length,
+    profitable: winning.length,
+    losing: losing.length,
+    contribution_cents: computed.reduce((s, r) => s + r.contribution_cents, 0),
+    profit_cents: winning.reduce((s, r) => s + r.contribution_cents, 0),
+    loss_cents: losing.reduce((s, r) => s + r.contribution_cents, 0),
+    worst: losing.slice(0, 50).map(row),
+    // Teslim edilmiş ama hesaplanamayanlar: neyin eksik olduğu tek tek yazılır, sıfır sayılmaz.
+    blocked: delivered.filter(r => r.contribution_cents === null).slice(0, 50).map(row),
+    notice: 'Kâr YALNIZCA teslim edilmiş paketler için hesaplanır; kargodaki paketin kargo maliyeti kesinleşmemiştir.'
+  };
+}
+
+/* ---------------- rapordaki kesintileri satış kayıtlarına aktarma ---------------- */
+
+/** Rapor gider türü → satış kaydındaki alan. İade, stopaj ve satış buraya GİRMEZ. */
+const FEE_COMPONENT = {commission: 'commission', cargo: 'shipping', service: 'other', other_fee: 'other'};
+
+/**
+ * Pazaryeri raporundaki kesintileri, ERP'de bağlı paketlerin satış kayıtlarına yazar.
+ * Fatura İSTEMEZ: tutarlar pazaryerinin kendi hesap raporundan gelir.
+ *
+ *  - Yalnızca erp_package_id ile bağlı paketler işlenir; bağsız pakete tutar uydurulmaz.
+ *  - Tutar, paketin satış kayıtlarına gelirleri oranında ve toplamı KORUNARAK bölünür.
+ *  - Yazma SET'tir, toplama DEĞİL: aynı rapor tekrar tekrar aktarılsa da sonuç aynı kalır.
+ *  - Faturaya bağlanmış (fee_allocations) kayda dokunulmaz; fatura her zaman üstündür.
+ *  - fees_status 'pending' kalır: bu tutarlar faturayla doğrulanmadı.
+ */
+export async function applyReportFees(db, storeId, {commit = false} = {}) {
+  const store = await db.prepare('SELECT * FROM ec_report_stores WHERE id=?').bind(key(storeId)).first();
+  if (!store) fail('Mağaza bulunamadı.', 404);
+  const all = (await allPackages(db, store, {})).filter(r => r.erp_package_id);
+  const writes = [], skipped = [], changes = [];
+  for (const g of all) {
+    // Teslim edilmemiş pakette kargo kesinleşmemiştir; deftere de yazılmaz (kâr kuralıyla aynı çizgi).
+    if (!g.delivered) { skipped.push({group: g.group, reason: 'Teslim edilmedi; kargo kesinleşmeden kesinti yazılmaz.'}); continue; }
+    const want = {commission: 0, shipping: 0, other: 0}, kaynak = {commission: false, shipping: false, other: false};
+    for (const f of g.fees) {
+      const comp = FEE_COMPONENT[f.type];
+      if (!comp) continue;
+      // Rapor kesintileri negatif gelir; defterde kesinti POZİTİF saklanıp kârdan düşülür.
+      want[comp] += -(f.net_cents ?? f.actual_cents);
+      kaynak[comp] = true;
+    }
+    // Teslim edilmiş bir pazaryeri paketinde komisyon ve kargo MUTLAKA vardır; yoksa rapor eksiktir
+    // ve sıfır yazmak veri uydurmak olur. "Diğer" kalemi ise gerçekten alınmamış olabilir: 0 yazılır.
+    if (!kaynak.commission || !kaynak.shipping) {
+      skipped.push({group: g.group, reason: 'Raporda ' + (!kaynak.commission ? 'komisyon' : 'kargo') + ' kesintisi yok; eksik veri sıfır sayılmaz.'});
+      continue;
+    }
+    const rows = (await db.prepare(
+      'SELECT c.sale_id,s.revenue_cents,s.commission_cents,s.shipping_cents,s.other_cents,s.fees_status,' +
+      '(SELECT COUNT(*) FROM ec_fee_allocations a WHERE a.sale_id=c.sale_id AND a.reversed_at IS NULL) faturali ' +
+      'FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_sale_entries s ON s.id=c.sale_id ' +
+      "WHERE l.package_id=? AND s.kind='sale' ORDER BY c.id").bind(g.erp_package_id).all()).results;
+    if (!rows.length) { skipped.push({group: g.group, reason: 'ERP paketinde satış kaydı yok (stok çıkışı yapılmamış).'}); continue; }
+    if (rows.some(r => r.faturali)) { skipped.push({group: g.group, reason: 'Bu paketin gideri faturaya bağlanmış; fatura üstündür, dokunulmadı.'}); continue; }
+    // Gelirleri oranında böl; hepsi sıfırsa eşit böl. allocateCents toplamı korur.
+    const weights = rows.map(r => r.revenue_cents);
+    const shares = weights.some(w => w > 0) ? weights : rows.map(() => 1);
+    const parts = Object.fromEntries(Object.entries(want).map(([c, v]) => [c, allocateCents(v, shares)]));
+    rows.forEach((r, i) => {
+      const next = {commission: parts.commission[i], shipping: parts.shipping[i], other: parts.other[i]};
+      if (r.commission_cents === next.commission && r.shipping_cents === next.shipping && r.other_cents === next.other
+        && r.fees_status === 'confirmed') return;
+      changes.push({sale_id: r.sale_id, group: g.group, erp_package_id: g.erp_package_id,
+        before: {commission: r.commission_cents, shipping: r.shipping_cents, other: r.other_cents},
+        after: next});
+    });
+    writes.push({group: g.group, erp_package_id: g.erp_package_id, ...want});
+  }
+  if (commit && changes.length) {
+    for (const part of inChunks(changes, 40)) {
+      await db.batch(part.flatMap(c => [
+        // Üç bileşen de bilindiği için 'confirmed': kaynak pazaryerinin KENDİ hesap raporudur.
+        // Sonradan fatura gelirse devralma koruması (FEE_TAKEOVER_REQUIRED) yine devrededir.
+        db.prepare("UPDATE ec_sale_entries SET commission_cents=?,shipping_cents=?,other_cents=?,fees_status='confirmed' WHERE id=?")
+          .bind(c.after.commission, c.after.shipping, c.after.other, c.sale_id),
+        db.prepare('INSERT INTO ec_fee_audit(id,sale_id,old_values,new_values) VALUES(?,?,?,?)')
+          .bind(id(), c.sale_id, JSON.stringify(c.before), JSON.stringify({...c.after, source: 'pazaryeri raporu', package: c.erp_package_id}))
+      ]));
+    }
+  }
+  return {
+    store, commit, packages: all.length, applied: writes.length, sale_entries_changed: changes.length,
+    skipped: skipped.slice(0, 100), skipped_total: skipped.length,
+    totals: writes.reduce((t, w) => ({commission: t.commission + w.commission, shipping: t.shipping + w.shipping, other: t.other + w.other}), {commission: 0, shipping: 0, other: 0}),
+    notice: commit
+      ? 'Kesintiler satış kayıtlarına yazıldı. Stok, satış tutarı ve fatura DEĞİŞMEDİ; yalnızca kesinti alanları doldu. Tutarlar faturayla doğrulanmadığı için "kesinleşmedi" kalır.'
+      : 'Önizleme: hiçbir şey yazılmadı. Aşağıdaki tutarlar yazılacak olanlardır.'
+  };
 }
 
 /* ---------------- uçlar ---------------- */
@@ -624,6 +789,18 @@ export async function reportInboxApi(request, env, path, readBody) {
     const result = await orderResults(db, url.searchParams.get('store_id') || '', {limit: 100, offset: (page - 1) * 100,
       q: url.searchParams.get('q') || '', status: url.searchParams.get('status') || ''});
     return {...result, page, page_size: 100};
+  }
+
+  if (sub === '/orders/summary' && method === 'GET')
+    return orderSummary(db, url.searchParams.get('store_id') || '', {q: url.searchParams.get('q') || '', status: url.searchParams.get('status') || ''});
+
+  // Rapordaki kesintileri satış kayıtlarına aktarır. GET önizleme (yazmaz), POST uygular.
+  if (sub === '/apply-fees' && method === 'GET')
+    return applyReportFees(db, url.searchParams.get('store_id') || '', {commit: false});
+  if (sub === '/apply-fees' && method === 'POST') {
+    const x = await readBody(request);
+    if (x.confirm !== true) fail('Aktarımı onaylayın.');
+    return applyReportFees(db, x.store_id || '', {commit: true});
   }
 
   if (sub === '/evidence-candidates' && method === 'GET') {

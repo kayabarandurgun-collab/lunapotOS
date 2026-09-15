@@ -8,6 +8,86 @@ Bekleyen 3 paket de sevk edildi: taslak **0**, sevk **243**, satış kaydı **32
 stok hareketi **417**. Her paket kendi tarihiyle işlendi (TEA…085 ve TEA…086 →
 2026-09-01, HB-5515871961 → 2026-09-10); tarih uydurulmadı.
 
+## Ana sayfa kârı çalışır hale geldi — üç ayrı kusur (15 Eylül)
+
+Kullanıcı ana sayfanın boş olduğunu bildirdi: "0 / 178 paket hesaplandı, Bilgi bekleniyor".
+Üç ayrı kusur vardı; üçü de giderildi. **Defter hiç değişmedi** (satış 329, stok hareketi 419,
+stok değeri 39.879,42 TL — önce ve sonra birebir aynı).
+
+### 1. Teslim edilmeyen siparişin kârı hesaplanıyordu
+
+Kullanıcının en baştaki kuralıydı, uygulanmamıştı: teslim edilmemiş pakette komisyon kesilmiş
+görünse de KARGO kesinleşmez (iade, yeniden gönderim, ceza). Artık `contribution_cents` yalnızca
+teslim edilmiş pakette dolar. Ölçüt pazaryerinin durum metni DEĞİL, eşleştirilmiş **teslim tarihi**
+alanıdır: durum sözcükleri pazaryerine göre değişir, tarih alanı değişmez. Paketin BÜTÜN
+satırlarında tarih olmalı; yarısı teslim edilmiş paket teslim sayılmaz.
+
+Hesabın kendisi bozulmadı: net satış, maliyet ve kesintiler durur, tahmin de durur
+("Kargodaki tahminim" ekranı bunu kullanır). Yalnız "gerçekleşmiş kâr" verilmez.
+
+### 2. Kesintiler rapordan deftere hiç geçmiyordu
+
+329 satış kaydının HEPSİNDE komisyon/kargo/diğer alanları boştu. Çünkü bu alanları dolduran tek
+yol alış faturası gider satırıydı ve orada 0 kayıt vardı. Oysa tutarlar rapor kayıtlarında duruyordu.
+
+Yeni uç: `GET/POST /api/ec/reports/apply-fees`. Rapordaki kesintileri ERP'de bağlı, **teslim edilmiş**
+paketlerin satış kayıtlarına yazar. Fatura İSTEMEZ. Kurallar:
+
+- Yazma **SET**'tir, toplama değil → aynı rapor tekrar aktarılsa tutar çoğalmaz (test edilmiş).
+- Tutar, paketin satış kayıtlarına gelirleri oranında ve **toplamı korunarak** bölünür.
+- Faturaya bağlanmış (`fee_allocations`) kayda dokunulmaz; fatura her zaman üstündür.
+- Komisyon veya kargo raporda yoksa **sıfır yazılmaz**, paket atlanır: eksik veri uydurulmaz.
+  "Diğer" kalemi gerçekten alınmamış olabilir; yalnız o 0 kabul edilir.
+- Deftere yazılan tutar, ekranda görünen KDV hariç tutarın AYNISIDIR (`net_cents`).
+- Üç bileşen de rapordan bilindiği için `fees_status=confirmed`. Sonradan fatura gelirse
+  devralma koruması (`FEE_TAKEOVER_REQUIRED`) yine devrededir.
+
+Canlıda uygulandı: TY 163 paket / 231 kayıt, HB 63 paket / 70 kayıt. 301 denetim izi yazıldı.
+
+### 3. HB siparişleri İPTAL edilmiş kopya paketlere bağlıydı
+
+HB'nin rapora bağlı 67 paketinin hepsi `cancelled` durumdaydı, bu yüzden satış kaydı yoktu ve HB
+ana sayfada hiç görünmüyordu. Kök neden: **bağlayıcı, aynı pazaryeri siparişinin panelde zaten
+var olup olmadığına hiç bakmıyordu** — doğrudan `RPT-<özet>` kimlikli yeni paket açıyordu.
+Gerçek kayıtlar `HB-5505412182` biçimindeydi, rapordaki paket no ise `5505412182`.
+
+`HB-` önekini koda gömmek yanlış olurdu (kodda hiç geçmiyor, o kimlikler elle girilmiş).
+Doğru iş anahtarı **sipariş numarası**: HB 67/67, TY 176/176 eşleşiyor. Artık:
+
+- Taslak açmadan önce aynı kanalda aynı `order_no` ile iptal olmayan paket aranır (`outcome: match`).
+- Sipariş numarası MAĞAZA içinde tekildir, pazaryeri genelinde değil: başka mağazanın kayıtlarına
+  bağlı paket aday sayılmaz. Mevcut "iki mağaza karışmaz" testi bu hatayı yakaladı ve düzeltildi.
+- Birden fazla aday varsa (bölünmüş sipariş) otomatik bağlanmaz; eski davranış sürer.
+- **İptal edilmiş** siparişe bağlı kayıt "bağlı" sayılmaz: iptal paketin defterde karşılığı yoktur,
+  bağ eskimiştir, gerçek siparişe yönlendirilir.
+
+Canlıda 65 paket / 71 rapor satırı gerçek siparişlerine bağlandı. Stok ve satış tutarı değişmedi.
+
+### Ekranda ne göründü
+
+Ana sayfa: **178 / 178 paket hesaplandı** · katkı ₺2.890,97 · kâr bırakan ₺5.936,27 ·
+zarar eden ₺3.045,30 · Trendyol ₺1.730,46 · Hepsiburada ₺1.160,51.
+İş listesinde "212 zarar gösteren satış" ve "29 kesintisi doğrulanmamış satış" başlıkları açıldı.
+
+Rapor Kutusu > Sipariş sonuçları ekranına ayrıca mağaza geneli özet eklendi: teslim edilen,
+kâr bırakan, zarar eden, hesaplanamayan sayıları; karta tıklanınca **zarar eden paketler** ve
+**hesaplanamayanlar neyin eksik olduğuyla** listelenir. Kesinti aktarımı da bu ekrandan
+önizlenip uygulanır (önizleme hiçbir şey yazmaz).
+
+### KDV
+
+Kullanıcı "KDV tamamen %20 olmalı" dedi. Ürün kartlarının 37/37'si zaten %20. Sipariş
+satırlarında 6 satır %10 ile donmuş durumda (HB ilanından gelen eski kayıtlar) — bunlar
+`ec_order_lines.vat_bps` içinde ve satış kaydı üretmiş durumda; değiştirmek defteri
+değiştirmek olur. AÇIK KALDI.
+
+### Testler
+
+429 test geçiyor. Yeni: teslim kuralı (2), kesinti köprüsü (4), mevcut siparişe bağlanma (3).
+İki gerçek koruma test sırasında ortaya çıktı: rapor kayıtları güncellenemiyor
+(`REPORT_RECORD_VERSION`) ve silinemiyor (`IMMUTABLE_LEDGER`).
+
+---
 ## Kâr hesabı çalışır hale geldi — fatura GEREKMİYORMUŞ (15 Eylül)
 
 **Kullanıcı haklıydı, ben yanlış ekrana bakıyordum.** "Komisyon ve kargo faturasına
