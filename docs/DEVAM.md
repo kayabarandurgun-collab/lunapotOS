@@ -8,6 +8,58 @@ Bekleyen 3 paket de sevk edildi: taslak **0**, sevk **243**, satış kaydı **32
 stok hareketi **417**. Her paket kendi tarihiyle işlendi (TEA…085 ve TEA…086 →
 2026-09-01, HB-5515871961 → 2026-09-10); tarih uydurulmadı.
 
+## HATA: 6 sipariş çift kaydedildi — kural düzeltildi, geri alma bekliyor (15 Eylül)
+
+**Bu benim hatam.** Kullanıcı "19 tane TS1 satmadım" dedi ve haklıydı.
+
+### Ne oldu
+
+29 siparişi aktarırken, bölünmüş sipariş desteği için koyduğum kural fazla gevşekti:
+aday ERP kaydı başka bir rapor paketine bağlıysa yeni taslak açılmasına izin veriyordu.
+Ama TS1 siparişlerinde durum farklıydı: aynı sipariş numarasıyla panelde **iki kayıt** vardı
+ve ikisi de hiçbir rapor paketine bağlı DEĞİLDİ. Kural bunları görmezden gelip yeni sipariş açtı.
+
+| Rapor paketi | Sipariş | Defterde zaten olan |
+|---|---|---|
+| 4118794809 / 4118794810 | 11556011142 | TEA2026000000085, TEA2026000000093 |
+| 4122388690 / 4122388691 | 11561070094 | TEA2026000000090, TEA2026000000092 |
+| 4147140895 / 4147140896 | 11590299167 | TEA2026000000187, TEA2026000000189 |
+
+**Sonuç: 6 paket çift kaydedildi, 17.791,38 TL brüt.** TS1 satışı 13 iken 19 göründü.
+Diğer 23 aktarım temiz; onlar gerçekten panele girmemiş siparişlerdi (yedekten doğrulandı).
+
+### Kural nasıl düzeltildi
+
+Adaylar artık ikiye ayrılıyor: bir rapor paketinin SAHİPLENDİĞİ kayıtlar ve **sahipsiz** olanlar.
+
+- sahipsiz = 1 → o kayda bağlanır (ikinci sipariş açılmaz)
+- sahipsiz > 1 → **incelemeye alınır**; hangi paketin hangisine denk geldiği belirsizken uydurma
+  eşleme yapılmaz ve kesinlikle yeni kayıt açılmaz
+- sahipsiz = 0 → bütün adaylar zaten sahiplenilmiş demektir, bu gerçekten yeni bir parçadır
+  (1 sipariş → N paket); taslak açılır
+
+Bu üç durumu da kapsayan testler eklendi. Özellikle "iki sahipsiz kayıt varken ikincisi AÇILMAZ,
+stok iki kez düşmez" testi bu hatayı bir daha geçirmez. 432 test geçiyor.
+
+### Geri alma — HENÜZ YAPILMADI
+
+Gönderilmiş/teslim edilmiş sipariş iptal edilemiyor (doğru tasarım); geri alma **iade kaydıyla**
+yapılmalı: 6 kopyanın satış kayıtlarına `restock` ile iade girilecek, böylece hem stok hem gelir
+hem maliyet geri döner ve iz denetlenebilir kalır.
+
+**Yapılamadı çünkü Cloudflare D1 günlük ücretsiz OKUMA kotası doldu** (bugün 29 sipariş aktarımı +
+kesinti taramaları çok okuma yaptı). Panel şu an okuma yapamıyor, 500 dönüyor. Kota gece yarısı
+UTC'de sıfırlanıyor. Kota açılınca ilk iş bu 6 kaydın iadesi girilecek.
+
+### Ayrıca: ürün kartı hacimleri şüpheli
+
+Alış faturalarının hepsinde **200 Lt** yazıyor ama kart "Klasmann TS1 Torf 210 L".
+`YSK2026000000400` ve `YSK2026000000408`: "Klasmann Rec 876 Ts1 Fine 200Lt".
+Plug Mix kartına giren satır ise `YSK2026000000402`: "Klasmann Rec 402 Ts1Plug M. 200Lt"
+(Yalova Seçkin Tarım, 7 Eylül, 2 adet, 2.800 TL). Kullanıcı Plug Mix almadığını söylüyor;
+fatura satırında hem "Ts1" hem "Plug M." geçtiği için eşleştirme şüpheli. Kullanıcıya soruldu.
+
+---
 ## Eksik 29 sipariş panele girildi; uçlar parçalı hale getirildi (15 Eylül)
 
 Kullanıcı ana sayfadaki 178 rakamının elindeki veriden az olduğunu fark etti. İki ayrı şey vardı:

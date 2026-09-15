@@ -110,20 +110,30 @@ async function plan(env, storeId, packageId, lineIdentityDeclared = false) {
       "SELECT p.id,p.external_id,p.status FROM ec_order_packages p WHERE p.channel=? AND p.order_no=? AND p.status!='cancelled'" +
       " AND NOT EXISTS(SELECT 1 FROM ec_report_records r WHERE r.erp_package_id=p.id AND r.store_id!=?)")
       .bind(store.provider, String(orderNo), store.id).all()).results;
-    if (twins.length === 1) {
-      const t = twins[0];
-      const otherPackage = await db.prepare(
-        "SELECT json_extract(data_json,'$.package_id') p FROM ec_report_records WHERE erp_package_id=? AND kind='order_line' AND json_extract(data_json,'$.package_id')!=? LIMIT 1")
+    // Adaylar ikiye ayrılır: bir rapor paketinin SAHİPLENDİĞİ kayıtlar ve henüz sahipsiz olanlar.
+    // Sahipsiz kayıt varsa bu sipariş panele başka yoldan girmiş demektir; ASLA yenisi açılmaz,
+    // yoksa aynı satış iki kez deftere geçer. Sahipsiz tek ise bağlanır, birden çoksa hangisinin
+    // hangi pakete denk geldiği belirsizdir: incelemeye alınır, uydurma eşleme yapılmaz.
+    const sahipsiz = [];
+    for (const t of twins) {
+      const claimed = await db.prepare(
+        "SELECT 1 FROM ec_report_records WHERE erp_package_id=? AND kind='order_line' AND json_extract(data_json,'$.package_id')!=? LIMIT 1")
         .bind(t.id, packageId).first();
-      // Aday, BAŞKA bir pazaryeri paketine bağlıysa bu bölünmüş sipariştir (1 sipariş → N paket):
-      // her parça kendi kaydı olmalı. Bağlanmaz; aşağıdaki normal taslak akışı sürer.
-      if (!otherPackage) return {store, outcome: 'match', stock_write: false, package_id: t.id, external_id: t.external_id, status: t.status,
+      if (!claimed) sahipsiz.push(t);
+    }
+    if (sahipsiz.length === 1) {
+      const t = sahipsiz[0];
+      return {store, outcome: 'match', stock_write: false, package_id: t.id, external_id: t.external_id, status: t.status,
         order_no: String(orderNo),
         reason: 'Bu sipariş panelde ZATEN var (' + t.external_id + ', ' + t.status + '). İkinci sipariş açılmaz; ' +
           'rapor kaydı mevcut siparişe bağlanır, stok ve satış tutarı değişmez.'};
     }
-    // Birden fazla aday (bölünmüş sipariş) veya başka mağaza karışıyorsa otomatik bağlanmaz:
-    // eski davranış sürer, taslak açılır. Yanlış siparişe bağlamaktansa ayrı kayıt tercih edilir.
+    if (sahipsiz.length > 1) return {store, outcome: 'review', stock_write: false,
+      issues: ['Panelde bu sipariş numarasıyla eşleşmemiş ' + sahipsiz.length + ' kayıt var: ' +
+        sahipsiz.map(t => t.external_id).join(', ') + '. Hangi pazaryeri paketinin hangisine denk geldiği belirsiz.'],
+      reason: 'Bu sipariş panelde zaten var ama hangi kayda bağlanacağı belirsiz. İkinci kez açılmadı; elle eşleştirin.'};
+    // Bütün adaylar başka rapor paketlerince sahiplenilmişse bu gerçekten YENİ bir parçadır
+    // (1 sipariş → N paket): aşağıdaki normal taslak akışı sürer.
   }
   for (const r of records) {
     const d = r.data;

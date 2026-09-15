@@ -282,3 +282,27 @@ test('Bölünmüş sipariş (1 sipariş, N paket) tek kayda bağlanmaz; her par�
     assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_packages').get().n, 2);
   } finally { f.close(); }
 });
+
+test('Sipariş panelde iki kayıtla duruyorsa İKİNCİSİ AÇILMAZ; belirsizlik incelemeye gider', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const product = await fourPack(f);
+    // Aynı sipariş panele iki paket olarak girmiş (bölünmüş), ikisi de rapora bağlanmamış.
+    const a = await f.ok('/ec/orders', {channel: 'trendyol', external_id: 'ELLE-1', order_no: 'O1', occurred_on: DATE,
+      lines: [{external_id: 'E1', sku: '785457868', name: '4 adet 225 ml', quantity: 1, gross: 250, vat_rate: 20}]});
+    const b = await f.ok('/ec/orders', {channel: 'trendyol', external_id: 'ELLE-2', order_no: 'O1', occurred_on: DATE,
+      lines: [{external_id: 'E2', sku: '785457868', name: '4 adet 225 ml', quantity: 1, gross: 250, vat_rate: 20}]});
+    const s = store(f);
+    record(f, s, 'TY-1', line(), 1);
+    startDate(f, DATE);
+
+    const paketOnce = f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_packages').get().n;
+    const stokOnce = stockOf(f, product.id);
+    const plan = await f.ok('/ec/reports/stock-link/preview', {store_id: s, package_id: 'PK1'});
+    assert.equal(plan.outcome, 'review', 'belirsizken yeni sipariş açılmaz');
+    const applied = await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PK1', complete_package_confirmed: true});
+    assert.equal(applied.applied, false, 'ÇİFT KAYIT oluşmaz');
+    assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_packages').get().n, paketOnce);
+    assert.equal(stockOf(f, product.id), stokOnce, 'stok iki kez düşmedi');
+    assert.ok(a.id && b.id);
+  } finally { f.close(); }
+});
