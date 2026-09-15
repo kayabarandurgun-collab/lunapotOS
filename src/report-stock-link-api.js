@@ -115,10 +115,9 @@ async function plan(env, storeId, packageId, lineIdentityDeclared = false) {
       const otherPackage = await db.prepare(
         "SELECT json_extract(data_json,'$.package_id') p FROM ec_report_records WHERE erp_package_id=? AND kind='order_line' AND json_extract(data_json,'$.package_id')!=? LIMIT 1")
         .bind(t.id, packageId).first();
-      if (otherPackage) return {store, outcome: 'review', stock_write: false,
-        issues: ['Paneldeki ' + t.external_id + ' siparişi başka bir pazaryeri paketine (' + otherPackage.p + ') bağlı.'],
-        reason: 'Aynı sipariş numarası iki pakete işaret ediyor; hangisine bağlanacağı elle kararlaştırılmalı.'};
-      return {store, outcome: 'match', stock_write: false, package_id: t.id, external_id: t.external_id, status: t.status,
+      // Aday, BAŞKA bir pazaryeri paketine bağlıysa bu bölünmüş sipariştir (1 sipariş → N paket):
+      // her parça kendi kaydı olmalı. Bağlanmaz; aşağıdaki normal taslak akışı sürer.
+      if (!otherPackage) return {store, outcome: 'match', stock_write: false, package_id: t.id, external_id: t.external_id, status: t.status,
         order_no: String(orderNo),
         reason: 'Bu sipariş panelde ZATEN var (' + t.external_id + ', ' + t.status + '). İkinci sipariş açılmaz; ' +
           'rapor kaydı mevcut siparişe bağlanır, stok ve satış tutarı değişmez.'};

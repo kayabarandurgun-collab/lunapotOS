@@ -8,6 +8,69 @@ Bekleyen 3 paket de sevk edildi: taslak **0**, sevk **243**, satış kaydı **32
 stok hareketi **417**. Her paket kendi tarihiyle işlendi (TEA…085 ve TEA…086 →
 2026-09-01, HB-5515871961 → 2026-09-10); tarih uydurulmadı.
 
+## Eksik 29 sipariş panele girildi; uçlar parçalı hale getirildi (15 Eylül)
+
+Kullanıcı ana sayfadaki 178 rakamının elindeki veriden az olduğunu fark etti. İki ayrı şey vardı:
+
+**1. Ekran son 30 günle sınırlı** — bu kusur değil, kartın tanımı. Panelde toplam 211 teslim
+edilmiş paket vardı, kart bunların son 30 gününü gösteriyordu.
+
+**2. 29 teslim edilmiş sipariş panele HİÇ girmemişti** — 39.490,63 TL brüt. Rapor 192 TY + 65 HB
+teslim paketi gösterirken panelde 161 TY + 50 HB vardı.
+
+### Neden girmemişler
+
+Hepsi aynı gerekçeyle durmuştu: **"Kalem kimliği eksik; uydurma kimlikle stok çıkışı yapılmaz."**
+Bu dosyalarda satır numarası sütunu yok. Sistemde bunun için açık bir istisna var
+(`line_identity_from_package_sku`) ama AÇIKÇA beyan edilmesi gerekiyor — doğru tasarım.
+
+Beyanın doğru olduğu veriden doğrulandı, varsayılmadı: 29 paketin hepsi tek satırlık, barkodları
+dolu, aynı pakette aynı barkod tekrarı YOK, ürünlerin tamamının katalog eşleşmesi var.
+Yani paket+barkod zaten tekil kimlik; kimlik uydurulmuş olmuyor.
+
+### Aktarım sırasında çıkan iki sorun
+
+**KDV sütunu yok:** 22 taslak açıldı ama rezervasyon "KDV hariç satış tutarı eksik" ile durdu.
+Kullanıcı "KDV tamamen %20 olmalı" dediği için `/map` adımında %20 girildi ve zincir tamamlandı.
+
+**Bölünmüş sipariş:** kalan 7 paketin hepsi TEK siparişin (11590920604) parçalarıydı. Bir önceki
+turda eklediğim "mevcut siparişe bağlan" koruması bunları incelemeye atıyordu. Oysa 1 sipariş →
+N paket durumunda her parça KENDİ kaydı olmalı. Düzeltildi: aday başka bir pazaryeri paketine
+bağlıysa bağlanmaz, normal taslak akışı sürer. Test eklendi.
+
+**Gönderim tarihi raporda yok.** Uydurulmadı: sistemdeki mevcut 243 paketin hepsinde
+gönderim = sipariş tarihi olduğu ölçüldü ve aynı kural sürdürüldü. Teslim tarihleri gerçek.
+
+### Uçlar parçalı hale getirildi (503 düzeltmesi)
+
+Sipariş sayısı artınca `/orders/summary` ve `/apply-fees` tek istekte 225 siparişi tarayıp
+worker süre sınırını aştı (**503**). İkisi de artık `cursor` ile parçalı çalışıyor:
+`next_cursor` doluyken çağıran döngüye devam eder, ekran parçaları toplar. Sıralama sabit
+(`ORDER BY o`) — parçalı okumada hiçbir sipariş iki kez işlenmez veya atlanmaz. Test eklendi.
+
+### Sonuç
+
+| | Önce | Sonra |
+|---|---|---|
+| Satış kaydı | 329 | **368** |
+| Stok hareketi | 419 | **458** |
+| Teslim edilen paket | 211 | **253** |
+| Stok değeri | 39.879,42 TL | **32.762,42 TL** |
+| Bağsız teslim edilmiş paket | 29 | **0** |
+
+Ana sayfa: **220 / 220 paket hesaplandı** · katkı ₺13.935,53 · kâr bırakan ₺17.558,61 ·
+zarar eden ₺3.623,08 · Trendyol ₺12.575,52 · Hepsiburada ₺1.360,01.
+
+Kesinleşmiş 339 satış kaydında: gelir 119.658,11 − maliyet 44.927,94 − kesinti 61.777,77
+= **12.952,40 TL katkı**.
+
+**Beklenen yan etki:** `KL-TS1-210L` stoğu −2'den **−8**'e indi. 6 adet daha satılmış ama alışı
+girilmemiş; o adetlerin maliyeti sıfır görünüyor. Alış faturası girilince düzelir. Kullanıcıya
+aktarım öncesinde bildirildi ve onayı alındı.
+
+Yazma öncesi tam yedek alındı: `yedekler/yedek-2026-09-15-29siparis-oncesi.sql` (125 MB).
+
+---
 ## Ana sayfa kârı çalışır hale geldi — üç ayrı kusur (15 Eylül)
 
 Kullanıcı ana sayfanın boş olduğunu bildirdi: "0 / 178 paket hesaplandı, Bilgi bekleniyor".

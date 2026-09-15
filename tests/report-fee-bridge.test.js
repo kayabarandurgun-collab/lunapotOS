@@ -105,3 +105,17 @@ test('Komisyon veya kargo raporda yoksa sıfır yazılmaz; paket atlanır', asyn
     assert.equal(feeOf(f, sale).shipping_cents, null, 'bilinmeyen kesinti 0 sayılmadı');
   } finally { f.close(); }
 });
+
+test('Aktarım parçalı çalışır: imleçle devam eder, hiçbir paket atlanmaz veya iki kez işlenmez', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const {s, sale} = await delivered(f);
+    // take sabiti büyük olsa da imleç mantığı bozulmamalı: ilk parçadan sonra devam edilir.
+    const ilk = await f.ok('/ec/reports/apply-fees?store_id=' + s + '&cursor=0');
+    assert.equal(ilk.next_cursor, null, 'tek siparişlik mağazada tek parça yeter');
+    assert.equal(ilk.sale_entries_changed, 1);
+    // Sondan başlayan imleç hiçbir şey bulmaz; var olanı bozmaz.
+    const bos = await f.ok('/ec/reports/apply-fees?store_id=' + s + '&cursor=' + ilk.total_orders);
+    assert.equal(bos.sale_entries_changed, 0);
+    assert.equal(feeOf(f, sale).commission_cents, null, 'önizleme hâlâ yazmıyor');
+  } finally { f.close(); }
+});

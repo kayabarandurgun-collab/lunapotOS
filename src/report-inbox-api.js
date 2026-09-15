@@ -377,26 +377,33 @@ async function packagesFor(db, store, orderNos, memo = {cost: new Map(), vat: ne
   return results;
 }
 
-/** Bir mağazanın TÜM siparişleri için sonuç. Sayfa sınırı yoktur; özet ve aktarım bunu kullanır. */
-async function allPackages(db, store, {q = '', status = ''} = {}) {
+/**
+ * Bir mağazanın siparişleri için sonuç — PARÇALI.
+ * Tek istekte yüzlerce sipariş taranırsa çalışma süresi sınırı aşılır (503). Bu yüzden
+ * `cursor`'dan başlayıp en çok `take` sipariş işlenir ve kaldığı yer `next_cursor` ile bildirilir.
+ */
+async function allPackages(db, store, {q = '', status = '', cursor = 0, take = 0} = {}) {
   const memo = {cost: new Map(), vat: new Map()}, out = [];
   const needle = String(q || '').trim().toLocaleLowerCase('tr-TR').slice(0, 100);
   const where = "store_id=? AND kind='order_line'"
     + (needle ? " AND (instr(lower(COALESCE(json_extract(data_json,'$.order_no'),'')),?)>0 OR instr(lower(COALESCE(json_extract(data_json,'$.package_id'),'')),?)>0 OR instr(lower(COALESCE(json_extract(data_json,'$.barcode'),'')),?)>0 OR instr(lower(COALESCE(json_extract(data_json,'$.sku'),'')),?)>0 OR instr(lower(COALESCE(json_extract(data_json,'$.product_name'),'')),?)>0)" : '')
     + (status ? " AND json_extract(data_json,'$.status')=?" : '');
   const args = [...(needle ? [needle, needle, needle, needle, needle] : []), ...(status ? [String(status).slice(0, 100)] : [])];
-  const orderNos = (await db.prepare("SELECT DISTINCT json_extract(data_json,'$.order_no') o FROM ec_report_records WHERE " + where)
+  // Sıralama sabit olmalı: parçalı okumada aynı sipariş iki kez işlenmesin, atlanmasın.
+  const orderNos = (await db.prepare("SELECT DISTINCT json_extract(data_json,'$.order_no') o FROM ec_report_records WHERE " + where + ' ORDER BY o')
     .bind(store.id, ...args).all()).results.map(r => r.o).filter(o => o !== null && o !== undefined);
-  // Parti parti: tek sorguya binlerce sipariş sığdırmak yerine sabit boyutlu dilimler.
-  for (const part of inChunks(orderNos, 60)) out.push(...await packagesFor(db, store, part, memo));
-  return out;
+  const from = Math.max(0, Number(cursor) || 0);
+  const dilim = take > 0 ? orderNos.slice(from, from + take) : orderNos.slice(from);
+  for (const part of inChunks(dilim, 25)) out.push(...await packagesFor(db, store, part, memo));
+  const next = from + dilim.length;
+  return {results: out, total_orders: orderNos.length, next_cursor: next < orderNos.length ? next : null};
 }
 
 /** Mağaza geneli özet: kaç paket teslim edildi, kaçı kârda, kaçı zararda, toplam ne. */
-export async function orderSummary(db, storeId, {q = '', status = ''} = {}) {
+export async function orderSummary(db, storeId, {q = '', status = '', cursor = 0, take = 60} = {}) {
   const store = await db.prepare('SELECT * FROM ec_report_stores WHERE id=?').bind(key(storeId)).first();
   if (!store) fail('Mağaza bulunamadı.', 404);
-  const all = await allPackages(db, store, {q, status});
+  const {results: all, total_orders, next_cursor} = await allPackages(db, store, {q, status, cursor, take});
   const delivered = all.filter(r => r.delivered);
   const computed = delivered.filter(r => r.contribution_cents !== null);
   const losing = computed.filter(r => r.contribution_cents < 0).sort((a, b) => a.contribution_cents - b.contribution_cents);
@@ -406,7 +413,7 @@ export async function orderSummary(db, storeId, {q = '', status = ''} = {}) {
     cogs_cents: r.cogs_cents, fees: r.fees, missing: r.contribution_missing.slice(0, 4),
     products: r.lines.map(l => (l.product_name || l.barcode || l.sku || '') + ' ×' + (l.quantity ?? 1)).join(', ').slice(0, 200)});
   return {
-    store,
+    store, next_cursor, total_orders,
     packages: all.length,
     delivered: delivered.length,
     not_delivered: all.length - delivered.length,
@@ -439,10 +446,11 @@ const FEE_COMPONENT = {commission: 'commission', cargo: 'shipping', service: 'ot
  *  - Faturaya bağlanmış (fee_allocations) kayda dokunulmaz; fatura her zaman üstündür.
  *  - fees_status 'pending' kalır: bu tutarlar faturayla doğrulanmadı.
  */
-export async function applyReportFees(db, storeId, {commit = false} = {}) {
+export async function applyReportFees(db, storeId, {commit = false, cursor = 0, take = 50} = {}) {
   const store = await db.prepare('SELECT * FROM ec_report_stores WHERE id=?').bind(key(storeId)).first();
   if (!store) fail('Mağaza bulunamadı.', 404);
-  const all = (await allPackages(db, store, {})).filter(r => r.erp_package_id);
+  const {results, total_orders, next_cursor} = await allPackages(db, store, {cursor, take});
+  const all = results.filter(r => r.erp_package_id);
   const writes = [], skipped = [], changes = [];
   for (const g of all) {
     // Teslim edilmemiş pakette kargo kesinleşmemiştir; deftere de yazılmaz (kâr kuralıyla aynı çizgi).
@@ -495,7 +503,8 @@ export async function applyReportFees(db, storeId, {commit = false} = {}) {
     }
   }
   return {
-    store, commit, packages: all.length, applied: writes.length, sale_entries_changed: changes.length,
+    store, commit, next_cursor, total_orders,
+    packages: all.length, applied: writes.length, sale_entries_changed: changes.length,
     skipped: skipped.slice(0, 100), skipped_total: skipped.length,
     totals: writes.reduce((t, w) => ({commission: t.commission + w.commission, shipping: t.shipping + w.shipping, other: t.other + w.other}), {commission: 0, shipping: 0, other: 0}),
     notice: commit
@@ -791,16 +800,18 @@ export async function reportInboxApi(request, env, path, readBody) {
     return {...result, page, page_size: 100};
   }
 
+  // Her ikisi de PARÇALI: next_cursor doluyken çağıran döngüye devam eder.
   if (sub === '/orders/summary' && method === 'GET')
-    return orderSummary(db, url.searchParams.get('store_id') || '', {q: url.searchParams.get('q') || '', status: url.searchParams.get('status') || ''});
+    return orderSummary(db, url.searchParams.get('store_id') || '', {q: url.searchParams.get('q') || '', status: url.searchParams.get('status') || '',
+      cursor: Number(url.searchParams.get('cursor')) || 0});
 
   // Rapordaki kesintileri satış kayıtlarına aktarır. GET önizleme (yazmaz), POST uygular.
   if (sub === '/apply-fees' && method === 'GET')
-    return applyReportFees(db, url.searchParams.get('store_id') || '', {commit: false});
+    return applyReportFees(db, url.searchParams.get('store_id') || '', {commit: false, cursor: Number(url.searchParams.get('cursor')) || 0});
   if (sub === '/apply-fees' && method === 'POST') {
     const x = await readBody(request);
     if (x.confirm !== true) fail('Aktarımı onaylayın.');
-    return applyReportFees(db, x.store_id || '', {commit: true});
+    return applyReportFees(db, x.store_id || '', {commit: true, cursor: Number(x.cursor) || 0});
   }
 
   if (sub === '/evidence-candidates' && method === 'GET') {

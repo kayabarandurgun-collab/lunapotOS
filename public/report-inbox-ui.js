@@ -40,9 +40,25 @@ export function mountReports(root, namespace = 'ec') {
     state.orders = await api('/orders?' + new URLSearchParams({store_id: state.storeFilter, page: state.orderPage, q: state.orderQuery, status: state.orderStatus}));
   };
   // Özet mağazanın TAMAMINI tarar; sayfa değiştikçe yeniden hesaplanmasın diye ayrı istenir.
+  // Uç parçalı çalışır (worker süre sınırı): next_cursor bitene kadar döner, parçalar toplanır.
   const loadSummary = async () => {
     if (!state.storeFilter) { state.summary = null; return; }
-    state.summary = await api('/orders/summary?' + new URLSearchParams({store_id: state.storeFilter, q: state.orderQuery, status: state.orderStatus}));
+    let cursor = 0, guard = 0, toplam = null;
+    for (;;) {
+      const p = await api('/orders/summary?' + new URLSearchParams({store_id: state.storeFilter, q: state.orderQuery, status: state.orderStatus, cursor}));
+      if (!toplam) toplam = {...p, worst: [...p.worst], blocked: [...p.blocked]};
+      else {
+        for (const k of ['packages', 'delivered', 'not_delivered', 'computed', 'uncomputed', 'profitable', 'losing',
+          'contribution_cents', 'profit_cents', 'loss_cents']) toplam[k] += p[k];
+        toplam.worst.push(...p.worst); toplam.blocked.push(...p.blocked);
+      }
+      if (p.next_cursor === null || p.next_cursor === undefined || ++guard > 200) break;
+      cursor = p.next_cursor;
+    }
+    toplam.worst.sort((a, b) => a.contribution_cents - b.contribution_cents);
+    toplam.worst = toplam.worst.slice(0, 50);
+    toplam.blocked = toplam.blocked.slice(0, 50);
+    state.summary = toplam;
   };
 
   /* ---------- görünüm parçaları ---------- */
@@ -381,15 +397,32 @@ export function mountReports(root, namespace = 'ec') {
     if (a === 'page-prev' || a === 'page-next') { state.orderPage = Math.max(1, state.orderPage + (a === 'page-next' ? 1 : -1)); run(loadOrders); }
     // Sonradan tanımlanan ürün/set eşleştirmesini eski kayıtlara uygular. Daha önce kaydedilmiş
     // tarihî set içerikleri DEĞİŞMEZ; yalnız eşleşmesi hiç olmayan kayıtlar doldurulur.
-    if (a === 'fees-preview') run(async () => {
+    // Aktarım da parçalı: bütün siparişler bitene kadar sürülür, sonuçlar toplanır.
+    const feeSweep = async commit => {
       if (!state.storeFilter) throw new Error('Önce mağaza seçin.');
-      state.feeTransfer = await api('/apply-fees?' + new URLSearchParams({store_id: state.storeFilter}));
-      say('Önizleme hazır. Hiçbir şey yazılmadı.');
-    });
+      let cursor = 0, guard = 0, toplam = null;
+      for (;;) {
+        const p = commit
+          ? await api('/apply-fees', {store_id: state.storeFilter, confirm: true, cursor})
+          : await api('/apply-fees?' + new URLSearchParams({store_id: state.storeFilter, cursor}));
+        if (!toplam) toplam = {...p, skipped: [...p.skipped], totals: {...p.totals}};
+        else {
+          for (const k of ['packages', 'applied', 'sale_entries_changed', 'skipped_total']) toplam[k] += p[k];
+          for (const k of ['commission', 'shipping', 'other']) toplam.totals[k] += p.totals[k];
+          toplam.skipped.push(...p.skipped);
+        }
+        if (p.next_cursor === null || p.next_cursor === undefined || ++guard > 200) break;
+        cursor = p.next_cursor;
+      }
+      toplam.skipped = toplam.skipped.slice(0, 100);
+      state.feeTransfer = toplam;
+      return toplam;
+    };
+    if (a === 'fees-preview') run(async () => { await feeSweep(false); say('Önizleme hazır. Hiçbir şey yazılmadı.'); });
     if (a === 'fees-apply') run(async () => {
-      state.feeTransfer = await api('/apply-fees', {store_id: state.storeFilter, confirm: true});
-      say(state.feeTransfer.notice);
-      await Promise.all([loadOrders(), loadSummary()]);
+      const t = await feeSweep(true);
+      say(t.notice);
+      await loadOrders(); await loadSummary();
     });
     if (a === 'backfill') run(async () => {
       if (!state.storeFilter) throw new Error('Önce mağaza seçin.');

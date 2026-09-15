@@ -265,3 +265,20 @@ test('İptal edilmiş siparişe bağlı kalmış rapor kaydı, gerçek siparişe
     assert.equal(stockOf(f, product.id), stokOnce, 'stok değişmedi');
   } finally { f.close(); }
 });
+
+test('Bölünmüş sipariş (1 sipariş, N paket) tek kayda bağlanmaz; her parça kendi siparişi olur', async () => {
+  const f = appFixture(); await f.setup(); try {
+    await fourPack(f);
+    const s = store(f);
+    // Aynı sipariş numarası, iki ayrı paket.
+    record(f, s, 'TY-1', line(), 1);
+    record(f, s, 'TY-1', line({package_id: 'PK2', line_id: 'L2'}), 2);
+    startDate(f, DATE);
+    const a = await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PK1', complete_package_confirmed: true});
+    const b = await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PK2', complete_package_confirmed: true});
+    assert.equal(a.applied, true);
+    assert.equal(b.applied, true, 'ikinci parça incelemede takılmaz');
+    assert.notEqual(a.package_id, b.package_id, 'her parça kendi siparişi');
+    assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_packages').get().n, 2);
+  } finally { f.close(); }
+});
