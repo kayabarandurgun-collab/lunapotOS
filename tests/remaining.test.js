@@ -104,3 +104,32 @@ test('Üretim depo personeli reçete, ürün listesi, üretim partisi veya cariy
  assert.equal((await f.req('/admin/users',{username:'invalid.permission',name:'Geçersiz',permissions:{ec:{made_up:'write'}}})).status,400);
  }finally{f.close();}
 });
+
+test('Ürün listesi: tedarikçi seçili değilse alış geçmişinden gösterilir ve süzgeç yine çalışır', async () => {
+  const {selectProducts, productList} = await import('../public/product-list.js');
+  const urunler = [
+    {id: 'a', name: 'Torf 20 L', sku: 'GG-TORF-20L', brand: 'Gartengold', category: 'Torf',
+      supplier_id: null, last_supplier_id: 'karakus', last_supplier_name: 'Karakuş Aksesuar',
+      quantity_milli: 5000, reserved_milli: 0, min_stock_milli: 1000, stock_unit: 'adet', value_cents: 10000},
+    {id: 'b', name: 'Bitki besini 225 ml', sku: 'TR-GENEL-225ML', brand: 'Tropikal', category: 'Besin',
+      supplier_id: 'tropikal', last_supplier_id: 'tropikal', last_supplier_name: 'Tropikal Süs',
+      quantity_milli: 9000, reserved_milli: 0, min_stock_milli: 1000, stock_unit: 'adet', value_cents: 9000},
+    {id: 'c', name: 'Hiç alınmamış', sku: 'YOK-1', brand: '', category: '',
+      supplier_id: null, last_supplier_id: null, last_supplier_name: null,
+      quantity_milli: 0, reserved_milli: 0, min_stock_milli: 0, stock_unit: 'adet', value_cents: 0}];
+
+  // Süzgeç: kartta seçili tedarikçi yoksa alış geçmişindeki kimlikle eşleşir.
+  assert.deepEqual(selectProducts(urunler, {stockSupplier: 'karakus'}).map(p => p.id), ['a'],
+    'türetilmiş tedarikçiyle süzülebilmeli — eskiden hiçbir ürün gelmiyordu');
+  assert.deepEqual(selectProducts(urunler, {stockSupplier: 'tropikal'}).map(p => p.id), ['b']);
+  assert.equal(selectProducts(urunler, {stockSupplier: 'bilinmeyen'}).length, 0);
+
+  // Arama kutusu tedarikçi adını da kapsar.
+  assert.deepEqual(selectProducts(urunler, {stockQuery: 'karakuş'}).map(p => p.id), ['a']);
+
+  // Kart: türetilmişse böyle olduğu yazılır, uydurulmaz.
+  const yardim = {esc: v => String(v ?? ''), money: v => String(v), qty: v => String(v)};
+  const html = productList(urunler, {suppliers: [{id: 'tropikal', name: 'Tropikal Süs'}], sales: []}, {stockView: 'grid'}, yardim);
+  assert.match(html, /Karakuş Aksesuar · alışlardan/, 'türetilen tedarikçi işaretlenir');
+  assert.match(html, /Tedarikçi seçilmedi/, 'hiç alınmamış üründe alan uydurulmaz');
+});

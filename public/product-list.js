@@ -3,7 +3,7 @@ export const BRANDS=['Klasmann','Tropikal','Gartengold'];
 export const CATEGORIES=['Torf ve yetiştirme ortamı','Bitki besini','Toprak düzenleyici','Bitki bakım ürünü','Saksı ve aksesuar'];
 const norm=s=>String(s||'').toLocaleLowerCase('tr-TR');
 export function selectProducts(products,state){
- const result=products.filter(p=>(!state.stockQuery||norm([p.name,p.sku,p.brand,p.category].join(' ')).includes(norm(state.stockQuery)))&&(!state.stockBrand||p.brand===state.stockBrand)&&(!state.stockCategory||p.category===state.stockCategory)&&(!state.stockSupplier||p.supplier_id===state.stockSupplier)&&(!state.stockFilter||(state.stockFilter==='empty'?p.quantity_milli===0:p.quantity_milli-(p.reserved_milli||0)<=p.min_stock_milli)));
+ const result=products.filter(p=>(!state.stockQuery||norm([p.name,p.sku,p.brand,p.category,p.last_supplier_name].join(' ')).includes(norm(state.stockQuery)))&&(!state.stockBrand||p.brand===state.stockBrand)&&(!state.stockCategory||p.category===state.stockCategory)&&(!state.stockSupplier||p.supplier_id===state.stockSupplier||(!p.supplier_id&&p.last_supplier_id===state.stockSupplier))&&(!state.stockFilter||(state.stockFilter==='empty'?p.quantity_milli===0:p.quantity_milli-(p.reserved_milli||0)<=p.min_stock_milli)));
  const sort=state.stockSort||'brand';
  return result.sort((a,b)=>sort==='quantity'?b.quantity_milli-a.quantity_milli:sort==='available'?(b.quantity_milli-(b.reserved_milli||0))-(a.quantity_milli-(a.reserved_milli||0)):sort==='value'?(b.value_cents??-1)-(a.value_cents??-1):sort==='brand'?(a.brand||'ZZZ').localeCompare(b.brand||'ZZZ','tr')||a.name.localeCompare(b.name,'tr'):a.name.localeCompare(b.name,'tr'));
 }
@@ -15,7 +15,10 @@ export function saleAverage(sales,productId){
 }
 export function productList(products,data,state,helpers){
  const {esc,money,qty}=helpers;
- const supplier=p=>data.suppliers.find(s=>s.id===p.supplier_id)?.name||'Tedarikçi seçilmedi';
+ // Kartta tedarikci secili degilse alis gecmisinden TURETILIR ve boyle oldugu yazilir.
+ // Kaynak alis faturasidir; tahmin yapilmaz. Hic alinmamis urunde alan bos kalir.
+ const supplier=p=>data.suppliers.find(s=>s.id===p.supplier_id)?.name
+   ||(p.last_supplier_name?p.last_supplier_name+' · alışlardan':'Tedarikçi seçilmedi');
  const price=p=>saleAverage(data.sales,p.id);
  const available=p=>p.quantity_milli-(p.reserved_milli||0);
  const cost=p=>p.quantity_milli>0&&p.value_cents!=null?Math.round(p.value_cents*1000/p.quantity_milli):null;
