@@ -8,6 +8,63 @@ Bekleyen 3 paket de sevk edildi: taslak **0**, sevk **243**, satış kaydı **32
 stok hareketi **417**. Her paket kendi tarihiyle işlendi (TEA…085 ve TEA…086 →
 2026-09-01, HB-5515871961 → 2026-09-10); tarih uydurulmadı.
 
+## 11 ürün eşleştirmesi ve 8 inceleme kapatıldı (15 Eylül)
+
+### Eşleştirmeler: 67 → 78
+
+Eşleşmeyen 11 ilan koduna karşılık kuruldu. Beşi tek ürün, altısı SET.
+Set bileşenleri ve boyları KULLANICIYA SORULDU, tahmin edilmedi:
+
+| Kod | Bileşen |
+|---|---|
+| HBV00000X8JSU | TR-TOPRAK-10L |
+| HBV00000CGXO5 | TR-TOPRAK-5L |
+| HBV00000ANRQ2 | TR-ORKIDE-500ML |
+| HBCV000007EJ06 | TR-CICEK-1000ML |
+| TYBX0SEAAPVZ6CX475 | TR-PARLATICI-750ML |
+| HBCV000002LBL0 | kaktüs toprağı 2,5 L + kaktüs besini 225 ml |
+| HBCV00006H301U | orkide toprağı 3 L + orkide besini 225 ml + temizleyici 250 ml |
+| HBCV000085GUAV | orkide toprağı 3 L **× 2 paket** |
+| HBV00000RQMQE | orkide toprağı 3 L + orkide besini 225 ml |
+| HBCV00002590HV | genel besin 500 + çiçek açtıran 500 + temizleyici 250 ml |
+| 23245030333243 | 5 × 225 ml: kaktüs, çiçek, yeşil, menekşe, orkide (%20'şer) |
+
+**Gelir payları maliyet oranında hesaplandı**, eşit bölünmedi. Örnek: kaktüs seti
+toprak 24 TL / besin 21 TL → %53,33 ve %46,67. Sistem toplamın tam %100 olmasını
+zorunlu tutuyor; her sette tutturuldu.
+
+**BİR DÜZELTME:** Kullanıcı "yaprak temizleyici 225 ml" dedi ve HB ilan adı da 225
+yazıyor. Alış geçmişine bakıldı: sistemde yalnız 250 ml (85 adet alınmış) ve 500 ml
+(6 adet) var; alış faturalarında da sadece "250 ML" ve "500 ML" geçiyor. 225 ml hiç
+alınmamış. İlan adı yanlış; 250 ml karta bağlandı ve bu kullanıcıya bildirildi.
+
+### 8 açık inceleme kapatıldı
+
+- **6 × erp_ambiguous:** aynı sipariş İKİ PAKETE bölünmüş (örn. sipariş 11590299167 →
+  paket 4147140895 ve 4147140896). Sistem yanlış pakete bağlamaktansa bağlamamayı
+  seçmiş. Kayıtlar YAZILMIŞ durumda, inceleme yalnızca uyarıydı → reddedildi.
+- **2 × no_amount:** finans dosyalarının son "Toplam" satırı; tutarı olmadığı için
+  mali kayıt olmamalı → reddedildi.
+
+Açık inceleme 8 → **0**. Mali kayıt DEĞİŞMEDİ: satış 329, stok hareketi 419,
+stok değeri 39.879,42 TL.
+
+### Kâr ekranı için gereken zincir ölçüldü
+
+`summary()` kesintileri doğrudan `sale_entries.commission_cents / shipping_cents /
+other_cents` alanlarından okuyor; `fee_allocations` ayrı tabloda duruyor. ANCAK
+`ec_fee_allocation_apply` tetikleyicisi, kesinti dağıtıldığında bu alanları otomatik
+güncelliyor. Yani zincir şu: **pazaryeri komisyon/kargo faturası → gider satırı →
+kesinti eşleştirme → sale_entries dolar → kâr hesaplanır.** Kısa yolu yok ve
+olmaması doğru: sistem tahmini kesintiyle kâr hesaplamıyor.
+
+### Günlük düzenin canlı kanıtı
+
+9-HB-SIPARIS-D.csv, 7-HB-SIPARIS-C.csv dosyasının bir sonraki çekimiydi (aynı 89 satır,
+aynı 22.195,90 TL). Sonuç: **Yeni 0 · Güncellenen 1 · Aynı (tekrar) 88** — yalnızca
+kargodan teslime geçen tek paket güncellendi. Çift kayıt yok.
+
+---
 ## Hepsiburada raporları girdi — iki profil kusuru düzeltildi (15 Eylül)
 
 ### 1. Sipariş profili teslim tarihini HİÇ okumuyormuş
