@@ -51,3 +51,26 @@ test('Takip filtreleri tamamlanmış paketleri uzun kargo listesine katmaz; iş 
 test('Takip sorguları geçersiz tarih, kanal, durum, sayfa ve filtreyi reddeder',()=>{
  for(const p of [{from:'2026-02-30'},{from:'2026-09-10',to:'2026-09-01'},{channel:'unknown'},{status:'paid'},{watch:'unknown'},{page:0},{page:1.5},{limit:501},{q:'x'.repeat(201)}])assert.throws(()=>ordersQuery('https://test.local?'+new URLSearchParams(p)),e=>e.status===400);
 });
+
+test('İş listesi: bağlanmamış mağazalar tek satırda toplanır, her mağaza için ayrı satır açılmaz', () => {
+  const bos={orders:{changed:0,unmapped:0,missing_amounts:0,reserved:0,long_shipping:0},
+    stock:{total:1,low:0,no_history:0},invoices:{drafts:0,awaiting_receipt:0},
+    sales:{total:0,unconfirmed:0,losses:0},
+    tariffs:{shipping_active:1,commission_active:1,shipping_expiring:0,commission_expiring:0}};
+  const iki={providers:[{id:'trendyol',name:'Trendyol',configured:false},{id:'hepsiburada',name:'Hepsiburada',configured:false}]};
+  const items=attentionItems(bos,iki,{legal_name:'Lunapot',tax_id:'1'});
+  const baglanti=items.filter(x=>/bağlı değil|bağlantısı kontrol/.test(x.title));
+  assert.equal(baglanti.length,1,'iki mağaza için tek satır');
+  assert.match(baglanti[0].title,/Satış kanalları henüz bağlı değil/);
+
+  // Biri bağlıysa yalnızca sorunlu olan adıyla anılır.
+  const biri={providers:[{id:'trendyol',name:'Trendyol',configured:true,last_success_at:'2026-09-15',stale:false,last_error:null},
+    {id:'hepsiburada',name:'Hepsiburada',configured:false}]};
+  const tek=attentionItems(bos,biri,{legal_name:'Lunapot',tax_id:'1'}).filter(x=>/bağlantısı kontrol/.test(x.title));
+  assert.equal(tek.length,1);
+  assert.match(tek[0].title,/^Hepsiburada/);
+
+  // Hepsi bağlıysa satır hiç görünmez.
+  const hepsi={providers:[{id:'trendyol',name:'Trendyol',configured:true,last_success_at:'2026-09-15',stale:false,last_error:null}]};
+  assert.equal(attentionItems(bos,hepsi,{legal_name:'Lunapot',tax_id:'1'}).filter(x=>/bağlı değil|bağlantısı/.test(x.title)).length,0);
+});

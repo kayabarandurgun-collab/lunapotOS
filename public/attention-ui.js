@@ -12,12 +12,14 @@ export function attentionItems(data,connections,settings,pendingFees=0){
  add(invoices.awaiting_receipt,'#invoices','Mal teslimi tamamlanmamış fatura','Borç kaydedilmiş; depoya gelen miktarı ayrıca işle.');
  add(sales.unconfirmed,'#sales','Kesintisi doğrulanmamış satış / iade','Kargo ve komisyon tamamlanmadan kâr kesinleşmez.');
  add(pendingFees>0?1:0,'#reconciliation','Satışlara dağıtılacak kesinti faturası','Kargo ve komisyon belgelerini satışlara eşleştir.');
- add(sales.losses,'#sales','Zarar gösteren satış','Doğrulanmış satış kesintilerine göre; iadeler ayrıca değerlendirilir.','danger');
+ add(sales.losses,'#sales','Zarar gösteren satış kaydı','Satır düzeyinde sayılır; üstteki paket sayısıyla aynı değildir. İadeler ayrıca değerlendirilir.','danger');
  add(tariffs.shipping_expiring+tariffs.commission_expiring,'#pricing','7 gün içinde bitecek tarife','Geçerlilik tarihlerini ve yeni fiyat koşullarını kontrol et.');
  add(!settings.tax_id||!settings.legal_name?1:0,'#settings','Şirket bilgilerini tamamla','Alış faturalarının doğru şirket adına geldiğini doğrulayalım.','neutral');
  add(stock.total?stock.no_history:1,'#stock',stock.total?'Stok geçmişi olmayan ürün':'İlk stok kartlarını oluştur','Açılış veya mal teslimi olmadan depodaki gerçek miktar bilinmez.','neutral');
  add(!tariffs.shipping_active||!tariffs.commission_active?1:0,'#pricing','Geçerli kargo / komisyon tarifesi eksik','Maliyetler tamamlanmadan güvenilir kâr tahmini oluşmaz.','neutral');
- for(const p of connections.providers.filter(p=>p.id!=='edm'))add(!p.configured||!p.last_success_at||p.stale||p.last_error?1:0,'#integrations',p.name+(!p.configured?' henüz bağlı değil':p.last_error?' bağlantı hatası':!p.last_success_at?' doğrulama bekliyor':' verisi güncel değil'),'Son başarılı veri alımını Bağlantılar ekranında kontrol et.','neutral');
+ // Bağlantı durumu günlük iş değil kurulum bilgisidir: her mağaza için ayrı satır yerine tek satır.
+ const kanallar=connections.providers.filter(p=>p.id!=='edm'),sorunlu=kanallar.filter(p=>!p.configured||!p.last_success_at||p.stale||p.last_error);
+ add(sorunlu.length?1:0,'#integrations',sorunlu.length===kanallar.length?'Satış kanalları henüz bağlı değil':sorunlu.map(p=>p.name).join(', ')+' bağlantısı kontrol bekliyor','Bağlanınca haftalık dosya yükleme işi kendiliğinden yapılır.','neutral');
  return list;
 }
 export function renderAttention(data,connections,settings,pendingFees){

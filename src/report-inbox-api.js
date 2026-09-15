@@ -111,24 +111,50 @@ async function componentsFor(db, provider, data) {
 }
 
 /* ---------------- sipariş sonuçları ---------------- */
+/**
+ * Okuma maliyeti: aşağıdaki iki hesap sipariş başına değil, ÇAĞRI başına bir kez veri okur.
+ * Önceden tek sorguyla KDV profilleri (birkaç düzine satır) ve stok girişleri (birkaç yüz satır)
+ * belleğe alınır; sonrası bellekte hesaplanır. Sonuç birebir aynıdır, yalnızca sorgu sayısı düşer.
+ * Bu olmadan yüzlerce sipariş × satır × bileşen kadar sorgu atılıyordu ve günlük okuma kotası doluyordu.
+ */
+async function preload(db, memo) {
+  if (memo.loaded) return memo;
+  memo.profiles = new Map((await db.prepare('SELECT product_id,vat_bps FROM ec_price_profiles').all()).results.map(r => [r.product_id, r.vat_bps]));
+  memo.movements = new Map();
+  for (const r of (await db.prepare("SELECT product_id,occurred_on,quantity_milli q,value_cents v FROM ec_stock_movements WHERE kind IN ('opening','purchase') AND quantity_milli>0 ORDER BY product_id,occurred_on").all()).results) {
+    if (!memo.movements.has(r.product_id)) memo.movements.set(r.product_id, []);
+    memo.movements.get(r.product_id).push(r);
+  }
+  memo.loaded = true;
+  return memo;
+}
+
 async function unitCostAt(db, productId, date, memo) {
   // Sipariş tarihine kadarki açılış ve alış girişlerinin ortalaması. Giriş yoksa maliyet BİLİNMİYOR.
-  // memo: aynı çağrı içinde aynı ürün+tarih tekrar sorulmaz; sonuç değişmez, yalnızca sorgu sayısı azalır.
   const k = productId + '|' + date;
-  if (memo?.has(k)) return memo.get(k);
-  const r = await db.prepare("SELECT SUM(quantity_milli) q,SUM(value_cents) v FROM ec_stock_movements WHERE product_id=? AND kind IN ('opening','purchase') AND quantity_milli>0 AND occurred_on<=?")
-    .bind(productId, date).first();
-  const out = r && r.q > 0 && r.v !== null ? {cents_per_unit: r.v * 1000 / r.q, historical: true} : null;
-  memo?.set(k, out);
+  if (memo?.costCache?.has(k)) return memo.costCache.get(k);
+  let q = 0, v = 0;
+  if (memo?.movements) {
+    for (const m of memo.movements.get(productId) || []) { if (m.occurred_on > date) break; q += m.q; v += m.v; }
+  } else {
+    const r = await db.prepare("SELECT SUM(quantity_milli) q,SUM(value_cents) v FROM ec_stock_movements WHERE product_id=? AND kind IN ('opening','purchase') AND quantity_milli>0 AND occurred_on<=?")
+      .bind(productId, date).first();
+    q = r?.q || 0; v = r?.v ?? null;
+  }
+  const out = q > 0 && v !== null ? {cents_per_unit: v * 1000 / q, historical: true} : null;
+  memo?.costCache?.set(k, out);
   return out;
 }
+
 async function vatOf(db, productIds, memo) {
   const k = productIds.join('␟');
-  if (memo?.has(k)) return memo.get(k);
-  const rows = (await db.prepare('SELECT product_id,vat_bps FROM ec_price_profiles WHERE product_id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(productIds)).all()).results;
+  if (memo?.vatCache?.has(k)) return memo.vatCache.get(k);
+  const rows = memo?.profiles
+    ? productIds.map(p => ({product_id: p, vat_bps: memo.profiles.has(p) ? memo.profiles.get(p) : null}))
+    : (await db.prepare('SELECT product_id,vat_bps FROM ec_price_profiles WHERE product_id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(productIds)).all()).results;
   const rates = [...new Set(productIds.map(p => rows.find(r => r.product_id === p)?.vat_bps ?? null))];
   const out = rates.length === 1 && rates[0] !== null ? rates[0] : null;
-  memo?.set(k, out);
+  memo?.vatCache?.set(k, out);
   return out;
 }
 
@@ -196,7 +222,7 @@ export async function orderResults(db, storeId, {limit = 100, offset = 0, q = ''
   const orderNos = (await db.prepare("SELECT json_extract(data_json,'$.order_no') o,MAX(substr(json_extract(data_json,'$.order_date'),1,10)) d FROM ec_report_records WHERE " + where + ' GROUP BY o ORDER BY d DESC,o LIMIT ? OFFSET ?')
     .bind(store.id, ...filterArgs, limit, offset).all()).results.map(r => r.o).filter(o => o !== null && o !== undefined);
   if (!orderNos.length) return {store, results: [], total, statuses};
-  return {store, results: await packagesFor(db, store, orderNos), total, statuses};
+  return {store, results: await packagesFor(db, store, orderNos, await preload(db, newMemo())), total, statuses};
 }
 
 /**
@@ -204,7 +230,9 @@ export async function orderResults(db, storeId, {limit = 100, offset = 0, q = ''
  * AYNI hesabı kullanır; böylece ekranda görünen tutarla deftere yazılan tutar ayrışamaz.
  * memo: yalnızca sorgu tekrarını önler, sonucu değiştirmez.
  */
-async function packagesFor(db, store, orderNos, memo = {cost: new Map(), vat: new Map()}) {
+const newMemo = () => ({costCache: new Map(), vatCache: new Map(), profiles: null, movements: null, loaded: false});
+
+async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates = true} = {}) {
   const lines = (await db.prepare("SELECT * FROM ec_report_records WHERE store_id=? AND kind='order_line' AND json_extract(data_json,'$.order_no') IN (SELECT value FROM json_each(?)) ORDER BY record_key")
     .bind(store.id, JSON.stringify(orderNos)).all()).results;
   // Paket kimliği hangi siparişe ait? Finans satırında sipariş no boş olsa da olay bu yolla bulunur.
@@ -290,12 +318,12 @@ async function packagesFor(db, store, orderNos, memo = {cost: new Map(), vat: ne
         const comps = line.components?.components || null;
         if (!comps) { missing.push('Ürün/set eşleşmesi yok: ' + (line.barcode || line.sku || line.product_name || 'ürün')); netSales = null; cogs = null; continue; }
         if (line.components.after_order) notes.push((line.barcode || line.sku) + ': set tanımı sipariş tarihinden sonra; eski içerik doğrulanmalı.');
-        line.vat_bps = await vatOf(db, comps.map(c => c.product_id), memo.vat);
+        line.vat_bps = await vatOf(db, comps.map(c => c.product_id), memo);
         if (line.gross === undefined) { missing.push('Satış tutarı yok (sipariş ' + line.order_no + ')'); netSales = null; }
         else if (line.vat_bps === null) { missing.push('KDV oranı tanımlı değil: ' + (line.barcode || line.sku)); netSales = null; }
         else if (netSales !== null) netSales += exVat(line.gross, line.vat_bps);
         for (const c of comps) {
-          const cost = await unitCostAt(db, c.product_id, date, memo.cost);
+          const cost = await unitCostAt(db, c.product_id, date, memo);
           if (!cost) { missing.push('Maliyet yok: ' + c.product_id + ' (' + date + ' öncesi giriş bulunamadı)'); cogs = null; continue; }
           // İki adet ikili set = her üründen 2 × set içindeki miktar.
           if (cogs !== null) cogs += Math.round(cost.cents_per_unit * c.quantity_milli * (line.quantity || 0) / 1000);
@@ -328,8 +356,10 @@ async function packagesFor(db, store, orderNos, memo = {cost: new Map(), vat: ne
       if (vatUnknown && feeRows.length) notes.push('Kesinti tutarlarının KDV durumu profilde belirtilmedi; katkı yaklaşık.');
 
       // Tahmin: yalnızca gerçekleşmiş kaydı OLMAYAN gider türleri için. Gerçek gelince tahmin kaybolur.
+      // Bu blok paket başına geçmiş tarar; okuma maliyetinin büyük kısmı burada. Özet ve kesinti
+      // aktarımı tahmin kullanmadığı için oralarda hiç çalıştırılmaz (withEstimates=false).
       const signature = packageSignature(g.lines), estimates = [];
-      if (!feeRows.some(r => r.type === 'commission')) {
+      if (withEstimates && !feeRows.some(r => r.type === 'commission')) {
         let total = 0, unknownLines = 0;
         const basis = new Set();
         for (const line of g.lines) {
@@ -344,7 +374,7 @@ async function packagesFor(db, store, orderNos, memo = {cost: new Map(), vat: ne
               basis: unknownLines ? unknownLines + ' satırın tarifesi yok; kısmi hesap tam tahmin sayılmaz.' : 'Tahmin için yeterli veri yok (sıfır sayılmadı).'});
         }
       }
-      if (!feeRows.some(r => r.type === 'cargo')) {
+      if (withEstimates && !feeRows.some(r => r.type === 'cargo')) {
         const obs = await observedFor(db, store.id, 'cargo', signature, date, g.group);
         estimates.push(obs ? {type: 'cargo', label: EVENT_TYPES.cargo, ...obs}
           : {type: 'cargo', label: EVENT_TYPES.cargo, value: null, basis: 'Kargo tarifesi (desi) bağlanmadı; aynı içerikli paketten yeterli kayıt da yok.'});
@@ -382,8 +412,8 @@ async function packagesFor(db, store, orderNos, memo = {cost: new Map(), vat: ne
  * Tek istekte yüzlerce sipariş taranırsa çalışma süresi sınırı aşılır (503). Bu yüzden
  * `cursor`'dan başlayıp en çok `take` sipariş işlenir ve kaldığı yer `next_cursor` ile bildirilir.
  */
-async function allPackages(db, store, {q = '', status = '', cursor = 0, take = 0} = {}) {
-  const memo = {cost: new Map(), vat: new Map()}, out = [];
+async function allPackages(db, store, {q = '', status = '', cursor = 0, take = 0, withEstimates = false} = {}) {
+  const memo = await preload(db, newMemo()), out = [];
   const needle = String(q || '').trim().toLocaleLowerCase('tr-TR').slice(0, 100);
   const where = "store_id=? AND kind='order_line'"
     + (needle ? " AND (instr(lower(COALESCE(json_extract(data_json,'$.order_no'),'')),?)>0 OR instr(lower(COALESCE(json_extract(data_json,'$.package_id'),'')),?)>0 OR instr(lower(COALESCE(json_extract(data_json,'$.barcode'),'')),?)>0 OR instr(lower(COALESCE(json_extract(data_json,'$.sku'),'')),?)>0 OR instr(lower(COALESCE(json_extract(data_json,'$.product_name'),'')),?)>0)" : '')
@@ -394,7 +424,7 @@ async function allPackages(db, store, {q = '', status = '', cursor = 0, take = 0
     .bind(store.id, ...args).all()).results.map(r => r.o).filter(o => o !== null && o !== undefined);
   const from = Math.max(0, Number(cursor) || 0);
   const dilim = take > 0 ? orderNos.slice(from, from + take) : orderNos.slice(from);
-  for (const part of inChunks(dilim, 25)) out.push(...await packagesFor(db, store, part, memo));
+  for (const part of inChunks(dilim, 25)) out.push(...await packagesFor(db, store, part, memo, {withEstimates}));
   const next = from + dilim.length;
   return {results: out, total_orders: orderNos.length, next_cursor: next < orderNos.length ? next : null};
 }
