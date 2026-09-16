@@ -119,3 +119,15 @@ test('Aktarım parçalı çalışır: imleçle devam eder, hiçbir paket atlanma
     assert.equal(feeOf(f, sale).commission_cents, null, 'önizleme hâlâ yazmıyor');
   } finally { f.close(); }
 });
+
+test('Sıfır kargo bilgi sayılmaz: teslim edilmiş pakette kesinti eksikse paket atlanır', async () => {
+  const f = appFixture(); await f.setup(); try {
+    // Kargo olayı YOK; sipariş raporunda kargo sütunu 0 geliyor. Sıfır gerçek değer sayılırsa
+    // sipariş kârlı görünür ve kullanıcı yanlış karar verir.
+    const {s, sale} = await delivered(f, {kargo: false});
+    const r = await f.ok('/ec/reports/apply-fees?store_id=' + s);
+    assert.equal(r.sale_entries_changed, 0, 'eksik kesintiyle kayıt yazılmaz');
+    assert.ok(r.skipped.some(x => /kargo kesintisi yok/.test(x.reason)));
+    assert.equal(feeOf(f, sale).shipping_cents, null, 'sıfır yazılmadı, bilinmiyor kaldı');
+  } finally { f.close(); }
+});

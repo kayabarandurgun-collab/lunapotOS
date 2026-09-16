@@ -84,7 +84,14 @@ export async function ordersApi(request,env,path,readBody){
   const counts=(await db.prepare('SELECT status,COUNT(*) count FROM order_packages GROUP BY status').all()).results;
   const total=(await statement(db,'SELECT COUNT(*) count FROM order_packages'+scope,args).first()).count;
   const stock=new Map(products.map(p=>[p.id,p.quantity_milli-p.reserved_milli]));
-  return {packages:packages.slice(0,500).map(p=>{const ls=lines.filter(l=>l.package_id===p.id),lineIDs=new Set(ls.map(l=>l.id)),cs=components.filter(c=>lineIDs.has(c.line_id)),needs=new Map();for(const c of cs)needs.set(c.product_id,(needs.get(c.product_id)||0)+c.quantity_milli);const readiness=p.source_changed?'source_changed':ls.some(l=>cs.filter(c=>c.line_id===l.id).reduce((n,c)=>n+c.revenue_share_bps,0)!==10000)||cs.some(c=>c.stock_unit!==c.current_stock_unit)?'needs_mapping':ls.some(l=>l.net_revenue_cents===null)?'needs_amounts':p.status==='draft'&&[...needs].some(([product,q])=>(stock.get(product)||0)<q)?'needs_stock':'ready';return {...p,readiness};}),lines,components,products:products.map(p=>({...p,available_milli:p.quantity_milli-p.reserved_milli})),reservations,counts,truncated:offset+packages.length<total,pagination:{page,limit,total,pages:Math.max(1,Math.ceil(total/limit)),has_more:offset+packages.length<total}};
+  const ozet=new Map();
+  for(const r of (await statement(db,"SELECT l.package_id pid,"
+    +" SUM(s.revenue_cents) gelir,"
+    +" SUM(s.revenue_cents-s.cost_cents-COALESCE(s.commission_cents,0)-COALESCE(s.shipping_cents,0)-COALESCE(s.other_cents,0)) sonuc,"
+    +" MIN(CASE WHEN s.commission_cents IS NULL OR s.shipping_cents IS NULL OR s.other_cents IS NULL THEN 0 ELSE 1 END) tam"
+    +" FROM order_lines l JOIN order_line_components c ON c.line_id=l.id"
+    +" JOIN sale_entries s ON s.id=c.sale_id GROUP BY l.package_id").all()).results) ozet.set(r.pid,r);
+  return {packages:packages.slice(0,500).map(p=>{const ls=lines.filter(l=>l.package_id===p.id),lineIDs=new Set(ls.map(l=>l.id)),cs=components.filter(c=>lineIDs.has(c.line_id)),needs=new Map();for(const c of cs)needs.set(c.product_id,(needs.get(c.product_id)||0)+c.quantity_milli);const readiness=p.source_changed?'source_changed':ls.some(l=>cs.filter(c=>c.line_id===l.id).reduce((n,c)=>n+c.revenue_share_bps,0)!==10000)||cs.some(c=>c.stock_unit!==c.current_stock_unit)?'needs_mapping':ls.some(l=>l.net_revenue_cents===null)?'needs_amounts':p.status==='draft'&&[...needs].some(([product,q])=>(stock.get(product)||0)<q)?'needs_stock':'ready';return {...p,revenue_net_cents:ozet.get(p.id)?.gelir??null,result_cents:ozet.get(p.id)?.tam?ozet.get(p.id).sonuc:null,readiness};}),lines,components,products:products.map(p=>({...p,available_milli:p.quantity_milli-p.reserved_milli})),reservations,counts,truncated:offset+packages.length<total,pagination:{page,limit,total,pages:Math.max(1,Math.ceil(total/limit)),has_more:offset+packages.length<total}};
  }
  const previewMatch=path.match(/^\/api\/orders\/([\w-]+)\/source$/);
  if(previewMatch&&method==='GET'){

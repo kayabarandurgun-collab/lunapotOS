@@ -498,8 +498,9 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
       const comp = FEE_COMPONENT[f.type];
       if (!comp) continue;
       // Rapor kesintileri negatif gelir; defterde kesinti POZİTİF saklanıp kârdan düşülür.
-      want[comp] += -(f.net_cents ?? f.actual_cents);
-      kaynak[comp] = true;
+      const tutar = -(f.net_cents ?? f.actual_cents);
+      want[comp] += tutar;
+      if (tutar !== 0) kaynak[comp] = true;
     }
     // Teslim edilmiş bir pazaryeri paketinde komisyon ve kargo MUTLAKA vardır; yoksa rapor eksiktir
     // ve sıfır yazmak veri uydurmak olur. "Diğer" kalemi ise gerçekten alınmamış olabilir: 0 yazılır.
