@@ -625,6 +625,33 @@ export async function reportInboxApi(request, env, path, readBody) {
     ]);
     return {...row, provider: x.provider, kind: x.kind, signature, mapping, options, sample_verified: 0};
   }
+  // Kesinti tutarlarinin KDV durumu profilde BEYAN EDILMEMISSE, sistem tutari KDV haricmis gibi
+  // kullanir ve gider oldugundan yuksek gorunur. Bu uc o eksik beyani tamamlar: TUTARLAR DEGISMEZ,
+  // yalnizca "bu rakam KDV dahildir" bilgisi kaydedilir.
+  // Yalniz BIR KEZ, henuz beyan edilmemis profile yazilabilir. Boylece gecmis hesap ileri geri
+  // oynatilamaz; yanlis beyan edilmisse yeni profil surumu acilir.
+  const feeVat = sub.match(/^\/profiles\/([\w-]+)\/fee-vat$/);
+  if (feeVat && method === 'POST') {
+    const x = await readBody(request);
+    const p = await db.prepare('SELECT * FROM ec_report_profiles WHERE id=?').bind(key(feeVat[1])).first();
+    if (!p) fail('Eşleştirme profili bulunamadı.', 404);
+    const o = parse(p.options_json, {});
+    if (o.fee_amounts_include_vat !== undefined && o.fee_amounts_include_vat !== null)
+      fail('Bu profilde kesinti KDV durumu zaten beyan edilmiş; değiştirmek için yeni profil sürümü açın.', 409);
+    if (typeof x.include_vat !== 'boolean') fail('Kesintilerin KDV dahil olup olmadığını belirtin.');
+    if (x.include_vat && !(Number.isInteger(x.vat_bps) && x.vat_bps >= 0 && x.vat_bps <= 10000)) fail('KDV oranı geçersiz.');
+    const next = {...o, fee_amounts_include_vat: x.include_vat, ...(x.include_vat ? {fee_vat_bps: x.vat_bps} : {})};
+    await db.batch([
+      db.prepare('UPDATE ec_report_profiles SET options_json=? WHERE id=?').bind(JSON.stringify(next), p.id),
+      db.prepare('INSERT INTO ec_activity(id,description) VALUES(?,?)').bind(id(),
+        'Kesinti KDV beyanı tamamlandı: ' + p.provider + ' ' + p.kind + ' v' + p.version +
+        ' → ' + (x.include_vat ? 'KDV dahil %' + (x.vat_bps / 100) : 'KDV hariç'))
+    ]);
+    return {id: p.id, provider: p.provider, kind: p.kind, version: p.version,
+      fee_amounts_include_vat: x.include_vat, fee_vat_bps: x.include_vat ? x.vat_bps : null,
+      notice: 'Tutarlar değişmedi; yalnızca KDV durumu beyan edildi. Katkı hesabı artık kesintileri KDV hariç kullanır.'};
+  }
+
   const verify = sub.match(/^\/profiles\/([\w-]+)\/verify$/);
   if (verify && method === 'POST') {
     if (!user.owner) fail('Profili yalnızca yönetici doğrulayabilir.', 403);
