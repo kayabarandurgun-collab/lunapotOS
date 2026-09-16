@@ -164,3 +164,7 @@ td strong,.recipe-card h2,.studio-material strong,.history-links li{overflow-wra
   /* İş listesi telefonda iki sütuna sıkışıyordu. */
   .attention-grid { grid-template-columns: 1fr; }
 }
+
+/* Nakit karşılığı: pazaryeri ekranındaki KDV dahil tutarla karşılaştırılan satır. */
+.order-cash { margin: .5rem 0 0; font-size: 13px; line-height: 1.6; color: var(--muted, #65776f); }
+.order-cash b { color: inherit; font-variant-numeric: tabular-nums; }
