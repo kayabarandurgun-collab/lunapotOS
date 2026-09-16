@@ -566,6 +566,50 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
   };
 }
 
+/**
+ * Raporda İADE görünen ama defterde hâlâ tam gelirle duran paketler.
+ * Bu uç YAZMAZ, yalnızca listeler: hangi satış kaydının ne kadar iade edilmesi gerektiğini söyler.
+ * İadeyi mevcut ve korumaları denenmiş satış iadesi ucu yazar; burada ikinci bir defter yolu açılmaz.
+ *
+ * İade edilen siparişte mal geri döner (maliyet geri alınır) ama GİDİŞ KARGOSU, DÖNÜŞ KARGOSU ve
+ * hizmet bedeli cepte kalır: zarar satıştan değil, iadeden doğar. Bu yüzden kesintiler silinmez.
+ */
+export async function pendingReturns(db, storeId) {
+  const store = await db.prepare('SELECT * FROM ec_report_stores WHERE id=?').bind(key(storeId)).first();
+  if (!store) fail('Mağaza bulunamadı.', 404);
+  const rows = (await db.prepare(
+    "SELECT json_extract(r.data_json,'$.order_no') order_no, r.erp_package_id," +
+    " (SELECT SUM(json_extract(f.data_json,'$.amount_cents')) FROM ec_report_records f" +
+    "  WHERE f.store_id=r.store_id AND f.kind='finance_event' AND json_extract(f.data_json,'$.type')='refund'" +
+    "  AND json_extract(f.data_json,'$.order_no')=json_extract(r.data_json,'$.order_no')) refund_cents," +
+    " SUM(json_extract(r.data_json,'$.gross')) rapor_brut" +
+    " FROM ec_report_records r WHERE r.store_id=? AND r.kind='order_line' AND r.erp_package_id IS NOT NULL" +
+    " GROUP BY r.erp_package_id").bind(store.id).all()).results.filter(x => x.refund_cents && x.refund_cents < 0);
+
+  const out = [], skipped = [];
+  for (const x of rows) {
+    const sales = (await db.prepare(
+      'SELECT c.sale_id,s.revenue_cents,s.quantity_milli,p.sku,' +
+      '(SELECT COUNT(*) FROM ec_sale_entries r WHERE r.parent_id=s.id) iade_var' +
+      ' FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id' +
+      " JOIN ec_sale_entries s ON s.id=c.sale_id JOIN ec_products p ON p.id=s.product_id" +
+      " WHERE l.package_id=? AND s.kind='sale' ORDER BY c.id").bind(x.erp_package_id).all()).results;
+    if (!sales.length) { skipped.push({order_no: x.order_no, reason: 'Pakette satış kaydı yok.'}); continue; }
+    if (sales.some(r => r.iade_var)) { skipped.push({order_no: x.order_no, reason: 'Bu paketin iadesi zaten girilmiş.'}); continue; }
+    // Rapor iadesi paketin TAMAMINI kapsıyorsa satırların tamamı iade edilir. Kısmi iadede
+    // hangi satırın iade edildiği raporda yazmadığı için elle karara bırakılır: uydurulmaz.
+    // Tam iade ölçüsü RAPORDAKİ satış tutarıdır: iade onu aynalar. Defterdeki KDV hariç tutarla
+    // karşılaştırmak indirimli siparişlerde şaşırır, çünkü iade indirimsiz tutarı gösterir.
+    const iade = Math.abs(x.refund_cents), raporBrut = x.rapor_brut || 0;
+    const tamIade = raporBrut > 0 && Math.abs(iade - raporBrut) <= 200;
+    if (!tamIade) { skipped.push({order_no: x.order_no, reason: 'Kısmi iade (' + (iade / 100).toFixed(2) + ' TL); hangi satırın iade edildiği raporda yok, elle girilmeli.'}); continue; }
+    out.push({order_no: x.order_no, erp_package_id: x.erp_package_id, refund_cents: iade,
+      lines: sales.map(r => ({sale_id: r.sale_id, sku: r.sku, quantity: r.quantity_milli / 1000, revenue_cents: r.revenue_cents}))});
+  }
+  return {store, pending: out, skipped,
+    notice: 'Bu liste yazmaz. İade kaydı, mevcut satış iadesi ucundan girilir; mal stoğa döner, kargo ve hizmet bedeli gider olarak kalır.'};
+}
+
 /* ---------------- uçlar ---------------- */
 export async function reportInboxApi(request, env, path, readBody) {
   if (!path.startsWith('/api/reports')) return null;
@@ -881,6 +925,10 @@ export async function reportInboxApi(request, env, path, readBody) {
   }
 
   // Her ikisi de PARÇALI: next_cursor doluyken çağıran döngüye devam eder.
+  // Raporda iade gorunen ama defterde hala tam gelirle duran paketler. YAZMAZ, listeler.
+  if (sub === '/returns-pending' && method === 'GET')
+    return pendingReturns(db, url.searchParams.get('store_id') || '');
+
   if (sub === '/orders/summary' && method === 'GET')
     return orderSummary(db, url.searchParams.get('store_id') || '', {q: url.searchParams.get('q') || '', status: url.searchParams.get('status') || '',
       cursor: Number(url.searchParams.get('cursor')) || 0});
