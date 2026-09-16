@@ -242,7 +242,7 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
   const packageIds = [...packageOwner.keys()];
   let allEvents = (await db.prepare("SELECT r.*,e.invoice_line_id,f.profile_id FROM ec_report_records r LEFT JOIN ec_report_fee_evidence e ON e.record_id=r.id JOIN ec_report_files f ON f.id=r.file_id WHERE r.store_id=? AND r.kind='finance_event' AND (json_extract(r.data_json,'$.order_no') IN (SELECT value FROM json_each(?)) OR json_extract(r.data_json,'$.package_id') IN (SELECT value FROM json_each(?)))")
     .bind(store.id, JSON.stringify(orderNos), JSON.stringify(packageIds)).all()).results
-    .map(r => ({...parse(r.data_json, {}), id: r.id, invoice_line_id: r.invoice_line_id, profile_id: r.profile_id, row_no: r.row_no, file_id: r.file_id}));
+    .map(r => ({...parse(r.data_json, {}), id: r.id, invoice_line_id: r.invoice_line_id, profile_id: r.profile_id, row_no: r.row_no, file_id: r.file_id, source_time: r.source_time}));
   // Tek kaynak satırından üretilen birden çok olay (geniş kolonlu rapor) bildirilen neti çoğaltmamalı:
   // net, olay kimliği yoksa kaynak satırın kimliğiyle tekilleştirilir.
   const sourceKey = e => e.event_id || (e.file_id || '') + ':' + (e.row_no ?? '');
@@ -321,6 +321,22 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
       if (!(stated ? stated === order : owner === order)) continue;
       const direct = pkg !== null && packageEvents.has(pkg);
       if (direct) packageEvents.get(pkg).push(e); else shared.push(e);
+    }
+    // BELİRSİZ TOPLAM: aynı türden gider, iki AYRI rapor dosyasından, paket numarası taşımadan
+    // ve farklı tutarlarla geliyorsa bunlar iki ayrı paketin gideri de olabilir, aynı giderin
+    // iki farklı beyanı da. Toplamak da birini seçmek de uydurma olur: kâr HESAPLANMAZ,
+    // paket incelemeye kalır. (Aynı tutarlı kaba tekrar bir üstteki kuralla zaten elenir.)
+    const dosyaSay = new Map();
+    for (const e of shared) {
+      if (!e.type || !e.amount_cents || e.type === 'payout' || e.type === 'sale') continue;
+      if (!dosyaSay.has(e.type)) dosyaSay.set(e.type, new Map());
+      dosyaSay.get(e.type).set(e.file_id || '', (dosyaSay.get(e.type).get(e.file_id || '') || 0) + e.amount_cents);
+    }
+    for (const [tur, dosyalar] of dosyaSay) {
+      if (dosyalar.size < 2) continue;
+      conflictNotes.push((EVENT_TYPES[tur] || 'Gider') + ' iki ayrı raporda, paket numarası olmadan ve farklı tutarlarla geldi (' +
+        [...dosyalar.values()].map(v => (v / 100).toFixed(2)).join(' / ') +
+        ' TL). Aynı giderin iki beyanı mı, iki paketin ayrı gideri mi belli değil; toplanmadı, kâr hesaplanmadı.');
     }
     // Paket numarası olmayan SİPARİŞ düzeyindeki gider bir kez sayılır: tek pakette olduğu gibi,
     // bölünmüş siparişte toplamı koruyarak paketlere dağıtılır.
@@ -420,8 +436,31 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
           : {type: 'cargo', label: EVENT_TYPES.cargo, value: null, basis: 'Kargo tarifesi (desi) bağlanmadı; aynı içerikli paketten yeterli kayıt da yok.'});
       }
       const payouts = events.filter(e => e.source_field === 'net_payout' || e.type === 'payout');
-      const reported = events.some(e => e.net_payout !== undefined) ? [...new Map(events.filter(e => e.net_payout !== undefined).map(e => [sourceKey(e), e.net_payout])).values()].reduce((s, v) => s + v, 0)
-        : payouts.length ? payouts.reduce((s, e) => s + e.amount_cents, 0) : null;
+      // Bildirilen hakediş DOSYA BAZINDA okunur. İki rapor aynı paketi kapsıyorsa tutarlar
+      // TOPLANMAZ: her dosya o paketin hakedişinin TAMAMINI söyler, parçasını değil. En yeni
+      // raporun rakamı geçerlidir; rakamlar çelişiyorsa toplanmaz, not düşülür.
+      const netKayit = [...new Map(events.filter(e => e.net_payout !== undefined).map(e => [sourceKey(e), e])).values()];
+      let reported = null;
+      if (netKayit.length) {
+        const dosyaBazli = new Map();
+        for (const e of netKayit) {
+          const fid = e.file_id || '';
+          const v = dosyaBazli.get(fid) || {tutar: 0, zaman: ''};
+          v.tutar += e.net_payout;
+          if (String(e.source_time || '') > v.zaman) v.zaman = String(e.source_time || '');
+          dosyaBazli.set(fid, v);
+        }
+        const sirali = [...dosyaBazli.values()].sort((a, b) => b.zaman.localeCompare(a.zaman));
+        reported = sirali[0].tutar;
+        if (sirali.some(v => v.tutar !== reported))
+          notes.push('Bildirilen hakediş raporlara göre değişiyor (' + sirali.map(v => (v.tutar / 100).toFixed(2)).join(' / ') +
+            ' TL). Toplanmadı; en yeni rapordaki tutar kullanıldı.');
+      } else if (payouts.length) reported = payouts.reduce((s, e) => s + e.amount_cents, 0);
+      // Gider kalemi ARTI geldiyse bu bir kesinti değil, geri verilen/karşılanan tutardır.
+      // Hesaba raporda yazdığı gibi girer ama sessiz kalmaz: kâr onunla oluşmuş olabilir.
+      for (const r of feeRows) if (r.actual_cents > 0)
+        notes.push(r.label + ' raporda ARTI geldi (+' + (r.actual_cents / 100).toFixed(2) +
+          ' TL): gider değil, geri verilen tutar olarak sayıldı. Pazaryeri ekstresiyle doğrulayın.');
       const computed = events.filter(e => e.type && e.type !== 'payout').reduce((s, e) => s + e.amount_cents, 0);
       // basis: hesabın kendisi. GERÇEKLEŞMİŞ katkı yalnızca teslim edilmiş pakette raporlanır;
       // teslim edilmemiş paket için aynı hesap "tahmini sonuç" olarak ayrı alanda kalır.

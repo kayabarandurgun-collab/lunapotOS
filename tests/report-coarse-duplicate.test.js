@@ -94,3 +94,65 @@ test('Gerçekten ayrı iki gider birleştirilmez: iki paketin aynı tutarlı kar
     assert.deepEqual(kargo.sort(), [-4649, -4649], 'iki gerçek kargo da sayıldı');
   } finally { f.close(); }
 });
+
+test('İki rapor aynı paketin hakedişini söylerse tutarlar TOPLANMAZ; en yeni rapor geçerlidir', async () => {
+  const {f, store, profile, upload} = await fixture(); try {
+    const s = await store();
+    await profile('orders', ORDER_COLUMNS, ORDER_MAPPING);
+    await upload(s, 'orders', ORDER_COLUMNS, [line('S1', 'P1', 'L1', '240,00')], '2026-09-01T10:00', 'sip.xlsx');
+
+    // Aynı paket için iki finans raporu: eski 130,00 diyor, yeni 120,00.
+    const NET_COLS = [{header: 'Sipariş No'}, {header: 'İşlem Tipi'}, {header: 'Tutar'}, {header: 'Net'}];
+    const NET_MAP = {order_no: 'Sipariş No', event_type: 'İşlem Tipi', amount: 'Tutar', net_payout: 'Net'};
+    await profile('finance', NET_COLS, NET_MAP, {...TIP, undated: true});
+    await upload(s, 'finance', NET_COLS, [['S1', 'Komisyon', '-48,00', '130,00']], '2026-09-03T10:00', 'eski.xlsx');
+    const tek = (await f.ok('/ec/reports/orders?store_id=' + s)).results[0];
+    assert.equal(tek.reported_net_cents, 13000);
+
+    const YENI_COLS = [{header: 'Sipariş No'}, {header: 'Paket No'}, {header: 'İşlem Tipi'}, {header: 'Tarih'}, {header: 'Tutar'}, {header: 'Net'}];
+    const YENI_MAP = {order_no: 'Sipariş No', package_id: 'Paket No', event_type: 'İşlem Tipi', event_date: 'Tarih', amount: 'Tutar', net_payout: 'Net'};
+    await profile('finance', YENI_COLS, YENI_MAP, TIP);
+    await upload(s, 'finance', YENI_COLS, [['S1', 'P1', 'Kargo', '04.09.2026', '-30,00', '120,00']], '2026-09-04T10:00', 'yeni.xlsx');
+
+    const iki = (await f.ok('/ec/reports/orders?store_id=' + s)).results[0];
+    assert.equal(iki.reported_net_cents, 12000, '130 + 120 = 250 TOPLANMADI; en yeni rapor geçerli');
+    assert.ok(iki.notes.some(n => /Bildirilen hakediş raporlara göre değişiyor/.test(n)), 'çelişki kullanıcıya söylendi');
+  } finally { f.close(); }
+});
+
+test('Artı gelen gider kalemi sessizce kâra yazılmaz; not düşülür', async () => {
+  const {f, store, profile, upload} = await fixture(); try {
+    const s = await store();
+    await profile('orders', ORDER_COLUMNS, ORDER_MAPPING);
+    await upload(s, 'orders', ORDER_COLUMNS, [line('S1', 'P1', 'L1', '240,00')], '2026-09-01T10:00', 'sip.xlsx');
+    // "İndirim" sütunu gider alanına eşlenmiş ve ARTI geliyor: kârı yükseltiyor.
+    await profile('finance', INCE_COLS, INCE_MAP, TIP);
+    await upload(s, 'finance', INCE_COLS, [['S1', 'P1', 'Kargo', '03.09.2026', '48,99']], '2026-09-03T10:00', 'ince.xlsx');
+    const p = (await f.ok('/ec/reports/orders?store_id=' + s)).results[0];
+    assert.equal(p.fees.find(x => x.type === 'cargo').actual_cents, 4899, 'rapordaki tutar değiştirilmedi');
+    assert.ok(p.notes.some(n => /ARTI geldi/.test(n)), 'artı gelen kalem işaretlendi');
+  } finally { f.close(); }
+});
+
+test('Aynı tür gider iki raporda paketsiz ve farklı tutarla gelirse toplanmaz, kâr hesaplanmaz', async () => {
+  const {f, store, profile, upload} = await fixture(); try {
+    const s = await store();
+    await profile('orders', ORDER_COLUMNS, ORDER_MAPPING);
+    await upload(s, 'orders', ORDER_COLUMNS, [line('S1', 'P1', 'L1', '240,00')], '2026-09-01T10:00', 'sip.xlsx');
+
+    await profile('finance', KABA_COLS, KABA_MAP, {...TIP, undated: true});
+    await upload(s, 'finance', KABA_COLS, [['S1', 'Kargo', '-112,80']], '2026-09-03T10:00', 'a.xlsx');
+    const tek = (await f.ok('/ec/reports/orders?store_id=' + s)).results[0];
+    assert.equal(tek.contribution_cents, 20000 - 10000 - 11280, 'tek rapor varken kâr hesaplanır');
+
+    // İkinci rapor aynı siparişe FARKLI tutarda kargo diyor, paket numarası yok.
+    const B_COLS = [{header: 'Sipariş'}, {header: 'Tip'}, {header: 'Tutar'}];
+    const B_MAP = {order_no: 'Sipariş', event_type: 'Tip', amount: 'Tutar'};
+    await profile('finance', B_COLS, B_MAP, {...TIP, undated: true});
+    await upload(s, 'finance', B_COLS, [['S1', 'Kargo', '-211,19']], '2026-09-04T10:00', 'b.xlsx');
+
+    const iki = (await f.ok('/ec/reports/orders?store_id=' + s)).results[0];
+    assert.equal(iki.contribution_cents, null, '112,80 + 211,19 sessizce toplanmadı');
+    assert.ok(iki.contribution_missing.some(n => /toplanmadı, kâr hesaplanmadı/.test(n)), 'sebebi yazıldı');
+  } finally { f.close(); }
+});
