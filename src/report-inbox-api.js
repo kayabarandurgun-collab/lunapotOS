@@ -311,9 +311,20 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
 
   // Gider KDV bilgisi olayın KENDİ dosyasının profil sürümünden gelir; sonradan açılan başka profil
   // geçmiş hesabı değiştirmez.
-  const profileOptions = new Map();
+  const profileOptions = new Map(), profileMapping = new Map();
+  // Bir olayin RAPORDAKI sutun adi: source_field esleme anahtaridir ('other_fee'), kullanicinin
+  // gordugu baslik degil. Artı gelen bir kalemin ne oldugu ancak sutun adiyla anlasilir.
+  const sutunAdi = e => {
+    const alan = String(e.source_field || '');
+    if (alan.startsWith('ek:')) return alan.slice(3);
+    return (profileMapping.get(e.profile_id) || {})[alan] || '';
+  };
   for (const pid of [...new Set(allEvents.map(e => e.profile_id).filter(Boolean))])
-    profileOptions.set(pid, parse((await db.prepare('SELECT options_json FROM ec_report_profiles WHERE id=?').bind(pid).first())?.options_json, {}));
+  {
+    const p = await db.prepare('SELECT options_json,mapping_json FROM ec_report_profiles WHERE id=?').bind(pid).first();
+    profileOptions.set(pid, parse(p?.options_json, {}));
+    profileMapping.set(pid, parse(p?.mapping_json, {}));
+  }
   const feeVatOf = event => {
     const o = profileOptions.get(event.profile_id) || {};
     return o.fee_amounts_include_vat === true && Number.isInteger(o.fee_vat_bps) ? o.fee_vat_bps : o.fee_amounts_include_vat === false ? 0 : null;
@@ -443,7 +454,8 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
         // net_cents: katkıya giren KDV hariç tutar. Deftere de bu yazılır; ekranla defter ayrışmasın.
         let net = 0;
         for (const e of rows) { const v = feeVatOf(e); if (v === null) vatUnknown = true; const x = v ? exVat(e.amount_cents, v) : e.amount_cents; fees += x; net += x; }
-        feeRows.push({type: t, label: EVENT_TYPES[t], actual_cents: raw, net_cents: net, evidence: rows.filter(e => e.invoice_line_id).length, allocated: rows.some(e => e.allocated)});
+        feeRows.push({type: t, label: EVENT_TYPES[t], actual_cents: raw, net_cents: net, evidence: rows.filter(e => e.invoice_line_id).length, allocated: rows.some(e => e.allocated),
+          source_columns: [...new Set(rows.filter(e => e.amount_cents).map(sutunAdi).filter(Boolean))]});
       }
       // Sipariş raporundaki paket kargosu: finans kaydı yoksa ve paketteki bütün satırlarda aynıysa BİR kez.
       if (!has('cargo')) {
@@ -500,9 +512,13 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
       } else if (payouts.length) reported = payouts.reduce((s, e) => s + e.amount_cents, 0);
       // Gider kalemi ARTI geldiyse bu bir kesinti değil, geri verilen/karşılanan tutardır.
       // Hesaba raporda yazdığı gibi girer ama sessiz kalmaz: kâr onunla oluşmuş olabilir.
+      // Artı gelen kalem gider değildir: pazaryerinin GERİ VERDİĞİ tutardır (karşıladığı indirim,
+      // iade edilen kesinti). Hesaba raporda yazdığı gibi girer; hangi sütundan geldiği söylenir ki
+      // "kâr buradan mı geldi" sorusu ekranda cevaplansın.
       for (const r of feeRows) if (r.actual_cents > 0)
-        notes.push(r.label + ' raporda ARTI geldi (+' + (r.actual_cents / 100).toFixed(2) +
-          ' TL): gider değil, geri verilen tutar olarak sayıldı. Pazaryeri ekstresiyle doğrulayın.');
+        notes.push(r.label + ' raporda ARTI geldi (+' + (r.actual_cents / 100).toFixed(2) + ' TL' +
+          (r.source_columns?.length ? ', kaynak sütun: ' + r.source_columns.join(', ') : '') +
+          '): kesinti değil, pazaryerinin karşıladığı/geri verdiği tutar olarak gelire sayıldı.');
       const computed = events.filter(e => e.type && e.type !== 'payout').reduce((s, e) => s + e.amount_cents, 0);
       // basis: hesabın kendisi. GERÇEKLEŞMİŞ katkı yalnızca teslim edilmiş pakette raporlanır;
       // teslim edilmemiş paket için aynı hesap "tahmini sonuç" olarak ayrı alanda kalır.

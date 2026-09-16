@@ -131,6 +131,8 @@ test('Artı gelen gider kalemi sessizce kâra yazılmaz; not düşülür', async
     const p = (await f.ok('/ec/reports/orders?store_id=' + s)).results[0];
     assert.equal(p.fees.find(x => x.type === 'cargo').actual_cents, 4899, 'rapordaki tutar değiştirilmedi');
     assert.ok(p.notes.some(n => /ARTI geldi/.test(n)), 'artı gelen kalem işaretlendi');
+    assert.ok(p.notes.some(n => /kaynak sütun: Tutar/.test(n)), 'hangi sütundan geldiği yazıldı');
+    assert.ok(p.notes.some(n => /gelire sayıldı/.test(n)), 'gider değil gelir olduğu söylendi');
   } finally { f.close(); }
 });
 
