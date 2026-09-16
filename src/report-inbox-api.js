@@ -363,10 +363,11 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
       // Komisyon kesilmiş görünse bile kâr HESAPLANMAZ; tahmin bölümü ayrıca durur.
       const {delivered, delivered_on} = deliveryOf(g.lines);
       if (!delivered) missing.push('Teslim edilmedi' + (g.status ? ' (' + g.status + ')' : '') + ': kargo maliyeti kesinleşmediği için kâr hesaplanmaz.');
-      let netSales = 0, cogs = 0;
+      // cogsIncl: malın KDV DAHİL maliyeti. Nakit sonuç için gerekir — kasadan çıkan para budur.
+      let netSales = 0, cogs = 0, cogsIncl = 0;
       for (const line of g.lines) {
         const comps = line.components?.components || null;
-        if (!comps) { missing.push('Ürün/set eşleşmesi yok: ' + (line.barcode || line.sku || line.product_name || 'ürün')); netSales = null; cogs = null; continue; }
+        if (!comps) { missing.push('Ürün/set eşleşmesi yok: ' + (line.barcode || line.sku || line.product_name || 'ürün')); netSales = null; cogs = null; cogsIncl = null; continue; }
         if (line.components.after_order) notes.push((line.barcode || line.sku) + ': set tanımı sipariş tarihinden sonra; eski içerik doğrulanmalı.');
         line.vat_bps = await vatOf(db, comps.map(c => c.product_id), memo);
         if (line.gross === undefined) { missing.push('Satış tutarı yok (sipariş ' + line.order_no + ')'); netSales = null; }
@@ -374,9 +375,14 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
         else if (netSales !== null) netSales += exVat(line.gross, line.vat_bps);
         for (const c of comps) {
           const cost = await unitCostAt(db, c.product_id, date, memo);
-          if (!cost) { missing.push('Maliyet yok: ' + c.product_id + ' (' + date + ' öncesi giriş bulunamadı)'); cogs = null; continue; }
+          if (!cost) { missing.push('Maliyet yok: ' + c.product_id + ' (' + date + ' öncesi giriş bulunamadı)'); cogs = null; cogsIncl = null; continue; }
           // İki adet ikili set = her üründen 2 × set içindeki miktar.
-          if (cogs !== null) cogs += Math.round(cost.cents_per_unit * c.quantity_milli * (line.quantity || 0) / 1000);
+          const satirMaliyet = Math.round(cost.cents_per_unit * c.quantity_milli * (line.quantity || 0) / 1000);
+          if (cogs !== null) cogs += satirMaliyet;
+          if (cogsIncl !== null) {
+            if (line.vat_bps === null) { cogsIncl = null; continue; }
+            cogsIncl += Math.round(satirMaliyet * (10000 + line.vat_bps) / 10000);
+          }
         }
       }
       const sum = type => events.filter(e => e.type === type).reduce((s, e) => s + e.amount_cents, 0);
@@ -466,6 +472,16 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
       // teslim edilmemiş paket için aynı hesap "tahmini sonuç" olarak ayrı alanda kalır.
       const basis = conflictNotes.length || netSales === null || cogs === null ? null : netSales - cogs + fees;
       const contribution = delivered ? basis : null;
+      // NAKİT SONUÇ: hesaba giren para − malın KDV dahil maliyeti. KDV'siz katkıdan farklıdır
+      // ve kullanıcının gördüğü rakam budur. Gelir tarafında ÖNCE raporun kendi net hakediş
+      // rakamı kullanılır: bankaya giren odur. Rapor net söylemiyorsa kalemlerin toplamı alınır.
+      const nakitGelir = reported !== null ? reported : events.length ? computed : null;
+      if (reported !== null && events.length && Math.abs(reported - computed) > 1)
+        notes.push('Raporun bildirdiği hakediş (' + (reported / 100).toFixed(2) + ' TL) kalemlerin toplamıyla (' +
+          (computed / 100).toFixed(2) + ' TL) aynı değil. Nakit sonuç raporun rakamıyla hesaplandı; ' +
+          ((reported - computed) / 100).toFixed(2) + ' TL fark incelenmeli.');
+      const cashBasis = conflictNotes.length || nakitGelir === null || cogsIncl === null ? null : nakitGelir - cogsIncl;
+      const cash = delivered ? cashBasis : null;
       const complete = estimates.every(e => e.value !== null);
       const estimatedFees = estimates.reduce((s, e) => s + (e.value || 0), 0);
       results.push({
@@ -475,8 +491,11 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
         reported_net_cents: reported, computed_net_cents: events.length ? computed : null,
         bank_verified_cents: null, bank_note: 'Banka hareketleriyle eşleştirme henüz bağlanmadı.',
         withholding_cents: has('withholding') ? sum('withholding') : null,
-        net_sales_ex_vat_cents: netSales, cogs_cents: cogs, fees: feeRows,
+        net_sales_ex_vat_cents: netSales, cogs_cents: cogs, cogs_incl_vat_cents: cogsIncl, fees: feeRows,
         contribution_cents: contribution, contribution_missing: missing,
+        cash_result_cents: cash, cash_income_cents: nakitGelir,
+        cash_basis: nakitGelir === null ? null : reported !== null ? 'rapor' : 'hesap',
+        estimated_cash_cents: cashBasis !== null && complete && estimates.length ? cashBasis + estimatedFees : null,
         fee_events: events.filter(e => FEE_TYPES.includes(e.type)).map(e => ({id: e.id, type: e.type, label: EVENT_TYPES[e.type], amount_cents: e.amount_cents, invoice_line_id: e.invoice_line_id || null, allocated: !!e.allocated})),
         discount_gross_cents: indirimBrut,
         discount_net_cents: indirimOlay.reduce((t, e) => { const v = feeVatOf(e); return t + -(v ? exVat(e.amount_cents, v) : e.amount_cents); }, 0),
@@ -516,12 +535,16 @@ export async function orderSummary(db, storeId, {q = '', status = '', cursor = 0
   if (!store) fail('Mağaza bulunamadı.', 404);
   const {results: all, total_orders, next_cursor} = await allPackages(db, store, {q, status, cursor, take});
   const delivered = all.filter(r => r.delivered);
-  const computed = delivered.filter(r => r.contribution_cents !== null);
-  const losing = computed.filter(r => r.contribution_cents < 0).sort((a, b) => a.contribution_cents - b.contribution_cents);
-  const winning = computed.filter(r => r.contribution_cents >= 0);
+  // Kar/zarar sayimi NAKIT sonuca gore yapilir: hesaba giren para eksi malin KDV dahil maliyeti.
+  // KDV haric katki ayrica raporlanir ama kac paket zararda sorusunun cevabi nakittir.
+  const computed = delivered.filter(r => r.cash_result_cents !== null);
+  const losing = computed.filter(r => r.cash_result_cents < 0).sort((a, b) => a.cash_result_cents - b.cash_result_cents);
+  const winning = computed.filter(r => r.cash_result_cents >= 0);
   const row = r => ({group: r.group, order_no: r.order_no, package_id: r.package_id, order_date: r.order_date, status: r.status,
     delivered_on: r.delivered_on, contribution_cents: r.contribution_cents, net_sales_ex_vat_cents: r.net_sales_ex_vat_cents,
-    cogs_cents: r.cogs_cents, fees: r.fees, missing: r.contribution_missing.slice(0, 4),
+    cash_result_cents: r.cash_result_cents, cash_income_cents: r.cash_income_cents, cash_basis: r.cash_basis,
+    cogs_cents: r.cogs_cents, cogs_incl_vat_cents: r.cogs_incl_vat_cents, fees: r.fees, missing: r.contribution_missing.slice(0, 4),
+    notes: (r.notes || []).slice(0, 4),
     products: r.lines.map(l => (l.product_name || l.barcode || l.sku || '') + ' ×' + (l.quantity ?? 1)).join(', ').slice(0, 200)});
   return {
     store, next_cursor, total_orders,
@@ -532,13 +555,18 @@ export async function orderSummary(db, storeId, {q = '', status = '', cursor = 0
     uncomputed: delivered.length - computed.length,
     profitable: winning.length,
     losing: losing.length,
-    contribution_cents: computed.reduce((s, r) => s + r.contribution_cents, 0),
-    profit_cents: winning.reduce((s, r) => s + r.contribution_cents, 0),
-    loss_cents: losing.reduce((s, r) => s + r.contribution_cents, 0),
+    cash_result_cents: computed.reduce((s, r) => s + r.cash_result_cents, 0),
+    cash_profit_cents: winning.reduce((s, r) => s + r.cash_result_cents, 0),
+    cash_loss_cents: losing.reduce((s, r) => s + r.cash_result_cents, 0),
+    // KDV haric katki: vergi beyani icin durur, ekranda one cikarilmaz.
+    contribution_cents: computed.reduce((s, r) => s + (r.contribution_cents || 0), 0),
+    profit_cents: winning.reduce((s, r) => s + (r.contribution_cents || 0), 0),
+    loss_cents: losing.reduce((s, r) => s + (r.contribution_cents || 0), 0),
     worst: losing.slice(0, 50).map(row),
     // Teslim edilmiş ama hesaplanamayanlar: neyin eksik olduğu tek tek yazılır, sıfır sayılmaz.
-    blocked: delivered.filter(r => r.contribution_cents === null).slice(0, 50).map(row),
-    notice: 'Kâr YALNIZCA teslim edilmiş paketler için hesaplanır; kargodaki paketin kargo maliyeti kesinleşmemiştir.'
+    blocked: delivered.filter(r => r.cash_result_cents === null).slice(0, 50).map(row),
+    notice: 'Tutarlar NAKİTtİr: hesabına giren para eksi malın KDV dahil maliyeti. Kâr YALNIZCA teslim edilmiş paketler için hesaplanır; kargodaki paketin kargo maliyeti kesinleşmemiştir.',
+    ledger_notice: 'Bu ekran YALNIZCA pazaryeri raporundan hesaplar; defteri okumaz. İki yerde fark çıkabilir: (1) iade edilip stoğa dönen malın maliyeti burada hâlâ düşülür, defterde geri alınır; (2) maliyet burada sipariş tarihindeki birim maliyettir, defterde gönderim anında dondurulan maliyettir. Kesin rakam Kâr raporudur; burası çapraz kontroldür.'
   };
 }
 
