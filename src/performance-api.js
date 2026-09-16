@@ -13,7 +13,10 @@ export async function performanceApi(request,env,path){
  const mode=url.searchParams.get('mode')||'delivered';if(!['delivered','pending'].includes(mode))fail('Rapor türü geçersiz.');
  // Stopaj pazaryeri hakedisinden DUSULUR (nakit azalir) ama gider degildir: mahsup edilebilir.
 // Bu yuzden nakit sonuctan dusulur, KDV haric katkida yer almaz. Kaynagi rapor kaydidir; uydurulmaz.
- const stopajSql="(SELECT COALESCE(SUM(json_extract(data_json,'$.amount_cents')),0) FROM ec_report_records WHERE kind='finance_event' AND json_extract(data_json,'$.type')='withholding' AND json_extract(data_json,'$.order_no')=order_packages.order_no) stopaj_cents";
+ // Stopaj SIPARIS duzeyinde bildirilir. Bolunmus siparisin her paketine tamami yazilirsa
+ // ayni stopaj birden cok kez dusulur ve kar oldugundan DUSUK gorunur: paket sayisina bolunur.
+ // Kayit ayni kanalin magazasindan okunur; siparis numaralari kanallar arasinda karismaz.
+ const stopajSql="(SELECT COALESCE(SUM(json_extract(r.data_json,'$.amount_cents')),0) FROM ec_report_records r JOIN ec_report_stores st ON st.id=r.store_id AND st.provider=order_packages.channel WHERE r.kind='finance_event' AND json_extract(r.data_json,'$.type')='withholding' AND json_extract(r.data_json,'$.order_no')=order_packages.order_no) stopaj_cents,(SELECT COUNT(*) FROM order_packages q WHERE q.order_no=order_packages.order_no AND q.channel=order_packages.channel AND q.status!='cancelled') stopaj_paket";
  const db=env.DB,packages=await all(db.prepare(`SELECT *,${stopajSql} FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND ${mode==='delivered'?"status='delivered' AND delivered_on BETWEEN ? AND ?":"status IN ('draft','reserved','shipped') AND occurred_on BETWEEN ? AND ?"} ORDER BY occurred_on DESC,id LIMIT 1001`).bind(from,to));
  if(packages.length>1000)fail('Bu aralıkta 1.000’den fazla paket var. Eksiksiz toplam için tarih aralığını daraltın.',409);
  const ids=JSON.stringify(packages.map(p=>p.id));
@@ -60,7 +63,7 @@ export async function performanceApi(request,env,path){
     for(const e of entries)nakit+=incl(e.revenue_cents,e.vat_bps)-incl(e.cost_cents,e.vat_bps)
      -incl(e.commission_cents??0,fv)-incl(e.shipping_cents??0,fv)-incl(e.other_cents??0,fv);
     // Stopaj bankaya gireni azaltir: nakit sonuctan dusulur.
-    const stopaj=Math.abs(p.stopaj_cents||0);
+    const stopaj=Math.round(Math.abs(p.stopaj_cents||0)/Math.max(1,p.stopaj_paket||1));
     row.withholding_cents=stopaj?-stopaj:0;
     row.cash_cents=nakit-stopaj;
     row.revenue_gross_cents=entries.reduce((t,e)=>t+incl(e.revenue_cents,e.vat_bps),0);

@@ -100,3 +100,25 @@ test('Deftere bağlı olmayan paketin maliyeti rapordan hesaplanır ve bu söyle
     assert.ok((p.notes || []).some(n => /deftere bağlı değil/.test(n)), 'kaynağı söylendi');
   } finally { f.close(); }
 });
+
+test('Bölünmüş siparişin stopajı her pakete ayrı ayrı yazılmaz', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    // Aynı siparişin İKİNCİ paketi. Stopaj sipariş düzeyinde bildirilir: 10,00 TL.
+    f.sqlite.exec("INSERT INTO ec_order_packages(id,channel,external_id,order_no,occurred_on,status,source_fingerprint) VALUES('pk2','hepsiburada','P2','S1','2026-09-01','draft','t')");
+    f.sqlite.exec("INSERT INTO ec_order_lines(id,package_id,external_id,name,quantity_milli,net_revenue_cents) VALUES('ln2','pk2','L2','Ürün',1000,11000)");
+    f.sqlite.exec("INSERT INTO ec_sale_entries(id,channel,external_id,product_id,kind,quantity_milli,revenue_cents,cost_cents,commission_cents,shipping_cents,other_cents,fees_status,occurred_on) VALUES('se2','hepsiburada','S-2','p1','sale',1000,11000,4600,1610,8992,1138,'confirmed','2026-09-05')");
+    f.sqlite.exec("INSERT INTO ec_order_line_components(id,line_id,product_id,quantity_milli,revenue_share_bps,sale_id,stock_unit) VALUES('cm2','ln2','p1',1000,10000,'se2','adet')");
+    for (const st of ['reserved', 'shipped']) f.sqlite.prepare("UPDATE ec_order_packages SET status=? WHERE id='pk2'").run(st);
+    f.sqlite.exec("UPDATE ec_order_packages SET status='delivered',delivered_on='2026-09-05' WHERE id='pk2'");
+    f.sqlite.exec("INSERT INTO ec_report_files(id,store_id,kind,filename,size_bytes,sha256,snapshot_at,sheet,headers_json,row_count,chunk_count,status,created_by) VALUES('fl','st','finance','f.xlsx',10,'" + 'c'.repeat(64) + "','2026-09-06T10:00','S','[]',1,1,'applied','t')");
+    f.sqlite.prepare("INSERT INTO ec_report_records(id,store_id,kind,record_key,key_source,data_json,source_time,file_id,row_no) VALUES('w','st','finance_event','W:1','provider',?,'2026-09-06T10:00','fl',1)")
+      .run(JSON.stringify({order_no: 'S1', type: 'withholding', amount_cents: -1000}));
+
+    const r = await rapor(f);
+    const satirlar = r.rows.filter(x => x.order_no === 'S1');
+    assert.equal(satirlar.length, 2);
+    // 10,00 TL stopaj iki pakete bölünür: her birine 5,00 TL.
+    assert.deepEqual(satirlar.map(x => x.withholding_cents), [-500, -500], 'stopaj iki kez tam düşülmedi');
+  } finally { f.close(); }
+});
