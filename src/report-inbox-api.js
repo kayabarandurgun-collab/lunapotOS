@@ -240,6 +240,34 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
   const packageOwner = new Map();
   for (const l of lines) { const d = parse(l.data_json, {}); if (d.package_id !== undefined && d.package_id !== null && d.package_id !== '') packageOwner.set(String(d.package_id), d.order_no || ''); }
   const packageIds = [...packageOwner.keys()];
+
+  // DEFTERDEKİ MALİYET. Bu ekran raporu okur, ama ürün maliyeti defterin işidir ve iki yerde
+  // rapordan ayrılır: (1) iade gelip stoğa dönen malın maliyeti defterde geri alınır,
+  // (2) defter, gönderim anında DONDURULAN maliyeti kullanır; rapor tarafı sipariş tarihindeki
+  // birim maliyeti yeniden hesaplar. Aynı paket iki ekranda iki rakam gösteremez: ERP paketine
+  // bağlıysa maliyet DEFTERDEN alınır. Bağlı değilse rapor tarafındaki hesap kalır ve söylenir.
+  const erpIds = [...new Set(lines.map(l => l.erp_package_id).filter(Boolean))];
+  const defter = new Map();
+  if (erpIds.length) {
+    const arg = JSON.stringify(erpIds);
+    const [satirlar, eksikler] = await Promise.all([
+      db.prepare('SELECT package_id,SUM(cost_cents) cost,SUM(vat) vat,SUM(vatsiz) vatsiz FROM (' +
+        'SELECT DISTINCT s.id,l.package_id,s.cost_cents,' +
+        "CAST(ROUND(s.cost_cents*COALESCE(pp.vat_bps,0)/10000.0) AS INTEGER) vat," +
+        'CASE WHEN pp.vat_bps IS NULL THEN 1 ELSE 0 END vatsiz' +
+        ' FROM ec_sale_entries s JOIN ec_order_line_components c ON (s.id=c.sale_id OR s.parent_id=c.sale_id)' +
+        ' JOIN ec_order_lines l ON l.id=c.line_id LEFT JOIN ec_price_profiles pp ON pp.product_id=s.product_id' +
+        ' WHERE l.package_id IN (SELECT value FROM json_each(?))) GROUP BY package_id').bind(arg).all(),
+      db.prepare('SELECT l.package_id,COUNT(*) n FROM ec_order_lines l' +
+        ' WHERE l.package_id IN (SELECT value FROM json_each(?))' +
+        ' AND NOT EXISTS(SELECT 1 FROM ec_order_line_components c WHERE c.line_id=l.id AND c.sale_id IS NOT NULL)' +
+        ' GROUP BY l.package_id').bind(arg).all()
+    ]);
+    const eksik = new Map(eksikler.results.map(r => [r.package_id, r.n]));
+    // KDV oranı tanımsız ürün varsa vat negatife düşer: KDV dahil maliyet hesaplanmaz, uydurulmaz.
+    for (const r of satirlar.results)
+      defter.set(r.package_id, {cost: r.cost, incl: r.vatsiz ? null : r.cost + r.vat, eksik: eksik.get(r.package_id) || 0});
+  }
   let allEvents = (await db.prepare("SELECT r.*,e.invoice_line_id,f.profile_id FROM ec_report_records r LEFT JOIN ec_report_fee_evidence e ON e.record_id=r.id JOIN ec_report_files f ON f.id=r.file_id WHERE r.store_id=? AND r.kind='finance_event' AND (json_extract(r.data_json,'$.order_no') IN (SELECT value FROM json_each(?)) OR json_extract(r.data_json,'$.package_id') IN (SELECT value FROM json_each(?)))")
     .bind(store.id, JSON.stringify(orderNos), JSON.stringify(packageIds)).all()).results
     .map(r => ({...parse(r.data_json, {}), id: r.id, invoice_line_id: r.invoice_line_id, profile_id: r.profile_id, row_no: r.row_no, file_id: r.file_id, source_time: r.source_time}));
@@ -365,6 +393,7 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
       if (!delivered) missing.push('Teslim edilmedi' + (g.status ? ' (' + g.status + ')' : '') + ': kargo maliyeti kesinleşmediği için kâr hesaplanmaz.');
       // cogsIncl: malın KDV DAHİL maliyeti. Nakit sonuç için gerekir — kasadan çıkan para budur.
       let netSales = 0, cogs = 0, cogsIncl = 0;
+      const defterKaydi = g.erp_package_id ? defter.get(g.erp_package_id) || null : null;
       for (const line of g.lines) {
         const comps = line.components?.components || null;
         if (!comps) { missing.push('Ürün/set eşleşmesi yok: ' + (line.barcode || line.sku || line.product_name || 'ürün')); netSales = null; cogs = null; cogsIncl = null; continue; }
@@ -373,6 +402,7 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
         if (line.gross === undefined) { missing.push('Satış tutarı yok (sipariş ' + line.order_no + ')'); netSales = null; }
         else if (line.vat_bps === null) { missing.push('KDV oranı tanımlı değil: ' + (line.barcode || line.sku)); netSales = null; }
         else if (netSales !== null) netSales += exVat(line.gross, line.vat_bps);
+        if (defterKaydi) continue; // maliyet defterden alınacak; burada yeniden hesaplanmaz
         for (const c of comps) {
           const cost = await unitCostAt(db, c.product_id, date, memo);
           if (!cost) { missing.push('Maliyet yok: ' + c.product_id + ' (' + date + ' öncesi giriş bulunamadı)'); cogs = null; cogsIncl = null; continue; }
@@ -385,6 +415,12 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
           }
         }
       }
+      // Defterde kaydı olan paketin maliyeti DEFTERİNKİDİR: iade dönüşü ve gönderim anında
+      // dondurulan maliyet ancak orada bilinir. Böylece Kâr raporu ile bu ekran aynı rakamı verir.
+      if (defterKaydi) {
+        if (defterKaydi.eksik) { missing.push('Paketin ' + defterKaydi.eksik + ' satırı deftere işlenmemiş; maliyet eksik.'); cogs = null; cogsIncl = null; }
+        else { cogs = defterKaydi.cost; cogsIncl = defterKaydi.incl; if (cogsIncl === null) missing.push('Defterdeki ürünün KDV oranı tanımlı değil; nakit sonuç hesaplanmadı.'); }
+      } else if (cogs !== null) notes.push('Bu paket deftere bağlı değil; maliyet sipariş tarihindeki birim maliyetten hesaplandı.');
       const sum = type => events.filter(e => e.type === type).reduce((s, e) => s + e.amount_cents, 0);
       const has = type => events.some(e => e.type === type);
       const refunds = sum('refund');

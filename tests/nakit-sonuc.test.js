@@ -59,3 +59,44 @@ test('Kesinti KDV durumu beyan edilmemişse oran uydurulmaz; nakit sonuç boş k
     assert.equal(r.channels.find(c => c.channel === 'hepsiburada').cash_cents, null);
   } finally { f.close(); }
 });
+
+// Rapor Kutusu ile Kâr raporu AYNI rakamı vermeli. İki ekran ayrı kaynaktan beslenir:
+// biri pazaryeri raporu, öteki defter. Maliyet defterin işidir — iade dönüşü ve gönderim
+// anında dondurulan maliyet ancak orada bilinir — bu yüzden rapor tarafı da defteri okur.
+test('Rapor Kutusu, deftere bağlı paketin maliyetini defterden alır', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    // Defterdeki maliyet 46,00 (KDV dahil 55,20). Rapor tarafı sipariş tarihindeki birim
+    // maliyeti kullansaydı stok girişindeki 4,60/adet çıkardı — kasıtlı olarak farklı.
+    f.sqlite.exec("INSERT INTO ec_report_files(id,store_id,kind,filename,size_bytes,sha256,snapshot_at,sheet,headers_json,row_count,chunk_count,status,created_by) VALUES('fl','st','orders','r.xlsx',10,'" + 'a'.repeat(64) + "','2026-09-06T10:00','S','[]',1,1,'applied','t')");
+    const sip = {order_no: 'S1', package_id: 'P1', barcode: 'U1', quantity: 1, status: 'Teslim edildi',
+      order_date: '2026-09-01', delivered_date: '2026-09-05', gross: 13200};
+    f.sqlite.prepare("INSERT INTO ec_report_records(id,store_id,kind,record_key,key_source,data_json,source_time,file_id,row_no,erp_package_id,components_json) VALUES('rc','st','order_line','L:1','provider',?,'2026-09-06T10:00','fl',1,'pk',?)")
+      .run(JSON.stringify(sip), JSON.stringify({components: [{product_id: 'p1', quantity_milli: 1000, revenue_share_bps: 10000}]}));
+
+    const {orderResults} = await import('../src/report-inbox-api.js');
+    const {results} = await orderResults(scopedDB(f.env.DB, 'ec'), 'st', {});
+    const p = results[0];
+    assert.equal(p.cogs_cents, 4600, 'maliyet defterden geldi');
+    assert.equal(p.cogs_incl_vat_cents, 5520, 'KDV dahil maliyet defterden geldi');
+    assert.ok(!(p.notes || []).some(n => /deftere bağlı değil/.test(n)));
+  } finally { f.close(); }
+});
+
+test('Deftere bağlı olmayan paketin maliyeti rapordan hesaplanır ve bu söylenir', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    f.sqlite.exec("INSERT INTO ec_stock_movements(id,product_id,quantity_milli,value_cents,kind,reference,occurred_on) VALUES('sm','p1',10000,46000,'opening','A','2026-08-01')");
+    f.sqlite.exec("INSERT INTO ec_report_files(id,store_id,kind,filename,size_bytes,sha256,snapshot_at,sheet,headers_json,row_count,chunk_count,status,created_by) VALUES('fl','st','orders','r.xlsx',10,'" + 'b'.repeat(64) + "','2026-09-06T10:00','S','[]',1,1,'applied','t')");
+    const sip = {order_no: 'S9', package_id: 'P9', barcode: 'U1', quantity: 1, status: 'Teslim edildi',
+      order_date: '2026-09-01', delivered_date: '2026-09-05', gross: 13200};
+    f.sqlite.prepare("INSERT INTO ec_report_records(id,store_id,kind,record_key,key_source,data_json,source_time,file_id,row_no,components_json) VALUES('rc','st','order_line','L:9','provider',?,'2026-09-06T10:00','fl',1,?)")
+      .run(JSON.stringify(sip), JSON.stringify({components: [{product_id: 'p1', quantity_milli: 1000, revenue_share_bps: 10000}]}));
+
+    const {orderResults} = await import('../src/report-inbox-api.js');
+    const {results} = await orderResults(scopedDB(f.env.DB, 'ec'), 'st', {});
+    const p = results[0];
+    assert.equal(p.cogs_cents, 4600, 'stok girişindeki birim maliyet');
+    assert.ok((p.notes || []).some(n => /deftere bağlı değil/.test(n)), 'kaynağı söylendi');
+  } finally { f.close(); }
+});
