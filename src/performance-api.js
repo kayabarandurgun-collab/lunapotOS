@@ -84,6 +84,11 @@ export async function performanceApi(request,env,path){
   }
   return row;
  });
+ // TESLIM ONAYI GELMEYEN PAKETLER. Kar yalniz teslim edilmis pakette hesaplanir; kargoda
+ // duran paket sessizce disarida kalirsa ekran "0 bilgi bekliyor" der ve toplam oldugundan
+ // dusuk gorunur. Kac paketin bu yuzden hesaba girmedigi SOYLENIR. Tek gruplu sayim; ucuzdur.
+ const bekleyen=mode==='delivered'?await all(db.prepare("SELECT channel,COUNT(*) n,MIN(occurred_on) ilk FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND status='shipped' AND occurred_on<=? GROUP BY channel").bind(to)):[];
+ const bekleyenMap=new Map(bekleyen.map(r=>[r.channel,r]));
  const pendingFees=mode==='delivered'?await db.prepare(`SELECT COALESCE(SUM(${effectiveNet(env.WORKSPACE)}-COALESCE((SELECT SUM(a.amount_cents) FROM fee_allocations a WHERE a.invoice_line_id=l.id AND a.reversed_at IS NULL),0)),0) cents FROM purchase_lines l JOIN purchase_invoices i ON i.id=l.invoice_id WHERE i.status='posted' AND l.line_type='expense' AND l.expense_treatment='sales_fee'`).first():{cents:0};
  const channels=['trendyol','hepsiburada'].map(channel=>{
   const items=rows.filter(r=>r.channel===channel),complete=items.filter(r=>r.profit_cents!==null);
@@ -91,7 +96,8 @@ export async function performanceApi(request,env,path){
   const nakitli=items.filter(r=>r.cash_cents!==null&&r.cash_cents!==undefined);
   const nakitToplam=nakitli.reduce((sum,r)=>sum+r.cash_cents,0);
   return {channel,packages:items.length,calculated:complete.length,missing:items.length-complete.length,profit_cents:items.length&&complete.length===items.length?subtotal:null,calculated_profit_cents:complete.length?subtotal:null,losses:complete.filter(r=>r.profit_cents<0).length,
-   cash_calculated:nakitli.length,cash_cents:items.length&&nakitli.length===items.length?nakitToplam:null,calculated_cash_cents:nakitli.length?nakitToplam:null,cash_losses:nakitli.filter(r=>r.cash_cents<0).length};
+   cash_calculated:nakitli.length,cash_cents:items.length&&nakitli.length===items.length?nakitToplam:null,calculated_cash_cents:nakitli.length?nakitToplam:null,cash_losses:nakitli.filter(r=>r.cash_cents<0).length,
+   awaiting_delivery:bekleyenMap.get(channel)?.n||0,awaiting_delivery_since:bekleyenMap.get(channel)?.ilk||null};
  });
  return {mode,from,to,unallocated_fee_cents:pendingFees.cents,as_of:new Date().toISOString(),channels,rows,notice:mode==='delivered'?'Teslim tarihi seçilen aralıktaki paketlerdir. Bu paketlere sonradan işlenen iadeler de dahildir. Yalnızca kesintileri doğrulanmış satışlar kesin hesaba girer.':'Sipariş tarihi seçilen aralıktaki hazırlık ve kargodaki paketlerdir. Kayıtlı paket varsayımlarıyla her açılışta yeniden hesaplanır; teslim edilenler dahil değildir.',cost_notice:'Tutarlar NAKİTtİr: KDV dahil satıştan KDV dahil ürün maliyeti ve kesintiler düşülür. KDV hariç katkı vergi beyanı için ayrıca durur. Ortak işletme giderleri ve gelir/kurumlar vergisi dahil değildir.'};
 }

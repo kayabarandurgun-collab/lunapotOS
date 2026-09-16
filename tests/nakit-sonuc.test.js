@@ -122,3 +122,22 @@ test('Bölünmüş siparişin stopajı her pakete ayrı ayrı yazılmaz', async 
     assert.deepEqual(satirlar.map(x => x.withholding_cents), [-500, -500], 'stopaj iki kez tam düşülmedi');
   } finally { f.close(); }
 });
+
+// Kâr yalnız teslim edilmiş pakette hesaplanır. Kargoda duran paket sessizce dışarıda
+// kalırsa ekran "0 bilgi bekliyor" der ve kullanıcı toplamın eksik olduğunu göremez.
+test('Teslim onayı gelmeyen paket sayısı kanal kartında söylenir', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    // Aynı kanalda kargoda kalmış bir paket: kâra girmez ama sayılıp söylenmeli.
+    f.sqlite.exec("INSERT INTO ec_order_packages(id,channel,external_id,order_no,occurred_on,status,source_fingerprint) VALUES('pk3','hepsiburada','P3','S3','2026-09-02','draft','t')");
+    f.sqlite.exec("INSERT INTO ec_order_lines(id,package_id,external_id,name,quantity_milli,net_revenue_cents) VALUES('ln3','pk3','L3','Ürün',1000,11000)");
+    f.sqlite.exec("INSERT INTO ec_sale_entries(id,channel,external_id,product_id,kind,quantity_milli,revenue_cents,cost_cents,fees_status,occurred_on) VALUES('se3','hepsiburada','S-3','p1','sale',1000,11000,4600,'pending','2026-09-02')");
+    f.sqlite.exec("INSERT INTO ec_order_line_components(id,line_id,product_id,quantity_milli,revenue_share_bps,sale_id,stock_unit) VALUES('cm3','ln3','p1',1000,10000,'se3','adet')");
+    for (const st of ['reserved', 'shipped']) f.sqlite.prepare("UPDATE ec_order_packages SET status=? WHERE id='pk3'").run(st);
+
+    const hb = (await rapor(f)).channels.find(c => c.channel === 'hepsiburada');
+    assert.equal(hb.packages, 1, 'kargodaki paket teslim edilenlere karışmadı');
+    assert.equal(hb.awaiting_delivery, 1, 'kaç paketin dışarıda kaldığı söylendi');
+    assert.equal(hb.awaiting_delivery_since, '2026-09-02', 'en eskisinin tarihi verildi');
+  } finally { f.close(); }
+});
