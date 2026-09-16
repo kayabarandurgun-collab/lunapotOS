@@ -9,7 +9,10 @@ const day=v=>{if(typeof v!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(v)||!Number.is
 const integer=(v,name,max=10000000000)=>{if(!Number.isSafeInteger(v)||v<0||v>max)fail(name+' eksik veya geçersiz.');return v;};
 const unpack=row=>row?{id:row.id,package_id:row.package_id,version:row.version,status:row.status,snapshot:JSON.parse(row.snapshot_json),created_at:row.created_at}:null;
 async function orderData(env,key){
- const db=env.DB,p=await stmt(db,'SELECT * FROM order_packages WHERE id=?',[key]).first();if(!p)fail('Sipariş bu çalışma alanında bulunamadı.',404);
+ const db=env.DB,p=await stmt(db,"SELECT *,(SELECT COALESCE(SUM(json_extract(data_json,'$.amount_cents')),0)"
+  +" FROM ec_report_records WHERE kind='finance_event' AND json_extract(data_json,'$.type')='withholding'"
+  +" AND json_extract(data_json,'$.order_no')=order_packages.order_no) stopaj_cents"
+  +' FROM order_packages WHERE id=?',[key]).first();if(!p)fail('Sipariş bu çalışma alanında bulunamadı.',404);
  const sourceRows=p.channel==='trendyol'?await all(stmt(db,"SELECT r.id,r.provider,r.fingerprint,r.source_updated_at,r.last_seen_at,r.payload_json FROM provider_records r JOIN provider_connections co ON co.provider=r.provider AND co.seller_id=r.seller_id WHERE r.provider=? AND r.kind='orders' AND r.external_id=? ORDER BY r.source_updated_at DESC,r.last_seen_at DESC,r.rowid DESC LIMIT 1",[p.channel,p.external_id])):[];
  const [lines,components,sales,drafts,purchases,feeEvidence]=await Promise.all([
   all(stmt(db,'SELECT * FROM order_lines WHERE package_id=? ORDER BY rowid',[key])),
@@ -28,7 +31,10 @@ async function orderData(env,key){
  }
  const profit=packageProfit(p,lines,components,sales),totals=profit.totals,allFees=field=>sales.every(s=>s[field]!==null&&s[field]!==undefined)?sales.reduce((sum,s)=>sum+s[field],0):null;
  const actualSummary={status:profit.status,reasons:profit.reasons,order_net_cents:lines.every(l=>l.net_revenue_cents!==null)?lines.reduce((sum,l)=>sum+l.net_revenue_cents,0):null,revenue_net_cents:sales.length?totals.revenue:null,cost_net_cents:sales.length?totals.cost:null,commission_cents:sales.length?allFees('commission_cents'):null,shipping_cents:sales.length?allFees('shipping_cents'):null,other_cents:sales.length?allFees('other_cents'):null,profit_cents:profit.profit_cents,estimated_profit_cents:profit.estimated_profit_cents,missing_fee_count:totals.missing,unconfirmed_count:totals.unconfirmed};
- return {package:p,lines,components,sales,parcel_input:parcelInput,parcel_input_source:parcelInputSource,actual_summary:actualSummary,customer,source,source_facts:sourceFacts,purchase_invoices:purchases.slice(0,50).map(r=>({...r,source:'recent_receipt_not_exact_lot'})),purchase_invoices_truncated:purchases.length>50,fee_evidence:feeEvidence,drafts:drafts.map(unpack),invoice_status:'draft_only',notices:['Alış belgeleri bu stok kartlarının son mal teslimleridir. Satış maliyeti ağırlıklı ortalamadır; kesin parti/fatura çıkışı olduğu iddia edilmez.','Yerel satış faturası taslağı resmî fatura değildir. EDM/GİB gönderimi yapılmaz.',...(p.channel==='hepsiburada'?['Hepsiburada kaynakları henüz paket düzeyinde doğrulanmadığından müşteri ayrıntısı otomatik eşleştirilmedi.']:[])]};
+ // STOPAJ pazaryeri hakedisinden dusulur ama GIDER degildir: yillik vergiden mahsup edilir.
+ // Bu yuzden katki hesabina girmez, yalniz 'cebine kalan' rakaminda gosterilir.
+ // Paket sorgusunun icinde alinir; ek sorgu maliyeti yoktur.
+ return {package:p,lines,components,sales,withholding_cents:Math.abs(p.stopaj_cents||0),parcel_input:parcelInput,parcel_input_source:parcelInputSource,actual_summary:actualSummary,customer,source,source_facts:sourceFacts,purchase_invoices:purchases.slice(0,50).map(r=>({...r,source:'recent_receipt_not_exact_lot'})),purchase_invoices_truncated:purchases.length>50,fee_evidence:feeEvidence,drafts:drafts.map(unpack),invoice_status:'draft_only',notices:['Alış belgeleri bu stok kartlarının son mal teslimleridir. Satış maliyeti ağırlıklı ortalamadır; kesin parti/fatura çıkışı olduğu iddia edilmez.','Yerel satış faturası taslağı resmî fatura değildir. EDM/GİB gönderimi yapılmaz.',...(p.channel==='hepsiburada'?['Hepsiburada kaynakları henüz paket düzeyinde doğrulanmadığından müşteri ayrıntısı otomatik eşleştirilmedi.']:[])]};
 }
 function billingData(input){
  if(!input||typeof input!=='object'||Array.isArray(input))fail('Fatura alıcısı gerekli.');
