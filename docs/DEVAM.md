@@ -8,6 +8,57 @@ Bekleyen 3 paket de sevk edildi: taslak **0**, sevk **243**, satış kaydı **32
 stok hareketi **417**. Her paket kendi tarihiyle işlendi (TEA…085 ve TEA…086 →
 2026-09-01, HB-5515871961 → 2026-09-10); tarih uydurulmadı.
 
+## Bekleyen altı iş tamamlandı (16 Eylül)
+
+D1 kotası açılınca sırayla yapıldı. Geri dönüş noktası önceden işaretlendi:
+`000000b3-00000000-000050e7-f05856c8a73e3b43ea2fd3aa71ba938e`
+
+**1. Banka tabloları (migration 0046).** `ec_bank_files` ve `ec_bank_lines` oluşturuldu.
+
+**2. 6 çift kaydın iadesi.** Aktarım hatamla ikinci kez yazılan 6 TS1 satışı `restock` ile
+iade edildi. Toplam 14.826,14 TL (KDV hariç). Sonuç: TS1 net satışı **19 → 13**,
+stok **−8 → −2**. İptal değil iade kullanıldı: gönderilmiş sipariş iptal edilemez ve
+iade izi denetlenebilir kalır.
+
+**3. Plug Mix → TS1: YAPILAMADI, geri alındı.** Kullanıcı 7 Eylül YSK2026000000402
+faturasındaki 2 adedin TS1 olduğunu söylemişti. Denendi ve sistem üç ayrı yoldan da
+engelledi — hepsi DOĞRU davranış:
+- fatura satırını yeniden eşleştirme → "Bu fatura daha önce işlendi" (yalnız taslakta)
+- çeşit dağıtımı (split) → yalnız taslak faturada
+- faturayı iptal → yalnız taslakta
+
+Yani **muhasebeleşmiş fatura değiştirilemez.** Mal teslimini ters çevirmiştim; faturayı
+yarım bırakmamak için geri alındı, 2 adet Plug Mix kartına döndü. Çözüm kullanıcının
+kararına kaldı: ya kart adı faturaya uydurulur, ya tedarikçiden düzeltme faturası istenir.
+
+**4. Tarifeler girildi — ÖLÇÜLEN değerlerle, liste fiyatıyla değil.**
+
+| | Değer | Kaynak |
+|---|---|---|
+| TY komisyon | %20,00 | 225 gerçekleşen kaydın tavanı |
+| HB komisyon | %24,00 | 96 kaydın tavanı (%20 + KDV) |
+| TY kargo 0–199,99 | 46,49 TL | 477 gönderi |
+| TY kargo 200–349,99 | 84,49 TL | 265 gönderi |
+| TY ağır (Aras, desi) | 502,15 TL | 144 gönderinin ortancası |
+| HB kargo 0–199,99 | 52,79 TL | 216 gönderi |
+| HB kargo 200–399,99 | 91,19 TL | 207 gönderi |
+
+Liste fiyatı kullanılmadı: kullanıcının gönderdiği barem tablosu Temmuz fiyatıydı
+(TY 34,16 + KDV = 40,99). Ağustos'ta 46,49'a çıkmış. Ölçülen değer gerçeği yansıtır.
+Çakışma/boşluk uyarısı çıkmadı.
+
+**5. Pazaryeri carileri.** Trendyol ve Hepsiburada `marketplace` türünde açıldı.
+Cariler ekranına tür sekmeleri eklendiği için ayrı ayrı görülüyorlar.
+UYARI: ödeme tarafı henüz bağlı değil; bakiye yazmaya banka ekstresi aktarımından sonra
+başlanmalı, yoksa alacak hiç kapanmaz.
+
+**6. Banka hesapları.** QNB TL ve İş Bankası TL açıldı. Kullanıcı: para QNB'ye yatıyor,
+bir kez İş Bankası'na yatmış.
+
+**Defter bütünlüğü:** satış kaydı 374 (6 iade eklendi), stok hareketi 466,
+stok değeri 32.762,42 TL.
+
+---
 ## HATA: 6 sipariş çift kaydedildi — kural düzeltildi, geri alma bekliyor (15 Eylül)
 
 **Bu benim hatam.** Kullanıcı "19 tane TS1 satmadım" dedi ve haklıydı.
