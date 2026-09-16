@@ -35,6 +35,8 @@ Tahmini katkı kârı = KDV hariç satış − ürün maliyeti − ambalaj/diğe
 
 Satış giderleri tahmini veya doğrulanmış olarak izlenir. Eksik giderli satışın kesin kârı hesaplanmaz. Paket kargosu her ürün satırına bütünüyle tekrar yazılmaz; satışa dağıtılan kesinti genel giderde yeniden kullanılmaz.
 
+Aynı kesinti iki ayrı rapor biçiminde gelebilir: biri paket numarası ve işlem tarihi taşır, diğeri taşımaz. Kayıt anahtarı bu alanları içerdiği için iki ayrı ham kayıt oluşur. Ayrıntısı eksik olan kopya hesapta sayılmaz ve pakete not düşülür; ham kayıt silinmez. Aynı ayrıntı düzeyindeki iki kayıt — örneğin iki paketin aynı tutarlı kargosu — birleştirilmez.
+
 ## Bağlantılar ve açık işler
 - Trendyol V2 sipariş/finans ve Hepsiburada sipariş/finans/komisyon servisleri için salt okunur, sayfalı bağlantı kodu vardır. Gerçek mağaza anahtarlarıyla henüz doğrulanmadı.
 - Erişim bilgileri sunucuda AES-GCM ile şifrelenir. Bağlantıyı kaydetmek başarılı veri çekildiği anlamına gelmez; son başarı/hata ayrı gösterilir.

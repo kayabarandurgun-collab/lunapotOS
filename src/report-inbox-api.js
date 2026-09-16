@@ -240,12 +240,46 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
   const packageOwner = new Map();
   for (const l of lines) { const d = parse(l.data_json, {}); if (d.package_id !== undefined && d.package_id !== null && d.package_id !== '') packageOwner.set(String(d.package_id), d.order_no || ''); }
   const packageIds = [...packageOwner.keys()];
-  const allEvents = (await db.prepare("SELECT r.*,e.invoice_line_id,f.profile_id FROM ec_report_records r LEFT JOIN ec_report_fee_evidence e ON e.record_id=r.id JOIN ec_report_files f ON f.id=r.file_id WHERE r.store_id=? AND r.kind='finance_event' AND (json_extract(r.data_json,'$.order_no') IN (SELECT value FROM json_each(?)) OR json_extract(r.data_json,'$.package_id') IN (SELECT value FROM json_each(?)))")
+  let allEvents = (await db.prepare("SELECT r.*,e.invoice_line_id,f.profile_id FROM ec_report_records r LEFT JOIN ec_report_fee_evidence e ON e.record_id=r.id JOIN ec_report_files f ON f.id=r.file_id WHERE r.store_id=? AND r.kind='finance_event' AND (json_extract(r.data_json,'$.order_no') IN (SELECT value FROM json_each(?)) OR json_extract(r.data_json,'$.package_id') IN (SELECT value FROM json_each(?)))")
     .bind(store.id, JSON.stringify(orderNos), JSON.stringify(packageIds)).all()).results
     .map(r => ({...parse(r.data_json, {}), id: r.id, invoice_line_id: r.invoice_line_id, profile_id: r.profile_id, row_no: r.row_no, file_id: r.file_id}));
   // Tek kaynak satırından üretilen birden çok olay (geniş kolonlu rapor) bildirilen neti çoğaltmamalı:
   // net, olay kimliği yoksa kaynak satırın kimliğiyle tekilleştirilir.
   const sourceKey = e => e.event_id || (e.file_id || '') + ':' + (e.row_no ?? '');
+
+  // KABA TEKRAR: aynı gider iki ayrı raporda, biri paket no ve tarih ile, diğeri onlarsız
+  // geldiğinde iki AYRI bileşik anahtar oluşur ve tutar iki kez sayılırdı. Ham kayıt silinmez
+  // (defter değişmez); yalnızca HESAPTA sayılmaz ve pakete not düşülür.
+  // Yalnızca ayrıntısı EKSİK olan kopya elenir: iki paketin aynı tutarlı kargosu gibi gerçekten
+  // ayrı iki gider, ikisi de paket no taşıdığı için aynı ayrıntı düzeyindedir ve elenmez.
+  const ayrinti = e => (e.package_id ? 2 : 0) + (e.event_date ? 1 : 0);
+  const kabaNot = new Map();
+  const kume = new Map();
+  for (const e of allEvents) {
+    if (!e.order_no || !e.type) continue;
+    const k = e.order_no + '|' + e.type + '|' + e.amount_cents;
+    if (!kume.has(k)) kume.set(k, []);
+    kume.get(k).push(e);
+  }
+  const elenen = new Set();
+  for (const [, grup] of kume) {
+    if (grup.length < 2) continue;
+    const enIyi = Math.max(...grup.map(ayrinti));
+    const tam = grup.find(e => ayrinti(e) === enIyi);
+    for (const e of grup) {
+      if (ayrinti(e) >= enIyi) continue;
+      // Ayrıntısı eksik olan, ayrıntılı kaydın aynısı mı? Dolu alanları çelişmemeli.
+      if (e.package_id && String(e.package_id) !== String(tam.package_id)) continue;
+      if (e.event_date && e.event_date !== tam.event_date) continue;
+      // Faturaya bağlanmış gider elenmez: belge bağı varsa insan bakmalı.
+      if (e.invoice_line_id) continue;
+      elenen.add(e.id);
+      if (!kabaNot.has(e.order_no)) kabaNot.set(e.order_no, []);
+      kabaNot.get(e.order_no).push((EVENT_TYPES[e.type] || 'Gider') + ' ' + (Math.abs(e.amount_cents) / 100).toFixed(2) +
+        ' TL iki raporda birden geldi (biri paket no/tarih taşımıyor); bir kez sayıldı. Ham kayıt silinmedi.');
+    }
+  }
+  if (elenen.size) allEvents = allEvents.filter(e => !elenen.has(e.id));
 
   // Gider KDV bilgisi olayın KENDİ dosyasının profil sürümünden gelir; sonradan açılan başka profil
   // geçmiş hesabı değiştirmez.
@@ -308,7 +342,7 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
 
     for (const g of list) {
       const events = packageEvents.get(g.group);
-      const missing = [...conflictNotes], notes = [...sharedNotes, ...conflictNotes], date = String(g.order_date || '').slice(0, 10);
+      const missing = [...conflictNotes], notes = [...sharedNotes, ...conflictNotes, ...(kabaNot.get(order) || [])], date = String(g.order_date || '').slice(0, 10);
       // Teslim edilmeyen pakette kargo maliyeti kesinleşmez (iade, yeniden gönderim, ceza).
       // Komisyon kesilmiş görünse bile kâr HESAPLANMAZ; tahmin bölümü ayrıca durur.
       const {delivered, delivered_on} = deliveryOf(g.lines);
