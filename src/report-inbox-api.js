@@ -338,6 +338,12 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
 
       let fees = 0, vatUnknown = false;
       const feeRows = [];
+      // İndirim "diğer kesinti" içinde toplanır; etiketten ayırt edilemez, KAYNAK alanına bakılır.
+      // DİKKAT: /indirim/i deseni 'ek:İndirim' ile EŞLEŞMEZ — Türkçe büyük İ (U+0130) ASCII i'ye
+      // katlanmaz. Karşılaştırma tr-TR küçültmesiyle yapılır.
+      const trKucuk = v => String(v ?? '').toLocaleLowerCase('tr-TR');
+      const indirimOlay = events.filter(e => trKucuk(e.source_field).includes('indirim'));
+      const indirimBrut = indirimOlay.reduce((t, e) => t + -e.amount_cents, 0);
       for (const t of FEE_TYPES) {
         if (!has(t)) continue;
         const rows = events.filter(e => e.type === t);
@@ -399,6 +405,8 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
         net_sales_ex_vat_cents: netSales, cogs_cents: cogs, fees: feeRows,
         contribution_cents: contribution, contribution_missing: missing,
         fee_events: events.filter(e => FEE_TYPES.includes(e.type)).map(e => ({id: e.id, type: e.type, label: EVENT_TYPES[e.type], amount_cents: e.amount_cents, invoice_line_id: e.invoice_line_id || null, allocated: !!e.allocated})),
+        discount_gross_cents: indirimBrut,
+        discount_net_cents: indirimOlay.reduce((t, e) => { const v = feeVatOf(e); return t + -(v ? exVat(e.amount_cents, v) : e.amount_cents); }, 0),
         estimates, estimated_result_cents: basis !== null && complete && estimates.length ? basis + estimatedFees : null,
         notes
       });
@@ -498,6 +506,21 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
     if (!kaynak.commission || !kaynak.shipping) {
       skipped.push({group: g.group, reason: 'Raporda ' + (!kaynak.commission ? 'komisyon' : 'kargo') + ' kesintisi yok; eksik veri sıfır sayılmaz.'});
       continue;
+    }
+    // İNDİRİM ÇİFT SAYIMI. Pazaryeri indirimi satış fiyatının İÇİNDE olabilir: Trendyol
+    // "Tutar 423,61 · İndirim −30,00 · Net Tutar 320,00" yazar ve komisyonu 393,61 üzerinden
+    // (%18,7) keser — yani müşterinin ödediği 393,61'dir, indirim zaten uygulanmıştır.
+    // Böyle bir siparişte indirimi bir de gider yazmak aynı parayı iki kez düşer.
+    // Karar sipariş bazında verilir: defterdeki brüt, rapordaki brütten indirim kadar düşükse
+    // indirim zaten uygulanmıştır ve gidere EKLENMEZ. Tahmin yok, iki rakam karşılaştırılır.
+    const indirimBrut = g.discount_gross_cents || 0;
+    if (indirimBrut > 0) {
+      const raporBrut = g.lines.reduce((t, l) => t + (l.gross_cents || 0), 0);
+      const defter = await db.prepare('SELECT COALESCE(SUM(gross_cents),0) b FROM ec_order_lines WHERE package_id=?').bind(g.erp_package_id).first();
+      if (Math.abs((raporBrut - defter.b) - indirimBrut) <= 2) {
+        want.other -= (g.discount_net_cents || 0);
+        skipped.push({group: g.group, reason: 'İndirim satış fiyatına zaten uygulanmış; gider olarak ikinci kez yazılmadı (' + (indirimBrut / 100).toFixed(2) + ' TL).'});
+      }
     }
     const rows = (await db.prepare(
       'SELECT c.sale_id,s.revenue_cents,s.commission_cents,s.shipping_cents,s.other_cents,s.fees_status,' +
