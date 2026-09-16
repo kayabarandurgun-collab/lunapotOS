@@ -168,3 +168,11 @@ td strong,.recipe-card h2,.studio-material strong,.history-links li{overflow-wra
 /* Nakit karşılığı: pazaryeri ekranındaki KDV dahil tutarla karşılaştırılan satır. */
 .order-cash { margin: .5rem 0 0; font-size: 13px; line-height: 1.6; color: var(--muted, #65776f); }
 .order-cash b { color: inherit; font-variant-numeric: tabular-nums; }
+
+/* Kâr raporunda kanal kartı bir süzgeçtir: tıklanınca alttaki paket listesi o kanala iner. */
+.performance-card[data-performance-channel] { cursor: pointer; transition: box-shadow .15s, border-color .15s; }
+.performance-card[data-performance-channel]:hover,
+.performance-card[data-performance-channel]:focus-visible { border-color: var(--brand, #173c35); }
+.performance-card[data-performance-channel]:focus-visible { outline: 3px solid #80a46c; outline-offset: 3px; }
+.performance-card.secili { border-color: var(--brand, #173c35); box-shadow: inset 0 0 0 2px var(--brand, #173c35); }
+.performance-card.secili .performance-card-head h2::after { content: ' · süzülüyor'; font-size: 12px; font-weight: 600; opacity: .7; }
