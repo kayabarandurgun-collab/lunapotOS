@@ -9,6 +9,8 @@ import {appFixture} from './helpers/app-fixture.js';
 import {selectPerformanceRows} from '../public/performance-tools.js';
 import {performanceApi} from '../src/performance-api.js';
 import {scopedDB} from '../src/scoped-db.js';
+import {xlsxBytes} from '../public/doc-engine.js';
+import {readTable, sha256Hex} from '../public/xlsx-read.js';
 
 const rapor = f => performanceApi(new Request('https://test.local/api/ec/performance?from=2026-09-01&to=2026-09-30'), {...f.env, WORKSPACE: 'ec', DB: scopedDB(f.env.DB, 'ec')}, '/api/performance');
 
@@ -139,5 +141,70 @@ test('Teslim onayı gelmeyen paket sayısı kanal kartında söylenir', async ()
     assert.equal(hb.packages, 1, 'kargodaki paket teslim edilenlere karışmadı');
     assert.equal(hb.awaiting_delivery, 1, 'kaç paketin dışarıda kaldığı söylendi');
     assert.equal(hb.awaiting_delivery_since, '2026-09-02', 'en eskisinin tarihi verildi');
+  } finally { f.close(); }
+});
+
+// Kâr yalnız teslim edilmiş pakette hesaplanır ve teslim durumu ERP paketinde durur.
+// Rapor teslim tarihini getirdiği hâlde paket 'shipped' kalırsa paket sessizce kârın
+// dışında kalır. Kullanıcı hiçbir şeyi elle işaretlemez: tarih RAPORDAN alınır.
+test('Raporun getirdiği teslim tarihi paketi teslim edildiye geçirir; tarih uydurulmaz', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    f.sqlite.exec("INSERT INTO ec_order_packages(id,channel,external_id,order_no,occurred_on,status,source_fingerprint) VALUES('pk3','hepsiburada','P3','S3','2026-09-02','draft','t')");
+    f.sqlite.exec("INSERT INTO ec_order_lines(id,package_id,external_id,name,quantity_milli,net_revenue_cents) VALUES('ln3','pk3','L3','Ürün',1000,11000)");
+    f.sqlite.exec("INSERT INTO ec_sale_entries(id,channel,external_id,product_id,kind,quantity_milli,revenue_cents,cost_cents,fees_status,occurred_on) VALUES('se3','hepsiburada','S-3','p1','sale',1000,11000,4600,'pending','2026-09-02')");
+    f.sqlite.exec("INSERT INTO ec_order_line_components(id,line_id,product_id,quantity_milli,revenue_share_bps,sale_id,stock_unit) VALUES('cm3','ln3','p1',1000,10000,'se3','adet')");
+    for (const st of ['reserved', 'shipped']) f.sqlite.prepare("UPDATE ec_order_packages SET status=? WHERE id='pk3'").run(st);
+
+    const KOL = [{header: 'Sipariş No'}, {header: 'Paket No'}, {header: 'Kalem No'}, {header: 'Barkod'},
+      {header: 'Adet', type: 'number'}, {header: 'Durum'}, {header: 'Sipariş Tarihi'}, {header: 'Tutar'}, {header: 'Teslim Tarihi'}];
+    const ESL = {order_no: 'Sipariş No', package_id: 'Paket No', line_id: 'Kalem No', barcode: 'Barkod',
+      quantity: 'Adet', status: 'Durum', order_date: 'Sipariş Tarihi', gross: 'Tutar', delivered_date: 'Teslim Tarihi'};
+    await f.ok('/ec/reports/profiles', {provider: 'hepsiburada', kind: 'orders', headers: KOL.map(c => c.header), mapping: ESL, options: {}});
+    const bytes = new Uint8Array(xlsxBytes([{name: 'R', columns: KOL,
+      rows: [['S3', 'P3', 'L3', 'U1', 1, 'Teslim edildi', '02.09.2026', '132,00', '07.09.2026']]}]));
+    const table = await readTable(bytes, {name: 'hb-siparis.xlsx'});
+    const dosya = await f.ok('/ec/reports/files', {store_id: 'st', kind: 'orders', filename: 'hb-siparis.xlsx',
+      size_bytes: bytes.length, sha256: await sha256Hex(bytes), snapshot_at: '2026-09-08T10:00', sheet: table.sheet,
+      headers: table.headers, date1904: table.date1904, row_count: table.rows.length, chunk_count: 1, warnings: table.warnings});
+    await f.ok('/ec/reports/files/' + dosya.id + '/chunk', {index: 0, data: Buffer.from(bytes).toString('base64')});
+    await f.ok('/ec/reports/files/' + dosya.id + '/rows', {rows: table.rows});
+    await f.ok('/ec/reports/files/' + dosya.id + '/seal', {});
+    let r; do { r = await f.ok('/ec/reports/files/' + dosya.id + '/apply', {}); } while (!r.done);
+
+    const p = f.sqlite.prepare("SELECT status,delivered_on FROM ec_order_packages WHERE id='pk3'").get();
+    assert.equal(p.status, 'delivered', 'paket rapordan teslim edildiye geçti');
+    assert.equal(p.delivered_on, '2026-09-07', 'tarih rapordaki gün; uydurulmadı');
+    assert.equal(r.counts.delivered, 1, 'kaç paketin teslime geçtiği sayıldı');
+    // Ve artık kâr raporuna giriyor.
+    const hb = (await rapor(f)).channels.find(c => c.channel === 'hepsiburada');
+    assert.equal(hb.awaiting_delivery, 0, 'kargoda bekleyen kalmadı');
+  } finally { f.close(); }
+});
+
+test('Kargoya verilmemiş paket rapordaki teslim tarihiyle teslime geçirilmez', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    // Paket hâlâ hazırlıkta: raporda teslim tarihi olsa bile durum makinesi zorlanmaz.
+    f.sqlite.exec("INSERT INTO ec_order_packages(id,channel,external_id,order_no,occurred_on,status,source_fingerprint) VALUES('pk4','hepsiburada','P4','S4','2026-09-02','draft','t')");
+    const KOL = [{header: 'Sipariş No'}, {header: 'Paket No'}, {header: 'Kalem No'}, {header: 'Barkod'},
+      {header: 'Adet', type: 'number'}, {header: 'Durum'}, {header: 'Sipariş Tarihi'}, {header: 'Tutar'}, {header: 'Teslim Tarihi'}];
+    const ESL = {order_no: 'Sipariş No', package_id: 'Paket No', line_id: 'Kalem No', barcode: 'Barkod',
+      quantity: 'Adet', status: 'Durum', order_date: 'Sipariş Tarihi', gross: 'Tutar', delivered_date: 'Teslim Tarihi'};
+    await f.ok('/ec/reports/profiles', {provider: 'hepsiburada', kind: 'orders', headers: KOL.map(c => c.header), mapping: ESL, options: {}});
+    const bytes = new Uint8Array(xlsxBytes([{name: 'R', columns: KOL,
+      rows: [['S4', 'P4', 'L4', 'U1', 1, 'Teslim edildi', '02.09.2026', '132,00', '07.09.2026']]}]));
+    const table = await readTable(bytes, {name: 'hb2.xlsx'});
+    const dosya = await f.ok('/ec/reports/files', {store_id: 'st', kind: 'orders', filename: 'hb2.xlsx',
+      size_bytes: bytes.length, sha256: await sha256Hex(bytes), snapshot_at: '2026-09-08T10:00', sheet: table.sheet,
+      headers: table.headers, date1904: table.date1904, row_count: table.rows.length, chunk_count: 1, warnings: table.warnings});
+    await f.ok('/ec/reports/files/' + dosya.id + '/chunk', {index: 0, data: Buffer.from(bytes).toString('base64')});
+    await f.ok('/ec/reports/files/' + dosya.id + '/rows', {rows: table.rows});
+    await f.ok('/ec/reports/files/' + dosya.id + '/seal', {});
+    let r; do { r = await f.ok('/ec/reports/files/' + dosya.id + '/apply', {}); } while (!r.done);
+
+    assert.equal(f.sqlite.prepare("SELECT status FROM ec_order_packages WHERE id='pk4'").get().status, 'draft',
+      'hazırlıktaki paket atlanmadan teslime çekilmedi');
+    assert.ok(r.counts.new >= 1, 'yükleme yine de tamamlandı, parti düşmedi');
   } finally { f.close(); }
 });

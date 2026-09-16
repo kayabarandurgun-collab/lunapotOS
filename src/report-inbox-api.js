@@ -994,6 +994,7 @@ export async function reportInboxApi(request, env, path, readBody) {
         stmts.push(db.prepare('INSERT INTO ec_report_outcomes(file_id,row_no,record_key,outcome) VALUES(?,?,?,?)').bind(f.id, r.row, r.kind + '|' + r.key, r.outcome));
         if (r.outcome === 'new') {
           const recId = id(), erp = r.kind === 'order_line' ? await erpMatch(db, f.provider, r.data) : {id: null};
+          r.erpId = erp.id;
           const comps = r.kind === 'order_line' ? await componentsFor(db, f.provider, r.data) : null;
           stmts.push(db.prepare('INSERT INTO ec_report_records(id,store_id,kind,record_key,key_source,data_json,source_time,data_time,file_id,row_no,erp_package_id,components_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
             .bind(recId, f.store_id, r.kind, r.key, r.keySource, JSON.stringify(r.data), f.snapshot_at, f.snapshot_at, f.id, r.row, erp.id, comps ? JSON.stringify(comps) : null));
@@ -1014,6 +1015,27 @@ export async function reportInboxApi(request, env, path, readBody) {
           stmts.push(review(db, f, r, r.reason, r.detail));
         }
       }
+      // RAPORDAN TESLİM ONAYI. Kâr yalnız teslim edilmiş pakette hesaplanır ve teslim durumu
+      // ERP paketinde durur. Rapor teslim tarihini getirdiği hâlde paket 'shipped' kalırsa paket
+      // sessizce kârın dışında kalır — kullanıcıya elle işaretletmek yerine tarih RAPORDAN alınır.
+      // Tarih uydurulmaz: yalnızca raporda yazan gün yazılır. Yalnız 'shipped' → 'delivered'
+      // yönü işlenir; başka durumdaki paket WHERE ile elenir, durum makinesi zorlanmaz.
+      const teslimTarihleri = new Map();
+      for (const r of part) {
+        if (r.kind !== 'order_line' || !['new', 'updated'].includes(r.outcome)) continue;
+        const d = r.outcome === 'updated' ? r.merged : r.data;
+        const gun = String(d?.delivered_date || '').slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(gun)) continue;
+        const pkg = r.outcome === 'updated' ? r.prior?.erp_package_id : r.erpId;
+        if (!pkg) continue;
+        if (!teslimTarihleri.has(pkg) || teslimTarihleri.get(pkg) < gun) teslimTarihleri.set(pkg, gun);
+      }
+      for (const [pkg, gun] of teslimTarihleri) {
+        stmts.push(db.prepare("UPDATE order_packages SET status='delivered',delivered_on=? WHERE id=? AND status='shipped'").bind(gun, pkg));
+        stmts.push(db.prepare('INSERT INTO ec_activity(id,description) VALUES(?,?)').bind(id(),
+          'Teslim onayı rapordan alındı: paket ' + pkg + ' → ' + gun + ' (' + f.filename + ')'));
+      }
+      if (teslimTarihleri.size) counts.delivered = (counts.delivered || 0) + teslimTarihleri.size;
       const done = toRow >= lastRow;
       stmts.push(db.prepare('UPDATE ec_report_files SET applied_row=?,status=?,counts_json=? WHERE id=? AND applied_row=?').bind(toRow, done ? 'applied' : 'applying', JSON.stringify(counts), f.id, f.applied_row));
       try { await db.batch(stmts); }
