@@ -188,19 +188,42 @@ const packageSignature = lines => JSON.stringify(lines
  * Gerçekleşmiş kayıtlardan tahmin: yalnızca aynı mağazada, son 90 günde, AYNI içerikli
  * (barkod, adet, taşıyıcı) paketlerin kayıtları. Yetersiz örnekte tahmin yapılmaz; sıfır sayılmaz.
  */
-async function observedFor(db, storeId, type, signature, date, excludeGroup) {
+// Gozlemden tahmin PAKET BASINA cagrilir. Sorgular pakete degil MAGAZAYA bagli oldugu icin
+// her pakette yeniden calistirilirsa ayni satirlar yuzlerce kez okunur: 100 paketlik bir sayfa
+// 600.000 satir okuyordu ve gunluk okuma kotasini tek basina bitirebiliyordu. Artik cagri basina
+// BIR kez okunur, paket ayrimi bellekte yapilir. Sonuc ayni; maliyet ~100 kat dusuk.
+async function observedRows(db, storeId, memo) {
+  if (!memo.observedLines) memo.observedLines = new Map();
+  if (!memo.observedLines.has(storeId)) {
+    // En yeni 3000 satir. Eskisi kesilirse tahmin ORNEK SAYISI duser, yanlis rakam uretmez.
+    const rows = (await db.prepare("SELECT data_json FROM ec_report_records WHERE store_id=? AND kind='order_line' ORDER BY substr(json_extract(data_json,'$.order_date'),1,10) DESC LIMIT 3000")
+      .bind(storeId).all()).results.map(r => parse(r.data_json, {}));
+    memo.observedLines.set(storeId, rows);
+  }
+  return memo.observedLines.get(storeId);
+}
+async function observedEvents(db, storeId, type, memo) {
+  const k = storeId + '|' + type;
+  if (!memo.observedEvents) memo.observedEvents = new Map();
+  if (!memo.observedEvents.has(k)) {
+    memo.observedEvents.set(k, (await db.prepare("SELECT json_extract(data_json,'$.amount_cents') a,json_extract(data_json,'$.package_id') p,json_extract(data_json,'$.order_no') o FROM ec_report_records WHERE store_id=? AND kind='finance_event' AND json_extract(data_json,'$.type')=? LIMIT 3000")
+      .bind(storeId, type).all()).results);
+  }
+  return memo.observedEvents.get(k);
+}
+async function observedFor(db, storeId, type, signature, date, excludeGroup, memo = {}) {
   if (!date) return null;
   const from = new Date(Date.parse(date + 'T00:00:00Z') - 90 * 86400000).toISOString().slice(0, 10);
-  const rows = (await db.prepare("SELECT data_json FROM ec_report_records WHERE store_id=? AND kind='order_line' AND substr(json_extract(data_json,'$.order_date'),1,10) BETWEEN ? AND ? LIMIT 3000")
-    .bind(storeId, from, date).all()).results.map(r => parse(r.data_json, {}));
+  // Pencere bellekte suzulur: gecmise bakarken GELECEKTEKI siparis kullanilmaz.
+  const rows = (await observedRows(db, storeId, memo))
+    .filter(d => { const g = String(d.order_date || '').slice(0, 10); return g >= from && g <= date; });
   const groups = new Map();
   for (const d of rows) { const g = d.package_id || d.order_no; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(d); }
   const similar = new Set([...groups.entries()].filter(([g, ls]) => g !== excludeGroup && packageSignature(ls) === signature).map(([g]) => g));
   if (!similar.size) return null;
   // Benzer paketler sipariş tarihine göre seçilir (geçmişe bakarken gelecekteki sipariş kullanılmaz).
   // O paketlerin gerçekleşmiş kesintileri ise siparişten SONRA oluşur; bu yüzden olay tarihine göre süzülmez.
-  const events = (await db.prepare("SELECT json_extract(data_json,'$.amount_cents') a,json_extract(data_json,'$.package_id') p,json_extract(data_json,'$.order_no') o FROM ec_report_records WHERE store_id=? AND kind='finance_event' AND json_extract(data_json,'$.type')=? LIMIT 3000")
-    .bind(storeId, type).all()).results;
+  const events = await observedEvents(db, storeId, type, memo);
   const est = observedEstimate(events.filter(e => similar.has(e.p || e.o)).map(e => e.a));
   return est ? {...est, basis: 'Aynı içerikli paketlerin son 90 gündeki gerçekleşen kayıtları: ' + est.samples + ' örnek'} : null;
 }
@@ -478,14 +501,14 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
         }
         if (!unknownLines && basis.size) estimates.push({type: 'commission', label: EVENT_TYPES.commission, value: total, low: total, high: total, samples: 0, basis: [...basis].join(' · ') + ' — paketteki ' + g.lines.length + ' satırın toplamı'});
         else {
-          const obs = await observedFor(db, store.id, 'commission', signature, date, g.group);
+          const obs = await observedFor(db, store.id, 'commission', signature, date, g.group, memo);
           estimates.push(obs ? {type: 'commission', label: EVENT_TYPES.commission, ...obs}
             : {type: 'commission', label: EVENT_TYPES.commission, value: null, partial_cents: unknownLines && total ? total : null,
               basis: unknownLines ? unknownLines + ' satırın tarifesi yok; kısmi hesap tam tahmin sayılmaz.' : 'Tahmin için yeterli veri yok (sıfır sayılmadı).'});
         }
       }
       if (withEstimates && !feeRows.some(r => r.type === 'cargo')) {
-        const obs = await observedFor(db, store.id, 'cargo', signature, date, g.group);
+        const obs = await observedFor(db, store.id, 'cargo', signature, date, g.group, memo);
         estimates.push(obs ? {type: 'cargo', label: EVENT_TYPES.cargo, ...obs}
           : {type: 'cargo', label: EVENT_TYPES.cargo, value: null, basis: 'Kargo tarifesi (desi) bağlanmadı; aynı içerikli paketten yeterli kayıt da yok.'});
       }
