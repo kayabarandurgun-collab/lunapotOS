@@ -295,3 +295,90 @@ test('Defter boşluğu ucu, eksik satırı barkoduyla söyler ve hiçbir şey ya
       .map(t => f.sqlite.prepare('SELECT COUNT(*) n FROM ' + t).get().n), once, 'uç hiçbir şey yazmadı');
   } finally { f.close(); }
 });
+
+// Teslim tarihi ÖNCEKİ bir yüklemede gelmişse kayıt "aynı" sayılır. Yalnızca değişen
+// kayıtlara bakan bir çözüm, o paketi sonsuza kadar kargoda bırakır ve kârın dışında tutar.
+// Canlıda tam olarak bu oldu: 7 paket raporda "Teslim Edildi" iken defterde kargoda kaldı.
+test('Teslim tarihi eski yüklemeden gelse bile paket teslime geçer; ikinci kez işlem kaydı düşmez', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    f.sqlite.exec("INSERT INTO ec_order_packages(id,channel,external_id,order_no,occurred_on,status,source_fingerprint) VALUES('pk3','hepsiburada','P3','S3','2026-09-02','draft','t')");
+    f.sqlite.exec("INSERT INTO ec_order_lines(id,package_id,external_id,name,quantity_milli,net_revenue_cents) VALUES('ln3','pk3','L3','Ürün',1000,11000)");
+    f.sqlite.exec("INSERT INTO ec_sale_entries(id,channel,external_id,product_id,kind,quantity_milli,revenue_cents,cost_cents,fees_status,occurred_on) VALUES('se3','hepsiburada','S-3','p1','sale',1000,11000,4600,'pending','2026-09-02')");
+    f.sqlite.exec("INSERT INTO ec_order_line_components(id,line_id,product_id,quantity_milli,revenue_share_bps,sale_id,stock_unit) VALUES('cm3','ln3','p1',1000,10000,'se3','adet')");
+
+    const KOL = [{header: 'Sipariş No'}, {header: 'Paket No'}, {header: 'Kalem No'}, {header: 'Barkod'},
+      {header: 'Adet', type: 'number'}, {header: 'Durum'}, {header: 'Sipariş Tarihi'}, {header: 'Tutar'}, {header: 'Teslim Tarihi'}, {header: 'Kaynak'}];
+    const ESL = {order_no: 'Sipariş No', package_id: 'Paket No', line_id: 'Kalem No', barcode: 'Barkod',
+      quantity: 'Adet', status: 'Durum', order_date: 'Sipariş Tarihi', gross: 'Tutar', delivered_date: 'Teslim Tarihi'};
+    await f.ok('/ec/reports/profiles', {provider: 'hepsiburada', kind: 'orders', headers: KOL.map(c => c.header), mapping: ESL, options: {}});
+    // Her yükleme gerçek hayattaki gibi AYRI bir dosya: eşlenmemiş "Kaynak" sütunu değişir,
+    // eşlenen alanlar aynı kalır. Böylece kaydın kendisi "aynı" (same) sayılır.
+    const yukle = async (ad, zaman) => {
+      const bytes = new Uint8Array(xlsxBytes([{name: 'R', columns: KOL,
+        rows: [['S3', 'P3', 'L3', 'U1', 1, 'Teslim edildi', '02.09.2026', '132,00', '07.09.2026', ad]]}]));
+      const t = await readTable(bytes, {name: ad});
+      const d = await f.ok('/ec/reports/files', {store_id: 'st', kind: 'orders', filename: ad, size_bytes: bytes.length,
+        sha256: await sha256Hex(bytes), snapshot_at: zaman, sheet: t.sheet, headers: t.headers, date1904: t.date1904,
+        row_count: t.rows.length, chunk_count: 1, warnings: t.warnings});
+      if (d.duplicate) return d;
+      await f.ok('/ec/reports/files/' + d.id + '/chunk', {index: 0, data: Buffer.from(bytes).toString('base64')});
+      await f.ok('/ec/reports/files/' + d.id + '/rows', {rows: t.rows});
+      await f.ok('/ec/reports/files/' + d.id + '/seal', {});
+      let r; do { r = await f.ok('/ec/reports/files/' + d.id + '/apply', {}); } while (!r.done);
+      return r;
+    };
+
+    // Birinci yükleme: paket henüz kargoya verilmedi (draft) → teslime çekilmez.
+    await yukle('ilk.xlsx', '2026-09-08T10:00');
+    assert.equal(f.sqlite.prepare("SELECT status FROM ec_order_packages WHERE id='pk3'").get().status, 'draft');
+
+    // Paket kargoya verildi. İkinci raporda satır AYNI (outcome 'same') ama paket artık kargoda.
+    for (const st of ['reserved', 'shipped']) f.sqlite.prepare("UPDATE ec_order_packages SET status=? WHERE id='pk3'").run(st);
+    const ikinci = await yukle('ikinci.xlsx', '2026-09-09T10:00');
+    assert.equal(ikinci.counts.same, 1, 'satır değişmedi, yine de işlendi');
+    const p = f.sqlite.prepare("SELECT status,delivered_on FROM ec_order_packages WHERE id='pk3'").get();
+    assert.equal(p.status, 'delivered', 'değişmeyen kayıttan da teslim onayı alındı');
+    assert.equal(p.delivered_on, '2026-09-07');
+
+    // Üçüncü yükleme: paket zaten teslim edildi → ikinci kez işlem kaydı düşmez.
+    const once = f.sqlite.prepare("SELECT COUNT(*) n FROM ec_activity WHERE description LIKE 'Teslim onayı rapordan%'").get().n;
+    await yukle('ucuncu.xlsx', '2026-09-10T10:00');
+    assert.equal(f.sqlite.prepare("SELECT COUNT(*) n FROM ec_activity WHERE description LIKE 'Teslim onayı rapordan%'").get().n, once,
+      'aynı pakete tekrar tekrar kayıt düşmedi');
+  } finally { f.close(); }
+});
+
+test('Geçmişe dönük teslim onayı: önizleme yazmaz, onay yalnız kargodakini kapatır', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    f.sqlite.exec("INSERT INTO ec_report_files(id,store_id,kind,filename,size_bytes,sha256,snapshot_at,sheet,headers_json,row_count,chunk_count,status,created_by) VALUES('fl','st','orders','r.xlsx',10,'" + 'f'.repeat(64) + "','2026-09-06T10:00','S','[]',2,1,'applied','t')");
+    const kayit = (i, pid, teslim) => f.sqlite.prepare("INSERT INTO ec_report_records(id,store_id,kind,record_key,key_source,data_json,source_time,file_id,row_no,erp_package_id) VALUES(?,'st','order_line',?,'provider',?,'2026-09-06T10:00','fl',?,?)")
+      .run('r' + i, 'L:' + i, JSON.stringify({order_no: 'S' + i, package_id: 'P' + i, barcode: 'U1', quantity: 1,
+        status: 'Teslim Edildi', order_date: '2026-09-01', delivered_date: teslim, gross: 13200}), i, pid);
+    // A: kargoda kalmış paket, raporda teslim tarihi var.
+    f.sqlite.exec("INSERT INTO ec_order_packages(id,channel,external_id,order_no,occurred_on,status,source_fingerprint) VALUES('kargoda','trendyol','P7','S7','2026-09-02','draft','t')");
+    f.sqlite.exec("INSERT INTO ec_order_lines(id,package_id,external_id,name,quantity_milli,net_revenue_cents) VALUES('ln7','kargoda','L7','Ürün',1000,11000)");
+    f.sqlite.exec("INSERT INTO ec_sale_entries(id,channel,external_id,product_id,kind,quantity_milli,revenue_cents,cost_cents,fees_status,occurred_on) VALUES('se7','trendyol','S-7','p1','sale',1000,11000,4600,'pending','2026-09-02')");
+    f.sqlite.exec("INSERT INTO ec_order_line_components(id,line_id,product_id,quantity_milli,revenue_share_bps,sale_id,stock_unit) VALUES('cm7','ln7','p1',1000,10000,'se7','adet')");
+    for (const st of ['reserved', 'shipped']) f.sqlite.prepare("UPDATE ec_order_packages SET status=? WHERE id='kargoda'").run(st);
+    kayit(7, 'kargoda', '2026-09-07T13:24');
+    // B: hazırlıktaki paket — teslim tarihi olsa bile dokunulmaz.
+    f.sqlite.exec("INSERT INTO ec_order_packages(id,channel,external_id,order_no,occurred_on,status,source_fingerprint) VALUES('taslak','trendyol','P8','S8','2026-09-02','draft','t')");
+    kayit(8, 'taslak', '2026-09-07');
+
+    const onizleme = await f.ok('/ec/reports/sync-deliveries');
+    assert.equal(onizleme.count, 1, 'yalnızca kargodaki paket listelendi');
+    assert.equal(onizleme.commit, false);
+    assert.equal(f.sqlite.prepare("SELECT status FROM ec_order_packages WHERE id='kargoda'").get().status, 'shipped',
+      'önizleme hiçbir şey yazmadı');
+
+    const sonuc = await f.ok('/ec/reports/sync-deliveries', {confirm: true});
+    assert.equal(sonuc.count, 1);
+    assert.equal(f.sqlite.prepare("SELECT status FROM ec_order_packages WHERE id='kargoda'").get().status, 'delivered');
+    assert.equal(f.sqlite.prepare("SELECT delivered_on FROM ec_order_packages WHERE id='kargoda'").get().delivered_on, '2026-09-07',
+      'tarih rapordaki gün; uydurulmadı');
+    assert.equal(f.sqlite.prepare("SELECT status FROM ec_order_packages WHERE id='taslak'").get().status, 'draft',
+      'kargoya verilmemiş paket teslime çekilmedi');
+  } finally { f.close(); }
+});

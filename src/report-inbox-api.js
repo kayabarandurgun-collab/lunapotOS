@@ -1043,22 +1043,32 @@ export async function reportInboxApi(request, env, path, readBody) {
       // sessizce kârın dışında kalır — kullanıcıya elle işaretletmek yerine tarih RAPORDAN alınır.
       // Tarih uydurulmaz: yalnızca raporda yazan gün yazılır. Yalnız 'shipped' → 'delivered'
       // yönü işlenir; başka durumdaki paket WHERE ile elenir, durum makinesi zorlanmaz.
+      // DIKKAT: yalnizca DEGISEN kayitlara bakmak yetmez. Teslim tarihi daha onceki bir yuklemede
+      // geldiyse kayit 'same' sayilir; paket o zaman da bugun de 'shipped' kalir ve karin disinda
+      // kalmaya devam eder. Bu yuzden partideki BUTUN siparis satirlari taranir.
       const teslimTarihleri = new Map();
       for (const r of part) {
-        if (r.kind !== 'order_line' || !['new', 'updated'].includes(r.outcome)) continue;
-        const d = r.outcome === 'updated' ? r.merged : r.data;
+        if (r.kind !== 'order_line' || r.outcome === 'review') continue;
+        const d = r.merged || r.data;
         const gun = String(d?.delivered_date || '').slice(0, 10);
         if (!/^\d{4}-\d{2}-\d{2}$/.test(gun)) continue;
-        const pkg = r.outcome === 'updated' ? r.prior?.erp_package_id : r.erpId;
+        const pkg = r.prior?.erp_package_id || r.erpId;
         if (!pkg) continue;
         if (!teslimTarihleri.has(pkg) || teslimTarihleri.get(pkg) < gun) teslimTarihleri.set(pkg, gun);
       }
+      // Yalniz GERCEKTEN kargoda duranlar yazilir: aksi halde her yuklemede ayni pakete tekrar
+      // tekrar islem kaydi dusulurdu. Tek sorgu, kimlik uzerinden.
+      const kargodakiler = teslimTarihleri.size
+        ? new Set((await db.prepare("SELECT id FROM order_packages WHERE status='shipped' AND id IN (SELECT value FROM json_each(?))")
+          .bind(JSON.stringify([...teslimTarihleri.keys()])).all()).results.map(r => r.id))
+        : new Set();
       for (const [pkg, gun] of teslimTarihleri) {
+        if (!kargodakiler.has(pkg)) continue;
         stmts.push(db.prepare("UPDATE order_packages SET status='delivered',delivered_on=? WHERE id=? AND status='shipped'").bind(gun, pkg));
         stmts.push(db.prepare('INSERT INTO ec_activity(id,description) VALUES(?,?)').bind(id(),
           'Teslim onayı rapordan alındı: paket ' + pkg + ' → ' + gun + ' (' + f.filename + ')'));
       }
-      if (teslimTarihleri.size) counts.delivered = (counts.delivered || 0) + teslimTarihleri.size;
+      if (kargodakiler.size) counts.delivered = (counts.delivered || 0) + kargodakiler.size;
       const done = toRow >= lastRow;
       stmts.push(db.prepare('UPDATE ec_report_files SET applied_row=?,status=?,counts_json=? WHERE id=? AND applied_row=?').bind(toRow, done ? 'applied' : 'applying', JSON.stringify(counts), f.id, f.applied_row));
       try { await db.batch(stmts); }
@@ -1129,6 +1139,32 @@ export async function reportInboxApi(request, env, path, readBody) {
   // paketin butun kesintileri kalan satira yuklenir ve karli siparis zararli gorunur. Ayrica mal
   // cikmis ama stoktan dusmemistir. Bu uc YAZMAZ, yalnizca hangi paketin neyi eksik oldugunu
   // soyler. Olcut satir SAYISIdir: tutar farki cogu zaman indirimdir, gercek eksiklik degildir.
+  // Kargoda takili kalmis paketleri raporun teslim tarihiyle kapatir. Yukleme sirasindaki
+  // ayni is; burada GECMISE donuk calisir, cunku tarih daha onceki bir yuklemede gelmisse
+  // kayit degismedigi icin o an islenmemis olabilir. Tarih UYDURULMAZ: rapordaki gun yazilir.
+  // Yalniz 'shipped' -> 'delivered' yonu; baska durumdaki paket WHERE ile elenir.
+  if (sub === '/sync-deliveries' && (method === 'GET' || method === 'POST')) {
+    const commit = method === 'POST' && (await readBody(request)).confirm === true;
+    const rows = (await db.prepare(
+      "SELECT p.id,p.order_no,p.external_id,p.channel,substr(MAX(json_extract(r.data_json,'$.delivered_date')),1,10) gun," +
+      " MAX(json_extract(r.data_json,'$.status')) durum" +
+      ' FROM ec_order_packages p JOIN ec_report_records r ON r.erp_package_id=p.id' +
+      " WHERE p.status='shipped' AND r.kind='order_line'" +
+      " AND COALESCE(json_extract(r.data_json,'$.delivered_date'),'')!='' GROUP BY p.id LIMIT 500").all()).results
+      .filter(r => /^\d{4}-\d{2}-\d{2}$/.test(r.gun || ''));
+    if (commit && rows.length) {
+      await db.batch(rows.flatMap(r => [
+        db.prepare("UPDATE ec_order_packages SET status='delivered',delivered_on=? WHERE id=? AND status='shipped'").bind(r.gun, r.id),
+        db.prepare('INSERT INTO ec_activity(id,description) VALUES(?,?)').bind(id(),
+          'Teslim onayı rapordan alındı (geçmişe dönük): paket ' + r.external_id + ' → ' + r.gun)
+      ]));
+    }
+    return {commit, packages: rows, count: rows.length,
+      notice: commit
+        ? 'Raporun teslim tarihi paketlere yazıldı. Stok, satış ve kesinti DEĞİŞMEDİ; yalnızca teslim durumu güncellendi.'
+        : 'Önizleme: hiçbir şey yazılmadı. Aşağıdaki paketler raporda teslim edilmiş görünüyor ama defterde kargoda duruyor.'};
+  }
+
   if (sub === '/ledger-gaps' && method === 'GET') {
     const rows = (await db.prepare(
       "SELECT r.erp_package_id pid,json_extract(r.data_json,'$.order_no') order_no," +
