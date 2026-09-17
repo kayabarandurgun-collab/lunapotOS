@@ -17,8 +17,11 @@ test('Missing, expired, foreign-channel and missing-product prices stay unknown'
  }
 });
 test('Decision overview never presents a partial sum as completed net profit',()=>{
- const report={rows:[{profit_cents:10000},{profit_cents:-3000}],unallocated_fee_cents:0,channels:[]};
- assert.deepEqual(decisionTotals(report),{profit:10000,loss:3000,net:7000,calculated:2,total:2});
- assert.equal(decisionTotals({...report,rows:[...report.rows,{profit_cents:null}]}).net,null);assert.equal(decisionTotals({...report,unallocated_fee_cents:1}).net,null);assert.equal(decisionTotals({...report,rows:[]}).net,null);
+ // Ana rakam NAKİTtİr; KDV hariç katkı ayrı alanda raporlanır.
+ const report={rows:[{cash_cents:10000,profit_cents:8400},{cash_cents:-3000,profit_cents:-2500}],unallocated_fee_cents:0,channels:[]};
+ assert.deepEqual(decisionTotals(report),{profit:10000,loss:3000,net:7000,calculated:2,total:2,exVatNet:5900});
+ assert.equal(decisionTotals({...report,rows:[...report.rows,{cash_cents:null,profit_cents:null}]}).net,null);assert.equal(decisionTotals({...report,unallocated_fee_cents:1}).net,null);assert.equal(decisionTotals({...report,rows:[]}).net,null);
+ // Nakit hesaplanamadıysa sıfır sayılmaz: paket hesaplananlara girmez.
+ assert.equal(decisionTotals({rows:[{cash_cents:null,profit_cents:8400}],unallocated_fee_cents:0}).calculated,0);
  const html=renderDecisionOverview(report,[{name:'<img onerror=alert(1)>',quantity_milli:1000,reserved_milli:1000,min_stock_milli:0,stock_unit:'adet'}]);assert.ok(html.includes('&lt;img'));assert.ok(html.includes('#performance?mode=pending'));assert.ok(html.includes('1 kritik / tükenen'));
 });
