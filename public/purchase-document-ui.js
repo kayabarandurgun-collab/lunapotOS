@@ -330,6 +330,23 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     await siradakini();
   }
 
+  // e-Arsiv/e-Fatura PDF'leri "<VKN>-<FaturaNo>-<ETTN>.pdf" adiyla gelir. Taranmis belgede
+  // yazi katmani olmadigi icin ic okunamaz ama DOSYA ADI bu ucunu tasir. Bu veri uydurmak
+  // degildir: adlandirmayi belgeyi kesen sistem koyar. Yalniz bicim tam tutuyorsa kullanilir ve
+  // BELGEDEN okunan bir deger varsa onun uzerine YAZILMAZ.
+  const DOSYA_ADI = /^(\d{10,11})[-_]([A-Za-z0-9]{3,32})[-_]([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\.(pdf|xml)$/i;
+  function adtanOku(ad, header) {
+    const m = DOSYA_ADI.exec(String(ad || '').trim());
+    if (!m) return [];
+    const [, vkn, no, uuid] = m, alindi = [];
+    if (!header.supplier_tax_id) { header.supplier_tax_id = vkn; alindi.push('VKN'); }
+    if (!header.invoice_no) { header.invoice_no = no.toUpperCase(); alindi.push('fatura numarası'); }
+    if (!header.uuid) { header.uuid = uuid.toLowerCase(); alindi.push('ETTN'); }
+    if (alindi.length) header.uncertain = (header.uncertain || []).filter(k =>
+      !(k === 'supplier_tax_id' && alindi.includes('VKN')) && !(k === 'invoice_no' && alindi.includes('fatura numarası')));
+    return alindi;
+  }
+
   async function takeFile(file, kind) {
     if (file.size > PDF_LIMITS.fileBytes) throw new Error('Belge 20 MB sınırını aşıyor.');
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -354,6 +371,9 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
       totals = {net: lines.reduce((s, l) => s + l.net, 0), tax: lines.reduce((s, l) => s + l.tax, 0), gross: null};
       totals.gross = totals.net + totals.tax;
     }
+    // Belgeden okunamayan kimlik alanlari dosya adindan tamamlanir (e-Arsiv adlandirmasi).
+    const adtan = adtanOku(file.name, header);
+    if (adtan.length) state.warnings.push('Belgeden okunamayan ' + adtan.join(', ') + ' dosya adından alındı (e-Arşiv adlandırması). Kontrol et.');
     state.header = header; state.totals = totals;
     state.lines = lines.length ? lines : [{description: '', invoice_quantity: 1, invoice_unit: 'adet', net: '', tax: '', line_type: 'product', expense_category: 'other', uncertain: []}];
 
