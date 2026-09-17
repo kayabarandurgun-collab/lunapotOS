@@ -255,16 +255,40 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
   // okunamadiysa, okunan bir alan supheliyse ya da bir kalem ceside dagitilacaksa. Bunlarin
   // hicbirinde sistem karar uyduramaz. Geri kalaninda duracak bir sey yoktur: taslak kendiliginden
   // olusur. Taslak cari borc ve stok YAZMAZ; muhasebelestirme yine ayri ve bilincli adimdir.
+  // Tedarikci belgede YAZIYOR: unvan ve VKN okunduysa kayitli degilse bile acilabilir. Bu veri
+  // uydurmak degil, belgeden okunani kullanmaktir. Yalniz VKN suphesizse ve bicimi dogruysa.
+  async function tedarikciyiCoz() {
+    const h = state.header || {}, liste = state.catalog?.suppliers || [];
+    const vkn = String(h.supplier_tax_id || '').trim();
+    const eslesen = vkn && liste.find(x => x.tax_id === vkn);
+    if (eslesen) { state.supplierId = eslesen.id; return null; }
+    if (!/^[0-9]{10,11}$/.test(vkn) || h.uncertain?.includes('supplier_tax_id')) return 'Tedarikçi VKN okunamadı';
+    if (!String(h.supplier_name || '').trim() || h.uncertain?.includes('supplier_name')) return 'Tedarikçi unvanı okunamadı';
+    const yeni = await api('/suppliers', {name: h.supplier_name.trim(), tax_id: vkn});
+    state.supplierId = yeni.id;
+    state.catalog = await api('/catalog');
+    return null;
+  }
+
+  // Satir -> urun baglantilari tedarikci bazinda HATIRLANIR. Elle yolda uygulaniyordu ama
+  // otomatik yolda atlaniyordu: taslak urunsuz satirla olusuyordu. Ayni oneri burada da uygulanir.
+  async function hatirlananlariUygula() {
+    const {links} = await api('/invoices/families');
+    state.familyLinks = links;
+    state.lines.forEach((_, i) => { try { applyLink(i); } catch { /* öneri zorunlu değil */ } });
+  }
+
   function otomatikEngel() {
     const h = state.header || {};
     if (h.uncertain?.length) return 'Belgede kesin okunamayan alan var';
-    const tedarikciler = state.catalog?.suppliers || [];
-    if (!h.supplier_tax_id || !tedarikciler.some(x => x.tax_id === h.supplier_tax_id)) return 'Tedarikçi tanınmadı';
     if (!h.invoice_no || !h.invoice_date) return 'Fatura numarası veya tarihi okunamadı';
     if (!state.lines?.length) return 'Satır okunamadı';
     if (state.lines.some(l => !String(l.description || '').trim() || !(Number(l.invoice_quantity) > 0) || l.net === '' || l.net === null || l.net === undefined))
       return 'Satırlarda eksik alan var';
     if (state.lines.some(l => l.uncertain?.length)) return 'Satırlarda kesin okunamayan alan var';
+    // Cesit dagilimi belgede YAZMAZ: "5'li set 10 adet" satiri hangi cesitten kac adet
+    // oldugunu soylemez. Hatirlanan bag yalnizca "bu satir su urun ailesine gider" bilgisidir,
+    // adetleri degil. Burada karar uydurulamaz; kullanici girer.
     if (state.lines.some(l => l.family_id && l.line_type !== 'expense')) return 'Çeşide dağıtılacak kalem var';
     return null;
   }
@@ -288,7 +312,9 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
       throw e;
     }
     if (!state.auto) return;
-    const engel = otomatikEngel();
+    const tedarikciSorun = await tedarikciyiCoz();
+    if (!tedarikciSorun) await hatirlananlariUygula();
+    const engel = tedarikciSorun || otomatikEngel();
     if (engel) {
       state.queueDone.push({ad: sonraki.file.name, sonuc: 'bekliyor', sebep: engel});
       state.auto = false; // bu dosyada duruluyor; kullanici bitirince kuyruk devam eder
@@ -296,7 +322,6 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
       return;
     }
     try {
-      state.supplierId = (state.catalog?.suppliers || []).find(x => x.tax_id === state.header.supplier_tax_id).id;
       await saveDraft();
       state.queueDone.push({ad: sonraki.file.name, sonuc: 'taslak', fatura: state.header.invoice_no});
     } catch (e) {
