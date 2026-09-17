@@ -359,3 +359,54 @@ test('Defterde olmayan satırlar için ayrı taslak kurulur; mevcut sipariş de�
     assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_packages').get().n, 2, 'üçüncü paket açılmadı');
   } finally { f.close(); }
 });
+
+// Fatura kaydından kurulan pakette satır kimlikleri barkod taşımaz; rapor kimlikleriyle hiç
+// örtüşmez. Pazaryeri İKİ paket gönderdiği hâlde ikisi de aynı defter kaydına bağlanmışsa
+// ikinci paketin malı hiç deftere girmemiştir. Ama "kimlik tutmadı" tek başına yetmez:
+// defterdeki ADET, o kaydı sahiplenen rapor satırlarının toplamından AZ olmalı.
+test('Yanlış bağlanan ikinci paket ayrılır; adet yeterliyse ayrılmaz', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const product = await fourPack(f);
+    startDate(f, DATE);
+    const s = store(f);
+    // Pazaryeri iki paket: PK1 ve PK2, her biri 1 adet.
+    record(f, s, 'TY-1', line({package_id: 'PK1', line_id: 'L1', quantity: 1, gross: 300000}), 1);
+    record(f, s, 'TY-1', line({package_id: 'PK2', line_id: 'L2', quantity: 1, gross: 300000}), 2);
+    const ilk = await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PK1', complete_package_confirmed: true});
+    // Defter satırının kimliği fatura biçiminde: rapor kimliğiyle örtüşmez.
+    f.sqlite.prepare("UPDATE ec_order_lines SET external_id='TEA-086-1' WHERE package_id=?").run(ilk.package_id);
+    // PK2 de aynı defter kaydına bağlanmış (sipariş numarasıyla).
+    f.sqlite.prepare("UPDATE ec_report_records SET erp_package_id=? WHERE record_key='L:L2'").run(ilk.package_id);
+
+    const stokOnce = stockOf(f, product.id);
+    const onizleme = await f.ok('/ec/reports/stock-link/preview', {store_id: s, package_id: 'PK2'});
+    assert.equal(onizleme.outcome, 'partial', 'yanlış bağlanan paket ayrıldı');
+    assert.equal(onizleme.stock_write, false);
+    assert.equal(stockOf(f, product.id), stokOnce, 'önizleme stok değiştirmedi');
+
+    const sonuc = await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PK2', complete_package_confirmed: true});
+    assert.equal(sonuc.applied, true);
+    assert.notEqual(sonuc.package_id, ilk.package_id);
+    assert.equal(f.sqlite.prepare("SELECT erp_package_id FROM ec_report_records WHERE record_key='L:L2'").get().erp_package_id, sonuc.package_id);
+    // Mevcut paket ve satırı değişmedi.
+    assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_lines WHERE package_id=?').get(ilk.package_id).n, 1);
+  } finally { f.close(); }
+});
+
+test('Defterdeki adet rapordaki toplamı karşılıyorsa ikinci paket AÇILMAZ', async () => {
+  const f = appFixture(); await f.setup(); try {
+    await fourPack(f);
+    startDate(f, DATE);
+    const s = store(f);
+    record(f, s, 'TY-1', line({package_id: 'PK1', line_id: 'L1', quantity: 1, gross: 300000}), 1);
+    record(f, s, 'TY-1', line({package_id: 'PK2', line_id: 'L2', quantity: 1, gross: 300000}), 2);
+    const ilk = await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PK1', complete_package_confirmed: true});
+    // Defter iki adedi de tutuyor: kimlik örtüşmese bile eksik YOK.
+    f.sqlite.prepare("UPDATE ec_order_lines SET external_id='TEA-086-1',quantity_milli=2000 WHERE package_id=?").run(ilk.package_id);
+    f.sqlite.prepare("UPDATE ec_report_records SET erp_package_id=? WHERE record_key='L:L2'").run(ilk.package_id);
+
+    const onizleme = await f.ok('/ec/reports/stock-link/preview', {store_id: s, package_id: 'PK2'});
+    assert.notEqual(onizleme.outcome, 'partial', 'adet yeterliyken ikinci paket önerilmedi');
+    assert.equal(onizleme.stock_write, false);
+  } finally { f.close(); }
+});

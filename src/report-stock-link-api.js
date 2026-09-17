@@ -87,7 +87,24 @@ async function plan(env, storeId, packageId, lineIdentityDeclared = false) {
       || defterSatir.get(String(x.kimlik)) === (x.r.data.quantity ?? 0) * 1000);
     // Defter fazladan satir tasiyorsa durum belirsizdir: eksik satir eklemek tabloyu duzeltmez.
     const defterFazlaYok = defterSatirlari.every(l => kimlikli.some(x => String(x.kimlik) === String(l.external_id)));
-    if (eksik.length && eksik.length < records.length && ortusenTutuyor && defterFazlaYok) {
+    // YANLIS BAGLAMA: bu paketin satirlarinin HICBIRI defterde yok ve ayni defter paketini BASKA
+    // bir rapor paketi de sahipleniyorsa, bu paket yanlis kayda baglanmistir. Fatura kaydindan
+    // kurulan paketlerde satir kimlikleri barkod tasimaz; kimlik karsilastirmasi bu yuzden
+    // ortusmez. Tek basina "kimlik tutmadi" yetmez — DEFTERDEKI ADET, o defter paketini
+    // sahiplenen rapor satirlarinin toplam adedinden AZ olmali. Yoksa ayni satis ikinci kez
+    // deftere gecer. Sayim uydurulmaz, iki taraftan da okunur.
+    let yanlisBaglama = false;
+    if (eksik.length === records.length && records.length) {
+      const sahipler = (await db.prepare(
+        "SELECT json_extract(data_json,'$.package_id') pk,json_extract(data_json,'$.quantity') adet" +
+        " FROM ec_report_records WHERE kind='order_line' AND erp_package_id=? AND store_id=?")
+        .bind(linked.erp_package_id, store.id).all()).results;
+      const baskaPaket = sahipler.some(r => String(r.pk) !== String(packageId));
+      const raporAdet = sahipler.reduce((t, r) => t + (Number(r.adet) || 0), 0);
+      const defterAdet = defterSatirlari.reduce((t, l) => t + (l.quantity_milli || 0) / 1000, 0);
+      yanlisBaglama = baskaPaket && defterAdet < raporAdet;
+    }
+    if (eksik.length && (yanlisBaglama || (eksik.length < records.length && ortusenTutuyor && defterFazlaYok))) {
       const eksikSorun = [];
       for (const r of eksik) {
         const d = r.data;
