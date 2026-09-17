@@ -59,3 +59,7 @@
  .pd-actions{justify-content:stretch}
  .pd-actions button{flex:1 1 auto}
 }
+
+/* Toplu yükleme özeti: hangi dosya taslağa döndü, hangisi elde kaldı. */
+.pd-list{margin:.25rem 0 .75rem;padding-left:1.1rem;display:grid;gap:.2rem}
+.pd-list li{line-height:1.45}
