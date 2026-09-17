@@ -464,3 +464,23 @@ test('Pazaryeri paketi defterde ikiye ayrıldıysa kesinti bölünür, iki kez y
     assert.ok(komisyonlar.every(k => k < 0 && k > -4000), 'iki pakete bölündü: ' + komisyonlar.join(' / '));
   } finally { f.close(); }
 });
+
+// Alış kaydı olmayan bir maldan satış yapılınca (stok eksiye düştüğü için) birim maliyet 0
+// çıkar. Bedava mal diye hesaba katmak kârı şişirir. Canlıda 11556015519 tam olarak böyleydi:
+// iki paket de +1.781,24 kâr gösteriyordu, ürün maliyeti 0 sayılmıştı.
+test('Alış kaydı olmayan malın maliyeti sıfır sayılmaz; kâr hesaplanmaz', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    // Maliyeti bilinmeyen satış: alış kaydı yok, cost_cents 0.
+    f.sqlite.prepare("UPDATE ec_sale_entries SET cost_cents=0 WHERE id='se'").run();
+    const r = (await rapor(f)).rows.find(x => x.id === 'pk');
+    assert.equal(r.profit_cents, null, 'kâr hesaplanmadı');
+    assert.equal(r.cash_cents, null, 'nakit de verilmedi');
+    assert.ok(r.missing.some(n => /alış kaydı yok/.test(n)), 'sebebi yazıldı');
+
+    // Alış girilince kendiliğinden düzelir.
+    f.sqlite.prepare("UPDATE ec_sale_entries SET cost_cents=4600 WHERE id='se'").run();
+    const d = (await rapor(f)).rows.find(x => x.id === 'pk');
+    assert.ok(Number.isSafeInteger(d.cash_cents), 'maliyet gelince hesaplandı');
+  } finally { f.close(); }
+});

@@ -274,10 +274,11 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
   if (erpIds.length) {
     const arg = JSON.stringify(erpIds);
     const [satirlar, eksikler] = await Promise.all([
-      db.prepare('SELECT package_id,SUM(cost_cents) cost,SUM(vat) vat,SUM(vatsiz) vatsiz FROM (' +
+      db.prepare('SELECT package_id,SUM(cost_cents) cost,SUM(vat) vat,SUM(vatsiz) vatsiz,SUM(maliyetsiz) maliyetsiz FROM (' +
         'SELECT DISTINCT s.id,l.package_id,s.cost_cents,' +
         "CAST(ROUND(s.cost_cents*COALESCE(pp.vat_bps,0)/10000.0) AS INTEGER) vat," +
-        'CASE WHEN pp.vat_bps IS NULL THEN 1 ELSE 0 END vatsiz' +
+        'CASE WHEN pp.vat_bps IS NULL THEN 1 ELSE 0 END vatsiz,' +
+        "CASE WHEN s.kind='sale' AND s.cost_cents=0 AND s.quantity_milli>0 THEN 1 ELSE 0 END maliyetsiz" +
         ' FROM ec_sale_entries s JOIN ec_order_line_components c ON (s.id=c.sale_id OR s.parent_id=c.sale_id)' +
         ' JOIN ec_order_lines l ON l.id=c.line_id LEFT JOIN ec_price_profiles pp ON pp.product_id=s.product_id' +
         ' WHERE l.package_id IN (SELECT value FROM json_each(?))) GROUP BY package_id').bind(arg).all(),
@@ -289,7 +290,7 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
     const eksik = new Map(eksikler.results.map(r => [r.package_id, r.n]));
     // KDV oranı tanımsız ürün varsa vat negatife düşer: KDV dahil maliyet hesaplanmaz, uydurulmaz.
     for (const r of satirlar.results)
-      defter.set(r.package_id, {cost: r.cost, incl: r.vatsiz ? null : r.cost + r.vat, eksik: eksik.get(r.package_id) || 0});
+      defter.set(r.package_id, {cost: r.cost, incl: r.vatsiz ? null : r.cost + r.vat, eksik: eksik.get(r.package_id) || 0, maliyetsiz: !!r.maliyetsiz});
   }
   let allEvents = (await db.prepare("SELECT r.*,e.invoice_line_id,f.profile_id FROM ec_report_records r LEFT JOIN ec_report_fee_evidence e ON e.record_id=r.id JOIN ec_report_files f ON f.id=r.file_id WHERE r.store_id=? AND r.kind='finance_event' AND (json_extract(r.data_json,'$.order_no') IN (SELECT value FROM json_each(?)) OR json_extract(r.data_json,'$.package_id') IN (SELECT value FROM json_each(?)))")
     .bind(store.id, JSON.stringify(orderNos), JSON.stringify(packageIds)).all()).results
@@ -460,6 +461,9 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
       // dondurulan maliyet ancak orada bilinir. Böylece Kâr raporu ile bu ekran aynı rakamı verir.
       if (defterKaydi) {
         if (defterKaydi.eksik) { missing.push('Paketin ' + defterKaydi.eksik + ' satırı deftere işlenmemiş; maliyet eksik.'); cogs = null; cogsIncl = null; }
+        // Alis kaydi olmayan maldan satis yapilinca defterdeki birim maliyet 0 cikar. Bedava mal
+        // diye hesaba katmak kari sisirir: eksik veri sifir sayilmaz.
+        else if (defterKaydi.maliyetsiz) { missing.push('Satılan ürünün alış kaydı yok; birim maliyet bilinmiyor. Sıfır sayılmadı. Alış faturasını girince düzelir.'); cogs = null; cogsIncl = null; }
         else { cogs = defterKaydi.cost; cogsIncl = defterKaydi.incl; if (cogsIncl === null) missing.push('Defterdeki ürünün KDV oranı tanımlı değil; nakit sonuç hesaplanmadı.'); }
       } else if (cogs !== null) notes.push('Bu paket deftere bağlı değil; maliyet sipariş tarihindeki birim maliyetten hesaplandı.');
       const sum = type => events.filter(e => e.type === type).reduce((s, e) => s + e.amount_cents, 0);

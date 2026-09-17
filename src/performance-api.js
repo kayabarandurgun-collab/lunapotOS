@@ -56,6 +56,14 @@ export async function performanceApi(request,env,path){
   if(mode==='delivered'){
    const profit=packageProfit(p,packageLines,parts,entries),total=profit.totals;
    if(profit.status==='incomplete_records'){row.missing=profit.reasons;return row;}
+   // MALIYET SIFIR OLAMAZ. Alis kaydi olmayan bir maldan satis yapilinca (stok eksiye dustugu
+   // icin birim maliyet 0 cikar) sistem mali BEDAVA sayiyor ve kar sisiyordu. Eksik veri sifir
+   // sayilmaz: kar hesaplanmaz, sebebi yazilir. Alis belgesi girilince kendiliginde duzelir.
+   const maliyetsiz=entries.filter(e=>e.kind==='sale'&&e.cost_cents===0&&e.quantity_milli>0);
+   if(maliyetsiz.length){
+    row.missing=[...profit.reasons,'Satılan ürünün alış kaydı yok; birim maliyet bilinmiyor. Sıfır sayılmadı, kâr hesaplanmadı. Alış faturasını girince düzelir.'];
+    return row;
+   }
    const raporN=raporSatir.get(p.id);
    if(raporN!==undefined&&raporN>packageLines.length){
     row.missing=[...profit.reasons,'Pazaryeri raporu bu pakette '+raporN+' satır gösteriyor, defterde '+packageLines.length+
