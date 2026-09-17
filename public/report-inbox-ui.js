@@ -69,6 +69,15 @@ export function mountReports(root, namespace = 'ec') {
   };
 
   /* ---------- görünüm parçaları ---------- */
+  // Adimlar arasi GERI. Yanlis dosya veya yanlis sutun secildiginde tek yol bastan baslamak
+  // olmamali: kullanici bir adim geri donup duzeltebilmeli. Yapilan is korunur.
+  const ADIMLAR = ['pick', 'map', 'check', 'server'];
+  const geriButonu = () => {
+    const i = ADIMLAR.indexOf(state.draft?.step);
+    if (i < 1) return '';
+    const nereye = {map: 'dosya seçimine', check: 'sütun eşleştirmesine', server: 'kontrol ekranına'}[state.draft.step];
+    return `<button type="button" class="secondary" data-rb-act="back">← Geri (${nereye})</button>`;
+  };
   const tabs = () => `<div class="rb-tabs" role="tablist">${[['upload', 'Dosya yükle'], ['files', 'Yüklenen dosyalar'], ['reviews', 'İnceleme' + (state.data?.open_reviews ? ' (' + state.data.open_reviews + ')' : '')], ['orders', 'Sipariş sonuçları']]
     .map(([k, t]) => `<button type="button" role="tab" data-rb-tab="${k}" aria-selected="${state.tab === k}" class="${state.tab === k ? 'active' : ''}">${esc(t)}</button>`).join('')}</div>`;
   const status = () => `${state.error ? `<p class="rb-alert error" role="alert">${esc(state.error)}</p>` : ''}${state.message ? `<p class="rb-alert ok" role="status">${esc(state.message)}</p>` : ''}`;
@@ -141,7 +150,7 @@ export function mountReports(root, namespace = 'ec') {
             </select></label>`).join('')}</div></fieldset>`;
         })()}
         ${d.unknownTypes?.length ? `<fieldset><legend>Dosyada geçen işlem türleri — her biri ne anlama geliyor?</legend><div class="rb-grid">${d.unknownTypes.map((t, i) => `<label>${esc(t || '(boş)')}<select name="type_${i}" data-type-text="${esc(t)}"><option value="">Seçin…</option>${Object.entries(EVENT_TYPES).map(([k, v]) => `<option value="${k}" ${d.options.type_map?.[t] === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>`).join('')}</div></fieldset>` : ''}` : ''}
-      <div class="rb-actions"><button type="button" class="secondary" data-rb-act="restart">Vazgeç</button><button class="primary" type="submit">Eşleştirmeyi kaydet ve kontrol et</button></div></form></section>`;
+      <div class="rb-actions">${geriButonu()}<button type="button" class="secondary" data-rb-act="restart">Vazgeç</button><button class="primary" type="submit">Eşleştirmeyi kaydet ve kontrol et</button></div></form></section>`;
   }
 
   function checkView() {
@@ -154,7 +163,7 @@ export function mountReports(root, namespace = 'ec') {
         <div><dt>Boş satır</dt><dd>${num(n.skipped.empty)}</dd></div><div><dt>Toplam satırı (işlem sayılmadı)</dt><dd>${num(n.skipped.total)}</dd></div></dl>
       ${Object.keys(n.totals).length ? `<h4>Dosyadaki tutar toplamları</h4><dl class="rb-kv">${Object.entries(n.totals).map(([k, v]) => `<div><dt>${esc(FIELDS[d.kind].find(f => f.key === k)?.label || k)}</dt><dd class="rb-num">${money(v)}</dd></div>`).join('')}</dl>` : ''}
       ${Object.keys(issueCounts).length ? `<h4>Dikkat gerektirenler</h4><ul class="rb-list">${Object.entries(issueCounts).map(([k, v]) => `<li>${esc(REASONS[k] || k)}: <strong>${num(v)}</strong> kayıt${['formula'].includes(k) ? ' (bilgi)' : ' — incelemeye ayrılacak'}</li>`).join('')}</ul>` : '<p class="rb-muted">Okuma sırasında sorun görülmedi.</p>'}
-      <div class="rb-actions"><button type="button" class="secondary" data-rb-act="remap">Eşleştirmeyi değiştir</button>${d.profile && !d.profile.sample_verified ? '<button type="button" class="secondary" data-rb-act="verify">Toplamlar doğru, eşleştirmeyi doğrulandı işaretle</button>' : ''}<button type="button" class="primary" data-rb-act="upload">Yükle ve mevcut kayıtlarla karşılaştır</button></div></section>`;
+      <div class="rb-actions"><button type="button" class="secondary" data-rb-act="remap">Eşleştirmeyi değiştir</button>${d.profile && !d.profile.sample_verified ? '<button type="button" class="secondary" data-rb-act="verify">Toplamlar doğru, eşleştirmeyi doğrulandı işaretle</button>' : ''}<button type="button" class="primary" data-rb-act="upload">Yükle ve mevcut kayıtlarla karşılaştır</button></div><div class="rb-actions">${geriButonu()}<button type="button" class="secondary" data-rb-act="restart">Vazgeç</button></div></section>`;
   }
 
   function serverView() {
@@ -166,7 +175,7 @@ export function mountReports(root, namespace = 'ec') {
         ${p.unknown_types?.length ? `<p class="rb-alert warn">Tanımsız işlem türleri: ${esc(p.unknown_types.join(', '))}. Eşleştirmede karşılığını seç.</p>` : ''}
         ${p.reviews.length ? `<details><summary>İncelemeye ayrılacak ilk ${p.reviews.length} kayıt</summary><ul class="rb-list">${p.reviews.map(r => `<li>Satır ${r.row}: ${esc(REASONS[r.reason] || r.reason)} — ${esc(r.detail)}</li>`).join('')}</ul></details>` : ''}
         <p class="rb-muted">${esc(p.notice)}</p>` : ''}
-      <div class="rb-actions">${d.result ? `<button type="button" class="secondary" data-rb-act="restart">Yeni dosya</button><button type="button" class="primary" data-rb-tab="orders">Sipariş sonuçlarını gör</button>` : p && !prog ? `<button type="button" class="secondary" data-rb-act="restart">Vazgeç</button><button type="button" class="primary" data-rb-act="apply" data-id="${esc(d.fileId)}">İşle</button>` : ''}</div>
+      <div class="rb-actions">${d.result ? `<button type="button" class="secondary" data-rb-act="restart">Yeni dosya</button><button type="button" class="primary" data-rb-tab="orders">Sipariş sonuçlarını gör</button>` : p && !prog ? `${geriButonu()}<button type="button" class="secondary" data-rb-act="restart">Vazgeç</button><button type="button" class="primary" data-rb-act="apply" data-id="${esc(d.fileId)}">İşle</button>` : ''}</div>
       ${d.result ? `<p class="rb-alert ok">Tamamlandı: ${Object.entries(d.result).map(([k, v]) => esc(OUTCOMES[k] || k) + ' ' + num(v)).join(' · ')}</p>` : ''}</section>`;
   }
 
@@ -193,7 +202,9 @@ export function mountReports(root, namespace = 'ec') {
     const o = state.orders;
     const g = state.gaps;
     const st = state.stuck;
-    const stuckUyari = st?.count ? `<div class="notice" role="alert"><strong>${st.count} paket raporda teslim edilmiş görünüyor ama defterde kargoda duruyor.</strong> Kâr yalnız teslim edilmiş pakette hesaplanır; bunlar toplamın dışında kalıyor. Teslim tarihi raporda yazıyor, elle bir şey girmene gerek yok.<ul class="rb-list">${st.packages.slice(0, 10).map(x => `<li><strong>${esc(x.order_no)}</strong> · ${esc(x.external_id)} — rapordaki teslim tarihi ${esc(x.gun)} (${esc(x.durum || '')})</li>`).join('')}</ul><button type="button" class="primary" data-rb-act="sync-deliveries">Teslim tarihlerini rapordan al</button></div>` : '';
+    const stuckUyari = st?.count ? `<div class="notice" role="alert"><strong>${st.count} paket raporda teslim edilmiş görünüyor ama defterde kargoda duruyor.</strong> Kâr yalnız teslim edilmiş pakette hesaplanır; bunlar toplamın dışında kalıyor. Teslim tarihi raporda yazıyor, elle bir şey girmene gerek yok.<ul class="rb-list">${st.packages.slice(0, 10).map(x => `<li><strong>${esc(x.order_no)}</strong> · ${esc(x.external_id)} — rapordaki teslim tarihi ${esc(x.gun)} (${esc(x.durum || '')})</li>`).join('')}</ul>${state.syncConfirm
+      ? `<div class="notice"><strong>Onaylıyor musun?</strong> Yukarıdaki ${st.count} paket, rapordaki teslim tarihiyle "teslim edildi" olarak işaretlenecek. Stok, satış tutarı ve kesintiler DEĞİŞMEZ. <strong>Bu işlem geri alınamaz</strong> — teslim edilmiş paket kargodaya geri döndürülemez.<div class="rb-actions"><button type="button" class="secondary" data-rb-act="sync-cancel">← Vazgeç</button><button type="button" class="primary" data-rb-act="sync-go">Evet, teslim tarihlerini yaz</button></div></div>`
+      : `<button type="button" class="primary" data-rb-act="sync-deliveries">Teslim tarihlerini rapordan al</button>`}</div>` : '';
     const gapUyari = g?.gaps?.length ? `<div class="notice" role="alert"><strong>${g.gaps.length} pakette raporda olan satır defterde yok</strong> — toplam ${money(g.total_missing_cents)} ciro. Bu paketlerin kârı hesaplanmıyor, çünkü eksik satırın cirosu yokken paketin bütün kesintileri kalan satıra yüklenir. Bu malların stoktan da düşmediğini unutma.<ul class="rb-list">${g.gaps.slice(0, 10).map(x => `<li><strong>${esc(x.order_no)}</strong> · ${esc(x.external_id)} — raporda ${x.report_lines} satır, defterde ${x.ledger_lines}. Eksik: ${x.missing_lines.map(l => esc((l.product_name || l.barcode || l.sku || 'ürün')) + ' ×' + (l.quantity ?? 1) + ' (' + money(l.gross) + ')').join(', ') || money(x.missing_gross)}</li>`).join('')}</ul><p class="rb-muted">${esc(g.notice)}</p></div>` : '';
     const missing = o ? o.results.filter(r => r.contribution_missing.length).length : 0;
     const cards = o ? `<div class="rb-status">
@@ -386,8 +397,18 @@ export function mountReports(root, namespace = 'ec') {
     const a = act.dataset.rbAct, id = act.dataset.id;
     if (a === 'restart') { state.draft = {step: 'pick', kind: state.draft?.kind || 'orders', store_id: state.draft?.store_id, snapshot_at: localNow()}; render(); }
     if (a === 'remap') { state.draft.step = 'map'; render(); }
-    if (a === 'sync-deliveries') run(async () => {
+    if (a === 'back') {
+      const i = ADIMLAR.indexOf(state.draft?.step);
+      // Dosya islenmeye baslandiysa geri donmek yaniltici olur: o noktada yol "Vazgeç"tir.
+      if (i > 0 && !state.draft?.result) { state.draft.step = ADIMLAR[i - 1]; render(); }
+    }
+    // Teslim onayi GERI ALINAMAZ (durum makinesi delivered -> shipped yolunu kapatir).
+    // Bu yuzden tek tusla degil, ne yazilacagi ekranda yazarken ikinci bir onayla calisir.
+    if (a === 'sync-deliveries') { state.syncConfirm = true; render(); return; }
+    if (a === 'sync-cancel') { state.syncConfirm = false; render(); return; }
+    if (a === 'sync-go') run(async () => {
       const r = await api('/sync-deliveries', {confirm: true});
+      state.syncConfirm = false;
       say(r.count + ' paketin teslim tarihi rapordan alındı. Stok, satış ve kesinti değişmedi.');
       await loadOrders(); await loadSummary();
     });
