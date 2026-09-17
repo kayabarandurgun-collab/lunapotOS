@@ -11,7 +11,7 @@ const localNow = () => { const d = new Date(), p = n => String(n).padStart(2, '0
 const REASONS = {ambiguous_twin: 'Kimliksiz ikiz satır', id_precision: 'Kimlik bozulmuş olabilir', bad_value: 'Okunamayan değer', missing_required: 'Zorunlu alan boş',
   unknown_type: 'Tanımsız işlem türü', no_amount: 'Tutar yok', duplicate_in_file: 'Dosyada aynı kimlik iki kez', same_time_conflict: 'Aynı zamanlı çelişki',
   posted_changed: 'Sevk edilmiş siparişte değişiklik', erp_ambiguous: 'ERP\'de birden çok aday', store_ambiguous: 'Mağaza ayrımı belirsiz', review: 'İnceleme'};
-const OUTCOMES = {new: 'Yeni', updated: 'Güncellenen', same: 'Aynı (tekrar)', older: 'Eski rapor — yok sayıldı', review: 'İncelemeye ayrılan'};
+const OUTCOMES = {new: 'Yeni', updated: 'Güncellenen', same: 'Aynı (tekrar)', older: 'Eski rapor — yok sayıldı', review: 'İncelemeye ayrılan', fee_events: 'Kesinti kaydı', delivered: 'Teslime geçen paket'};
 const CHUNK = 480 * 1024, ROW_BYTES = 800000;
 
 function b64(bytes) {
@@ -176,7 +176,8 @@ export function mountReports(root, namespace = 'ec') {
         ${p.reviews.length ? `<details><summary>İncelemeye ayrılacak ilk ${p.reviews.length} kayıt</summary><ul class="rb-list">${p.reviews.map(r => `<li>Satır ${r.row}: ${esc(REASONS[r.reason] || r.reason)} — ${esc(r.detail)}</li>`).join('')}</ul></details>` : ''}
         <p class="rb-muted">${esc(p.notice)}</p>` : ''}
       <div class="rb-actions">${d.result ? `<button type="button" class="secondary" data-rb-act="restart">Yeni dosya</button><button type="button" class="primary" data-rb-tab="orders">Sipariş sonuçlarını gör</button>` : p && !prog ? `${geriButonu()}<button type="button" class="secondary" data-rb-act="restart">Vazgeç</button><button type="button" class="primary" data-rb-act="apply" data-id="${esc(d.fileId)}">İşle</button>` : ''}</div>
-      ${d.result ? `<p class="rb-alert ok">Tamamlandı: ${Object.entries(d.result).map(([k, v]) => esc(OUTCOMES[k] || k) + ' ' + num(v)).join(' · ')}</p>` : ''}</section>`;
+      ${d.result ? `<p class="rb-alert ok">Tamamlandı: ${Object.entries(d.result).map(([k, v]) => esc(OUTCOMES[k] || k) + ' ' + num(v)).join(' · ')}</p>
+      ${d.result.fee_events ? `<div class="notice" role="alert"><strong>Bu dosya ${num(d.result.fee_events)} kesinti kaydı getirdi.</strong> Finans dosyası yüklemek tek başına kâr rakamlarını değiştirmez: kesintilerin satış kayıtlarına aktarılması ayrı bir adımdır. Aktarmazsan kâr eski kesintilerle hesaplanmaya devam eder.<div class="rb-actions"><button type="button" class="primary" data-rb-tab="orders">Kesintileri aktarmaya git →</button></div></div>` : ''}` : ''}</section>`;
   }
 
   function filesView() {

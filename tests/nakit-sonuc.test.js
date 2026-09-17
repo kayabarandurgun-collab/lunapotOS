@@ -382,3 +382,26 @@ test('Geçmişe dönük teslim onayı: önizleme yazmaz, onay yalnız kargodakin
       'kargoya verilmemiş paket teslime çekilmedi');
   } finally { f.close(); }
 });
+
+// Finans dosyası yüklemek tek başına kâr rakamlarını değiştirmez: kesintilerin satış
+// kayıtlarına aktarılması ayrı bir adımdır. Kullanıcı bunu bilmiyorsa yüklediği raporun
+// etkisini göremez ve hesapların tutmadığını sanır. Sayı yükleme sonucunda dönmeli.
+test('Yükleme sonucu kaç kesinti kaydı geldiğini söyler', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    const KOL = [{header: 'Sipariş No'}, {header: 'İşlem Tipi'}, {header: 'Tutar'}];
+    const ESL = {order_no: 'Sipariş No', event_type: 'İşlem Tipi', amount: 'Tutar'};
+    await f.ok('/ec/reports/profiles', {provider: 'hepsiburada', kind: 'finance', headers: KOL.map(c => c.header),
+      mapping: ESL, options: {type_map: {Komisyon: 'commission', Kargo: 'cargo'}, fee_amounts_include_vat: false, undated: true}});
+    const bytes = new Uint8Array(xlsxBytes([{name: 'R', columns: KOL, rows: [['S1', 'Komisyon', '-48,00'], ['S1', 'Kargo', '-30,00']]}]));
+    const t = await readTable(bytes, {name: 'fin.xlsx'});
+    const d = await f.ok('/ec/reports/files', {store_id: 'st', kind: 'finance', filename: 'fin.xlsx', size_bytes: bytes.length,
+      sha256: await sha256Hex(bytes), snapshot_at: '2026-09-08T10:00', sheet: t.sheet, headers: t.headers,
+      date1904: t.date1904, row_count: t.rows.length, chunk_count: 1, warnings: t.warnings});
+    await f.ok('/ec/reports/files/' + d.id + '/chunk', {index: 0, data: Buffer.from(bytes).toString('base64')});
+    await f.ok('/ec/reports/files/' + d.id + '/rows', {rows: t.rows});
+    await f.ok('/ec/reports/files/' + d.id + '/seal', {});
+    let r; do { r = await f.ok('/ec/reports/files/' + d.id + '/apply', {}); } while (!r.done);
+    assert.equal(r.counts.fee_events, 2, 'gelen kesinti kaydı sayısı bildirildi');
+  } finally { f.close(); }
+});

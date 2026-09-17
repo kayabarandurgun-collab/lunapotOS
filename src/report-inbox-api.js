@@ -1014,6 +1014,11 @@ export async function reportInboxApi(request, env, path, readBody) {
       const stmts = [db.prepare('INSERT INTO ec_report_apply_steps(file_id,from_row,to_row) VALUES(?,?,?)').bind(f.id, f.applied_row, toRow)];
       for (const r of part) {
         counts[r.outcome] = (counts[r.outcome] || 0) + 1;
+        // Kac KESINTI kaydi geldi? Finans dosyasi yuklemek tek basina kar rakamlarini
+        // degistirmez; kesintilerin satis kayitlarina aktarilmasi ayri bir adimdir.
+        // Kullaniciya bu adimi hatirlatabilmek icin sayilir.
+        if (r.kind === 'finance_event' && ['new', 'updated'].includes(r.outcome))
+          counts.fee_events = (counts.fee_events || 0) + 1;
         stmts.push(db.prepare('INSERT INTO ec_report_outcomes(file_id,row_no,record_key,outcome) VALUES(?,?,?,?)').bind(f.id, r.row, r.kind + '|' + r.key, r.outcome));
         if (r.outcome === 'new') {
           const recId = id(), erp = r.kind === 'order_line' ? await erpMatch(db, f.provider, r.data) : {id: null};
