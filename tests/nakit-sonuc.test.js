@@ -228,3 +228,22 @@ test('Yerine yenisi kurulan taslak, gerçek sipariş iptalinden ayrı sayılır'
     assert.equal(c.rebuilt, 1, 'yalnızca yerine yenisi kurulan taslak ayrıldı');
   } finally { f.close(); }
 });
+
+// Sipariş listesindeki sonuç sütunu, kâr raporuyla AYNI rakamı vermeli. Önceden KDV hariç
+// katkı ekranda 1,2 ile çarpılıyordu: bu nakit değildir, çünkü kesintilerin KDV'si indirilebilir.
+test('Sipariş listesindeki sonuç, kâr raporundaki nakitle aynı', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    const liste = await f.ok('/ec/orders');
+    const p = liste.packages.find(x => x.id === 'pk');
+    const kanal = (await rapor(f)).rows.find(r => r.id === 'pk');
+    assert.ok(Number.isSafeInteger(p.cash_result_cents), 'listede nakit sonuç var');
+    assert.equal(p.cash_result_cents, kanal.cash_cents, 'iki ekran kuruşu kuruşuna aynı');
+    assert.equal(p.result_cents, kanal.profit_cents, 'KDV hariç katkı da aynı');
+    // Nakit, kalemlerin KDV DAHİL hâlinden kurulur; katkının kaba 1,2 katı değildir.
+    assert.equal(p.cash_result_cents,
+      kanal.revenue_gross_cents - kanal.cost_gross_cents - kanal.commission_gross_cents
+      - kanal.shipping_gross_cents - kanal.other_gross_cents,
+      'nakit sonuç kalemlerin KDV dahil toplamıyla tutuyor');
+  } finally { f.close(); }
+});

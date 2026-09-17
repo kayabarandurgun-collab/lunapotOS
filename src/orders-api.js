@@ -89,14 +89,37 @@ export async function ordersApi(request,env,path,readBody){
   const counts=(await db.prepare('SELECT status,COUNT(*) count,SUM(CASE WHEN '+yenidenKurulan+' THEN 1 ELSE 0 END) rebuilt FROM order_packages GROUP BY status').all()).results;
   const total=(await statement(db,'SELECT COUNT(*) count FROM order_packages'+scope,args).first()).count;
   const stock=new Map(products.map(p=>[p.id,p.quantity_milli-p.reserved_milli]));
+  // Listede gosterilen rakam NAKIT olmali; kar raporuyla ayni sayiyi vermeli. Onceki halinde
+  // KDV haric katki ekranda 1,2 ile carpiliyordu: bu nakit DEGILDIR, cunku kesintilerin KDV'si
+  // indirilebilir. Nakit burada kalem kalem kuruluyor ve oranlar UYDURULMUYOR:
+  // urun KDV'si fiyat profilinden, kesinti KDV'si pazaryeri finans profilinin beyanindan.
+  const feeVat=new Map();
+  for(const r of (await db.prepare("SELECT provider,json_extract(options_json,'$.fee_vat_bps') bps FROM ec_report_profiles WHERE kind='finance' AND json_extract(options_json,'$.fee_amounts_include_vat')=1 AND json_extract(options_json,'$.fee_vat_bps') IS NOT NULL").all()).results){
+   if(feeVat.has(r.provider)&&feeVat.get(r.provider)!==r.bps)feeVat.set(r.provider,null);else if(!feeVat.has(r.provider))feeVat.set(r.provider,r.bps);
+  }
   const ozet=new Map();
-  for(const r of (await statement(db,"SELECT l.package_id pid,"
+  // Yalnizca GOSTERILEN SAYFANIN paketleri hesaplanir. Onceden butun satis kayitlari her
+  // acilista bastan taraniyordu; sayfalamaya baglamak okuma maliyetini sayfa boyuna indirir.
+  // Yuvarlama kar raporuyla AYNI yerde yapilir (kalem kalem), yoksa iki ekran kurus kurus ayrisir.
+  for(const r of (await statement(db,"SELECT l.package_id pid,p.channel kanal,"
     +" SUM(s.revenue_cents) gelir,"
     +" SUM(s.revenue_cents-s.cost_cents-COALESCE(s.commission_cents,0)-COALESCE(s.shipping_cents,0)-COALESCE(s.other_cents,0)) sonuc,"
+    +" SUM(CAST(ROUND(s.revenue_cents*COALESCE(pp.vat_bps,0)/10000.0) AS INTEGER)-CAST(ROUND(s.cost_cents*COALESCE(pp.vat_bps,0)/10000.0) AS INTEGER)) urun_kdv,"
+    +" SUM(COALESCE(s.commission_cents,0)) komisyon,SUM(COALESCE(s.shipping_cents,0)) kargo,SUM(COALESCE(s.other_cents,0)) diger,"
+    +" MIN(CASE WHEN pp.vat_bps IS NULL THEN 0 ELSE 1 END) kdv_tam,"
     +" MIN(CASE WHEN s.commission_cents IS NULL OR s.shipping_cents IS NULL OR s.other_cents IS NULL THEN 0 ELSE 1 END) tam"
     +" FROM order_lines l JOIN order_line_components c ON c.line_id=l.id"
-    +" JOIN sale_entries s ON s.id=c.sale_id GROUP BY l.package_id").all()).results) ozet.set(r.pid,r);
-  return {packages:packages.slice(0,500).map(p=>{const ls=lines.filter(l=>l.package_id===p.id),lineIDs=new Set(ls.map(l=>l.id)),cs=components.filter(c=>lineIDs.has(c.line_id)),needs=new Map();for(const c of cs)needs.set(c.product_id,(needs.get(c.product_id)||0)+c.quantity_milli);const readiness=p.source_changed?'source_changed':ls.some(l=>cs.filter(c=>c.line_id===l.id).reduce((n,c)=>n+c.revenue_share_bps,0)!==10000)||cs.some(c=>c.stock_unit!==c.current_stock_unit)?'needs_mapping':ls.some(l=>l.net_revenue_cents===null)?'needs_amounts':p.status==='draft'&&[...needs].some(([product,q])=>(stock.get(product)||0)<q)?'needs_stock':'ready';return {...p,revenue_net_cents:ozet.get(p.id)?.gelir??null,result_cents:ozet.get(p.id)?.tam?ozet.get(p.id).sonuc:null,readiness};}),lines,components,products:products.map(p=>({...p,available_milli:p.quantity_milli-p.reserved_milli})),reservations,counts,truncated:offset+packages.length<total,pagination:{page,limit,total,pages:Math.max(1,Math.ceil(total/limit)),has_more:offset+packages.length<total}};
+    +" JOIN order_packages p ON p.id=l.package_id"
+    +" JOIN sale_entries s ON s.id=c.sale_id"
+    +" LEFT JOIN ec_price_profiles pp ON pp.product_id=s.product_id"
+    +" WHERE l.package_id IN (SELECT id FROM order_packages"+pageSQL+") GROUP BY l.package_id",pageArgs).all()).results){
+   const fv=feeVat.get(r.kanal),yuvarla=x=>Math.round(x*fv/10000);
+   // Kesinti KDV'si beyan edilmemisse nakit hesaplanmaz; oran uydurulmaz, alan bos kalir.
+   r.nakit=r.tam&&r.kdv_tam&&Number.isInteger(fv)
+    ?r.sonuc+r.urun_kdv-yuvarla(r.komisyon)-yuvarla(r.kargo)-yuvarla(r.diger):null;
+   ozet.set(r.pid,r);
+  }
+  return {packages:packages.slice(0,500).map(p=>{const ls=lines.filter(l=>l.package_id===p.id),lineIDs=new Set(ls.map(l=>l.id)),cs=components.filter(c=>lineIDs.has(c.line_id)),needs=new Map();for(const c of cs)needs.set(c.product_id,(needs.get(c.product_id)||0)+c.quantity_milli);const readiness=p.source_changed?'source_changed':ls.some(l=>cs.filter(c=>c.line_id===l.id).reduce((n,c)=>n+c.revenue_share_bps,0)!==10000)||cs.some(c=>c.stock_unit!==c.current_stock_unit)?'needs_mapping':ls.some(l=>l.net_revenue_cents===null)?'needs_amounts':p.status==='draft'&&[...needs].some(([product,q])=>(stock.get(product)||0)<q)?'needs_stock':'ready';return {...p,revenue_net_cents:ozet.get(p.id)?.gelir??null,result_cents:ozet.get(p.id)?.tam?ozet.get(p.id).sonuc:null,cash_result_cents:ozet.get(p.id)?.nakit??null,readiness};}),lines,components,products:products.map(p=>({...p,available_milli:p.quantity_milli-p.reserved_milli})),reservations,counts,truncated:offset+packages.length<total,pagination:{page,limit,total,pages:Math.max(1,Math.ceil(total/limit)),has_more:offset+packages.length<total}};
  }
  const previewMatch=path.match(/^\/api\/orders\/([\w-]+)\/source$/);
  if(previewMatch&&method==='GET'){
