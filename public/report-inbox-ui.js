@@ -193,10 +193,26 @@ export function mountReports(root, namespace = 'ec') {
 
   function reviewsView() {
     const list = state.reviews || [];
-    const kv = o => o ? `<dl class="rb-kv small">${Object.entries(o).filter(([k]) => !['source_field'].includes(k)).map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(String(v).slice(0, 60))}</dd></div>`).join('')}</dl>` : '<p class="rb-muted">Önceki kayıt yok.</p>';
+    // Iki kaydi yan yana dokmek yetmiyor: onlarca alan arasinda NEYIN degistigini kullanici
+    // gozle ariyordu. Degisen alanlar isaretlenir ve basa alinir; ustte tek satirlik ozet durur.
+    const ALAN = {gross: 'tutar', quantity: 'adet', status: 'durum', delivered_date: 'teslim tarihi',
+      barcode: 'barkod', sku: 'stok kodu', order_no: 'sipariş no', package_id: 'paket no',
+      amount_cents: 'tutar (kuruş)', net_payout: 'net hakediş', type: 'işlem türü', order_date: 'sipariş tarihi'};
+    const degisenler = r => {
+      const a = r.prior || {}, b = r.incoming || {};
+      return [...new Set([...Object.keys(a), ...Object.keys(b)])]
+        .filter(k => k !== 'source_field' && String(a[k] ?? '') !== String(b[k] ?? ''));
+    };
+    const kv = (o, degisen = []) => o ? `<dl class="rb-kv small">${Object.entries(o)
+      .filter(([k]) => !['source_field'].includes(k))
+      .sort((x, y) => (degisen.includes(y[0]) ? 1 : 0) - (degisen.includes(x[0]) ? 1 : 0))
+      .map(([k, v]) => `<div${degisen.includes(k) ? ' class="rb-degisti"' : ''}><dt>${esc(ALAN[k] || k)}</dt><dd>${esc(String(v).slice(0, 60))}</dd></div>`).join('')}</dl>` : '<p class="rb-muted">Önceki kayıt yok.</p>';
     return `<section class="v2-card"><h3>İnceleme bekleyenler</h3><p class="rb-muted">Otomatik karar verilemeyen kayıtlar. "Kabul et" gelen bilgiyi yeni sürüm olarak alır; kimliksiz ikizlerde ayrı kayıt açar (iadeler birleştirilmez). "Reddet" mevcut bilgiyi korur.</p>
       ${list.length ? list.map(r => `<article class="rb-review"><header><strong>${esc(REASONS[r.reason] || r.reason)}</strong><span>${esc(PROVIDERS[r.provider])} · ${esc(r.store_name)} · ${esc(r.filename)} · satır ${r.row_no}</span></header><p>${esc(r.detail)}</p>
-        <div class="rb-compare"><div><h4>Gelen</h4>${kv(r.incoming)}</div><div><h4>Mevcut</h4>${kv(r.prior)}</div></div>
+        ${(() => { const d = degisenler(r); return d.length
+          ? `<p class="rb-alert">Değişen: ${d.map(k => `<b>${esc(ALAN[k] || k)}</b> (${esc(String(r.prior?.[k] ?? '—').slice(0, 40))} → ${esc(String(r.incoming?.[k] ?? '—').slice(0, 40))})`).join(' · ')}</p>`
+          : '<p class="rb-muted">Alanlarda fark yok; kayıt aynı anda geldiği için karar verilemedi.</p>'; })()}
+        <div class="rb-compare"><div><h4>Gelen</h4>${kv(r.incoming, degisenler(r))}</div><div><h4>Mevcut</h4>${kv(r.prior, degisenler(r))}</div></div>
         <div class="rb-actions"><button type="button" class="secondary" data-rb-act="reject" data-id="${esc(r.id)}">Reddet</button><button type="button" class="primary" data-rb-act="accept" data-id="${esc(r.id)}">Kabul et</button></div></article>`).join('') : '<p class="rb-muted">İnceleme bekleyen kayıt yok.</p>'}</section>`;
   }
 

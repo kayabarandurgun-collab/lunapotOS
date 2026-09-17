@@ -191,3 +191,8 @@ td strong,.recipe-card h2,.studio-material strong,.history-links li{overflow-wra
    öteki mağazaya geçmek için sayfayı aramak zorunda kalmasın. */
 .rb-store-picker{position:sticky;top:0;z-index:5}
 @media (max-width:640px){.rb-store-picker{position:static}}
+
+/* İnceleme ekranı: değişen alan göz kaçırmasın. Renk tek başına taşımasın diye
+   sol çubuk ve kalın etiketle birlikte verilir. */
+.rb-degisti{border-left:3px solid currentColor;padding-left:.5rem;background:color-mix(in srgb,currentColor 7%,transparent)}
+.rb-degisti dt{font-weight:600}
