@@ -75,62 +75,73 @@ async function plan(env, storeId, packageId, lineIdentityDeclared = false) {
     // karli siparis zararli gorunur; ustelik cikan mal stoktan dusmemistir.
     // Bu durumda eksik satirlar icin AYRI bir paket kurulur (1 siparis -> N paket, sistemin
     // kendi modeli). Mevcut paket ve onun satirlari DEGISMEZ.
-    const defterSatirlari = (await db.prepare('SELECT external_id,quantity_milli FROM ec_order_lines WHERE package_id=?')
+    // Defter satirini rapor satiriyla eslestirmek icin IKI alan da bakilir: external_id ve sku.
+    // Fatura kaydindan kurulan pakette kimlik 'TEA...-1' bicimindedir ve barkod tasimaz; barkod
+    // sku alanindadir. Tek alana bakmak butun satirlari "eksik" gosterirdi.
+    const defterSatirlari = (await db.prepare('SELECT external_id,sku,quantity_milli FROM ec_order_lines WHERE package_id=?')
       .bind(linked.erp_package_id).all()).results;
-    const defterSatir = new Map(defterSatirlari.map(r => [String(r.external_id), r.quantity_milli]));
-    const kimlikli = records.map(r => ({r, kimlik: lineIdentity(r.data, packageId, lineIdentityDeclared)}));
-    const eksik = kimlikli.filter(x => x.kimlik && !defterSatir.has(String(x.kimlik))).map(x => x.r);
-    // Ortusen satirlarda ADET degismis olmamali: degismisse bu "eksik satir" degil, raporun
-    // degismesidir ve asagidaki surukleme denetimine birakilir. Tutar karsilastirilmaz:
-    // indirimli satista rapor liste fiyatini, defter indirimli fiyati tutar; fark normaldir.
-    const ortusenTutuyor = kimlikli.every(x => !x.kimlik || !defterSatir.has(String(x.kimlik))
-      || defterSatir.get(String(x.kimlik)) === (x.r.data.quantity ?? 0) * 1000);
-    // Defter fazladan satir tasiyorsa durum belirsizdir: eksik satir eklemek tabloyu duzeltmez.
-    const defterFazlaYok = defterSatirlari.every(l => kimlikli.some(x => String(x.kimlik) === String(l.external_id)));
-    // YANLIS BAGLAMA: bu paketin satirlarinin HICBIRI defterde yok ve ayni defter paketini BASKA
-    // bir rapor paketi de sahipleniyorsa, bu paket yanlis kayda baglanmistir. Fatura kaydindan
-    // kurulan paketlerde satir kimlikleri barkod tasimaz; kimlik karsilastirmasi bu yuzden
-    // ortusmez. Tek basina "kimlik tutmadi" yetmez — DEFTERDEKI ADET, o defter paketini
-    // sahiplenen rapor satirlarinin toplam adedinden AZ olmali. Yoksa ayni satis ikinci kez
-    // deftere gecer. Sayim uydurulmaz, iki taraftan da okunur.
-    let yanlisBaglama = false;
-    if (eksik.length === records.length && records.length) {
-      const sahipler = (await db.prepare(
-        "SELECT json_extract(data_json,'$.package_id') pk,json_extract(data_json,'$.quantity') adet" +
-        " FROM ec_report_records WHERE kind='order_line' AND erp_package_id=? AND store_id=?")
-        .bind(linked.erp_package_id, store.id).all()).results;
-      const baskaPaket = sahipler.some(r => String(r.pk) !== String(packageId));
-      const raporAdet = sahipler.reduce((t, r) => t + (Number(r.adet) || 0), 0);
-      const defterAdet = defterSatirlari.reduce((t, l) => t + (l.quantity_milli || 0) / 1000, 0);
-      yanlisBaglama = baskaPaket && defterAdet < raporAdet;
+    // Eslestirme TUKETEREK yapilir: her defter satiri EN FAZLA BIR rapor satirini karsilar.
+    // Kume uyeligine bakmak yanlis olurdu — ayni barkodlu iki satirdan biri defterde yoksa
+    // ikisi de "var" gorunurdu.
+    const kalanDefter = defterSatirlari.slice();
+    const eksik = [];
+    for (const r of records) {
+      const kimlik = String(lineIdentity(r.data, packageId, lineIdentityDeclared) ?? '');
+      const i = kalanDefter.findIndex(l => (kimlik && String(l.external_id ?? '') === kimlik)
+        || (r.data.barcode && String(l.sku ?? '') === String(r.data.barcode))
+        || (r.data.sku && String(l.sku ?? '') === String(r.data.sku)));
+      if (i < 0) eksik.push(r); else kalanDefter.splice(i, 1);
     }
-    if (eksik.length && (yanlisBaglama || (eksik.length < records.length && ortusenTutuyor && defterFazlaYok))) {
-      const eksikSorun = [];
-      for (const r of eksik) {
+
+    // ADET EKSIGI: kimlikler ortusse bile defterdeki toplam adet, o defter paketini sahiplenen
+    // rapor satirlarinin toplamindan az olabilir. Pazaryeri IKI paket gonderdigi halde ikisi de
+    // ayni defter kaydina baglanmissa boyle olur: ikinci paketin mali hic deftere girmemistir.
+    // Sayim uydurulmaz, iki taraftan da okunur; esitse hicbir sey yapilmaz.
+    const sahipler = (await db.prepare(
+      "SELECT json_extract(data_json,'$.package_id') pk,json_extract(data_json,'$.quantity') adet" +
+      " FROM ec_report_records WHERE kind='order_line' AND erp_package_id=? AND store_id=?")
+      .bind(linked.erp_package_id, store.id).all()).results;
+    const baskaPaket = sahipler.some(r => String(r.pk) !== String(packageId));
+    const raporAdet = sahipler.reduce((t, r) => t + (Number(r.adet) || 0), 0);
+    const defterAdet = defterSatirlari.reduce((t, l) => t + (l.quantity_milli || 0) / 1000, 0);
+    const adetEksigi = baskaPaket && defterAdet < raporAdet;
+
+    // Ayrilacak satirlar: kimligi defterde bulunmayanlar; hicbiri bulunamiyorsa ve adet eksigi
+    // varsa bu paketin TAMAMI yanlis kayda baglanmistir.
+    // ADET KORUMASI HER DURUMDA: defterdeki toplam adet rapordakini karsiliyorsa hicbir sey
+    // ayrilmaz. Kimlik biciminden dogan bir yanilgi yuzunden ayni satis ikinci kez deftere
+    // gecmesin. Ayrilacak satirlar once kimligi bulunmayanlardir; hicbiri bulunamiyorsa ve
+    // defter kaydini baska bir rapor paketi de sahipleniyorsa bu paketin TAMAMI yanlis baglidir.
+    const ayrilacak = defterAdet >= raporAdet ? []
+      : eksik.length && eksik.length < records.length ? eksik
+        : adetEksigi ? records : [];
+    if (ayrilacak.length) {
+      const ayrilacakSorun = [];
+      for (const r of ayrilacak) {
         const d = r.data;
-        if (!day(String(d.order_date || '').slice(0, 10))) eksikSorun.push('Sipariş tarihi eksik veya geçersiz.');
-        if (!Number.isSafeInteger(d.quantity) || d.quantity <= 0) eksikSorun.push('Sipariş adedi geçersiz.');
-        if (CANCELLED.test(String(d.status || '').toLocaleLowerCase('tr-TR'))) eksikSorun.push('İptal/iade kaydı ayrı olaydır; yeni satışa çevrilmez.');
-        if (!d.barcode && !d.sku) eksikSorun.push('Barkod veya satıcı stok kodu eksik.');
+        if (!day(String(d.order_date || '').slice(0, 10))) ayrilacakSorun.push('Sipariş tarihi eksik veya geçersiz.');
+        if (!Number.isSafeInteger(d.quantity) || d.quantity <= 0) ayrilacakSorun.push('Sipariş adedi geçersiz.');
+        if (CANCELLED.test(String(d.status || '').toLocaleLowerCase('tr-TR'))) ayrilacakSorun.push('İptal/iade kaydı ayrı olaydır; yeni satışa çevrilmez.');
+        if (!d.barcode && !d.sku) ayrilacakSorun.push('Barkod veya satıcı stok kodu eksik.');
       }
-      const gun = String(eksik[0].data.order_date || '').slice(0, 10);
+      const gun = String(ayrilacak[0].data.order_date || '').slice(0, 10);
       const ortak = {store, outcome: 'partial', stock_write: false, covered_by: linked.erp_package_id,
-        missing_lines: eksik.map(r => ({barcode: r.data.barcode || r.data.sku, name: r.data.product_name,
+        missing_lines: ayrilacak.map(r => ({barcode: r.data.barcode || r.data.sku, name: r.data.product_name,
           quantity: r.data.quantity, gross_cents: r.data.gross ?? null}))};
-      if (eksikSorun.length) return {...ortak, outcome: 'review', issues: [...new Set(eksikSorun)],
+      if (ayrilacakSorun.length) return {...ortak, outcome: 'review', issues: [...new Set(ayrilacakSorun)],
         reason: 'Bu paketin bazı satırları defterde yok ama olduğu gibi aktarılamıyor; incelemede kalır.'};
       if (!start) return {...ortak, outcome: 'blocked', reason: 'Stok başlangıç tarihi girilmemiş.'};
       if (gun < start) return {...ortak, outcome: 'historical', occurred_on: gun,
         reason: 'Eksik satır stok başlangıcından eski. Mali rapor korunur; güncel stoktan otomatik düşülmez.'};
       return {...ortak,
         occurred_on: gun,
-        fingerprint: await packageFingerprint(eksik),
+        fingerprint: await packageFingerprint(ayrilacak),
         source: {provider: store.provider, store_id: store.id, package_id: packageId,
-          record_ids: eksik.map(r => r.id), versions: eksik.map(r => r.version), relink_from: linked.erp_package_id},
+          record_ids: ayrilacak.map(r => r.id), versions: ayrilacak.map(r => r.version), relink_from: linked.erp_package_id},
         order: {channel: store.provider, external_id: 'RPT-' + (await digest([store.provider, store.id, packageId, 'eksik'])).slice(0, 40),
-          order_no: eksik[0].data.order_no, occurred_on: gun,
-          external_status: eksik[0].data.status || '',
-          lines: eksik.map(r => ({external_id: lineIdentity(r.data, packageId, lineIdentityDeclared),
+          order_no: ayrilacak[0].data.order_no, occurred_on: gun,
+          external_status: ayrilacak[0].data.status || '',
+          lines: ayrilacak.map(r => ({external_id: lineIdentity(r.data, packageId, lineIdentityDeclared),
             name: r.data.product_name || r.data.barcode || r.data.sku, sku: r.data.barcode || r.data.sku,
             quantity: r.data.quantity, gross: r.data.gross == null ? null : r.data.gross / 100,
             vat_rate: r.data.vat_bps == null ? null : r.data.vat_bps / 100, net_revenue: null}))},
