@@ -53,9 +53,18 @@ async function streamOf(obj, bytes, text) {
   let from = obj.start + at + 'stream'.length;
   if (text[from] === '\r') from++;
   if (text[from] === '\n') from++;
+  // Akışın uzunluğu SÖZLÜKTE yazar. 'endstream'e kadar okumak, arada duran satır sonu
+  // baytlarını da içine alır; açma "Trailing junk found" diye patlar ve akış SESSİZCE atlanır.
+  // PDF'lerin çoğunda 'endstream' öncesinde satır sonu bulunur, yani bu okuyucu metin taşıyan
+  // belgelerin büyük kısmını "taranmış" sanıyordu. Önce /Length kullanılır; yoksa satır
+  // sonları kırpılır. Uzunluk 'endstream'i aşıyorsa güvenilmez sayılır ve kırpma yoluna gidilir.
   const endAt = text.indexOf('endstream', from);
   if (endAt < 0) return null;
-  let data = bytes.subarray(from, endAt);
+  const declared = /\/Length\s+(\d+)(?!\s+\d+\s+R)/.exec(dict);
+  let to = endAt;
+  if (declared && from + Number(declared[1]) <= endAt) to = from + Number(declared[1]);
+  else while (to > from && (text.charCodeAt(to - 1) === 10 || text.charCodeAt(to - 1) === 13)) to--;
+  let data = bytes.subarray(from, to);
   if (data.length > PDF_LIMITS.streamBytes) fail('PDF içinde beklenmeyen büyüklükte bir bölüm var.');
   if (/\/FlateDecode/.test(dict)) data = await inflate(data, 'zlib');
   else if (/\/(LZWDecode|RunLengthDecode|DCTDecode|JPXDecode|CCITTFaxDecode|JBIG2Decode)/.test(dict)) return null;
@@ -202,8 +211,13 @@ export async function readPdf(input, {name = ''} = {}) {
   const all = objects(text);
   // 1) Yazı tipi kod→harf tabloları.
   const unicodeByObj = new Map();
+  // ToUnicode tablosu AYRI bir nesnededir ve SIKIŞTIRILMIŞTIR: gövdesinde ne '/Type /Font'
+  // ne de 'beginbfchar' yazar — ikisi de ancak açıldıktan sonra ortaya çıkar. Yalnız gövdeye
+  // bakan bir süzgeç bu tabloları hiç açmaz; metin okunur ama kodlar çözülemediği için
+  // anlamsız çıkar. Bu yüzden önce /ToUnicode ile GÖSTERİLEN nesne numaraları toplanır.
+  const toUnicodeRefs = new Set([...text.matchAll(/\/ToUnicode\s+(\d+)\s+\d+\s+R/g)].map(m => Number(m[1])));
   for (const obj of all) {
-    if (!/\/Type\s*\/Font|beginbfchar|beginbfrange/.test(obj.body)) continue;
+    if (!toUnicodeRefs.has(obj.num) && !/\/Type\s*\/Font|beginbfchar|beginbfrange/.test(obj.body)) continue;
     const s = await streamOf(obj, bytes, text);
     if (s && /beginbfchar|beginbfrange/.test(raw(s.data))) unicodeByObj.set(obj.num, parseToUnicode(raw(s.data)));
   }
@@ -219,8 +233,45 @@ export async function readPdf(input, {name = ''} = {}) {
     }
   }
 
+  // Hangi içerik akışının hangi SAYFAYA ait olduğu izlenir. Bütün sayfaların yazıları tek
+  // torbaya dökülüp Y koordinatına göre sıralanırsa 2. sayfanın satırları 1. sayfanınkilerin
+  // arasına karışır: tek sayfalık belgede fark etmez, çok sayfalıda ve birleştirilmiş PDF'te
+  // veriyi bozar. Eşleme kurulamazsa sayfa bölmesi UYDURULMAZ, eski davranış sürer.
+  const pageOfContent = new Map();
+  // Yazı tipi kaynak adları SAYFA BAŞINA tanımlıdır: /F11 birinci sayfada başka nesne,
+  // ikinci sayfada başkadır. Tek ortak ad→tablo haritası tutmak sonraki sayfanın tablosunu
+  // öncekinin üstüne yazar ve o sayfanın yazıları çözülemez — etiketler okunur, TUTARLAR boş
+  // çıkar. Bu yüzden her sayfanın kendi tablosu kurulur.
+  const fontsByPage = new Map();
+  const tableOf = num => {
+    const target = all.find(o => o.num === num);
+    if (!target) return null;
+    const ref = /\/ToUnicode\s+(\d+)\s+\d+\s+R/.exec(target.body);
+    const table = ref ? unicodeByObj.get(Number(ref[1])) : unicodeByObj.get(target.num);
+    return table && table.size ? table : null;
+  };
+  let pageSeq = 0;
+  for (const obj of all) {
+    if (!/\/Type\s*\/Page[^s]/.test(obj.body + ' ')) continue;
+    const order = pageSeq++;
+    const fontDict = /\/Font\s*<<([^>]*)>>/.exec(obj.body);
+    if (fontDict) {
+      const map = new Map();
+      for (const m of fontDict[1].matchAll(/\/([A-Za-z0-9+._-]+)\s+(\d+)\s+\d+\s+R/g)) {
+        const table = tableOf(Number(m[2]));
+        if (table) map.set(m[1], table);
+      }
+      if (map.size) fontsByPage.set(order, map);
+    }
+    const single = /\/Contents\s+(\d+)\s+\d+\s+R/.exec(obj.body);
+    if (single) { pageOfContent.set(Number(single[1]), order); continue; }
+    const many = /\/Contents\s*\[([^\]]*)\]/.exec(obj.body);
+    if (many) for (const m of many[1].matchAll(/(\d+)\s+\d+\s+R/g)) pageOfContent.set(Number(m[1]), order);
+  }
+
   // 2) İçerik akışları.
   const items = [];
+  const itemsByPage = new Map();
   let streams = 0;
   for (const obj of all) {
     if (streams >= PDF_LIMITS.streams) break;
@@ -231,15 +282,24 @@ export async function readPdf(input, {name = ''} = {}) {
     const content = raw(s.data);
     if (!/\bBT\b|\bTj\b|\bTJ\b/.test(content)) continue;
     streams++;
-    items.push(...textItems(content, fonts));
+    const order = pageOfContent.has(obj.num) ? pageOfContent.get(obj.num) : null;
+    // Sayfanın kendi tablosu varsa o kullanılır; yoksa genel harita (eski davranış).
+    const found = textItems(content, order !== null && fontsByPage.has(order) ? fontsByPage.get(order) : fonts);
+    items.push(...found);
+    if (order !== null) {
+      if (!itemsByPage.has(order)) itemsByPage.set(order, []);
+      itemsByPage.get(order).push(...found);
+    }
   }
 
-  const lines = toLines(items);
+  // pageLines: sayfa sayfa satırlar. Birleştirilmiş PDF'i faturalara ayırmak buna dayanır.
+  const pageLines = [...itemsByPage.entries()].sort((a, b) => a[0] - b[0]).map(([, list]) => toLines(list));
+  const lines = pageLines.length ? pageLines.flat() : toLines(items);
   const joined = lines.join('\n');
   const textLayer = joined.replace(/\s/g, '').length >= 40;
   if (!textLayer)
     warnings.push('Bu PDF\'te okunabilir metin katmanı yok; büyük olasılıkla taranmış veya fotoğraflanmış. Bu panelde OCR (görüntüden yazı okuma) hizmeti bulunmuyor, bu yüzden satırlar okunamadı. Belgeyi ekranda görüp bilgileri elle girebilirsiniz.');
-  return {pages, textLayer, lines: textLayer ? lines : [], text: textLayer ? joined : '', warnings};
+  return {pages, textLayer, lines: textLayer ? lines : [], pageLines: textLayer ? pageLines : [], text: textLayer ? joined : '', warnings};
 }
 
 /* ---------------- fatura alanı adayları ---------------- */
