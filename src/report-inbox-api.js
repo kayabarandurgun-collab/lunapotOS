@@ -357,16 +357,20 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
   const byOrder = new Map();
   for (const l of lines) {
     const d = parse(l.data_json, {}), order = d.order_no || '', group = d.package_id || order;
+    // Bir pazaryeri paketinin satirlari DEFTERDE farkli siparislere dusmus olabilir (paketin bir
+    // kalemi eksik kaldigi icin ayri kayit acildiginda). O zaman bunlar AYRI sonuc satiridir:
+    // yoksa siparis duzeyindeki kesinti iki deftere de tam yazilir ve iki kat sayilirdi.
+    const anahtar = group + (l.erp_package_id ? '@' + l.erp_package_id : '');
     if (!byOrder.has(order)) byOrder.set(order, new Map());
     const packages = byOrder.get(order);
-    if (!packages.has(group)) packages.set(group, {group, order_no: order, package_id: d.package_id || null, order_date: d.order_date, status: d.status || null, erp_package_id: l.erp_package_id, lines: []});
-    packages.get(group).lines.push({...d, id: l.id, components: parse(l.components_json, null)});
+    if (!packages.has(anahtar)) packages.set(anahtar, {key: anahtar, group, order_no: order, package_id: d.package_id || null, order_date: d.order_date, status: d.status || null, erp_package_id: l.erp_package_id, lines: []});
+    packages.get(anahtar).lines.push({...d, id: l.id, components: parse(l.components_json, null)});
   }
 
   const results = [];
   for (const [order, packages] of byOrder) {
     const list = [...packages.values()];
-    const packageEvents = new Map(list.map(p => [p.group, []]));
+    const packageEvents = new Map(list.map(p => [p.key, []]));
     const shared = [];
     const conflictNotes = [];
     for (const e of allEvents) {
@@ -381,8 +385,11 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
         continue;
       }
       if (!(stated ? stated === order : owner === order)) continue;
-      const direct = pkg !== null && packageEvents.has(pkg);
-      if (direct) packageEvents.get(pkg).push(e); else shared.push(e);
+      // Olayin paket numarasi birden fazla sonuc satirina denk geliyorsa (pazaryeri paketi
+      // defterde ikiye ayrilmissa) DOGRUDAN yazilmaz: paylasilan gider gibi tutar korunarak
+      // bolunur. Yoksa ayni kesinti iki deftere de tam yazilirdi.
+      const denk = pkg === null ? [] : list.filter(p => String(p.package_id ?? '') === pkg);
+      if (denk.length === 1) packageEvents.get(denk[0].key).push(e); else shared.push(e);
     }
     // BELİRSİZ TOPLAM: aynı türden gider, iki AYRI rapor dosyasından, paket numarası taşımadan
     // ve farklı tutarlarla geliyorsa bunlar iki ayrı paketin gideri de olabilir, aynı giderin
@@ -407,19 +414,19 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
     const evenSplit = weights.some(w => !w);
     const sharedNotes = [];
     for (const e of shared) {
-      if (list.length === 1) { packageEvents.get(list[0].group).push(e); continue; }
+      if (list.length === 1) { packageEvents.get(list[0].key).push(e); continue; }
       const shares = evenSplit ? list.map(() => 1) : weights;
       const parts = allocateCents(e.amount_cents, shares);
       // Bildirilen net hakediş kaynak kapsamına aittir; kopyalanırsa sipariş toplamı çoğalır.
       const netParts = Number.isSafeInteger(e.net_payout) ? allocateCents(e.net_payout, shares) : null;
-      list.forEach((p, i) => packageEvents.get(p.group).push({...e, amount_cents: parts[i], ...(netParts ? {net_payout: netParts[i]} : {}), allocated: true}));
+      list.forEach((p, i) => packageEvents.get(p.key).push({...e, amount_cents: parts[i], ...(netParts ? {net_payout: netParts[i]} : {}), allocated: true}));
       sharedNotes.push((EVENT_TYPES[e.type] || 'Gider') + ' sipariş düzeyinde geldi; ' + list.length + ' pakete tutar korunarak dağıtıldı' +
         (netParts ? ' (bildirilen net hakediş de aynı oranda bölündü; sipariş toplamı değişmedi)' : '') +
         (evenSplit ? ' (satır tutarı bilinmediği için eşit bölündü; dağılım belirsiz).' : '.'));
     }
 
     for (const g of list) {
-      const events = packageEvents.get(g.group);
+      const events = packageEvents.get(g.key);
       const missing = [...conflictNotes], notes = [...sharedNotes, ...conflictNotes, ...(kabaNot.get(order) || [])], date = String(g.order_date || '').slice(0, 10);
       // Teslim edilmeyen pakette kargo maliyeti kesinleşmez (iade, yeniden gönderim, ceza).
       // Komisyon kesilmiş görünse bile kâr HESAPLANMAZ; tahmin bölümü ayrıca durur.

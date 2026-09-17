@@ -433,3 +433,34 @@ test('Kilitli kayıtta durum ilerlemesi incelemeye düşmez; para değişirse d�
   assert.equal(compareVersions(kilitli('2026-09-08T10:00'),
     {data: {...eski, status: 'Teslim edildi'}, time: '2026-09-08T10:00'}).outcome, 'review');
 });
+
+// Bir pazaryeri paketinin satırları defterde farklı siparişlere düşmüş olabilir (paketin bir
+// kalemi eksik kaldığı için ayrı kayıt açıldığında). Sipariş düzeyindeki kesinti o zaman İKİ
+// deftere de tam yazılırsa iki kat sayılır. Canlıda 11584479206'da tam olarak bu oldu.
+test('Pazaryeri paketi defterde ikiye ayrıldıysa kesinti bölünür, iki kez yazılmaz', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    // İkinci ERP paketi: aynı pazaryeri paketinin öteki kalemi.
+    f.sqlite.exec("INSERT INTO ec_order_packages(id,channel,external_id,order_no,occurred_on,status,source_fingerprint) VALUES('pk2','hepsiburada','P1-EK','S1','2026-09-01','draft','t')");
+    f.sqlite.exec("INSERT INTO ec_order_lines(id,package_id,external_id,name,quantity_milli,net_revenue_cents) VALUES('ln2','pk2','L2','Ürün',1000,11000)");
+    f.sqlite.exec("INSERT INTO ec_sale_entries(id,channel,external_id,product_id,kind,quantity_milli,revenue_cents,cost_cents,fees_status,occurred_on) VALUES('se2','hepsiburada','S-2','p1','sale',1000,11000,4600,'pending','2026-09-01')");
+    f.sqlite.exec("INSERT INTO ec_order_line_components(id,line_id,product_id,quantity_milli,revenue_share_bps,sale_id,stock_unit) VALUES('cm2','ln2','p1',1000,10000,'se2','adet')");
+
+    f.sqlite.exec("INSERT INTO ec_report_files(id,store_id,kind,filename,size_bytes,sha256,snapshot_at,sheet,headers_json,row_count,chunk_count,status,created_by) VALUES('fl','st','orders','r.xlsx',10,'" + '9'.repeat(64) + "','2026-09-06T10:00','S','[]',2,1,'applied','t')");
+    // AYNI pazaryeri paketi (P1), iki satır, iki AYRI defter paketi.
+    const satir = (i, erp) => f.sqlite.prepare("INSERT INTO ec_report_records(id,store_id,kind,record_key,key_source,data_json,source_time,file_id,row_no,erp_package_id) VALUES(?,'st','order_line',?,'provider',?,'2026-09-06T10:00','fl',?,?)")
+      .run('r' + i, 'L:' + i, JSON.stringify({order_no: 'S1', package_id: 'P1', barcode: 'U1', quantity: 1,
+        status: 'Teslim edildi', order_date: '2026-09-01', delivered_date: '2026-09-05', gross: 13200}), i, erp);
+    satir(1, 'pk'); satir(2, 'pk2');
+    // Sipariş düzeyinde tek komisyon: 40,00 TL.
+    f.sqlite.prepare("INSERT INTO ec_report_records(id,store_id,kind,record_key,key_source,data_json,source_time,file_id,row_no) VALUES('fe','st','finance_event','C:1','provider',?,'2026-09-06T10:00','fl',9)")
+      .run(JSON.stringify({order_no: 'S1', type: 'commission', amount_cents: -4000}));
+
+    const {orderResults} = await import('../src/report-inbox-api.js');
+    const {results} = await orderResults(scopedDB(f.env.DB, 'ec'), 'st', {});
+    assert.equal(results.length, 2, 'iki ayrı sonuç satırı');
+    const komisyonlar = results.map(r => r.fees.filter(x => x.type === 'commission').reduce((t, x) => t + x.actual_cents, 0));
+    assert.equal(komisyonlar.reduce((a, b) => a + b, 0), -4000, 'komisyon toplamı korundu, iki kez sayılmadı');
+    assert.ok(komisyonlar.every(k => k < 0 && k > -4000), 'iki pakete bölündü: ' + komisyonlar.join(' / '));
+  } finally { f.close(); }
+});
