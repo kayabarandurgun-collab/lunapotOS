@@ -119,6 +119,9 @@ async function plan(env, storeId, packageId, lineIdentityDeclared = false) {
       const ayrilacakSorun = [];
       for (const r of ayrilacak) {
         const d = r.data;
+        // Normal taslak yolundaki kural burada da gecerli: kalem kimligi UYDURULMAZ.
+        if (!lineIdentity(d, packageId, lineIdentityDeclared))
+          ayrilacakSorun.push('Kalem kimliği eksik; uydurma kimlikle stok çıkışı yapılmaz. Raporda kalem numarası yoksa "paket + stok kodu kalemi tekil tanımlar" beyanı gerekir.');
         if (!day(String(d.order_date || '').slice(0, 10))) ayrilacakSorun.push('Sipariş tarihi eksik veya geçersiz.');
         if (!Number.isSafeInteger(d.quantity) || d.quantity <= 0) ayrilacakSorun.push('Sipariş adedi geçersiz.');
         if (CANCELLED.test(String(d.status || '').toLocaleLowerCase('tr-TR'))) ayrilacakSorun.push('İptal/iade kaydı ayrı olaydır; yeni satışa çevrilmez.');
