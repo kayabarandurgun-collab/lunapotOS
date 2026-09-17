@@ -25,13 +25,15 @@ test('Teslim edilmiş paket raporu, tahmin tarife sınırı aşılmış olsa da 
 import {decisionTotals} from '../public/decision-overview.js';
 
 test('Karar özeti yalnızca hesaplanabilen paketleri toplar ve eksik varken dönem sonucunu kesin göstermez',()=>{
- const rows=[{profit_cents:5000},{profit_cents:-2000},{profit_cents:null}];
+ // Ana sayfadaki rakam NAKİTtİr; KDV hariç katkı yanında ayrıca raporlanır.
+ const rows=[{cash_cents:5000,profit_cents:4200},{cash_cents:-2000,profit_cents:-1700},{cash_cents:null,profit_cents:null}];
  const partial=decisionTotals({rows,unallocated_fee_cents:0});
  assert.equal(partial.calculated,2);
  assert.equal(partial.total,3);
  assert.equal(partial.profit,5000);
  assert.equal(partial.loss,2000);
  assert.equal(partial.net,null,'bilgisi eksik paket varken dönem sonucu kesin sayılmamalı');
+ assert.equal(partial.exVatNet,2500,'KDV hariç katkı ayrı alanda durur');
 
  const whole=decisionTotals({rows:rows.slice(0,2),unallocated_fee_cents:0});
  assert.equal(whole.net,3000,'tüm paketler hesaplanınca net sonuç verilir');
