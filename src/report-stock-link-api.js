@@ -69,6 +69,58 @@ async function plan(env, storeId, packageId, lineIdentityDeclared = false) {
     // adet değişimi) eski taslak sessizce kullanılmaz: paket "kaynak değişti" diye işaretlenir ve
     // mevcut veritabanı tetiği rezervasyon/gönderimi engeller. Rezerve/gönderilmiş sipariş
     // sessizce yeniden yazılmaz; iptal/iade/düzeltme akışına bırakılır.
+    // BAGLI AMA EKSIK. Bagli oldugu siparis paketin BUTUN kalemlerini tutmayabilir: rapor kaydi
+    // siparis numarasiyla baglanir, satirlarin gercekten o pakette oldugu dogrulanmaz. Boyle bir
+    // pakette eksik satirin cirosu yokken paketin butun kesintileri kalan satira yuklenir ve
+    // karli siparis zararli gorunur; ustelik cikan mal stoktan dusmemistir.
+    // Bu durumda eksik satirlar icin AYRI bir paket kurulur (1 siparis -> N paket, sistemin
+    // kendi modeli). Mevcut paket ve onun satirlari DEGISMEZ.
+    const defterSatirlari = (await db.prepare('SELECT external_id,quantity_milli FROM ec_order_lines WHERE package_id=?')
+      .bind(linked.erp_package_id).all()).results;
+    const defterSatir = new Map(defterSatirlari.map(r => [String(r.external_id), r.quantity_milli]));
+    const kimlikli = records.map(r => ({r, kimlik: lineIdentity(r.data, packageId, lineIdentityDeclared)}));
+    const eksik = kimlikli.filter(x => x.kimlik && !defterSatir.has(String(x.kimlik))).map(x => x.r);
+    // Ortusen satirlarda ADET degismis olmamali: degismisse bu "eksik satir" degil, raporun
+    // degismesidir ve asagidaki surukleme denetimine birakilir. Tutar karsilastirilmaz:
+    // indirimli satista rapor liste fiyatini, defter indirimli fiyati tutar; fark normaldir.
+    const ortusenTutuyor = kimlikli.every(x => !x.kimlik || !defterSatir.has(String(x.kimlik))
+      || defterSatir.get(String(x.kimlik)) === (x.r.data.quantity ?? 0) * 1000);
+    // Defter fazladan satir tasiyorsa durum belirsizdir: eksik satir eklemek tabloyu duzeltmez.
+    const defterFazlaYok = defterSatirlari.every(l => kimlikli.some(x => String(x.kimlik) === String(l.external_id)));
+    if (eksik.length && eksik.length < records.length && ortusenTutuyor && defterFazlaYok) {
+      const eksikSorun = [];
+      for (const r of eksik) {
+        const d = r.data;
+        if (!day(String(d.order_date || '').slice(0, 10))) eksikSorun.push('Sipariş tarihi eksik veya geçersiz.');
+        if (!Number.isSafeInteger(d.quantity) || d.quantity <= 0) eksikSorun.push('Sipariş adedi geçersiz.');
+        if (CANCELLED.test(String(d.status || '').toLocaleLowerCase('tr-TR'))) eksikSorun.push('İptal/iade kaydı ayrı olaydır; yeni satışa çevrilmez.');
+        if (!d.barcode && !d.sku) eksikSorun.push('Barkod veya satıcı stok kodu eksik.');
+      }
+      const gun = String(eksik[0].data.order_date || '').slice(0, 10);
+      const ortak = {store, outcome: 'partial', stock_write: false, covered_by: linked.erp_package_id,
+        missing_lines: eksik.map(r => ({barcode: r.data.barcode || r.data.sku, name: r.data.product_name,
+          quantity: r.data.quantity, gross_cents: r.data.gross ?? null}))};
+      if (eksikSorun.length) return {...ortak, outcome: 'review', issues: [...new Set(eksikSorun)],
+        reason: 'Bu paketin bazı satırları defterde yok ama olduğu gibi aktarılamıyor; incelemede kalır.'};
+      if (!start) return {...ortak, outcome: 'blocked', reason: 'Stok başlangıç tarihi girilmemiş.'};
+      if (gun < start) return {...ortak, outcome: 'historical', occurred_on: gun,
+        reason: 'Eksik satır stok başlangıcından eski. Mali rapor korunur; güncel stoktan otomatik düşülmez.'};
+      return {...ortak,
+        occurred_on: gun,
+        fingerprint: await packageFingerprint(eksik),
+        source: {provider: store.provider, store_id: store.id, package_id: packageId,
+          record_ids: eksik.map(r => r.id), versions: eksik.map(r => r.version), relink_from: linked.erp_package_id},
+        order: {channel: store.provider, external_id: 'RPT-' + (await digest([store.provider, store.id, packageId, 'eksik'])).slice(0, 40),
+          order_no: eksik[0].data.order_no, occurred_on: gun,
+          external_status: eksik[0].data.status || '',
+          lines: eksik.map(r => ({external_id: lineIdentity(r.data, packageId, lineIdentityDeclared),
+            name: r.data.product_name || r.data.barcode || r.data.sku, sku: r.data.barcode || r.data.sku,
+            quantity: r.data.quantity, gross: r.data.gross == null ? null : r.data.gross / 100,
+            vat_rate: r.data.vat_bps == null ? null : r.data.vat_bps / 100, net_revenue: null}))},
+        reason: 'Bu paketin ' + eksik.length + ' satırı defterde yok. Eksik satırlar için ayrı bir sipariş taslağı kurulur; ' +
+          'mevcut sipariş ve satırları değişmez.',
+        notice: 'Eksik satırların malı stoktan düşmemiştir. Taslak açıldıktan sonra "Stok ayır" ve "Gönder" adımlarında bir kez düşer.'};
+    }
     const linkKey = store.provider + ':' + store.id + ':' + packageId;
     const item = await db.prepare("SELECT content_hash FROM import_items WHERE kind='report_stock_link' AND source_key=?").bind(linkKey).first();
     const current = await packageFingerprint(records);
@@ -227,10 +279,13 @@ export async function reportStockLinkApi(request, env, path, readBody) {
         notice: 'Rapor kaydı paneldeki mevcut siparişe bağlandı. Stok, satış tutarı ve sipariş durumu DEĞİŞMEDİ.'};
     }
 
-    if (result.outcome !== 'draft')
+    if (!['draft', 'partial'].includes(result.outcome))
       return {...result, store: {id: result.store.id, name: result.store.name, provider: result.store.provider}, applied: false};
 
-    const sourceKey = result.store.provider + ':' + result.store.id + ':' + x.package_id;
+    // Eksik satirlar icin acilan taslak AYRI bir kaynak anahtari tasir: ilk baglantiyi ezmez ve
+    // ikinci kez calistirildiginda yeniden acilmaz.
+    const eksikAktarim = result.outcome === 'partial';
+    const sourceKey = result.store.provider + ':' + result.store.id + ':' + x.package_id + (eksikAktarim ? ':eksik' : '');
     const already = await db.prepare("SELECT * FROM import_items WHERE kind='report_stock_link' AND source_key=?").bind(sourceKey).first();
     if (already) return {outcome: 'existing', applied: false, package_id: already.target_id, stock_write: false,
       reason: 'Bu paket daha önce aktarıldı; ikinci sipariş açılmaz.'};
@@ -250,17 +305,22 @@ export async function reportStockLinkApi(request, env, path, readBody) {
       // Sipariş satırına da yazılır: rezervasyon/gönderim denetimi bunu okur ve yazmayı buna koşullar.
       db.prepare('UPDATE order_packages SET report_link_hash=? WHERE id=? AND report_link_hash IS NULL').bind(result.fingerprint, created.id),
       // Rapor kayıtları artık bu siparişe bağlı: sürüm ve veri değişmez, yalnız bağlantı kurulur.
-      ...result.source.record_ids.map(recordId =>
-        db.prepare('UPDATE ec_report_records SET erp_package_id=? WHERE id=? AND erp_package_id IS NULL').bind(created.id, recordId))
+      // Eksik satir aktariminda kayit, kendisini TUTMAYAN pakete bagliydi: bag yeni pakete tasinir.
+      // Verinin kendisi ve surumu degismez, yalniz hangi siparise ait oldugu duzelir.
+      ...result.source.record_ids.map(recordId => eksikAktarim
+        ? db.prepare('UPDATE ec_report_records SET erp_package_id=? WHERE id=? AND erp_package_id=?').bind(created.id, recordId, result.source.relink_from)
+        : db.prepare('UPDATE ec_report_records SET erp_package_id=? WHERE id=? AND erp_package_id IS NULL').bind(created.id, recordId))
     ];
     try { await db.batch(stmts); }
     catch (e) {
       if (/UNIQUE/.test(e.message)) fail('Bu paket az önce aktarıldı. Listeyi yenileyin.', 409);
       throw e;
     }
-    return {outcome: 'draft', applied: true, stock_write: false, package_id: created.id, existing: !!created.existing,
+    return {outcome: result.outcome, applied: true, stock_write: false, package_id: created.id, existing: !!created.existing,
       order_status: created.status, occurred_on: result.occurred_on,
-      notice: 'Sipariş TASLAK olarak açıldı ve rapor kaydına bağlandı. Stok henüz değişmedi; "Stok ayır" ve "Gönder" adımlarında bir kez düşer.'};
+      notice: eksikAktarim
+        ? 'Defterde olmayan satırlar için ayrı bir sipariş TASLAĞI açıldı ve rapor kaydı buna bağlandı. Mevcut sipariş ve satırları DEĞİŞMEDİ. Stok henüz değişmedi; "Stok ayır" ve "Gönder" adımlarında bir kez düşer.'
+        : 'Sipariş TASLAK olarak açıldı ve rapor kaydına bağlandı. Stok henüz değişmedi; "Stok ayır" ve "Gönder" adımlarında bir kez düşer.'};
   }
   return null;
 }

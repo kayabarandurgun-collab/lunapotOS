@@ -306,3 +306,56 @@ test('Sipariş panelde iki kayıtla duruyorsa İKİNCİSİ AÇILMAZ; belirsizlik
     assert.ok(a.id && b.id);
   } finally { f.close(); }
 });
+
+// Rapor kaydı sipariş NUMARASIYLA bağlanır; satırların gerçekten o pakette olduğu
+// doğrulanmaz. Bağlı olduğu sipariş paketin bütün kalemlerini tutmuyorsa, eksik satırın
+// cirosu yokken paketin bütün kesintileri kalan satıra yüklenir ve kârlı sipariş zararlı
+// görünür; üstelik çıkan mal stoktan düşmemiştir. Canlıda iki paket bu durumdaydı.
+test('Defterde olmayan satırlar için ayrı taslak kurulur; mevcut sipariş değişmez', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const product = await fourPack(f);
+    startDate(f, DATE);
+    const s = store(f);
+    // Defter paketi ÖNCE tek satırla kuruldu (canlıda fatura kaydından gelmişti).
+    record(f, s, 'TY-1', line({line_id: 'L1', gross: 50000}), 1);
+    const ilk = await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PK1', complete_package_confirmed: true});
+    assert.equal(ilk.outcome, 'draft');
+    assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_lines WHERE package_id=?').get(ilk.package_id).n, 1);
+
+    // Sonra rapor ikinci satırı getirdi ve sipariş NUMARASIYLA aynı pakete bağlandı —
+    // ama o satır defterde yok. Canlıda tam olarak bu oldu.
+    record(f, s, 'TY-1', line({line_id: 'L2', gross: 22139, quantity: 1}), 2);
+    f.sqlite.prepare("UPDATE ec_report_records SET erp_package_id=? WHERE record_key='L:L2'").run(ilk.package_id);
+
+    // Önizleme: eksik satır görülür ve HİÇBİR ŞEY yazılmaz.
+    const stokOnce = stockOf(f, product.id);
+    const onizleme = await f.ok('/ec/reports/stock-link/preview', {store_id: s, package_id: 'PK1'});
+    assert.equal(onizleme.outcome, 'partial');
+    assert.equal(onizleme.stock_write, false);
+    assert.equal(onizleme.covered_by, ilk.package_id);
+    assert.equal(onizleme.missing_lines.length, 1);
+    assert.equal(onizleme.missing_lines[0].gross_cents, 22139);
+    assert.equal(stockOf(f, product.id), stokOnce, 'önizleme stok değiştirmedi');
+    assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_packages').get().n, 1);
+
+    // Uygula: eksik satır için AYRI taslak açılır.
+    const sonuc = await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PK1', complete_package_confirmed: true});
+    assert.equal(sonuc.outcome, 'partial');
+    assert.equal(sonuc.applied, true);
+    assert.notEqual(sonuc.package_id, ilk.package_id, 'yeni paket açıldı');
+    assert.equal(sonuc.stock_write, false, 'taslak açmak stok düşürmez');
+    assert.equal(stockOf(f, product.id), stokOnce, 'stok taslak aşamasında değişmedi');
+
+    // Mevcut sipariş ve satırları DEĞİŞMEDİ.
+    assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_lines WHERE package_id=?').get(ilk.package_id).n, 1);
+    // Eksik satırın rapor kaydı artık yeni pakete bağlı.
+    assert.equal(f.sqlite.prepare("SELECT erp_package_id FROM ec_report_records WHERE record_key='L:L2'").get().erp_package_id, sonuc.package_id);
+    assert.equal(f.sqlite.prepare("SELECT erp_package_id FROM ec_report_records WHERE record_key='L:L1'").get().erp_package_id, ilk.package_id,
+      'yerinde duran satırın bağı değişmedi');
+
+    // İkinci kez çalıştırmak yeni paket açmaz.
+    const tekrar = await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PK1', complete_package_confirmed: true});
+    assert.equal(tekrar.applied, false);
+    assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_packages').get().n, 2, 'üçüncü paket açılmadı');
+  } finally { f.close(); }
+});
