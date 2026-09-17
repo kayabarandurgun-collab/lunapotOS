@@ -6,7 +6,7 @@ outcome: PARTIAL_PLUS
 ---
 
 goal: Kâr rakamlarını nakde çevirmek, rapor/defter çift sayımlarını kapatmak ve PDF fatura okuyucusunu çalışır hâle getirmek
-now: Birleşik PDF'i faturalara ayır (pageLines hazır, fatura no/tarih/tutar sayfa başına okunuyor) - public/purchase-document-ui.js kuyruk akışına bağla
+now: ASDAFF.pdf'i SAYFA YENİLENDİKTEN SONRA yeniden yükletip 5 faturaya ayrıldığını ve TRP2026000001080'in mükerrer yakalandığını doğrula
 test: npm test
 
 kullanici_kurallari:
@@ -40,6 +40,10 @@ done_this_session:
     files: [public/pdf-read.js, tests/pdf-okuma.test.js]
   - task: Okuma maliyeti - observedFor paket basina 6000 satir okuyordu, cagri basina bir kez oldu
     files: [src/report-inbox-api.js, tests/okuma-butcesi.test.js]
+  - task: Birlesik PDF fatura numarasina gore ayriliyor; sayfa-fatura baglantisi /documents/:id/pages ile kuruluyor
+    files: [public/purchase-document-ui.js, tests/pdf-okuma.test.js]
+  - task: Oturum devri belgesi ve otomatik yuklenen hafiza dosyalari yazildi
+    files: [thoughts/shared/handoffs/lunapot-panel/]
 
 findings:
   - pdf_akis_uzunlugu: "'endstream'e kadar okumak satir sonu baytlarini iceri alir, acma 'Trailing junk' diye patlar ve akis SESSIZCE atlanir. Sozlukteki /Length kullanilmali. Bu tek hata metin tasiyan PDF'lerin cogunu 'taranmis' gosteriyordu."
@@ -62,14 +66,19 @@ worked:
   - "Her duzeltme icin once canli veriyi olcup sonra kod yazmak"
   - "Testi once kirip (onbellegi kapatip) gercekten koruduguna bakmak"
 
+dikkat:
+  - sayfa_yenileme: "Yayindan sonra tarayicidaki ES modulleri BELLEKTE eski kalir. Kullanici yenilemeden denerse eski davranisi gorur ve 'calismadi' der. Service worker zaten ag-oncelikli, sorun o degil. Deploy sonrasi mutlaka 'sayfayi yenile' de."
+  - dogrulama_yontemi: "Gercek dosyayi node ile dogrudan okuyup dogrula (node -e ile public/pdf-read.js import et). Tarayiciya guvenme."
+
 failed:
   - "Python heredoc ile JS'e regex yazmak: \\b gercek backspace karakterine donusup dosyayi bozdu. JS duzenlemede Edit/Write araclarini kullan."
   - "Tam tablo taramasi ile dogrulama - D1 gunluk kotasini iki kez bitirdi"
   - "npm test 2>&1 | grep ... && deploy zinciri: grep basarili olunca test dusse bile yayina gitti. 'npm test >/dev/null 2>&1 && deploy' kullan."
 
 next:
-  - "public/pdf-read.js pageLines'i kullanarak birlesik PDF'i faturalara ayir: her sayfada fatura no + ETTN oku, yeni numara gorulunce yeni fatura basla, ayirma guvenilir degilse BOLME ve soyle"
-  - "Ayrilan her faturayi mevcut kuyruga (kuyrugaAl/siradakini) ayri is olarak ver"
+  - "ASDAFF.pdf yeniden yuklensin (sayfa yenilendikten sonra): 5 fatura ayrilmali, ekranda 'x / 5' ilerlemeli"
+  - "TRP2026000001080 sistemde ZATEN posted - mukerrer kontrolunun yakaladigini dogrula (kullanicinin cift sayim testi)"
+  - "Ayrilan faturalarin tedarikcisi KARAKUS(2731455087) ve TROPIKAL - ikisi de kayitli, otomatik eslesmeli"
   - "TS1 gecici sayimini duzelt: GECICI-SAYIM-TS1 referansli count hareketi var, birim maliyet 1.516,67 sismis (eksi stok deligini doldurdugu icin). Gercek alis faturasi girilince duzelt."
   - "Kullanicinin cift sayim testi: ASDAFF.pdf'teki TRP2026000001080 sistemde ZATEN var - mukerrer kontrolunun yakaladigini dogrula"
 
