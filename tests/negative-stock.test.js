@@ -60,3 +60,19 @@ test('Ayar varsayılan olarak kapalıdır ve üretim alanı hiç etkilenmez', as
     assert.ok(lp && !/allow_negative_stock/.test(lp.sql), 'üretim alanının koruması değişmedi');
   } finally { f.close(); }
 });
+
+// Ayar API'de vardı ama ekranda yoktu: kullanıcı alış faturası gecikince satışını
+// kaydedemiyor, sebebini de göremiyordu. Ayar okunabilmeli ve yazılabilmeli.
+test('Eksi stok beyanı ayarlardan okunur ve yazılır', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const ilk = await f.ok('/ec/settings');
+    assert.equal(ilk.settings.allow_negative_stock, 0, 'varsayılan kapalı');
+
+    await f.ok('/ec/settings', {legal_name: 'TEST Şirket', tax_id: '1234567890', allow_negative_stock: true});
+    assert.equal((await f.ok('/ec/settings')).settings.allow_negative_stock, 1, 'beyan kaydedildi');
+
+    // Beyan kaldırılabilir; sessizce açık kalmaz.
+    await f.ok('/ec/settings', {legal_name: 'TEST Şirket', tax_id: '1234567890'});
+    assert.equal((await f.ok('/ec/settings')).settings.allow_negative_stock, 0, 'beyan kaldırıldı');
+  } finally { f.close(); }
+});
