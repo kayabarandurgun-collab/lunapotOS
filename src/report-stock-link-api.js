@@ -145,8 +145,11 @@ async function plan(env, storeId, packageId, lineIdentityDeclared = false) {
             name: r.data.product_name || r.data.barcode || r.data.sku, sku: r.data.barcode || r.data.sku,
             quantity: r.data.quantity, gross: r.data.gross == null ? null : r.data.gross / 100,
             vat_rate: r.data.vat_bps == null ? null : r.data.vat_bps / 100, net_revenue: null}))},
-        reason: 'Bu paketin ' + eksik.length + ' satırı defterde yok. Eksik satırlar için ayrı bir sipariş taslağı kurulur; ' +
-          'mevcut sipariş ve satırları değişmez.',
+        reason: (eksik.length
+          ? 'Bu paketin ' + eksik.length + ' satırı defterde yok.'
+          : 'Bu paket, kalemlerini tutmayan bir sipariş kaydına bağlanmış (defterdeki adet ' + defterAdet +
+            ', raporda ' + raporAdet + ').') +
+          ' Aşağıdaki ' + ayrilacak.length + ' satır için ayrı bir sipariş taslağı kurulur; mevcut sipariş ve satırları değişmez.',
         notice: 'Eksik satırların malı stoktan düşmemiştir. Taslak açıldıktan sonra "Stok ayır" ve "Gönder" adımlarında bir kez düşer.'};
     }
     const linkKey = store.provider + ':' + store.id + ':' + packageId;
