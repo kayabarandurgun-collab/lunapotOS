@@ -39,6 +39,16 @@ export async function performanceApi(request,env,path){
  const templateKeys=(mode==='pending'?packages:[]).filter(p=>!inputMap.has(p.id)).map(p=>parcelTemplateKey(p,lineMap.get(p.id)||[],partMap.get(p.id)||[]));
  const templates=mode==='pending'&&templateKeys.length?await all(db.prepare('SELECT * FROM parcel_templates WHERE template_key IN (SELECT value FROM json_each(?))').bind(JSON.stringify(templateKeys))):[];
  const templateMap=new Map(templates.map(t=>[t.template_key,t]));
+ // DEFTER PAKETIN TAMAMINI TUTUYOR MU? Pazaryeri raporu pakette 2 satir gorurken defterde
+ // 1 satir varsa, o paketin BUTUN kesintileri eksik ciroya yuklenir ve karli siparis zararli
+ // gorunur. Sessizce yanlis rakam vermektense kar HESAPLANMAZ, sebebi yazilir.
+ // Olcut satir SAYISIdir: tutar farki cogu zaman indirimdir (rapor liste fiyatini, defter
+ // indirimli fiyati tutar) ve gercek bir eksiklik degildir.
+ const raporSatir=new Map();
+ if(mode==='delivered'&&ids!=='[]'){
+  for(const r of await all(db.prepare("SELECT erp_package_id pid,COUNT(*) n FROM ec_report_records WHERE kind='order_line' AND erp_package_id IN (SELECT value FROM json_each(?)) GROUP BY erp_package_id").bind(ids)))
+   raporSatir.set(r.pid,r.n);
+ }
  const rows=packages.map(p=>{
   const packageLines=lineMap.get(p.id)||[],parts=partMap.get(p.id)||[],entries=saleMap.get(p.id)||[];
   const row={id:p.id,channel:p.channel,order_no:p.order_no,external_id:p.external_id,status:p.status,occurred_on:p.occurred_on,delivered_on:p.delivered_on,profit_cents:null,cash_cents:null,cash_note:null,missing:[],revenue_net_cents:null,cost_net_cents:null,shipping_cents:null,commission_cents:null,other_cents:null};
@@ -46,6 +56,12 @@ export async function performanceApi(request,env,path){
   if(mode==='delivered'){
    const profit=packageProfit(p,packageLines,parts,entries),total=profit.totals;
    if(profit.status==='incomplete_records'){row.missing=profit.reasons;return row;}
+   const raporN=raporSatir.get(p.id);
+   if(raporN!==undefined&&raporN>packageLines.length){
+    row.missing=[...profit.reasons,'Pazaryeri raporu bu pakette '+raporN+' satır gösteriyor, defterde '+packageLines.length+
+     ' satır var. Eksik satırın cirosu yokken paketin bütün kesintileri kalan satıra yüklenir; kâr hesaplanmadı.'];
+    return row;
+   }
    row.revenue_net_cents=total.revenue;row.cost_net_cents=total.cost;
    const fee=key=>entries.every(s=>s[key]!==null)?entries.reduce((sum,s)=>sum+s[key],0):null;
    row.shipping_cents=fee('shipping_cents');row.commission_cents=fee('commission_cents');row.other_cents=fee('other_cents');

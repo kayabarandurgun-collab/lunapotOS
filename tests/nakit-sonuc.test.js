@@ -247,3 +247,28 @@ test('Sipariş listesindeki sonuç, kâr raporundaki nakitle aynı', async () =>
       'nakit sonuç kalemlerin KDV dahil toplamıyla tutuyor');
   } finally { f.close(); }
 });
+
+// Pazaryeri raporu pakette 2 satır görürken defterde 1 satır varsa, o paketin BÜTÜN
+// kesintileri eksik ciroya yüklenir ve kârlı sipariş zararlı görünür. Canlıda iki paket
+// bu durumdaydı (11584479206 ve 11556015519). Sessizce yanlış rakam verilmemeli.
+test('Defter paketin bir satırını tutmuyorsa kâr hesaplanmaz, sebebi yazılır', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    f.sqlite.exec("INSERT INTO ec_report_files(id,store_id,kind,filename,size_bytes,sha256,snapshot_at,sheet,headers_json,row_count,chunk_count,status,created_by) VALUES('fl','st','orders','r.xlsx',10,'" + 'd'.repeat(64) + "','2026-09-06T10:00','S','[]',2,1,'applied','t')");
+    const satir = (i, brut) => f.sqlite.prepare("INSERT INTO ec_report_records(id,store_id,kind,record_key,key_source,data_json,source_time,file_id,row_no,erp_package_id) VALUES(?,'st','order_line',?,'provider',?,'2026-09-06T10:00','fl',?,'pk')")
+      .run('r' + i, 'L:' + i, JSON.stringify({order_no: 'S1', package_id: 'P1', barcode: 'U1', quantity: 1,
+        status: 'Teslim edildi', order_date: '2026-09-01', delivered_date: '2026-09-05', gross: brut}), i);
+
+    // Önce defterle aynı: tek satır → kâr hesaplanır.
+    satir(1, 13200);
+    let r = (await rapor(f)).rows.find(x => x.id === 'pk');
+    assert.ok(Number.isSafeInteger(r.cash_cents), 'tek satırken hesaplandı');
+
+    // Raporda ikinci satır belirdi ama deftere işlenmedi → kâr artık verilmez.
+    satir(2, 22139);
+    r = (await rapor(f)).rows.find(x => x.id === 'pk');
+    assert.equal(r.profit_cents, null, 'eksik ciroyla kâr hesaplanmadı');
+    assert.equal(r.cash_cents, null, 'nakit de verilmedi');
+    assert.ok(r.missing.some(n => /2 satır gösteriyor, defterde 1 satır/.test(n)), 'sebebi tek tek yazıldı');
+  } finally { f.close(); }
+});
