@@ -90,3 +90,49 @@ test('Gerçekten metinsiz belgede satır UYDURULMAZ', async () => {
   assert.deepEqual(r.lines, []);
   assert.ok(r.warnings.some(w => /metin katmanı yok/.test(w)));
 });
+
+// EDM'den "hepsini indir" denince tek dosyada birden çok fatura gelir. Sayfa sayfa okunan
+// satırlardan her sayfanın fatura numarası çıkarılır; numarası olmayan sayfa bir öncekinin
+// devamı sayılır (çok sayfalı fatura). En az İKİ ayrı numara yoksa bölme YAPILMAZ.
+// Ayırma mantığı public/purchase-document-ui.js:faturalaraAyir ile aynıdır.
+import {guessHeader} from '../public/pdf-read.js';
+
+function faturalaraAyir(pageLines) {
+  if (!Array.isArray(pageLines) || pageLines.length < 2) return [];
+  const gruplar = [];
+  pageLines.forEach((satirlar, i) => {
+    const no = String(guessHeader(satirlar)?.invoice_no || '').trim();
+    const son = gruplar[gruplar.length - 1];
+    if (no && (!son || son.no !== no)) gruplar.push({no, sayfalar: [i + 1], satirlar: [...satirlar]});
+    else if (son) { son.sayfalar.push(i + 1); son.satirlar.push(...satirlar); }
+    else gruplar.push({no: '', sayfalar: [i + 1], satirlar: [...satirlar]});
+  });
+  return new Set(gruplar.map(g => g.no).filter(Boolean)).size >= 2 ? gruplar : [];
+}
+
+const sayfa = no => ['Fatura No: ' + no, 'Fatura Tarihi: 16-09-2026', 'Ödenecek Tutar 1.200,00 TL'];
+
+test('Birleşik belge fatura numaralarına göre ayrılır', () => {
+  const g = faturalaraAyir([sayfa('KRK2026000000867'), sayfa('KRK2026000000866'), sayfa('TRP2026000001087')]);
+  assert.equal(g.length, 3);
+  assert.deepEqual(g.map(x => x.no), ['KRK2026000000867', 'KRK2026000000866', 'TRP2026000001087']);
+  assert.deepEqual(g.map(x => x.sayfalar), [[1], [2], [3]]);
+});
+
+test('Numarasız sayfa bir önceki faturanın devamı sayılır', () => {
+  const devam = ['Sıra Mal Hizmet Miktar Birim Fiyat', 'Gartengold 40 Litre 4 Adet 300,00 TL'];
+  const g = faturalaraAyir([sayfa('KRK2026000000867'), devam, sayfa('TRP2026000001087')]);
+  assert.equal(g.length, 2, 'devam sayfası yeni fatura açmadı');
+  assert.deepEqual(g[0].sayfalar, [1, 2]);
+  assert.ok(g[0].satirlar.some(l => /Gartengold/.test(l)), 'devam sayfasının satırları ilk faturaya eklendi');
+});
+
+test('Aynı numaranın iki sayfası tek fatura kalır', () => {
+  const g = faturalaraAyir([sayfa('KRK2026000000867'), sayfa('KRK2026000000867')]);
+  assert.deepEqual(g, [], 'tek fatura: bölme yapılmadı');
+});
+
+test('Tek sayfa veya numara okunamayan belge BÖLÜNMEZ', () => {
+  assert.deepEqual(faturalaraAyir([sayfa('KRK2026000000867')]), [], 'tek sayfa bölünmez');
+  assert.deepEqual(faturalaraAyir([['bir şey'], ['başka şey']]), [], 'numara yoksa bölünmez');
+});

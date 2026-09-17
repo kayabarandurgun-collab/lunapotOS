@@ -1,0 +1,78 @@
+---
+session: lunapot-panel
+date: 2026-09-17
+status: partial
+outcome: PARTIAL_PLUS
+---
+
+goal: Kâr rakamlarını nakde çevirmek, rapor/defter çift sayımlarını kapatmak ve PDF fatura okuyucusunu çalışır hâle getirmek
+now: Birleşik PDF'i faturalara ayır (pageLines hazır, fatura no/tarih/tutar sayfa başına okunuyor) - public/purchase-document-ui.js kuyruk akışına bağla
+test: npm test
+
+kullanici_kurallari:
+  - "Elle veri girmek YOK - her sey yuklenen dosyadan gelmeli"
+  - "Veri uydurma; tarihsiz kayda tarih uydurma"
+  - "Oturum guvenligini atlatma, sahte oturum uretme, DB'ye yazarak dogrulamalari asma"
+  - "Sifreyi sohbete yazmasini isteme - gerekirse ekrani hazirla, yalniz giris yapmasini iste"
+  - "Ayni dosya ve ortusen donemler cift mali kayit veya stok hareketi olusturmasin"
+  - "Kisa ve sade Turkce; KDV haric katki degil NAKIT rakami goster"
+  - "Kod ve dokumantasyon GitHub'a; ozel belge ve erisim bilgisi gitmez"
+
+ortam:
+  repo: C:/Users/baran/Desktop/site/lunapot-panel
+  canli: https://muhasebe.lunapot.com (Cloudflare Worker + D1 'lunapot-db')
+  d1_hesap: 74daa05337ce197e42ab5747579dea8b (wrangler baska hesaba dusebiliyor - ID'yi dogrula)
+  plan: Workers Paid ($5/ay) alindi 17 Eylul - gunluk D1 okuma duvari kalkti
+  oturum: Tarayici panelinde kullanici giris yapti; API cagrilari mcp Browser javascript_tool ile yapiliyor
+
+done_this_session:
+  - task: Butun ekranlar KDV haric katki yerine NAKIT sonuc gosteriyor
+    files: [src/performance-api.js, src/report-inbox-api.js, src/orders-api.js, public/performance-ui.js, public/decision-overview.js, public/orders-ui.js]
+  - task: Ortusen raporlarin hakedis ve gider cift saymasi kapatildi (kaba tekrar, net_payout toplama, belirsiz capraz dosya)
+    files: [src/report-inbox-api.js, tests/report-coarse-duplicate.test.js]
+  - task: Teslim onayi rapordan aliniyor; degismeyen kayittan da calisiyor + gecmise donuk uc
+    files: [src/report-inbox-api.js, public/report-inbox-ui.js, tests/nakit-sonuc.test.js]
+  - task: Defterde olmayan satirlar icin ayri siparis taslagi (partial) + ledger-gaps ucu
+    files: [src/report-stock-link-api.js, src/report-inbox-api.js, tests/report-stock-link.test.js]
+  - task: Alis faturalarinda toplu yukleme kuyrugu, tedarikci otomatik acma, e-Arsiv dosya adindan kimlik
+    files: [public/purchase-document-ui.js, tests/e-arsiv-dosya-adi.test.js]
+  - task: PDF okuyucusundaki uc kor nokta duzeltildi (akis uzunlugu, ToUnicode, sayfa/font)
+    files: [public/pdf-read.js, tests/pdf-okuma.test.js]
+  - task: Okuma maliyeti - observedFor paket basina 6000 satir okuyordu, cagri basina bir kez oldu
+    files: [src/report-inbox-api.js, tests/okuma-butcesi.test.js]
+
+findings:
+  - pdf_akis_uzunlugu: "'endstream'e kadar okumak satir sonu baytlarini iceri alir, acma 'Trailing junk' diye patlar ve akis SESSIZCE atlanir. Sozlukteki /Length kullanilmali. Bu tek hata metin tasiyan PDF'lerin cogunu 'taranmis' gosteriyordu."
+  - pdf_tounicode: "ToUnicode tablosu ayri ve SIKISTIRILMIS nesnede; govdesinde 'beginbfchar' yazmaz. /ToUnicode ile gosterilen nesne numaralari toplanip acilmali."
+  - pdf_sayfa_font: "/F11 gibi kaynak adlari SAYFA BASINA tanimli - her sayfada baska nesne. Tek ortak harita sonrakinin tablosunu ustune yazar: etiketler okunur TUTARLAR bos cikar. Sayfa basina tablo kurulmali."
+  - indirim_farki: "Rapor gross LISTE fiyatini, defter gross INDIRIMLI fiyati tutar. 58 uyumsuz paketin 56'si bu - hata degil. Ayrim olcutu SATIR SAYISI, tutar degil."
+  - maliyet_sifir: "Stok eksiye dusunce birim maliyet 0 cikiyor ve mal BEDAVA sayiliyordu. Eksik veri sifir sayilmaz: kar hesaplanmaz."
+  - hb_iade_yok: "HB'nin tam donem finans dosyasinda dahi sifir iade var - sistem hatasi degil, gercekten iade olmamis."
+  - sahte_iptal: "HB'deki 67 'iptal' paket ice aktarim artigi (kargoya verilmemis, satis kaydi yok, yerine saglam paket var). Satis kaybi DEGIL."
+  - d1_kota: "16 Eylul'de iki kez doldu - sebebi tam tablo taramalari. Dogrulamada tam tarama yapma, hedefli tek sorgu kullan."
+
+decisions:
+  - nakit_tanimi: "Nakit = hesaba giren para - malin KDV dahil maliyeti. Gelir tarafinda ONCE raporun kendi net hakedisi kullanilir (bankaya giren odur)."
+  - maliyet_kaynagi: "Urun maliyeti tek kaynaktan: DEFTER (ec_sale_entries). Rapor tarafi yeniden hesaplarsa iade donusunu ve dondurulmus maliyeti kacirir."
+  - kdv_orani_uydurulmaz: "Urun KDV'si ec_price_profiles.vat_bps'ten, kesinti KDV'si pazaryeri finans profilinin beyanindan. Beyan yoksa rakam bos birakilir."
+  - otomatik_taslak: "Toplu yuklemede otomatik islenen TASLAK olusturur; cari borc ve stok yazilmaz. Muhasebelestirme ayri ve bilincli adim."
+
+worked:
+  - "Gercek dosyayla ilerlemek - kullanicinin ASDAFF.pdf'i uc hatayi birden ortaya cikardi"
+  - "Her duzeltme icin once canli veriyi olcup sonra kod yazmak"
+  - "Testi once kirip (onbellegi kapatip) gercekten koruduguna bakmak"
+
+failed:
+  - "Python heredoc ile JS'e regex yazmak: \\b gercek backspace karakterine donusup dosyayi bozdu. JS duzenlemede Edit/Write araclarini kullan."
+  - "Tam tablo taramasi ile dogrulama - D1 gunluk kotasini iki kez bitirdi"
+  - "npm test 2>&1 | grep ... && deploy zinciri: grep basarili olunca test dusse bile yayina gitti. 'npm test >/dev/null 2>&1 && deploy' kullan."
+
+next:
+  - "public/pdf-read.js pageLines'i kullanarak birlesik PDF'i faturalara ayir: her sayfada fatura no + ETTN oku, yeni numara gorulunce yeni fatura basla, ayirma guvenilir degilse BOLME ve soyle"
+  - "Ayrilan her faturayi mevcut kuyruga (kuyrugaAl/siradakini) ayri is olarak ver"
+  - "TS1 gecici sayimini duzelt: GECICI-SAYIM-TS1 referansli count hareketi var, birim maliyet 1.516,67 sismis (eksi stok deligini doldurdugu icin). Gercek alis faturasi girilince duzelt."
+  - "Kullanicinin cift sayim testi: ASDAFF.pdf'teki TRP2026000001080 sistemde ZATEN var - mukerrer kontrolunun yakaladigini dogrula"
+
+files:
+  created: [tests/pdf-okuma.test.js, tests/nakit-sonuc.test.js, tests/report-coarse-duplicate.test.js, tests/okuma-butcesi.test.js, tests/e-arsiv-dosya-adi.test.js]
+  modified: [public/pdf-read.js, public/purchase-document-ui.js, public/performance-ui.js, public/decision-overview.js, public/orders-ui.js, public/report-inbox-ui.js, public/operations-ui.js, public/report-core.js, src/report-inbox-api.js, src/report-stock-link-api.js, src/performance-api.js, src/orders-api.js]

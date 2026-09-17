@@ -293,6 +293,38 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     return null;
   }
 
+  // BİRLEŞTİRİLMİŞ PDF. EDM'den "hepsini indir" denince tek dosyada birden çok fatura gelir.
+  // Sayfa sayfa okunan satırlardan her sayfanın fatura numarası çıkarılır; numarası olmayan
+  // sayfa bir öncekinin devamı sayılır (çok sayfalı fatura). En az İKİ ayrı numara yoksa
+  // bölme YAPILMAZ: tek fatura gibi işlenir. Bölme uydurulmaz, numaraya dayanır.
+  function faturalaraAyir(pageLines) {
+    if (!Array.isArray(pageLines) || pageLines.length < 2) return [];
+    const gruplar = [];
+    pageLines.forEach((satirlar, i) => {
+      const no = String(guessHeader(satirlar)?.invoice_no || '').trim();
+      const son = gruplar[gruplar.length - 1];
+      if (no && (!son || son.no !== no)) gruplar.push({no, sayfalar: [i + 1], satirlar: [...satirlar]});
+      else if (son) { son.sayfalar.push(i + 1); son.satirlar.push(...satirlar); }
+      else gruplar.push({no: '', sayfalar: [i + 1], satirlar: [...satirlar]});
+    });
+    return new Set(gruplar.map(g => g.no).filter(Boolean)).size >= 2 ? gruplar : [];
+  }
+
+  // Birleşik belgenin BİR faturasını işlenecek hâle getirir. Belge yeniden yüklenmez:
+  // aynı docId paylaşılır, sayfa bağlantısı taslak oluşunca kurulur.
+  function bolumuAc(is) {
+    const b = is.bolum;
+    state.docId = is.docId;
+    state.warnings = [];
+    state.header = guessHeader(b.satirlar);
+    state.totals = guessTotals(b.satirlar);
+    state.lines = guessLines(b.satirlar).map(l => ({...l, line_type: 'product', expense_category: 'other', source: l.description}));
+    if (!state.lines.length) state.lines = [{description: '', invoice_quantity: 1, invoice_unit: 'adet', net: '', tax: '', line_type: 'product', expense_category: 'other', uncertain: []}];
+    state.sayfaNo = b.sayfalar[0];
+    state.supplierId = '';
+    state.step = 'document';
+  }
+
   async function kuyrugaAl(files, kind) {
     state.queue = files.map(f => ({file: f, kind: /\.xml$/i.test(f.name) ? 'xml' : kind}));
     state.queueTotal = files.length; state.queueDone = []; state.auto = files.length > 1;
@@ -303,29 +335,33 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     const sonraki = state.queue.shift();
     if (!sonraki) { state.step = 'summary'; render(); return; }
     const sira = state.queueTotal - state.queue.length;
-    ilerle(state.queueTotal > 1 ? sonraki.file.name + ' — ' + sira + ' / ' + state.queueTotal : sonraki.file.name);
+    const ad = sonraki.bolum ? sonraki.dosyaAdi + ' · ' + (sonraki.bolum.no || 'fatura') : sonraki.file.name;
+    ilerle(state.queueTotal > 1 ? ad + ' — ' + sira + ' / ' + state.queueTotal : ad);
     try {
-      await takeFile(sonraki.file, sonraki.kind);
+      if (sonraki.bolum) bolumuAc(sonraki);
+      else await takeFile(sonraki.file, sonraki.kind);
     } catch (e) {
-      state.queueDone.push({ad: sonraki.file.name, sonuc: 'atlandi', sebep: e.message});
+      state.queueDone.push({ad, sonuc: 'atlandi', sebep: e.message});
       if (state.queueTotal > 1) { await siradakini(); return; }
       throw e;
     }
+    // Birleşik belgenin parçaları ayrı ayrı sıraya alındı; bu turda işlenecek bir şey yok.
+    if (state.parts?.length && !sonraki.bolum) { state.parts = null; await siradakini(); return; }
     if (!state.auto) return;
     const tedarikciSorun = await tedarikciyiCoz();
     if (!tedarikciSorun) await hatirlananlariUygula();
     const engel = tedarikciSorun || otomatikEngel();
     if (engel) {
-      state.queueDone.push({ad: sonraki.file.name, sonuc: 'bekliyor', sebep: engel});
+      state.queueDone.push({ad, sonuc: 'bekliyor', sebep: engel});
       state.auto = false; // bu dosyada duruluyor; kullanici bitirince kuyruk devam eder
       say(engel + '. Bu faturayı birlikte tamamlayalım; bitince kalan ' + state.queue.length + ' dosya kendiliğinden işlenecek.');
       return;
     }
     try {
       await saveDraft();
-      state.queueDone.push({ad: sonraki.file.name, sonuc: 'taslak', fatura: state.header.invoice_no});
+      state.queueDone.push({ad, sonuc: 'taslak', fatura: state.header.invoice_no});
     } catch (e) {
-      state.queueDone.push({ad: sonraki.file.name, sonuc: 'atlandi', sebep: e.message});
+      state.queueDone.push({ad, sonuc: 'atlandi', sebep: e.message});
     }
     await siradakini();
   }
@@ -394,6 +430,20 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
     state.previewUrl = kind === 'pdf' ? URL.createObjectURL(new Blob([bytes], {type: 'application/pdf'})) : null;
     await loadReference();
+
+    // Belge birden çok fatura taşıyorsa her fatura AYRI bir iş olarak sıraya alınır. Dosya
+    // çoğaltılmaz: aynı belge kimliği paylaşılır, sayfa bağlantısı sonunda kurulur.
+    const gruplar = kind === 'pdf' ? faturalaraAyir(state.extracted?.pageLines) : [];
+    if (gruplar.length > 1) {
+      state.warnings.push(gruplar.length + ' fatura tek belgede geldi (' + gruplar.map(g => g.no || '?').join(', ') +
+        '). Her biri ayrı fatura olarak işlenecek; belge bir kez saklandı.');
+      state.parts = gruplar.map(g => ({no: g.no, sayfalar: g.sayfalar, satirlar: g.satirlar}));
+      state.queue.unshift(...state.parts.map(p => ({bolum: p, docId: state.docId, dosyaAdi: file.name})));
+      state.queueTotal += state.parts.length;
+      state.step = 'document';
+      return;
+    }
+
     // Kayıtlı tedarikçi satır eşleştirmeleri ve aile hatırlatmaları öneri olarak uygulanır.
     state.step = 'document';
     say('Belge saklandı. Okunan bilgiler aday olarak dolduruldu; kontrol et.');
@@ -498,8 +548,15 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
           family_id: l.family_id, equal_unit_cost: !!l.equal_unit_cost, reason: l.reason, allocations});
       } catch (e) { notes.push('Satır ' + (i + 1) + ': dağılım kaydedilemedi — ' + e.message); }
     }
-    try { await api('/invoices/documents/' + state.docId + '/link', {invoice_id: invoice.id}); }
-    catch (e) { notes.push('Belge bağlanamadı: ' + e.message); }
+    // Birleşik belgede bütün belgeyi tek faturaya bağlamak yanlış olur: hangi sayfanın hangi
+    // faturaya ait olduğu kaydedilir. Sunucu bunu kanıt sayar ve sonradan taşınmaz.
+    if (state.sayfaNo) {
+      try { await api('/invoices/documents/' + state.docId + '/pages', {pages: [{page_no: state.sayfaNo, invoice_id: invoice.id, doc_no: state.header.invoice_no || '', doc_uuid: state.header.uuid || ''}]}); }
+      catch (e) { notes.push('Sayfa bağlantısı kurulamadı: ' + e.message); }
+    } else {
+      try { await api('/invoices/documents/' + state.docId + '/link', {invoice_id: invoice.id}); }
+      catch (e) { notes.push('Belge bağlanamadı: ' + e.message); }
+    }
     say('Taslak oluşturuldu ve belge bağlandı. Cari borç ve stok henüz yazılmadı.' + (notes.length ? ' ' + notes.join(' ') : ''));
     // Kuyrukta dosya varsa ekran KAPANMAZ: kullanici her faturadan sonra yeniden yuklemeye
     // donmek zorunda kalmasin. Elle tamamlanan faturadan sonra otomatik isleme yeniden acilir.
