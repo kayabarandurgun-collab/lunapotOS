@@ -208,3 +208,23 @@ test('Kargoya verilmemiş paket rapordaki teslim tarihiyle teslime geçirilmez',
     assert.ok(r.counts.new >= 1, 'yükleme yine de tamamlandı, parti düşmedi');
   } finally { f.close(); }
 });
+
+// İçe aktarımda kurulup sevk edilmeden iptal edilen ve yerine yenisi kurulan taslaklar da
+// 'cancelled' görünür. Bunlar satış kaybı DEĞİLDİR; gerçek iptalle aynı sayıda gösterilirse
+// kullanıcı olmayan bir zarar arar. Ayrımın ölçütü kayıtların kendisidir, tahmin değil.
+test('Yerine yenisi kurulan taslak, gerçek sipariş iptalinden ayrı sayılır', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    // A: içe aktarım taslağı — sevk edilmedi, satış kaydı yok, yerine 'pk' duruyor (aynı sipariş no).
+    f.sqlite.exec("INSERT INTO ec_order_packages(id,channel,external_id,order_no,occurred_on,status,source_fingerprint,cancel_reason) VALUES('eski','hepsiburada','P1-ESKI','S1','2026-09-01','draft','t','')");
+    f.sqlite.exec("UPDATE ec_order_packages SET status='cancelled',cancel_reason='Köprü taslağı KDV taşımıyor' WHERE id='eski'");
+    // B: gerçek iptal — yerine kurulmuş başka paket YOK.
+    f.sqlite.exec("INSERT INTO ec_order_packages(id,channel,external_id,order_no,occurred_on,status,source_fingerprint) VALUES('gercek','hepsiburada','P9','S9','2026-09-03','draft','t')");
+    f.sqlite.exec("UPDATE ec_order_packages SET status='cancelled',cancel_reason='Müşteri vazgeçti' WHERE id='gercek'");
+
+    const d = await f.ok('/ec/orders');
+    const c = d.counts.find(x => x.status === 'cancelled');
+    assert.equal(c.count, 2, 'iki iptal kaydı var');
+    assert.equal(c.rebuilt, 1, 'yalnızca yerine yenisi kurulan taslak ayrıldı');
+  } finally { f.close(); }
+});

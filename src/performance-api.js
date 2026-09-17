@@ -80,6 +80,20 @@ export async function performanceApi(request,env,path){
     const stored=JSON.parse(saved.input_json),x=direct?stored:useParcelTemplate(stored,packageLines,parts),estimate=estimatePackage(p,packageLines,parts,{...x,date:p.shipped_on||today},shippingRates,commissionRates,false),q=estimate.quote;
     if(q.status!=='estimated'){row.missing=q.missing;return row;}
     Object.assign(row,{profit_cents:q.estimated_profit_cents,revenue_net_cents:q.revenue_net_cents,cost_net_cents:q.cost_net_cents,shipping_cents:q.shipping_net_cents,commission_cents:q.commission_net_cents,other_cents:q.packaging_net_cents+q.other_net_cents,assumptions_source:direct?'package':'identical_contents_template',assumptions_saved_at:saved.updated_at,tariff_date:p.shipped_on||today,cost_basis:estimate.cost_basis});
+    // TAHMINDE DE NAKIT. Tarife hesabi zaten KDV dahil hakedisi veriyor (estimated_payout_cents:
+    // satis - komisyon brut - kargo brut - stopaj). Nakit sonuc bundan malin KDV DAHIL maliyetini
+    // duser. KDV orani ilan satirindan gelir; satirlar farkli oranlardaysa oran UYDURULMAZ.
+    const oranlar=[...new Set(packageLines.map(l=>l.vat_bps))];
+    if(!Number.isSafeInteger(q.estimated_payout_cents))row.cash_note='Tarife tahmininde hakediş hesaplanamadı.';
+    else if(oranlar.length!==1||oranlar[0]===null||oranlar[0]===undefined)row.cash_note='Paketin satırları farklı KDV oranında; nakit sonuç hesaplanmadı.';
+    else{
+     const v=oranlar[0],incl=x=>Math.round(x*(10000+v)/10000);
+     const kendiGider=q.packaging_net_cents+q.other_net_cents;
+     row.cash_cents=q.estimated_payout_cents-incl(q.cost_net_cents)-incl(kendiGider);
+     row.revenue_gross_cents=q.price_cents;row.cost_gross_cents=incl(q.cost_net_cents);
+     row.shipping_gross_cents=q.shipping_gross_cents;row.commission_gross_cents=q.commission_gross_cents;
+     row.other_gross_cents=incl(kendiGider);row.withholding_cents=q.withholding_cents?-q.withholding_cents:0;
+    }
    }catch{row.missing.push('Kayıtlı paket varsayımları hesaplanamadı; sipariş özetinden yenileyin.');}
   }
   return row;

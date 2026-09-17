@@ -81,7 +81,12 @@ export async function ordersApi(request,env,path,readBody){
    db.prepare('SELECT * FROM order_reservations WHERE released_on IS NULL'),
    statement(db,'SELECT c.*,p.name product_name,p.sku,p.stock_unit current_stock_unit FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN products p ON p.id=c.product_id WHERE l.package_id IN (SELECT id FROM order_packages'+pageSQL+') ORDER BY c.rowid',pageArgs)
   ])).map(r=>r.results);
-  const counts=(await db.prepare('SELECT status,COUNT(*) count FROM order_packages GROUP BY status').all()).results;
+  // Iptal sayisi yaniltici olabiliyor: ic aktarim sirasinda kurulmus ama sevk edilmeden iptal
+  // edilip YERINE YENISI kurulan taslaklar da 'cancelled' gorunuyor. Bunlar satis kaybi degil.
+  // Ayrimin olcutu uydurma degil kayitlarin kendisi: kargoya hic verilmemis, satis kaydi yok ve
+  // ayni siparis numarasinda iptal olmayan bir paket duruyor.
+  const yenidenKurulan="status='cancelled' AND shipped_on IS NULL AND NOT EXISTS(SELECT 1 FROM order_line_components c JOIN order_lines l ON l.id=c.line_id WHERE l.package_id=order_packages.id AND c.sale_id IS NOT NULL) AND EXISTS(SELECT 1 FROM order_packages q WHERE q.order_no=order_packages.order_no AND q.channel=order_packages.channel AND q.id!=order_packages.id AND q.status!='cancelled')";
+  const counts=(await db.prepare('SELECT status,COUNT(*) count,SUM(CASE WHEN '+yenidenKurulan+' THEN 1 ELSE 0 END) rebuilt FROM order_packages GROUP BY status').all()).results;
   const total=(await statement(db,'SELECT COUNT(*) count FROM order_packages'+scope,args).first()).count;
   const stock=new Map(products.map(p=>[p.id,p.quantity_milli-p.reserved_milli]));
   const ozet=new Map();

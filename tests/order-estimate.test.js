@@ -33,6 +33,14 @@ test('Pending performance recalculates tariffs and refuses changed composition o
   const report=()=>performanceApi(new Request('https://test.local/api/ec/performance?mode=pending&from='+date+'&to='+date),f.env,'/api/performance');
   const p=await f.create('PENDING');let r=await report();assert.equal(r.channels[0].missing,1);
   await f.estimate(p.id);r=await report();assert.equal(r.channels[0].profit_cents,14700);
+  // Tahmin sekmesi de NAKIT gosterir: tarifeden gelen KDV dahil hakedis eksi KDV dahil mal maliyeti.
+  // Kullanicinin okudugu rakam nakittir; KDV haric katki yaninda durur.
+  const t=r.rows[0];
+  assert.ok(Number.isSafeInteger(t.cash_cents),'tahminde nakit sonuc bos kalmadi: '+(t.cash_note||''));
+  assert.equal(t.cash_cents,t.revenue_gross_cents-t.cost_gross_cents-t.commission_gross_cents-t.shipping_gross_cents-t.other_gross_cents+t.withholding_cents,
+   'nakit sonuc kalemlerin KDV dahil toplamiyla tutuyor');
+  assert.equal(r.channels[0].cash_calculated,1);
+  assert.equal(r.channels[0].cash_cents,t.cash_cents);
   f.sql.prepare('UPDATE ec_order_packages SET source_changed=1 WHERE id=?').run(p.id);r=await report();assert.equal(r.channels[0].profit_cents,null);assert.match(r.rows[0].missing.join(' '),/Kaynak sipariş/);
   f.sql.prepare('UPDATE ec_order_packages SET source_changed=0 WHERE id=?').run(p.id);f.sql.prepare('UPDATE ec_order_line_components SET quantity_milli=quantity_milli+1000 WHERE product_id=?').run(f.a);r=await report();assert.match(r.rows[0].missing.join(' '),/Paket içeriği/);
   await assert.rejects(performanceApi(new Request('https://test.local/api/lp/performance'),{...f.env,WORKSPACE:'lp'},'/api/performance'),e=>e.status===403);
