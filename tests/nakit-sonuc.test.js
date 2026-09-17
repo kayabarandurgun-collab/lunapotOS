@@ -272,3 +272,26 @@ test('Defter paketin bir satırını tutmuyorsa kâr hesaplanmaz, sebebi yazıl�
     assert.ok(r.missing.some(n => /2 satır gösteriyor, defterde 1 satır/.test(n)), 'sebebi tek tek yazıldı');
   } finally { f.close(); }
 });
+
+test('Defter boşluğu ucu, eksik satırı barkoduyla söyler ve hiçbir şey yazmaz', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    const once = ['ec_stock_movements', 'ec_sale_entries', 'ec_order_lines']
+      .map(t => f.sqlite.prepare('SELECT COUNT(*) n FROM ' + t).get().n);
+    f.sqlite.exec("INSERT INTO ec_report_files(id,store_id,kind,filename,size_bytes,sha256,snapshot_at,sheet,headers_json,row_count,chunk_count,status,created_by) VALUES('fl','st','orders','r.xlsx',10,'" + 'e'.repeat(64) + "','2026-09-06T10:00','S','[]',2,1,'applied','t')");
+    const satir = (i, barkod, brut) => f.sqlite.prepare("INSERT INTO ec_report_records(id,store_id,kind,record_key,key_source,data_json,source_time,file_id,row_no,erp_package_id) VALUES(?,'st','order_line',?,'provider',?,'2026-09-06T10:00','fl',?,'pk')")
+      .run('r' + i, 'L:' + i, JSON.stringify({order_no: 'S1', package_id: 'P1', barcode: barkod, product_name: 'Eksik Ürün',
+        quantity: 1, status: 'Teslim edildi', order_date: '2026-09-01', delivered_date: '2026-09-05', gross: brut}), i);
+    satir(1, 'U1', 13200);      // defterdeki satır (ln → sku U1 değil; external_id L1)
+    satir(2, 'EKSIK-1', 22139); // defterde karşılığı olmayan satır
+
+    const r = await f.ok('/ec/reports/ledger-gaps?store_id=st');
+    assert.equal(r.gaps.length, 1);
+    assert.equal(r.gaps[0].order_no, 'S1');
+    assert.equal(r.gaps[0].report_lines, 2);
+    assert.equal(r.gaps[0].ledger_lines, 1);
+    assert.ok(r.gaps[0].missing_lines.some(l => l.barcode === 'EKSIK-1'), 'eksik satır barkoduyla verildi');
+    assert.deepEqual(['ec_stock_movements', 'ec_sale_entries', 'ec_order_lines']
+      .map(t => f.sqlite.prepare('SELECT COUNT(*) n FROM ' + t).get().n), once, 'uç hiçbir şey yazmadı');
+  } finally { f.close(); }
+});

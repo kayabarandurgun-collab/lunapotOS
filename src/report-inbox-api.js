@@ -1125,6 +1125,41 @@ export async function reportInboxApi(request, env, path, readBody) {
 
   // Her ikisi de PARÇALI: next_cursor doluyken çağıran döngüye devam eder.
   // Raporda iade gorunen ama defterde hala tam gelirle duran paketler. YAZMAZ, listeler.
+  // Raporun pakette gordugu satir sayisi defterdekinden FAZLA ise, eksik satirin cirosu yokken
+  // paketin butun kesintileri kalan satira yuklenir ve karli siparis zararli gorunur. Ayrica mal
+  // cikmis ama stoktan dusmemistir. Bu uc YAZMAZ, yalnizca hangi paketin neyi eksik oldugunu
+  // soyler. Olcut satir SAYISIdir: tutar farki cogu zaman indirimdir, gercek eksiklik degildir.
+  if (sub === '/ledger-gaps' && method === 'GET') {
+    const rows = (await db.prepare(
+      "SELECT r.erp_package_id pid,json_extract(r.data_json,'$.order_no') order_no," +
+      " COUNT(*) report_lines,SUM(json_extract(r.data_json,'$.gross')) report_gross," +
+      " (SELECT COUNT(*) FROM ec_order_lines l WHERE l.package_id=r.erp_package_id) ledger_lines," +
+      " (SELECT COALESCE(SUM(l.gross_cents),0) FROM ec_order_lines l WHERE l.package_id=r.erp_package_id) ledger_gross," +
+      " p.external_id,p.status,p.channel,p.delivered_on" +
+      ' FROM ec_report_records r JOIN ec_order_packages p ON p.id=r.erp_package_id' +
+      " WHERE r.kind='order_line' AND r.store_id=? GROUP BY r.erp_package_id" +
+      ' HAVING report_lines>ledger_lines ORDER BY (report_gross-ledger_gross) DESC LIMIT 100')
+      .bind(key(url.searchParams.get('store_id') || '')).all()).results;
+    // Hangi satirin eksik oldugu: defterde ayni barkodla satir bulunmayan rapor satirlari.
+    const detay = rows.length ? (await db.prepare(
+      "SELECT r.erp_package_id pid,json_extract(r.data_json,'$.barcode') barcode," +
+      " json_extract(r.data_json,'$.sku') sku,json_extract(r.data_json,'$.product_name') product_name," +
+      " json_extract(r.data_json,'$.quantity') quantity,json_extract(r.data_json,'$.gross') gross" +
+      " FROM ec_report_records r WHERE r.kind='order_line' AND r.erp_package_id IN (SELECT value FROM json_each(?))" +
+      ' AND NOT EXISTS(SELECT 1 FROM ec_order_lines l WHERE l.package_id=r.erp_package_id' +
+      "  AND (l.sku=json_extract(r.data_json,'$.barcode') OR l.external_id=json_extract(r.data_json,'$.barcode')" +
+      "   OR l.sku=json_extract(r.data_json,'$.sku')))")
+      .bind(JSON.stringify(rows.map(r => r.pid))).all()).results : [];
+    const byPkg = new Map();
+    for (const d of detay) { if (!byPkg.has(d.pid)) byPkg.set(d.pid, []); byPkg.get(d.pid).push(d); }
+    return {
+      gaps: rows.map(r => ({...r, missing_gross: r.report_gross - r.ledger_gross, missing_lines: byPkg.get(r.pid) || []})),
+      total_missing_cents: rows.reduce((t, r) => t + (r.report_gross - r.ledger_gross), 0),
+      notice: 'Bu ekran hiçbir şey yazmaz. Raporda olup defterde olmayan satırlar listelenir: bu paketlerin kârı hesaplanmaz ' +
+        've eksik satırın malı stoktan düşmemiştir. Tutar farkı tek başına ölçüt değildir; indirimli satışta rapor liste fiyatını, defter indirimli fiyatı tutar.'
+    };
+  }
+
   if (sub === '/returns-pending' && method === 'GET')
     return pendingReturns(db, url.searchParams.get('store_id') || '');
 

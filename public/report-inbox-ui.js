@@ -39,6 +39,9 @@ export function mountReports(root, namespace = 'ec') {
   const loadOrders = async () => {
     if (!state.storeFilter) { state.orders = null; return; }
     state.orders = await api('/orders?' + new URLSearchParams({store_id: state.storeFilter, page: state.orderPage, q: state.orderQuery, status: state.orderStatus}));
+    // Raporda olup defterde olmayan satırlar: bu paketlerin kârı hesaplanmaz ve malı stoktan
+    // düşmemiştir. Sessiz kalırsa kullanıcı sebebini bilmeden yanlış rakam arar.
+    state.gaps = await api('/ledger-gaps?' + new URLSearchParams({store_id: state.storeFilter}));
   };
   // Özet mağazanın TAMAMINI tarar; sayfa değiştikçe yeniden hesaplanmasın diye ayrı istenir.
   // Uç parçalı çalışır (worker süre sınırı): next_cursor bitene kadar döner, parçalar toplanır.
@@ -186,6 +189,8 @@ export function mountReports(root, namespace = 'ec') {
 
   function ordersView() {
     const o = state.orders;
+    const g = state.gaps;
+    const gapUyari = g?.gaps?.length ? `<div class="notice" role="alert"><strong>${g.gaps.length} pakette raporda olan satır defterde yok</strong> — toplam ${money(g.total_missing_cents)} ciro. Bu paketlerin kârı hesaplanmıyor, çünkü eksik satırın cirosu yokken paketin bütün kesintileri kalan satıra yüklenir. Bu malların stoktan da düşmediğini unutma.<ul class="rb-list">${g.gaps.slice(0, 10).map(x => `<li><strong>${esc(x.order_no)}</strong> · ${esc(x.external_id)} — raporda ${x.report_lines} satır, defterde ${x.ledger_lines}. Eksik: ${x.missing_lines.map(l => esc((l.product_name || l.barcode || l.sku || 'ürün')) + ' ×' + (l.quantity ?? 1) + ' (' + money(l.gross) + ')').join(', ') || money(x.missing_gross)}</li>`).join('')}</ul><p class="rb-muted">${esc(g.notice)}</p></div>` : '';
     const missing = o ? o.results.filter(r => r.contribution_missing.length).length : 0;
     const cards = o ? `<div class="rb-status">
       <button type="button" data-rb-tab="reviews" class="${state.data?.open_reviews ? 'warn' : ''}"><span>İnceleme bekleyen</span><strong>${num(state.data?.open_reviews || 0)}</strong></button>
@@ -253,7 +258,7 @@ export function mountReports(root, namespace = 'ec') {
         ${link.outcome === 'draft' ? '<button type="button" class="primary" data-rb-act="stock-link-apply" data-package="' + esc(link.package_id) + '">Taslak siparişi oluştur</button>' : ''}</div></section>` : '';
     return `${summaryPanel}${transferPanel}<section class="v2-card"><h3>Sipariş sonuçları</h3>${linkPanel}
       <div class="rb-grid"><label>Mağaza<select data-rb="order-store">${storeOptions(state.storeFilter)}</select></label></div>
-      ${state.storeFilter ? toolbar + cards : ''}
+      ${state.storeFilter ? gapUyari + toolbar + cards : ''}
       <p class="rb-muted">Dört sayı ayrı tutulur: <b>pazaryerinin bildirdiği net</b>, <b>bankada doğrulanan tahsilat</b>, <b>bilinen doğrudan maliyetlerden sonraki katkı</b> (KDV hariç satış − ürün maliyeti − kesintiler; stopaj dahil edilmez) ve <b>tahmin</b>. Eksik maliyet sıfır sayılmaz.</p>
       ${o ? (o.results.length ? `<div class="v2-table-wrap"><table class="v2-table"><thead><tr><th>Sipariş</th><th>Ürünler</th><th>Pazaryeri neti</th><th>Banka</th><th>Katkı</th><th>Tahmin</th><th></th></tr></thead><tbody>
       ${o.results.map(r => `<tr><td><strong>${esc(r.order_no)}</strong><small>${esc(r.order_date)}${r.status ? ' · ' + esc(r.status) : ''}${r.erp_package_id ? ' · ERP\'de bağlı' : ''}</small></td>
