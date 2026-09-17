@@ -186,3 +186,8 @@ td strong,.recipe-card h2,.studio-material strong,.history-links li{overflow-wra
 .breakdown-collapsible > summary:focus-visible{outline:2px solid currentColor;outline-offset:2px}
 .breakdown-collapsible > summary h2{margin:0}
 @media (prefers-reduced-motion:reduce){.breakdown-collapsible > summary::after{transition:none}}
+
+/* Mağaza seçici en üstte ve yapışkan: uzun bir aktarım sonucundan sonra kullanıcı
+   öteki mağazaya geçmek için sayfayı aramak zorunda kalmasın. */
+.rb-store-picker{position:sticky;top:0;z-index:5}
+@media (max-width:640px){.rb-store-picker{position:static}}

@@ -81,6 +81,7 @@ export function mountReports(root, namespace = 'ec') {
   const tabs = () => `<div class="rb-tabs" role="tablist">${[['upload', 'Dosya yükle'], ['files', 'Yüklenen dosyalar'], ['reviews', 'İnceleme' + (state.data?.open_reviews ? ' (' + state.data.open_reviews + ')' : '')], ['orders', 'Sipariş sonuçları']]
     .map(([k, t]) => `<button type="button" role="tab" data-rb-tab="${k}" aria-selected="${state.tab === k}" class="${state.tab === k ? 'active' : ''}">${esc(t)}</button>`).join('')}</div>`;
   const status = () => `${state.error ? `<p class="rb-alert error" role="alert">${esc(state.error)}</p>` : ''}${state.message ? `<p class="rb-alert ok" role="status">${esc(state.message)}</p>` : ''}`;
+  const storeName = id => { const m = (state.data?.stores || []).find(s => s.id === id); return m ? PROVIDERS[m.provider] + ' · ' + m.name : ''; };
   const storeOptions = (selected, blank = true) => (blank ? '<option value="">Mağaza seçin…</option>' : '') + (state.data?.stores || []).map(s => `<option value="${esc(s.id)}" ${s.id === selected ? 'selected' : ''}>${esc(PROVIDERS[s.provider])} · ${esc(s.name)} (${esc(s.code)})</option>`).join('');
 
   function uploadView() {
@@ -272,8 +273,11 @@ export function mountReports(root, namespace = 'ec') {
            ${(link.issues || []).length ? '<ul class="rb-list">' + link.issues.map(i => '<li>' + esc(i) + '</li>').join('') + '</ul>' : ''}`}
       <div class="rb-actions"><button type="button" class="secondary" data-rb-act="stock-link-close">Kapat</button>
         ${link.outcome === 'draft' ? '<button type="button" class="primary" data-rb-act="stock-link-apply" data-package="' + esc(link.package_id) + '">Taslak siparişi oluştur</button>' : ''}</div></section>` : '';
-    return `${summaryPanel}${transferPanel}<section class="v2-card"><h3>Sipariş sonuçları</h3>${linkPanel}
-      <div class="rb-grid"><label>Mağaza<select data-rb="order-store">${storeOptions(state.storeFilter)}</select></label></div>
+    // Magaza secici EN USTTE durur. Once panelin altindaydi: uzun bir aktarim sonucundan sonra
+    // kullanici oteki magazaya gecmek icin sayfayi asagi kaydirmak zorunda kaliyor, secici yok
+    // saniyordu. Once magazayi sec, altindaki her sey o magazaya ait.
+    const magazaSecici = `<section class="v2-card rb-store-picker"><div class="rb-grid"><label>Mağaza<select data-rb="order-store">${storeOptions(state.storeFilter)}</select></label></div>${state.storeFilter ? `<p class="rb-muted">Aşağıdaki özet, kesinti aktarımı ve sipariş dökümü <b>${esc(storeName(state.storeFilter))}</b> içindir. Öteki mağazaya geçmek için buradan değiştir.</p>` : '<p class="rb-muted">Başlamak için bir mağaza seç.</p>'}</section>`;
+    return `${magazaSecici}${summaryPanel}${transferPanel}<section class="v2-card"><h3>Sipariş sonuçları</h3>${linkPanel}
       ${state.storeFilter ? stuckUyari + gapUyari + toolbar + cards : ''}
       <p class="rb-muted">Dört sayı ayrı tutulur: <b>pazaryerinin bildirdiği net</b>, <b>bankada doğrulanan tahsilat</b>, <b>bilinen doğrudan maliyetlerden sonraki katkı</b> (KDV hariç satış − ürün maliyeti − kesintiler; stopaj dahil edilmez) ve <b>tahmin</b>. Eksik maliyet sıfır sayılmaz.</p>
       ${o ? (o.results.length ? `<div class="v2-table-wrap"><table class="v2-table"><thead><tr><th>Sipariş</th><th>Ürünler</th><th>Pazaryeri neti</th><th>Banka</th><th>Katkı</th><th>Tahmin</th><th></th></tr></thead><tbody>

@@ -287,6 +287,12 @@ export const contentHash = data => stable(data);
  * Eksik alan önceki değeri silmez (birleştirme). Eski rapor güncel bilgiyi geri almaz.
  * Zaman eşit/bilinmiyorsa ve içerik farklıysa ya da kayıt ERP'ye bağlıysa: inceleme.
  */
+// Deftere islenen alanlar: bunlar degistiyse insan bakmali. Durum ve teslim tarihi degil.
+const PARA_ALANLARI = ['gross', 'net_revenue', 'quantity', 'barcode', 'sku', 'package_id', 'order_no', 'line_id', 'amount_cents', 'net_payout', 'type'];
+function paraDegisti(eski, yeni) {
+  return PARA_ALANLARI.some(k => (eski?.[k] ?? null) !== (yeni?.[k] ?? null));
+}
+
 export function compareVersions(prior, incoming) {
   if (!prior) return {outcome: 'new', data: incoming.data};
   const merged = {...prior.data, ...incoming.data};
@@ -296,6 +302,12 @@ export function compareVersions(prior, incoming) {
   if (incoming.time && observed && incoming.time < observed) return {outcome: 'older', data: prior.data};
   if (stable(prior.data) === stable(merged))
     return {outcome: 'same', data: prior.data, advanceObservation: !!(incoming.time && (!observed || incoming.time > observed))};
+  // Kilitli kayitta (sevk edilmis/teslim edilmis pakete bagli) degisiklik normalde INCELEMEYE
+  // gider: para ve miktar alanlari deftere islenmistir. Ama teslim sureci ilerledikce durum ve
+  // teslim tarihi DOGAL olarak degisir. Para, miktar, urun ve paket aynı kalıyorsa bu bir celiski
+  // degil ilerlemedir; her teslimat icin kullaniciya is cikarmaz.
+  if (prior.locked && incoming.time && observed && incoming.time > observed && !paraDegisti(prior.data, merged))
+    return {outcome: 'updated', data: merged};
   if (prior.locked || !incoming.time || !observed || incoming.time === observed) return {outcome: 'review', data: prior.data, proposed: merged};
   return {outcome: 'updated', data: merged};
 }

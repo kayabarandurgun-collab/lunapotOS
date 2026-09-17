@@ -405,3 +405,31 @@ test('Yükleme sonucu kaç kesinti kaydı geldiğini söyler', async () => {
     assert.equal(r.counts.fee_events, 2, 'gelen kesinti kaydı sayısı bildirildi');
   } finally { f.close(); }
 });
+
+// Kilitli kayıtta (sevk edilmiş pakete bağlı) değişiklik incelemeye gider: para alanları
+// deftere işlenmiştir. Ama teslim süreci ilerledikçe DURUM doğal olarak değişir; her teslimat
+// için kullanıcıya iş çıkarmamalı. Canlıda 2 kayıt boşuna incelemeye düşmüştü.
+test('Kilitli kayıtta durum ilerlemesi incelemeye düşmez; para değişirse düşer', async () => {
+  const {compareVersions} = await import('../public/report-core.js');
+  const eski = {order_no: 'S1', package_id: 'P1', barcode: 'U1', quantity: 1, gross: 13200, status: 'Kargoda'};
+  const kilitli = t => ({data: eski, dataTime: t, observedTime: t, locked: true});
+
+  // Yalnız durum ve teslim tarihi ilerledi → güncellenir, incelemeye gitmez.
+  const ilerleme = compareVersions(kilitli('2026-09-08T10:00'),
+    {data: {...eski, status: 'Teslim edildi', delivered_date: '2026-09-09'}, time: '2026-09-10T10:00'});
+  assert.equal(ilerleme.outcome, 'updated');
+  assert.equal(ilerleme.data.status, 'Teslim edildi');
+
+  // Tutar değişti → insan bakmalı.
+  const paraDegisti = compareVersions(kilitli('2026-09-08T10:00'),
+    {data: {...eski, gross: 14000}, time: '2026-09-10T10:00'});
+  assert.equal(paraDegisti.outcome, 'review', 'para alanı değişince incelemeye gider');
+
+  // Adet değişti → insan bakmalı.
+  assert.equal(compareVersions(kilitli('2026-09-08T10:00'),
+    {data: {...eski, quantity: 2}, time: '2026-09-10T10:00'}).outcome, 'review');
+
+  // Aynı anda gelen çelişki, para değişmese de incelemeye gider (hangisi yeni belli değil).
+  assert.equal(compareVersions(kilitli('2026-09-08T10:00'),
+    {data: {...eski, status: 'Teslim edildi'}, time: '2026-09-08T10:00'}).outcome, 'review');
+});
