@@ -1,10 +1,19 @@
 const fail=message=>{throw Object.assign(new Error(message),{status:400});};
 const date=value=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFinite(Date.parse(value))||new Date(value).toISOString().slice(0,10)!==value)fail('Tarih geçersiz.');return value;};
 // Bind all user values. Search applies before paging, including old packages.
+// İÇ AKTARIM ARTIĞI: aktarım sırasında kurulup sevk edilmeden iptal edilen ve YERİNE YENİSİ kurulan
+// taslak. Kargoya çıkmamış, satışı yok, hiçbir rapor kaydına bağlı değil ve aynı siparişin iptal
+// olmayan başka kaydı duruyor. Sipariş değildir; listede ve sayılarda gösterilmez. Gerçek iptal
+// (rapora bağlı, sevk edilmiş ya da satışı olan) görünmeye devam eder.
+export const AKTARIM_ARTIGI="(order_packages.status='cancelled' AND order_packages.shipped_on IS NULL"
+ +" AND NOT EXISTS(SELECT 1 FROM ec_report_records r WHERE r.erp_package_id=order_packages.id)"
+ +" AND NOT EXISTS(SELECT 1 FROM order_line_components c JOIN order_lines l ON l.id=c.line_id WHERE l.package_id=order_packages.id AND c.sale_id IS NOT NULL)"
+ +" AND EXISTS(SELECT 1 FROM order_packages q WHERE q.order_no=order_packages.order_no AND q.channel=order_packages.channel AND q.id!=order_packages.id AND q.status!='cancelled'))";
 export function ordersQuery(url,today=new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Istanbul'})){
  const p=new URL(url).searchParams,selected=p.get('package');
  if(selected){if(!/^[\w-]{1,100}$/.test(selected))fail('Paket kimliği geçersiz.');return {scope:' WHERE id=?',args:[selected],page:1,limit:1,offset:0,sort:'date_desc'};}
  const clauses=[],args=[],add=(sql,...values)=>{clauses.push(sql);args.push(...values);};
+ add('NOT '+AKTARIM_ARTIGI);
  const sort=p.get('sort')||'date_desc';if(!['date_desc','date_asc','amount_desc','amount_asc','profit_desc','profit_asc'].includes(sort))fail('Sıralama geçersiz.');
  const q=(p.get('q')||'').trim(),channel=p.get('channel')||'',status=p.get('status')||'',watch=p.get('watch')||'',from=p.get('from')||'',to=p.get('to')||'';
  if(q.length>200)fail('Arama en fazla 200 karakter olmalı.');

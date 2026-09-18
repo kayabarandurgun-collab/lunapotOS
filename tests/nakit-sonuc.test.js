@@ -212,7 +212,7 @@ test('Kargoya verilmemiş paket rapordaki teslim tarihiyle teslime geçirilmez',
 // İçe aktarımda kurulup sevk edilmeden iptal edilen ve yerine yenisi kurulan taslaklar da
 // 'cancelled' görünür. Bunlar satış kaybı DEĞİLDİR; gerçek iptalle aynı sayıda gösterilirse
 // kullanıcı olmayan bir zarar arar. Ayrımın ölçütü kayıtların kendisidir, tahmin değil.
-test('Yerine yenisi kurulan taslak, gerçek sipariş iptalinden ayrı sayılır', async () => {
+test('Yerine yenisi kurulan aktarım taslağı listede ve sayılarda görünmez; gerçek iptal görünür', async () => {
   const f = appFixture(); await f.setup(); try {
     kur(f);
     // A: içe aktarım taslağı — sevk edilmedi, satış kaydı yok, yerine 'pk' duruyor (aynı sipariş no).
@@ -224,8 +224,11 @@ test('Yerine yenisi kurulan taslak, gerçek sipariş iptalinden ayrı sayılır'
 
     const d = await f.ok('/ec/orders');
     const c = d.counts.find(x => x.status === 'cancelled');
-    assert.equal(c.count, 2, 'iki iptal kaydı var');
-    assert.equal(c.rebuilt, 1, 'yalnızca yerine yenisi kurulan taslak ayrıldı');
+    assert.equal(c.count, 1, 'yalnız gerçek iptal sayıldı');
+    const ids = d.packages.map(p => p.id);
+    assert.ok(ids.includes('gercek'), 'gerçek iptal listede');
+    assert.ok(!ids.includes('eski'), 'aktarım artığı listede değil');
+    assert.ok(ids.includes('pk'), 'siparişin gerçek kaydı listede');
   } finally { f.close(); }
 });
 

@@ -1,6 +1,6 @@
 import {cents,milli} from '../public/accounting-math.js';
 import {resolveMapping} from './catalog-api.js';
-import {ordersQuery} from './orders-query.js';
+import {ordersQuery,AKTARIM_ARTIGI} from './orders-query.js';
 import {assertReportLinkFresh} from './report-link-guard.js';
 const fail=(m,s=400)=>{throw Object.assign(new Error(m),{status:s});};
 const id=()=>crypto.randomUUID();
@@ -94,14 +94,10 @@ export async function ordersApi(request,env,path,readBody){
    db.prepare('SELECT * FROM order_reservations WHERE released_on IS NULL'),
    statement(db,'SELECT c.*,p.name product_name,p.sku,p.stock_unit current_stock_unit FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN products p ON p.id=c.product_id WHERE l.package_id IN (SELECT id FROM order_packages'+pageSQL+') ORDER BY c.rowid',pageArgs)
   ])).map(r=>r.results);
-  // Iptal sayisi yaniltici olabiliyor: ic aktarim sirasinda kurulmus ama sevk edilmeden iptal
-  // edilip YERINE YENISI kurulan taslaklar da 'cancelled' gorunuyor. Bunlar satis kaybi degil.
-  // Ayrimin olcutu uydurma degil kayitlarin kendisi: kargoya hic verilmemis, satis kaydi yok ve
-  // ayni siparis numarasinda iptal olmayan bir paket duruyor.
-  const yenidenKurulan="status='cancelled' AND shipped_on IS NULL AND NOT EXISTS(SELECT 1 FROM order_line_components c JOIN order_lines l ON l.id=c.line_id WHERE l.package_id=order_packages.id AND c.sale_id IS NOT NULL) AND EXISTS(SELECT 1 FROM order_packages q WHERE q.order_no=order_packages.order_no AND q.channel=order_packages.channel AND q.id!=order_packages.id AND q.status!='cancelled')";
+  // İç aktarım artığı (bkz. AKTARIM_ARTIGI) sipariş değildir: sayılara da girmez.
   // Durum sayıları seçili KANALA göre verilir: Trendyol seçiliyken Hepsiburada sayılmaz.
   const kanal=new URL(request.url).searchParams.get('channel')||'';
-  const counts=(await statement(db,'SELECT status,COUNT(*) count,SUM(CASE WHEN '+yenidenKurulan+' THEN 1 ELSE 0 END) rebuilt FROM order_packages'+(kanal?' WHERE channel=?':'')+' GROUP BY status',kanal?[kanal]:[]).all()).results;
+  const counts=(await statement(db,'SELECT status,COUNT(*) count,0 rebuilt FROM order_packages WHERE NOT '+AKTARIM_ARTIGI+(kanal?' AND channel=?':'')+' GROUP BY status',kanal?[kanal]:[]).all()).results;
   const total=(await statement(db,'SELECT COUNT(*) count FROM order_packages'+scope,args).first()).count;
   const stock=new Map(products.map(p=>[p.id,p.quantity_milli-p.reserved_milli]));
   // Listede gosterilen rakam NAKIT olmali; kar raporuyla ayni sayiyi vermeli. Onceki halinde
