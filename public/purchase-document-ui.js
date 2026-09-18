@@ -574,6 +574,9 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
       catch (e) { notes.push('Belge bağlanamadı: ' + e.message); }
     }
     say('Taslak oluşturuldu ve belge bağlandı. Cari borç ve stok henüz yazılmadı.' + (notes.length ? ' ' + notes.join(' ') : ''));
+    // Otomatik akışta kuyruğu siradakini() ilerletir ve sonucu o yazar. Burada da ilerletilirse
+    // her fatura özete iki kez yazılıyordu ("8 taslak" — gerçekte 4).
+    if (state.auto) return;
     // Kuyrukta dosya varsa ekran KAPANMAZ: kullanici her faturadan sonra yeniden yuklemeye
     // donmek zorunda kalmasin. Elle tamamlanan faturadan sonra otomatik isleme yeniden acilir.
     if (state.queue.length) {
