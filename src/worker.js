@@ -26,6 +26,7 @@ import {purchaseSearchApi} from './purchase-search-api.js';
 import {purchaseReturnApi} from './purchase-return-api.js';
 import {purchaseSplitApi} from './purchase-split-api.js';
 import {purchaseDocumentApi} from './purchase-document-api.js';
+import {purchaseAutopostApi} from './purchase-autopost-api.js';
 import {salesDocumentApi} from './sales-document-api.js';
 import {stagedImportApi} from './staged-import-api.js';
 import {reportStockLinkApi} from './report-stock-link-api.js';
@@ -111,7 +112,7 @@ async function api(request,env,path){
  const workspace=path.match(/^\/api\/(ec|lp)(\/.*)?$/);
  if(workspace){
   const scoped={...env,DB:scopedDB(db,workspace[1]),ROOT_DB:db,WORKSPACE:workspace[1],USER:current.user},subpath=workspace[2]||'';
-  for(const handler of [stagedImportApi,purchaseDocumentApi,salesDocumentApi,reportStockLinkApi,reportInboxApi,bankApi,lotApi,barcodeApi,offersApi,partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(scrubAmounts(result,current.user,workspace[1]));}
+  for(const handler of [stagedImportApi,purchaseDocumentApi,purchaseAutopostApi,salesDocumentApi,reportStockLinkApi,reportInboxApi,bankApi,lotApi,barcodeApi,offersApi,partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(scrubAmounts(result,current.user,workspace[1]));}
   return json(scrubAmounts(await accountingApi(request,scoped,'/api/accounting'+subpath,body),current.user,workspace[1]));
  }
  if(path==='/api/auth/logout'&&request.method==='POST') {

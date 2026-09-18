@@ -155,11 +155,13 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
   }
 
   function ozetView() {
-    const d = state.queueDone, taslak = d.filter(x => x.sonuc === 'taslak'), atlanan = d.filter(x => x.sonuc !== 'taslak');
+    const d = state.queueDone, islendi = d.filter(x => x.sonuc === 'islendi'), taslak = d.filter(x => x.sonuc === 'taslak'),
+      atlanan = d.filter(x => x.sonuc !== 'taslak' && x.sonuc !== 'islendi');
+    const eslesme = x => (x.eslesen || []).length ? `<br><span class="pd-muted">${x.eslesen.map(m => esc(m.description) + ' → ' + esc(m.product_name) + ' (' + esc(m.how) + ')').join('<br>')}</span>` : '';
     return `<section class="v2-card v2-card-body"><h2>Toplu yükleme bitti</h2>
-      <p class="pd-alert ${atlanan.length ? 'info' : 'ok'}">${taslak.length} fatura taslak olarak oluştu${atlanan.length ? `, ${atlanan.length} dosya işlenmedi` : ''}.
-        Cari borç ve stok <b>henüz yazılmadı</b>: taslakları Alış faturaları ekranından kontrol edip muhasebeleştir.</p>
-      ${taslak.length ? `<h3>Taslak oluşanlar</h3><ul class="pd-list">${taslak.map(x => `<li>${esc(x.ad)}${x.fatura ? ' — ' + esc(x.fatura) : ''}</li>`).join('')}</ul>` : ''}
+      <p class="pd-alert ${atlanan.length || taslak.length ? 'info' : 'ok'}">${islendi.length} fatura muhasebeleşti ve stoğa girdi${taslak.length ? `, ${taslak.length} fatura taslakta bekliyor` : ''}${atlanan.length ? `, ${atlanan.length} dosya işlenmedi` : ''}.</p>
+      ${islendi.length ? `<h3>Muhasebeleşti ve stoğa girdi</h3><ul class="pd-list">${islendi.map(x => `<li>${esc(x.fatura || x.ad)}${eslesme(x)}</li>`).join('')}</ul>` : ''}
+      ${taslak.length ? `<h3>Taslakta bekleyenler</h3><ul class="pd-list">${taslak.map(x => `<li>${esc(x.fatura || x.ad)}${x.sebep ? ' — ' + esc(x.sebep) : ''}</li>`).join('')}</ul>` : ''}
       ${atlanan.length ? `<h3>İşlenmeyenler</h3><ul class="pd-list">${atlanan.map(x => `<li>${esc(x.ad)} — ${esc(x.sebep || '')}</li>`).join('')}</ul>
         <p class="pd-muted">Bunları tek tek yükleyip tamamlayabilirsin. Aynı belge ikinci kez kayıt yaratmaz.</p>` : ''}
       <div class="pd-actions"><button class="secondary" type="button" data-pd="restart">Yeni dosya yükle</button>
@@ -361,7 +363,9 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     }
     try {
       await saveDraft();
-      state.queueDone.push({ad, sonuc: 'taslak', fatura: state.header.invoice_no});
+      const auto = state.lastAuto || {};
+      state.queueDone.push({ad, sonuc: auto.status === 'posted' && auto.received ? 'islendi' : 'taslak', fatura: state.header.invoice_no,
+        sebep: auto.status === 'posted' && auto.received ? '' : auto.reason || '', eslesen: auto.mapped || []});
     } catch (e) {
       state.queueDone.push({ad, sonuc: 'atlandi', sebep: e.message});
     }
@@ -573,7 +577,16 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
       try { await api('/invoices/documents/' + state.docId + '/link', {invoice_id: invoice.id}); }
       catch (e) { notes.push('Belge bağlanamadı: ' + e.message); }
     }
-    say('Taslak oluşturuldu ve belge bağlandı. Cari borç ve stok henüz yazılmadı.' + (notes.length ? ' ' + notes.join(' ') : ''));
+    // Geçmişte aynı satırlar hangi karta bağlandıysa ona bağlanır; hepsi bağlanırsa fatura
+    // muhasebeleşir ve fatura tarihiyle stoğa girer. Bağlanamayan satır varsa taslak kalır.
+    state.lastAuto = null;
+    try { state.lastAuto = await api('/invoices/' + invoice.id + '/autocomplete', {}); }
+    catch (e) { state.lastAuto = {status: 'draft', reason: 'Otomatik tamamlanamadı: ' + e.message}; }
+    const auto = state.lastAuto;
+    say(auto?.status === 'posted'
+      ? (auto.received ? 'Fatura muhasebeleşti ve ' + h.invoice_date + ' tarihiyle stoğa girdi.' : auto.reason || 'Fatura muhasebeleşti.')
+      : 'Taslak oluşturuldu; cari borç ve stok henüz yazılmadı. ' + (auto?.reason || '')
+    + (notes.length ? ' ' + notes.join(' ') : ''));
     // Otomatik akışta kuyruğu siradakini() ilerletir ve sonucu o yazar. Burada da ilerletilirse
     // her fatura özete iki kez yazılıyordu ("8 taslak" — gerçekte 4).
     if (state.auto) return;
