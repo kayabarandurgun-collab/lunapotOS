@@ -31,7 +31,7 @@ export async function performanceApi(request,env,path){
  const ids=JSON.stringify(packages.map(p=>p.id));
  const [lines,components,sales,inputs=[],shippingRates=[],commissionRates=[]]=(await db.batch([
   db.prepare('SELECT * FROM order_lines WHERE package_id IN (SELECT value FROM json_each(?))').bind(ids),
-  db.prepare('SELECT c.*,l.package_id,(SELECT pp.vat_bps FROM price_profiles pp WHERE pp.product_id=c.product_id) urun_kdv,b.quantity_milli stock_quantity_milli,b.value_cents,p.stock_unit current_stock_unit,s.cost_cents sale_cost_cents FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN stock_balances b ON b.product_id=c.product_id JOIN products p ON p.id=c.product_id LEFT JOIN sale_entries s ON s.id=c.sale_id WHERE l.package_id IN (SELECT value FROM json_each(?))').bind(ids),
+  db.prepare('SELECT c.*,l.package_id,(SELECT pp.vat_bps FROM price_profiles pp WHERE pp.product_id=c.product_id) urun_kdv,(SELECT pp.replacement_cost_cents FROM price_profiles pp WHERE pp.product_id=c.product_id) son_alis,b.quantity_milli stock_quantity_milli,b.value_cents,p.stock_unit current_stock_unit,s.cost_cents sale_cost_cents FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN stock_balances b ON b.product_id=c.product_id JOIN products p ON p.id=c.product_id LEFT JOIN sale_entries s ON s.id=c.sale_id WHERE l.package_id IN (SELECT value FROM json_each(?))').bind(ids),
   db.prepare(SALES_SQL).bind(ids),
   ...(mode==='pending'?[db.prepare('SELECT * FROM order_estimate_inputs WHERE package_id IN (SELECT value FROM json_each(?))').bind(ids),
   db.prepare('SELECT * FROM shipping_rates WHERE archived_at IS NULL LIMIT 1001'),
@@ -61,7 +61,7 @@ export async function performanceApi(request,env,path){
    const tids=JSON.stringify(twins.map(t=>t.id));
    const [tl,tc,ts]=(await db.batch([
     db.prepare('SELECT * FROM order_lines WHERE package_id IN (SELECT value FROM json_each(?))').bind(tids),
-    db.prepare('SELECT c.*,l.package_id,(SELECT pp.vat_bps FROM price_profiles pp WHERE pp.product_id=c.product_id) urun_kdv,b.quantity_milli stock_quantity_milli,b.value_cents,p.stock_unit current_stock_unit,s.cost_cents sale_cost_cents FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN stock_balances b ON b.product_id=c.product_id JOIN products p ON p.id=c.product_id LEFT JOIN sale_entries s ON s.id=c.sale_id WHERE l.package_id IN (SELECT value FROM json_each(?))').bind(tids),
+    db.prepare('SELECT c.*,l.package_id,(SELECT pp.vat_bps FROM price_profiles pp WHERE pp.product_id=c.product_id) urun_kdv,(SELECT pp.replacement_cost_cents FROM price_profiles pp WHERE pp.product_id=c.product_id) son_alis,b.quantity_milli stock_quantity_milli,b.value_cents,p.stock_unit current_stock_unit,s.cost_cents sale_cost_cents FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN stock_balances b ON b.product_id=c.product_id JOIN products p ON p.id=c.product_id LEFT JOIN sale_entries s ON s.id=c.sale_id WHERE l.package_id IN (SELECT value FROM json_each(?))').bind(tids),
     db.prepare(SALES_SQL).bind(tids)])).map(r=>r.results);
    for(const [m,rows] of [[lineMap,tl],[partMap,tc],[saleMap,ts]])for(const [k,v] of group(rows))m.set(k,v);
    const free=twins.filter(t=>!isDup(t.id));
@@ -176,7 +176,9 @@ export async function performanceApi(request,env,path){
     // Satış ve maliyet paketin kendi kaydından (gönderilmişse satış satırları, değilse ilan ve stok).
     const own=(saleMap.get(p.id)||[]).filter(e=>e.kind==='sale');
     const revenue=own.length?own.reduce((t,e)=>t+e.revenue_cents,0):packageLines.every(l=>l.net_revenue_cents!==null)?packageLines.reduce((t,l)=>t+l.net_revenue_cents,0):null;
-    const cost=own.length?own.reduce((t,e)=>t+e.cost_cents,0):parts.every(c=>c.stock_quantity_milli>0)?parts.reduce((t,c)=>t+Math.round(c.value_cents*c.quantity_milli/c.stock_quantity_milli),0):null;
+    // Maliyet: stok ortalaması; stok sıfır/eksiyse (faturası gelmemiş mal) ürünün son alış fiyatı.
+    const birimMaliyet=c=>c.stock_quantity_milli>0&&c.value_cents>0?Math.round(c.value_cents*c.quantity_milli/c.stock_quantity_milli):c.son_alis?Math.round(c.son_alis*c.quantity_milli/1000):null;
+    const cost=own.length?own.reduce((t,e)=>t+e.cost_cents,0):parts.length&&parts.every(c=>birimMaliyet(c)!==null)?parts.reduce((t,c)=>t+birimMaliyet(c),0):null;
     if(revenue===null||cost===null){row.missing.push('Paketin satış tutarı veya ürün maliyeti bilinmiyor; tahmin yapılmadı.');return row;}
     const commission=Math.round(revenue*h.commissionRate);
     Object.assign(row,{revenue_net_cents:revenue,cost_net_cents:cost,shipping_cents:h.shipping,commission_cents:commission,other_cents:h.other,
