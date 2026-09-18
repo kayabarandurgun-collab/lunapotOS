@@ -11,9 +11,10 @@ export const AKTARIM_ARTIGI="(order_packages.status='cancelled' AND order_packag
  +" AND EXISTS(SELECT 1 FROM order_packages q WHERE q.order_no=order_packages.order_no AND q.channel=order_packages.channel AND q.id!=order_packages.id AND q.status!='cancelled'))";
 export function ordersQuery(url,today=new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Istanbul'})){
  const p=new URL(url).searchParams,selected=p.get('package');
- if(selected){if(!/^[\w-]{1,100}$/.test(selected))fail('Paket kimliği geçersiz.');return {scope:' WHERE id=?',args:[selected],page:1,limit:1,offset:0,sort:'date_desc'};}
+ if(selected){if(!/^[\w-]{1,100}$/.test(selected))fail('Paket kimliği geçersiz.');return {scope:' WHERE id=?',args:[selected],page:1,limit:1,offset:0,sort:'date_desc',sonuc:''};}
  const clauses=[],args=[],add=(sql,...values)=>{clauses.push(sql);args.push(...values);};
  add('NOT '+AKTARIM_ARTIGI);
+ const sonuc=p.get('sonuc')||'';if(!['','kar','zarar'].includes(sonuc))fail('Kâr/zarar süzgeci geçersiz.');
  const sort=p.get('sort')||'date_desc';if(!['date_desc','date_asc','amount_desc','amount_asc','profit_desc','profit_asc'].includes(sort))fail('Sıralama geçersiz.');
  const q=(p.get('q')||'').trim(),channel=p.get('channel')||'',status=p.get('status')||'',watch=p.get('watch')||'',from=p.get('from')||'',to=p.get('to')||'';
  if(q.length>200)fail('Arama en fazla 200 karakter olmalı.');
@@ -29,5 +30,5 @@ export function ordersQuery(url,today=new Date().toLocaleDateString('sv-SE',{tim
  if(watch==='long_shipping')add("status='shipped' AND shipped_on<=?",new Date(Date.parse(date(today))-7*86400000).toISOString().slice(0,10));
  const page=Number(p.get('page')||1),limit=Number(p.get('limit')||500);
  if(!Number.isSafeInteger(page)||page<1||page>1000000||!Number.isSafeInteger(limit)||limit<1||limit>500)fail('Sayfa bilgisi geçersiz.');
- return {scope:clauses.length?' WHERE '+clauses.map(c=>'('+c+')').join(' AND '):'',args,page,limit,offset:(page-1)*limit,sort};
+ return {scope:clauses.length?' WHERE '+clauses.map(c=>'('+c+')').join(' AND '):'',args,page,limit,offset:(page-1)*limit,sort,sonuc};
 }

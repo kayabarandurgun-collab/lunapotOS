@@ -26,11 +26,11 @@ export function mountOrders(root,namespace='ec'){
  const ilk=read(),donusAdresi=ilk.get('donus')||'';
  const controller=new AbortController(),signal=controller.signal;
  const state={data:null,pricing:null,pricingError:'',catalog:null,insights:null,insightSequence:0,selected:null,busy:false,dialog:null,quote:null,built:false,pushed:false,
-  open:ilk.get('ac')||ilk.get('package')||'',search:'',filter:'',channel:'',from:'',to:'',watch:'',sort:'date_desc',page:1};
- const fromParams=p=>Object.assign(state,{search:p.get('q')||'',filter:p.get('status')||'',channel:p.get('channel')||'',from:p.get('from')||'',to:p.get('to')||'',watch:p.get('watch')||'',
+  open:ilk.get('ac')||ilk.get('package')||'',search:'',filter:'',channel:'',sonuc:'',from:'',to:'',watch:'',sort:'date_desc',page:1};
+ const fromParams=p=>Object.assign(state,{search:p.get('q')||'',filter:p.get('status')||'',channel:p.get('channel')||'',sonuc:['kar','zarar'].includes(p.get('sonuc'))?p.get('sonuc'):'',from:p.get('from')||'',to:p.get('to')||'',watch:p.get('watch')||'',
   sort:SORTS[p.get('sort')]?p.get('sort'):'date_desc',page:Math.max(1,Number(p.get('page'))||1)});
  fromParams(ilk);
- const listParams=()=>{const p=new URLSearchParams();for(const [k,v] of Object.entries({channel:state.channel,status:state.filter,q:state.search,from:state.from,to:state.to,watch:state.watch,sort:state.sort==='date_desc'?'':state.sort,page:state.page>1?state.page:''}))if(v)p.set(k,v);return p;};
+ const listParams=()=>{const p=new URLSearchParams();for(const [k,v] of Object.entries({channel:state.channel,sonuc:state.sonuc,status:state.filter,q:state.search,from:state.from,to:state.to,watch:state.watch,sort:state.sort==='date_desc'?'':state.sort,page:state.page>1?state.page:''}))if(v)p.set(k,v);return p;};
  const hashFor=open=>{const p=listParams();if(open)p.set('ac',open);if(donusAdresi)p.set('donus',donusAdresi);const s=p.toString();return '#orders'+(s?'?'+s:'');};
  const syncHash=()=>{const h=hashFor(state.open);if(location.hash!==h)history.replaceState(history.state,'',h);};
  const orderPath=()=>{const p=listParams();p.set('sort',state.sort);p.set('page',String(state.page));p.set('limit','50');return '/orders?'+p;};
@@ -77,6 +77,7 @@ export function mountOrders(root,namespace='ec'){
     <section class="v2-card ol-card">
      <div class="ol-toolbar">
       <div class="ol-seg" role="group" aria-label="Kanal" data-ol-channel>${[['','Tümü'],['trendyol','Trendyol'],['hepsiburada','Hepsiburada']].map(([v,l])=>`<button type="button" data-ol-kanal="${v}">${l}</button>`).join('')}</div>
+      <div class="ol-seg ol-seg-sonuc" role="group" aria-label="Kâr veya zarar" data-ol-sonuc>${[['','Hepsi'],['kar','Kâr edenler'],['zarar','Zarar edenler']].map(([v,l])=>`<button type="button" data-ol-sonuc-sec="${v}">${l}</button>`).join('')}</div>
       <form class="ol-search" role="search" data-ol-search><input type="search" name="q" maxlength="200" placeholder="Sipariş, paket veya kargo no" aria-label="Sipariş ara"><button type="submit" class="secondary">Ara</button></form>
       <label class="ol-sort"><span>Sırala</span><select data-ol-sort>${Object.entries(SORTS).map(([v,l])=>`<option value="${v}">${esc(l)}</option>`).join('')}</select></label>
      </div>
@@ -89,6 +90,7 @@ export function mountOrders(root,namespace='ec'){
   const count=k=>d.counts.find(x=>x.status===k)?.count||0,toplam=CHIPS.slice(1).reduce((t,[k])=>t+count(k),0);
   $('[data-ol-chips]').innerHTML=CHIPS.map(([k,l])=>`<button type="button" class="ol-chip" data-ol-durum="${k}" aria-pressed="${state.filter===k}">${l}<b>${k?count(k):toplam}</b></button>`).join('');
   for(const b of root.querySelectorAll('[data-ol-kanal]'))b.setAttribute('aria-pressed',String(state.channel===b.dataset.olKanal));
+  for(const b of root.querySelectorAll('[data-ol-sonuc-sec]'))b.setAttribute('aria-pressed',String(state.sonuc===b.dataset.olSonucSec));
   const q=$('[data-ol-search] input');if(document.activeElement!==q)q.value=state.search;
   $('[data-ol-sort]').value=state.sort;
   const extra=$('[data-ol-extra]');extra.from.value=state.from;extra.to.value=state.to;extra.watch.value=state.watch;
@@ -106,7 +108,7 @@ export function mountOrders(root,namespace='ec'){
   const brut=p=>{const ls=(state.data.lines||[]).filter(l=>l.package_id===p.id);return ls.length&&ls.every(l=>l.gross_cents!==null&&l.gross_cents!==undefined)?ls.reduce((t,l)=>t+l.gross_cents,0):null;};
   const [anahtar,yon]=state.sort.split('_');
   const baslik=(key,label)=>{const aktif=anahtar===key;return `<th class="ol-h-${key}" aria-sort="${aktif?(yon==='asc'?'ascending':'descending'):'none'}"><button type="button" data-ol-sortkey="${key}" title="${esc(label)} sütununa göre sırala">${esc(label)}<span aria-hidden="true">${aktif?(yon==='asc'?' ▲':' ▼'):' ↕'}</span></button></th>`;};
-  if(!packages.length){box.innerHTML=`<div class="v2-empty"><h3>Bu seçimde sipariş yok.</h3><p>Kanalı, durumu veya tarihi değiştirip yeniden bak.</p></div>`;return;}
+  if(!packages.length){box.innerHTML=`<div class="v2-empty"><h3>Bu seçimde sipariş yok.</h3><p>Kanalı, kâr/zarar seçimini, durumu veya tarihi değiştirip yeniden bak.</p></div>`;return;}
   box.innerHTML=`<div class="ol-table-wrap"><table class="ol-table" data-list-tools="off"><thead><tr><th class="ol-h-urun">Ürün / sipariş no</th><th class="ol-h-kanal">Kanal</th>${baslik('date','Tarih')}<th class="ol-h-durum">Durum</th>${baslik('amount','Tutar')}${baslik('profit','Cebine kalan')}</tr></thead><tbody>${packages.map(p=>{
    const elapsed=p.status==='shipped'&&p.shipped_on?Math.max(0,Math.floor((Date.parse(today())-Date.parse(p.shipped_on))/86400000)):null;
    const bilgi=elapsed!==null?`<small class="${elapsed>=7?'error':''}">${elapsed} gündür kargoda</small>`:p.status==='draft'||p.source_changed?`<small class="${p.readiness==='ready'?'':'error'}">${esc(readiness[p.readiness]||'')}</small>`:'';
@@ -246,6 +248,7 @@ export function mountOrders(root,namespace='ec'){
  root.addEventListener('change',e=>{if(e.target.matches('[data-ol-sort]'))degistir({sort:e.target.value,page:1});},{signal});
  root.addEventListener('click',e=>{
   const kanal=e.target.closest('[data-ol-kanal]');if(kanal){degistir({channel:kanal.dataset.olKanal,page:1});return;}
+  const sonuc=e.target.closest('[data-ol-sonuc-sec]');if(sonuc){degistir({sonuc:sonuc.dataset.olSonucSec,page:1});return;}
   const durum=e.target.closest('[data-ol-durum]');if(durum){degistir({filter:durum.dataset.olDurum,page:1});return;}
   const siralama=e.target.closest('[data-ol-sortkey]');if(siralama){const [k,y]=state.sort.split('_'),yeni=siralama.dataset.olSortkey;degistir({sort:yeni+'_'+(k===yeni&&y==='desc'?'asc':'desc'),page:1});return;}
   if(e.target.closest('[data-ol-temizle]')){degistir({from:'',to:'',watch:'',page:1});return;}

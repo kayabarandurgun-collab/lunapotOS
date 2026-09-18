@@ -487,3 +487,23 @@ test('Alış kaydı olmayan malın maliyeti sıfır sayılmaz; kâr hesaplanmaz'
     assert.ok(Number.isSafeInteger(d.cash_cents), 'maliyet gelince hesaplandı');
   } finally { f.close(); }
 });
+
+test('Sipariş listesi kâr edenler / zarar edenler diye süzülür; kesintisi olmayan ikisine de girmez; kanalla birlikte çalışır', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);   // pk: HB, nakit −64,08 (zarar)
+    // pk2: HB, aynı kesintilerle yüksek satış → kâr
+    f.sqlite.exec("INSERT INTO ec_order_packages(id,channel,external_id,order_no,occurred_on,status,source_fingerprint) VALUES('pk2','hepsiburada','P2','S2','2026-09-02','draft','t')");
+    f.sqlite.exec("INSERT INTO ec_order_lines(id,package_id,external_id,name,quantity_milli,net_revenue_cents) VALUES('ln2','pk2','L2','Ürün',1000,50000)");
+    f.sqlite.exec("INSERT INTO ec_sale_entries(id,channel,external_id,product_id,kind,quantity_milli,revenue_cents,cost_cents,commission_cents,shipping_cents,other_cents,fees_status,occurred_on) VALUES('se2','hepsiburada','S-2','p1','sale',1000,50000,4600,1610,8992,1138,'confirmed','2026-09-05')");
+    f.sqlite.exec("INSERT INTO ec_order_line_components(id,line_id,product_id,quantity_milli,revenue_share_bps,sale_id,stock_unit) VALUES('cm2','ln2','p1',1000,10000,'se2','adet')");
+    // pk3: HB, satışı yok (kesinti bekliyor)
+    f.sqlite.exec("INSERT INTO ec_order_packages(id,channel,external_id,order_no,occurred_on,status,source_fingerprint) VALUES('pk3','hepsiburada','P3','S3','2026-09-03','draft','t')");
+    const liste = async q => { const d = await f.ok('/ec/orders?' + q); return {no: d.packages.map(p => p.order_no), toplam: d.pagination.total}; };
+    assert.deepEqual(await liste('sonuc=kar'), {no: ['S2'], toplam: 1});
+    assert.deepEqual(await liste('sonuc=zarar'), {no: ['S1'], toplam: 1});
+    assert.deepEqual(await liste('sonuc=zarar&channel=hepsiburada'), {no: ['S1'], toplam: 1});
+    assert.deepEqual(await liste('sonuc=kar&channel=trendyol'), {no: [], toplam: 0});
+    assert.equal((await liste('')).toplam, 3, 'süzgeçsiz hepsi');
+    assert.equal((await f.req('/ec/orders?sonuc=belki')).status, 400);
+  } finally { f.close(); }
+});
