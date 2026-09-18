@@ -10,6 +10,13 @@ import {purchaseAdjustmentApi} from './purchase-adjustment-api.js';
 import {hash,hex,passwordHash,equal,currentSession,owner,authorize,accessApi,acceptInvite} from './access-api.js';
 import {convert} from '../public/costs.js';
 import {accountingApi} from './accounting.js';
+import {fifoRevalue,fifoApi} from './fifo-cost.js';
+// Stok hareketi yazan her e-ticaret isteğinden sonra, hareketi değişen ürünlerin satış maliyeti
+// satış tarihine göre (ilk giren ilk çıkar) düzeltilir. Hata isteği bozmaz; ürün kirli kalır, sonraki istekte denenir.
+async function maliyetiTazele(env,request){
+ if(env.WORKSPACE!=='ec'||request.method==='GET')return;
+ try{await fifoRevalue(env.DB,8);}catch(e){console.error('fifo',e.message);}
+}
 import {scopedDB} from './scoped-db.js';
 import {pricingApi} from './pricing-api.js';
 import {ledgerApi} from './ledger-api.js';
@@ -112,8 +119,9 @@ async function api(request,env,path){
  const workspace=path.match(/^\/api\/(ec|lp)(\/.*)?$/);
  if(workspace){
   const scoped={...env,DB:scopedDB(db,workspace[1]),ROOT_DB:db,WORKSPACE:workspace[1],USER:current.user},subpath=workspace[2]||'';
-  for(const handler of [stagedImportApi,purchaseDocumentApi,purchaseAutopostApi,salesDocumentApi,reportStockLinkApi,reportInboxApi,bankApi,lotApi,barcodeApi,offersApi,partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null)return json(scrubAmounts(result,current.user,workspace[1]));}
-  return json(scrubAmounts(await accountingApi(request,scoped,'/api/accounting'+subpath,body),current.user,workspace[1]));
+  for(const handler of [fifoApi,stagedImportApi,purchaseDocumentApi,purchaseAutopostApi,salesDocumentApi,reportStockLinkApi,reportInboxApi,bankApi,lotApi,barcodeApi,offersApi,partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null){await maliyetiTazele(scoped,request);return json(scrubAmounts(result,current.user,workspace[1]));}}
+  const accounting=await accountingApi(request,scoped,'/api/accounting'+subpath,body);await maliyetiTazele(scoped,request);
+  return json(scrubAmounts(accounting,current.user,workspace[1]));
  }
  if(path==='/api/auth/logout'&&request.method==='POST') {
    const s=await session(request,db);await db.prepare('DELETE FROM sessions WHERE token_hash=?').bind(s.token_hash).run();

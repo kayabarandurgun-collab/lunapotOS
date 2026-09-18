@@ -33,7 +33,7 @@ export async function settingsApi(request,env,path,readBody){
   // e-ticaret alanı 40 tablo sınırındadır (D1 sorgu kotası). Ham belge parçaları zaten bu boyuttaki
   // bir JSON'a sığmaz. Hepsi tam D1 yedeğinde ve zaman yolculuğu geri sarmasında durur. Açık maliyet
   // ve kapanış kayıtları da ara hesaptır: sonuç maliyet satış satırlarında (cost_cents) zaten vardır.
-  const names=all.filter(n=>n.startsWith(ns+'_')&&!/connections|cursors|records|_report_|purchase_document|sales_document|product_famil|purchase_family|import_batches|import_items|bank_files|bank_lines|open_costs|cost_settlements/.test(n));
+  const names=all.filter(n=>n.startsWith(ns+'_')&&!/connections|cursors|records|_report_|purchase_document|sales_document|product_famil|purchase_family|import_batches|import_items|bank_files|bank_lines|open_costs|cost_settlements|cost_dirty|cost_revaluations/.test(n));
   if(ns==='lp')names.push('products','materials','recipes','recipe_items');
   if(names.some(n=>!/^\w+$/.test(n)))fail('Yedek tablo adı doğrulanamadı.',500);
   if(!names.length||names.length>40)fail('Bu dışa aktarma en fazla 40 veri tablosunu destekler; D1 dışa aktarımını kullanın.',409);

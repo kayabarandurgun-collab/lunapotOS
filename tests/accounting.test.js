@@ -35,7 +35,7 @@ test('Çalışma alanları ayrı: ürün, stok, fatura ve raporlarda veri karı�
  }finally{f.close();}
 });
 
-test('Satış, fatura onayı, ortalama maliyet, ödeme, iade ve sayım bütünlüğü',async()=>{
+test('Satış, fatura onayı, ilk giren ilk çıkar maliyet, ödeme, iade ve sayım bütünlüğü',async()=>{
  const f=await fixture();try{
   const p=(await f.post('/ec/products',{name:'Torf',sku:'T20',stock_unit:'adet',min_stock:0})).id;
   await f.post('/ec/stock',{product_id:p,quantity:10,kind:'opening',reference:'A',notes:'Açılış',occurred_on:date},400);
@@ -61,15 +61,15 @@ test('Satış, fatura onayı, ortalama maliyet, ödeme, iade ve sayım bütünl�
   await f.post('/ec/invoices/'+inv+'/receive',{occurred_on:date,reference:'DELIVERY-OVER',lines:[{id:detail.lines[0].id,quantity:1}]},409);
   state=await f.get('ec');assert.equal(state.stock[0].quantity_milli,18000);assert.equal(state.stock[0].value_cents,46000);assert.equal(state.suppliers[0].purchase_cents,36000);
   await f.post('/ec/payments',{supplier_id:supplier,reference:'PAY-1',amount:100,occurred_on:date});assert.equal((await f.get('ec')).suppliers[0].paid_cents,10000);
-  await f.post('/ec/sales',sale(p,'S-2',3,150));state=await f.get('ec');assert.equal(state.sales.find(x=>x.id===s).cost_cents,4000);assert.equal(state.sales.find(x=>x.external_id==='S-2').cost_cents,7667);
+  await f.post('/ec/sales',sale(p,'S-2',3,150));state=await f.get('ec');assert.equal(state.sales.find(x=>x.id===s).cost_cents,4000);assert.equal(state.sales.find(x=>x.external_id==='S-2').cost_cents,6000,'ilk giren ilk çıkar: açılıştaki 20 TL mal');
   await f.post('/ec/sales/'+s+'/return',{external_id:'RET-1',quantity:1,revenue:50,commission:-6,shipping:0,other:0,fees_status:'confirmed',restock:true,occurred_on:date});
-  state=await f.get('ec');assert.equal(state.stock[0].quantity_milli,16000);assert.equal(state.stock[0].value_cents,40333);assert.equal(state.sales.find(x=>x.external_id==='RET-1').cost_cents,-2000);
+  state=await f.get('ec');assert.equal(state.stock[0].quantity_milli,16000);assert.equal(state.stock[0].value_cents,42000,'6 × 20 + 10 × 30');assert.equal(state.sales.find(x=>x.external_id==='RET-1').cost_cents,-2000);
   await f.post('/ec/sales/'+s+'/return',{external_id:'RET-OVER',quantity:2,revenue:50,restock:true,occurred_on:date},409);
   await f.post('/ec/sales/'+s+'/return',{external_id:'REFUND-OVER',quantity:1,revenue:60,restock:true,occurred_on:date},409);
   await f.post('/ec/sales/'+s+'/return',{external_id:'RET-2',quantity:1,revenue:50,commission:0,shipping:0,other:0,fees_status:'confirmed',restock:false,occurred_on:date});
   assert.equal((await f.get('ec')).stock[0].quantity_milli,16000);
   await f.post('/ec/stock',{product_id:p,quantity:15,kind:'count',reference:'COUNT-1',notes:'Sayımda 1 torba eksik',occurred_on:date});
-  state=await f.get('ec');assert.equal(state.stock[0].quantity_milli,15000);assert.equal(state.expenses[0].category,'loss');assert.equal(state.expenses[0].amount_cents,2521);
+  state=await f.get('ec');assert.equal(state.stock[0].quantity_milli,15000);assert.equal(state.expenses[0].category,'loss');assert.equal(state.expenses[0].amount_cents,2625);
   await f.post('/ec/products/'+p,{name:'Yeni ad',sku:'T20',stock_unit:'kg',min_stock:0},409);
   assert.throws(()=>f.sqlite.exec('DELETE FROM ec_stock_movements'),/IMMUTABLE_LEDGER/);
  }finally{f.close();}
