@@ -460,3 +460,16 @@ test('Otomatik aktarım: raporda KDV oranı yoksa ürünün fiyat profilindeki o
     assert.deepEqual([l.vat_bps, l.net_revenue_cents], [2000, Math.round(l.gross_cents / 1.2)]);
   } finally { f.close(); }
 });
+
+test('Otomatik aktarım: ürün sipariş tarihinden sonra rafta sayıldıysa satış stoktan düşülmez, taslak kalır', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const product = await fourPack(f);
+    const s = store(f);
+    startDate(f, DATE);
+    await f.ok('/ec/stock', {product_id: product.id, quantity: 24, unit_cost: 10, kind: 'count', reference: 'GECICI-SAYIM-X', notes: 'Raf sayımı', occurred_on: '2026-09-15'});
+    record(f, s, 'TY-1', line({package_id: 'PKS', line_id: 'LS', order_no: 'OS', status: 'Teslim Edildi', delivered_date: '2026-09-13'}), 1);
+    const r = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
+    assert.ok(r.results[0].skipped && /rafta sayıldı/.test(r.results[0].reason), JSON.stringify(r.results[0]));
+    assert.equal(stockOf(f, product.id), 24000, 'sayılan stok değişmedi');
+  } finally { f.close(); }
+});

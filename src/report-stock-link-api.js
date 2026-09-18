@@ -336,6 +336,13 @@ export async function reportStockLinkApi(request, env, path, readBody) {
         const eksik = ls.filter(l => l.net_revenue_cents === null && l.gross_cents !== null && l.mapping_id && l.oran_sayisi === 1 && !l.oransiz);
         if (eksik.length) { await call(ordersApi, '/api/orders/' + id + '/map', {lines: eksik.map(l => ({id: l.id, mapping_id: l.mapping_id, vat_rate: l.oran / 100}))}); steps.push('KDV ürün profilinden'); }
         const linked = {occurred_on: occurred};
+        // RAF SAYIMI KORUMASI. Ürün, sipariş tarihinden SONRA rafta sayılmışsa (GECICI-SAYIM) o sayım
+        // bu satıştan sonraki gerçek durumu zaten gösterir; satışı şimdi stoktan düşmek malı iki kez
+        // eksiltir. Böyle paket taslak kalır ve sebebi yazılır.
+        const sayim = await db.prepare(`SELECT pr.name,m.occurred_on FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id
+          JOIN ec_stock_movements m ON m.product_id=c.product_id AND m.kind='count' AND m.reference LIKE 'GECICI-SAYIM-%' AND m.occurred_on>=?
+          JOIN ec_products pr ON pr.id=c.product_id WHERE l.package_id=? LIMIT 1`).bind(occurred || c.order_date, id).first();
+        if (sayim) { results.push({...out, skipped: true, order_package: id, reason: 'Sipariş taslak kaldı: ' + sayim.name + ' ' + sayim.occurred_on + ' tarihinde rafta sayıldı; bu önceki satışı stoktan düşmek çift sayım olur.'}); continue; }
         try { await call(ordersApi, '/api/orders/' + id + '/reserve', {}); steps.push('stok ayrıldı'); }
         catch (e) { results.push({...out, skipped: true, reason: 'Sipariş taslak kaldı: ' + e.message, order_package: id}); continue; }
         if (/kargo|teslim|shipped|delivered|yolda/.test(durum)) {
