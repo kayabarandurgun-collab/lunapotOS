@@ -72,25 +72,24 @@ export async function ordersApi(request,env,path,readBody){
  const db=env.DB,method=request.method;
  if(path==='/api/orders'&&method==='GET'){
   const {scope,args,page,limit,offset,sort,sonuc}=ordersQuery(request.url);
-  // SIRALAMA sayfalamadan ÖNCE, filtreye uyan bütün paketler üzerinde yapılır; yalnız görünen
-  // sayfayı sıralamak yanlış olurdu. Tarih SQL'de; tutar ve cebine kalan (nakit) bütün paketler
-  // için hesaplanıp sıralanır. Değeri olmayan (kesintisi bekleyen) paketler her yönde en sonda.
+  // SIRALAMA ve KÂR/ZARAR süzgeci sayfalamadan ÖNCE, filtreye uyan bütün paketler üzerinde yapılır;
+  // yalnız görünen sayfayı sıralamak/süzmek yanlış olurdu. Cebine kalan (nakit) bütün paketler için
+  // hesaplanır: kâr/zarar düğmelerindeki sayılar da diğer filtrelere göre buradan çıkar.
+  // Değeri olmayan (kesintisi bekleyen) paketler sıralamada her yönde en sonda.
   const [anahtar,yon]=sort.split('_'),artan=yon==='asc';
-  let pageSQL,pageArgs,sira=null,ozet=null,suzulen=null;
-  if(anahtar==='date'&&!sonuc){const d=artan?'ASC':'DESC';pageSQL=scope+` ORDER BY occurred_on ${d},created_at ${d},rowid ${d} LIMIT ? OFFSET ?`;pageArgs=[...args,limit,offset];}
-  else{
-   let hepsi=(await statement(db,'SELECT id,occurred_on,created_at,rowid rid,(SELECT SUM(l.gross_cents) FROM order_lines l WHERE l.package_id=order_packages.id) brut FROM order_packages'+scope,args).all()).results;
-   if(anahtar==='profit'||sonuc)ozet=await nakitOzeti(hepsi.map(r=>r.id));
-   // KÂR / ZARAR süzgeci listedeki "cebine kalan" rakamına göre: sıfırdan büyük kâr, küçük zarar.
-   // Kesintisi henüz gelmemiş (rakamı olmayan) sipariş ikisine de girmez.
-   if(sonuc)hepsi=hepsi.filter(r=>{const n=ozet.get(r.id)?.nakit;return n!==null&&n!==undefined&&(sonuc==='kar'?n>0:n<0);});
-   const deger=r=>anahtar==='profit'?(ozet.get(r.id)?.nakit??null):(r.brut??null);
-   if(anahtar==='date')hepsi.sort((a,b)=>{const c=a.occurred_on.localeCompare(b.occurred_on)||String(a.created_at).localeCompare(String(b.created_at))||a.rid-b.rid;return artan?c:-c;});
-   else hepsi.sort((a,b)=>{const x=deger(a),y=deger(b);if(x===null||y===null)return x===null&&y===null?b.occurred_on.localeCompare(a.occurred_on):x===null?1:-1;return artan?x-y:y-x;});
-   suzulen=hepsi.length;
-   sira=hepsi.slice(offset,offset+limit).map(r=>r.id);
-   pageSQL=' WHERE id IN (SELECT value FROM json_each(?))';pageArgs=[JSON.stringify(sira)];
-  }
+  let hepsi=(await statement(db,'SELECT id,occurred_on,created_at,rowid rid,(SELECT SUM(l.gross_cents) FROM order_lines l WHERE l.package_id=order_packages.id) brut FROM order_packages'+scope,args).all()).results;
+  const ozet=await nakitOzeti(hepsi.map(r=>r.id));
+  const nakitOf=r=>ozet.get(r.id)?.nakit??null;
+  // KÂR / ZARAR listedeki "cebine kalan" rakamına göre: sıfırdan büyük kâr, küçük zarar.
+  // Kesintisi henüz gelmemiş (rakamı olmayan) sipariş ikisine de girmez.
+  const sonucSayilari={hepsi:hepsi.length,kar:hepsi.filter(r=>nakitOf(r)>0).length,zarar:hepsi.filter(r=>nakitOf(r)!==null&&nakitOf(r)<0).length};
+  if(sonuc)hepsi=hepsi.filter(r=>{const n=nakitOf(r);return n!==null&&(sonuc==='kar'?n>0:n<0);});
+  const deger=r=>anahtar==='profit'?nakitOf(r):(r.brut??null);
+  if(anahtar==='date')hepsi.sort((a,b)=>{const c=a.occurred_on.localeCompare(b.occurred_on)||String(a.created_at).localeCompare(String(b.created_at))||a.rid-b.rid;return artan?c:-c;});
+  else hepsi.sort((a,b)=>{const x=deger(a),y=deger(b);if(x===null||y===null)return x===null&&y===null?b.occurred_on.localeCompare(a.occurred_on):x===null?1:-1;return artan?x-y:y-x;});
+  const suzulen=hepsi.length;
+  const sira=hepsi.slice(offset,offset+limit).map(r=>r.id);
+  const pageSQL=' WHERE id IN (SELECT value FROM json_each(?))',pageArgs=[JSON.stringify(sira)];
 
   const [packages,lines,products,reservations,components]=(await db.batch([
    statement(db,'SELECT * FROM order_packages'+pageSQL,pageArgs),
@@ -103,7 +102,7 @@ export async function ordersApi(request,env,path,readBody){
   // Durum sayıları seçili KANALA göre verilir: Trendyol seçiliyken Hepsiburada sayılmaz.
   const kanal=new URL(request.url).searchParams.get('channel')||'';
   const counts=(await statement(db,'SELECT status,COUNT(*) count,0 rebuilt FROM order_packages WHERE NOT '+AKTARIM_ARTIGI+(kanal?' AND channel=?':'')+' GROUP BY status',kanal?[kanal]:[]).all()).results;
-  const total=suzulen??(await statement(db,'SELECT COUNT(*) count FROM order_packages'+scope,args).first()).count;
+  const total=suzulen;
   const stock=new Map(products.map(p=>[p.id,p.quantity_milli-p.reserved_milli]));
   // Listede gosterilen rakam NAKIT olmali; kar raporuyla ayni sayiyi vermeli. Onceki halinde
   // KDV haric katki ekranda 1,2 ile carpiliyordu: bu nakit DEGILDIR, cunku kesintilerin KDV'si
@@ -149,9 +148,8 @@ export async function ordersApi(request,env,path,readBody){
   }
   return ozet;
   }
-  if(!ozet)ozet=await nakitOzeti(packages.map(p=>p.id));
-  if(sira){const yer=new Map(sira.map((id,i)=>[id,i]));packages.sort((a,b)=>yer.get(a.id)-yer.get(b.id));}
-  return {packages:packages.slice(0,500).map(p=>{const ls=lines.filter(l=>l.package_id===p.id),lineIDs=new Set(ls.map(l=>l.id)),cs=components.filter(c=>lineIDs.has(c.line_id)),needs=new Map();for(const c of cs)needs.set(c.product_id,(needs.get(c.product_id)||0)+c.quantity_milli);const readiness=p.source_changed?'source_changed':ls.some(l=>cs.filter(c=>c.line_id===l.id).reduce((n,c)=>n+c.revenue_share_bps,0)!==10000)||cs.some(c=>c.stock_unit!==c.current_stock_unit)?'needs_mapping':ls.some(l=>l.net_revenue_cents===null)?'needs_amounts':p.status==='draft'&&[...needs].some(([product,q])=>(stock.get(product)||0)<q)?'needs_stock':'ready';return {...p,revenue_net_cents:ozet.get(p.id)?.gelir??null,result_cents:ozet.get(p.id)?.tam?ozet.get(p.id).sonuc:null,cash_result_cents:ozet.get(p.id)?.nakit??null,readiness};}),lines,components,products:products.map(p=>({...p,available_milli:p.quantity_milli-p.reserved_milli})),reservations,counts,truncated:offset+packages.length<total,pagination:{page,limit,total,pages:Math.max(1,Math.ceil(total/limit)),has_more:offset+packages.length<total}};
+  {const yer=new Map(sira.map((id,i)=>[id,i]));packages.sort((a,b)=>yer.get(a.id)-yer.get(b.id));}
+  return {packages:packages.slice(0,500).map(p=>{const ls=lines.filter(l=>l.package_id===p.id),lineIDs=new Set(ls.map(l=>l.id)),cs=components.filter(c=>lineIDs.has(c.line_id)),needs=new Map();for(const c of cs)needs.set(c.product_id,(needs.get(c.product_id)||0)+c.quantity_milli);const readiness=p.source_changed?'source_changed':ls.some(l=>cs.filter(c=>c.line_id===l.id).reduce((n,c)=>n+c.revenue_share_bps,0)!==10000)||cs.some(c=>c.stock_unit!==c.current_stock_unit)?'needs_mapping':ls.some(l=>l.net_revenue_cents===null)?'needs_amounts':p.status==='draft'&&[...needs].some(([product,q])=>(stock.get(product)||0)<q)?'needs_stock':'ready';return {...p,revenue_net_cents:ozet.get(p.id)?.gelir??null,result_cents:ozet.get(p.id)?.tam?ozet.get(p.id).sonuc:null,cash_result_cents:ozet.get(p.id)?.nakit??null,readiness};}),lines,components,products:products.map(p=>({...p,available_milli:p.quantity_milli-p.reserved_milli})),reservations,counts,sonuc_counts:sonucSayilari,truncated:offset+packages.length<total,pagination:{page,limit,total,pages:Math.max(1,Math.ceil(total/limit)),has_more:offset+packages.length<total}};
  }
  const previewMatch=path.match(/^\/api\/orders\/([\w-]+)\/source$/);
  if(previewMatch&&method==='GET'){

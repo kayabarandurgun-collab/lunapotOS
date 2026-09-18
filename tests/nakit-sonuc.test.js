@@ -504,6 +504,10 @@ test('Sipariş listesi kâr edenler / zarar edenler diye süzülür; kesintisi o
     assert.deepEqual(await liste('sonuc=zarar&channel=hepsiburada'), {no: ['S1'], toplam: 1});
     assert.deepEqual(await liste('sonuc=kar&channel=trendyol'), {no: [], toplam: 0});
     assert.equal((await liste('')).toplam, 3, 'süzgeçsiz hepsi');
+    // Düğme sayıları diğer filtrelere göre, kâr/zarar seçiminden bağımsız.
+    assert.deepEqual((await f.ok('/ec/orders?sonuc=zarar')).sonuc_counts, {hepsi: 3, kar: 1, zarar: 1});
+    assert.deepEqual((await f.ok('/ec/orders?channel=trendyol')).sonuc_counts, {hepsi: 0, kar: 0, zarar: 0});
+    assert.deepEqual((await f.ok('/ec/orders?status=draft')).sonuc_counts, {hepsi: 2, kar: 1, zarar: 0}, 'durum süzgecine göre (S2 ve S3 hazırlıkta)');
     assert.equal((await f.req('/ec/orders?sonuc=belki')).status, 400);
   } finally { f.close(); }
 });

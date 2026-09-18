@@ -77,7 +77,7 @@ export function mountOrders(root,namespace='ec'){
     <section class="v2-card ol-card">
      <div class="ol-toolbar">
       <div class="ol-seg" role="group" aria-label="Kanal" data-ol-channel>${[['','Tümü'],['trendyol','Trendyol'],['hepsiburada','Hepsiburada']].map(([v,l])=>`<button type="button" data-ol-kanal="${v}">${l}</button>`).join('')}</div>
-      <div class="ol-seg ol-seg-sonuc" role="group" aria-label="Kâr veya zarar" data-ol-sonuc>${[['','Hepsi'],['kar','Kâr edenler'],['zarar','Zarar edenler']].map(([v,l])=>`<button type="button" data-ol-sonuc-sec="${v}">${l}</button>`).join('')}</div>
+      <div class="ol-seg ol-seg-sonuc" role="group" aria-label="Kâr veya zarar" data-ol-sonuc>${[['','Hepsi'],['kar','Kâr edenler'],['zarar','Zarar edenler']].map(([v,l])=>`<button type="button" data-ol-sonuc-sec="${v}">${l} <span class="ol-say" data-ol-sonuc-say="${v||'hepsi'}"></span></button>`).join('')}</div>
       <form class="ol-search" role="search" data-ol-search><input type="search" name="q" maxlength="200" placeholder="Sipariş, paket veya kargo no" aria-label="Sipariş ara"><button type="submit" class="secondary">Ara</button></form>
       <label class="ol-sort"><span>Sırala</span><select data-ol-sort>${Object.entries(SORTS).map(([v,l])=>`<option value="${v}">${esc(l)}</option>`).join('')}</select></label>
      </div>
@@ -91,6 +91,8 @@ export function mountOrders(root,namespace='ec'){
   $('[data-ol-chips]').innerHTML=CHIPS.map(([k,l])=>`<button type="button" class="ol-chip" data-ol-durum="${k}" aria-pressed="${state.filter===k}">${l}<b>${k?count(k):toplam}</b></button>`).join('');
   for(const b of root.querySelectorAll('[data-ol-kanal]'))b.setAttribute('aria-pressed',String(state.channel===b.dataset.olKanal));
   for(const b of root.querySelectorAll('[data-ol-sonuc-sec]'))b.setAttribute('aria-pressed',String(state.sonuc===b.dataset.olSonucSec));
+  // Sayılar diğer filtrelere (kanal, durum, arama, tarih) göredir; kâr/zarar seçiminden bağımsızdır.
+  for(const s of root.querySelectorAll('[data-ol-sonuc-say]')){const n=d.sonuc_counts?.[s.dataset.olSonucSay];s.textContent=n===undefined?'':'('+n+')';}
   const q=$('[data-ol-search] input');if(document.activeElement!==q)q.value=state.search;
   $('[data-ol-sort]').value=state.sort;
   const extra=$('[data-ol-extra]');extra.from.value=state.from;extra.to.value=state.to;extra.watch.value=state.watch;
