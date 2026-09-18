@@ -198,3 +198,29 @@ td strong,.recipe-card h2,.studio-material strong,.history-links li{overflow-wra
 .rb-degisti dt{font-weight:600}
 .order-sold{margin:14px 0}.order-sold-item{padding:14px 0;border-bottom:1px solid var(--line,#e8e5ef)}.order-sold-item:last-child{border-bottom:0}.order-sold-main{display:flex;justify-content:space-between;gap:12px;align-items:baseline}.order-sold-main strong{font-size:16px;line-height:1.4;overflow-wrap:anywhere}.order-sold-qty{font-weight:700;white-space:nowrap;font-size:16px}.order-sold-money{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:6px;font-size:13px}.order-sold-stock,.order-stock-plain{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:8px}.order-sold-stock li,.order-stock-plain li{display:grid;grid-template-columns:minmax(0,2fr) auto auto;gap:6px 16px;align-items:center;padding:10px 12px;border-radius:10px;background:var(--brand-soft,#f4f1fb);font-size:13px}.order-stock-plain li{grid-template-columns:minmax(0,2fr) repeat(3,auto)}.order-sold-stock small,.order-stock-plain small{display:block;color:var(--muted,#656170)}@media(max-width:600px){.order-sold-stock li,.order-stock-plain li{grid-template-columns:1fr}}
 [data-order-list] td:nth-child(2){max-width:320px;white-space:normal}[data-order-list] td:nth-child(2) .text-button{white-space:normal;text-align:left;line-height:1.35}[data-order-list] td:nth-child(2) small{overflow-wrap:anywhere;word-break:break-all}
+[data-order-list] td:nth-child(2){max-width:none}
+[data-order-list] .order-name{font-weight:500;font-size:14px;line-height:1.35;white-space:normal;text-align:left;padding:0}
+[data-order-list] td small{display:block;margin-top:3px;font-size:12px;font-weight:400;color:var(--muted,#6b6878)}
+[data-order-list] td{vertical-align:middle;padding-top:10px;padding-bottom:10px}
+[data-order-list] .v2-badge{font-weight:500}
+[data-order-list] .order-cash-cell{font-weight:600}
+@media(max-width:760px){
+ [data-order-list] table,[data-order-list] tbody{display:block;width:100%}
+ [data-order-list] thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+ [data-order-list] tr{display:grid;grid-template-columns:auto 1fr auto;gap:4px 10px;align-items:start;padding:12px 4px;border-bottom:1px solid var(--line,#e8e5ef)}
+ [data-order-list] tr[hidden]{display:none}
+ [data-order-list] td{display:block;padding:0;border:0;min-width:0}
+ [data-order-list] td:nth-child(1){grid-row:1 / span 2}
+ [data-order-list] td:nth-child(2){grid-column:2}
+ [data-order-list] td:nth-child(3){grid-column:2;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
+ [data-order-list] td:nth-child(3) small{margin:0}
+ [data-order-list] td:nth-child(4){grid-column:3;grid-row:1;text-align:right}
+ [data-order-list] td:nth-child(5){grid-column:3;grid-row:2;text-align:right}
+ [data-order-list] .v2-table-wrap,[data-order-list] .table-wrap,[data-order-list] .card{overflow-x:visible}
+}
+/* Daha sade yazı: tablo, özet satırı ve rozetlerde kalınlık bir kademe hafif. */
+main td strong,main dd,.v2-summary-line strong,.product-tile dd{font-weight:560}
+main .text-button{font-weight:560}
+.v2-badge,.pill{font-weight:560}
+main th{font-weight:600}
+.order-sold-main strong{font-weight:560}.order-sold-qty{font-weight:600}

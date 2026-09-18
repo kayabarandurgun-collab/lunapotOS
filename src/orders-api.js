@@ -101,23 +101,27 @@ export async function ordersApi(request,env,path,readBody){
   // Yalnizca GOSTERILEN SAYFANIN paketleri hesaplanir. Onceden butun satis kayitlari her
   // acilista bastan taraniyordu; sayfalamaya baglamak okuma maliyetini sayfa boyuna indirir.
   // Yuvarlama kar raporuyla AYNI yerde yapilir (kalem kalem), yoksa iki ekran kurus kurus ayrisir.
-  for(const r of (await statement(db,"SELECT l.package_id pid,p.channel kanal,"
-    +" SUM(s.revenue_cents) gelir,"
-    +" SUM(s.revenue_cents-s.cost_cents-COALESCE(s.commission_cents,0)-COALESCE(s.shipping_cents,0)-COALESCE(s.other_cents,0)) sonuc,"
-    +" SUM(CAST(ROUND(s.revenue_cents*COALESCE(pp.vat_bps,0)/10000.0) AS INTEGER)-CAST(ROUND(s.cost_cents*COALESCE(pp.vat_bps,0)/10000.0) AS INTEGER)) urun_kdv,"
-    +" SUM(COALESCE(s.commission_cents,0)) komisyon,SUM(COALESCE(s.shipping_cents,0)) kargo,SUM(COALESCE(s.other_cents,0)) diger,"
-    +" MIN(CASE WHEN pp.vat_bps IS NULL THEN 0 ELSE 1 END) kdv_tam,"
-    +" MIN(CASE WHEN s.commission_cents IS NULL OR s.shipping_cents IS NULL OR s.other_cents IS NULL THEN 0 ELSE 1 END) tam"
+  // Liste, kâr raporuyla BİREBİR aynı hesaplanır: iade satırları dahil (satışın alt kaydı), KDV
+  // kalem kalem eklenip yuvarlanır. Önceden iadeler atlanıyor ve KDV toplamda yuvarlanıyordu;
+  // aynı paket iki ekranda kuruşlarca, iadeli pakette yüzlerce lira farklı görünüyordu.
+  const kalemler=(await statement(db,"SELECT l.package_id pid,p.channel kanal,s.id,s.kind,s.revenue_cents,s.cost_cents,s.commission_cents,s.shipping_cents,s.other_cents,pp.vat_bps"
     +" FROM order_lines l JOIN order_line_components c ON c.line_id=l.id"
     +" JOIN order_packages p ON p.id=l.package_id"
-    +" JOIN sale_entries s ON s.id=c.sale_id"
+    +" JOIN sale_entries s ON (s.id=c.sale_id OR s.parent_id=c.sale_id)"
     +" LEFT JOIN ec_price_profiles pp ON pp.product_id=s.product_id"
-    +" WHERE l.package_id IN (SELECT id FROM order_packages"+pageSQL+") GROUP BY l.package_id",pageArgs).all()).results){
-   const fv=feeVat.get(r.kanal),yuvarla=x=>Math.round(x*fv/10000);
+    +" WHERE l.package_id IN (SELECT id FROM order_packages"+pageSQL+")",pageArgs).all()).results;
+  const inc=(v,b)=>Math.round(v*(10000+b)/10000);
+  for(const [pid,list] of kalemler.reduce((m,e)=>m.set(e.pid,[...(m.get(e.pid)||[]),e]),new Map())){
+   const fv=feeVat.get(list[0].kanal);
+   const tam=list.every(e=>e.commission_cents!==null&&e.shipping_cents!==null&&e.other_cents!==null);
+   const kdvTam=list.every(e=>e.vat_bps!==null&&e.vat_bps!==undefined);
+   const r={pid,kanal:list[0].kanal,tam,
+    gelir:list.reduce((t,e)=>t+e.revenue_cents,0),
+    sonuc:list.reduce((t,e)=>t+e.revenue_cents-e.cost_cents-(e.commission_cents||0)-(e.shipping_cents||0)-(e.other_cents||0),0)};
    // Kesinti KDV'si beyan edilmemisse nakit hesaplanmaz; oran uydurulmaz, alan bos kalir.
-   r.nakit=r.tam&&r.kdv_tam&&Number.isInteger(fv)
-    ?r.sonuc+r.urun_kdv-yuvarla(r.komisyon)-yuvarla(r.kargo)-yuvarla(r.diger):null;
-   ozet.set(r.pid,r);
+   r.nakit=tam&&kdvTam&&Number.isInteger(fv)
+    ?list.reduce((t,e)=>t+inc(e.revenue_cents,e.vat_bps)-inc(e.cost_cents,e.vat_bps)-inc(e.commission_cents,fv)-inc(e.shipping_cents,fv)-inc(e.other_cents,fv),0):null;
+   ozet.set(pid,r);
   }
   // STOPAJ bankaya gireni azaltır: kâr raporu ve sipariş özeti nakitten düşüyor, liste düşmüyordu;
   // aynı sipariş iki ekranda farklı görünüyordu. Kural kâr raporuyla AYNI: sipariş stopajı,

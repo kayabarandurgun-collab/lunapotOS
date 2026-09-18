@@ -9,9 +9,12 @@ const day=v=>{if(typeof v!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(v)||!Number.is
 const integer=(v,name,max=10000000000)=>{if(!Number.isSafeInteger(v)||v<0||v>max)fail(name+' eksik veya geçersiz.');return v;};
 const unpack=row=>row?{id:row.id,package_id:row.package_id,version:row.version,status:row.status,snapshot:JSON.parse(row.snapshot_json),created_at:row.created_at}:null;
 async function orderData(env,key){
- const db=env.DB,p=await stmt(db,"SELECT *,(SELECT COALESCE(SUM(json_extract(data_json,'$.amount_cents')),0)"
-  +" FROM ec_report_records WHERE kind='finance_event' AND json_extract(data_json,'$.type')='withholding'"
-  +" AND json_extract(data_json,'$.order_no')=order_packages.order_no) stopaj_cents"
+ // Stopaj kâr raporuyla AYNI kuralla: siparişin kendi kanalındaki mağaza kaydı, iptal edilmemiş
+ // paket sayısına bölünür. Önceden siparişin bütün stopajı her pakete yazılıyordu.
+ const db=env.DB,p=await stmt(db,"SELECT *,(SELECT COALESCE(SUM(json_extract(r.data_json,'$.amount_cents')),0)"
+  +" FROM ec_report_records r JOIN ec_report_stores st ON st.id=r.store_id AND st.provider=order_packages.channel WHERE r.kind='finance_event' AND json_extract(r.data_json,'$.type')='withholding'"
+  +" AND json_extract(r.data_json,'$.order_no')=order_packages.order_no) stopaj_cents,"
+  +"(SELECT COUNT(*) FROM order_packages q WHERE q.order_no=order_packages.order_no AND q.channel=order_packages.channel AND q.status!='cancelled') stopaj_paket"
   +' FROM order_packages WHERE id=?',[key]).first();if(!p)fail('Sipariş bu çalışma alanında bulunamadı.',404);
  const sourceRows=p.channel==='trendyol'?await all(stmt(db,"SELECT r.id,r.provider,r.fingerprint,r.source_updated_at,r.last_seen_at,r.payload_json FROM provider_records r JOIN provider_connections co ON co.provider=r.provider AND co.seller_id=r.seller_id WHERE r.provider=? AND r.kind='orders' AND r.external_id=? ORDER BY r.source_updated_at DESC,r.last_seen_at DESC,r.rowid DESC LIMIT 1",[p.channel,p.external_id])):[];
  const [lines,components,sales,drafts,purchases,feeEvidence]=await Promise.all([
@@ -34,7 +37,22 @@ async function orderData(env,key){
  // STOPAJ pazaryeri hakedisinden dusulur ama GIDER degildir: yillik vergiden mahsup edilir.
  // Bu yuzden katki hesabina girmez, yalniz 'cebine kalan' rakaminda gosterilir.
  // Paket sorgusunun icinde alinir; ek sorgu maliyeti yoktur.
- return {package:p,lines,components,sales,withholding_cents:Math.abs(p.stopaj_cents||0),parcel_input:parcelInput,parcel_input_source:parcelInputSource,actual_summary:actualSummary,customer,source,source_facts:sourceFacts,purchase_invoices:purchases.slice(0,50).map(r=>({...r,source:'recent_receipt_not_exact_lot'})),purchase_invoices_truncated:purchases.length>50,fee_evidence:feeEvidence,drafts:drafts.map(unpack),invoice_status:'draft_only',notices:['Alış belgeleri bu stok kartlarının son mal teslimleridir. Satış maliyeti ağırlıklı ortalamadır; kesin parti/fatura çıkışı olduğu iddia edilmez.','Yerel satış faturası taslağı resmî fatura değildir. EDM/GİB gönderimi yapılmaz.',...(p.channel==='hepsiburada'?['Hepsiburada kaynakları henüz paket düzeyinde doğrulanmadığından müşteri ayrıntısı otomatik eşleştirilmedi.']:[])]};
+ // NAKİT SONUÇ sunucuda, kâr raporu ve sipariş listesiyle AYNI formülle: her kalemde ürün KDV'si
+ // ve kesinti KDV'si ayrı eklenip yuvarlanır, stopaj düşülür. Üç ekran aynı rakamı gösterir.
+ const stopaj=Math.round(Math.abs(p.stopaj_cents||0)/Math.max(1,p.stopaj_paket||1));
+ // Oran kaynağı yoksa (eski kurulum) nakit boş kalır; oran uydurulmaz.
+ let vatRows=[],feeRow=null;
+ try{
+  // Tek sorgu: ürün KDV oranları ve kanalın kesinti KDV oranı.
+  if(sales.length){
+   const r=await stmt(db,"SELECT (SELECT json_group_object(product_id,vat_bps) FROM price_profiles WHERE product_id IN (SELECT value FROM json_each(?))) vats,(SELECT json_extract(options_json,'$.fee_vat_bps') FROM ec_report_profiles WHERE provider=? AND kind='finance' AND json_extract(options_json,'$.fee_amounts_include_vat')=1 AND json_extract(options_json,'$.fee_vat_bps') IS NOT NULL LIMIT 1) bps",[JSON.stringify([...new Set(sales.map(x=>x.product_id))]),p.channel]).first();
+   vatRows=Object.entries(JSON.parse(r?.vats||'{}')).map(([product_id,vat_bps])=>({product_id,vat_bps}));feeRow={bps:r?.bps};
+  }
+ }catch{vatRows=[];feeRow=null;}
+ const vat=new Map(vatRows.map(r=>[r.product_id,r.vat_bps])),fv=feeRow?.bps,inc=(v,b)=>Math.round(v*(10000+b)/10000);
+ const cashReady=sales.length&&Number.isInteger(fv)&&sales.every(x=>vat.get(x.product_id)!=null&&x.commission_cents!==null&&x.shipping_cents!==null&&x.other_cents!==null);
+ const cash_cents=cashReady?sales.reduce((t,x)=>t+inc(x.revenue_cents,vat.get(x.product_id))-inc(x.cost_cents,vat.get(x.product_id))-inc(x.commission_cents,fv)-inc(x.shipping_cents,fv)-inc(x.other_cents,fv),0)-stopaj:null;
+ return {package:p,lines,components,sales,withholding_cents:stopaj,cash_cents,parcel_input:parcelInput,parcel_input_source:parcelInputSource,actual_summary:actualSummary,customer,source,source_facts:sourceFacts,purchase_invoices:purchases.slice(0,50).map(r=>({...r,source:'recent_receipt_not_exact_lot'})),purchase_invoices_truncated:purchases.length>50,fee_evidence:feeEvidence,drafts:drafts.map(unpack),invoice_status:'draft_only',notices:['Alış belgeleri bu stok kartlarının son mal teslimleridir. Satış maliyeti ağırlıklı ortalamadır; kesin parti/fatura çıkışı olduğu iddia edilmez.','Yerel satış faturası taslağı resmî fatura değildir. EDM/GİB gönderimi yapılmaz.',...(p.channel==='hepsiburada'?['Hepsiburada kaynakları henüz paket düzeyinde doğrulanmadığından müşteri ayrıntısı otomatik eşleştirilmedi.']:[])]};
 }
 function billingData(input){
  if(!input||typeof input!=='object'||Array.isArray(input))fail('Fatura alıcısı gerekli.');
