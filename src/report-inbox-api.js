@@ -777,7 +777,7 @@ export async function pendingReturns(db, storeId) {
   const out = [], skipped = [];
   for (const x of rows) {
     const sales = (await db.prepare(
-      'SELECT c.sale_id,s.revenue_cents,s.quantity_milli,p.sku,' +
+      'SELECT c.sale_id,s.revenue_cents,s.quantity_milli,s.occurred_on,p.sku,' +
       '(SELECT COUNT(*) FROM ec_sale_entries r WHERE r.parent_id=s.id) iade_var' +
       ' FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id' +
       " JOIN ec_sale_entries s ON s.id=c.sale_id JOIN ec_products p ON p.id=s.product_id" +
@@ -792,7 +792,37 @@ export async function pendingReturns(db, storeId) {
     const tamIade = raporBrut > 0 && Math.abs(iade - raporBrut) <= 200;
     if (!tamIade) { skipped.push({order_no: x.order_no, reason: 'Kısmi iade (' + (iade / 100).toFixed(2) + ' TL); hangi satırın iade edildiği raporda yok, elle girilmeli.'}); continue; }
     out.push({order_no: x.order_no, erp_package_id: x.erp_package_id, refund_cents: iade,
-      lines: sales.map(r => ({sale_id: r.sale_id, sku: r.sku, quantity: r.quantity_milli / 1000, revenue_cents: r.revenue_cents}))});
+      lines: sales.map(r => ({sale_id: r.sale_id, sku: r.sku, quantity: r.quantity_milli / 1000, revenue_cents: r.revenue_cents, occurred_on: r.occurred_on}))});
+  }
+
+  // TESLİM EDİLEMEYEN PAKET. Kargo teslim edemez, mal geri döner; pazaryeri siparişi YENİ bir
+  // paketle tekrar gönderir. Para bir kez ödenir, iade satırı da gelmez. Teslim edilemeyen paket
+  // panelde satış olarak duruyorsa ve AYNI siparişin aynı ürün/adetli başka paketi teslim
+  // edildiyse o satış iadedir (mal stoğa döner). Tek başına "teslim edilemedi" yetmez: yeniden
+  // gönderim görülmeden mal müşteride mi depoda mı bilinmez.
+  const failed = (await db.prepare(
+    "SELECT r.erp_package_id,json_extract(r.data_json,'$.order_no') order_no,json_extract(r.data_json,'$.package_id') pk" +
+    " FROM ec_report_records r JOIN ec_order_packages p ON p.id=r.erp_package_id" +
+    " WHERE r.store_id=? AND r.kind='order_line' AND p.status IN ('shipped','delivered')" +
+    " AND lower(json_extract(r.data_json,'$.status')) LIKE '%edilemedi%'" +
+    " AND EXISTS(SELECT 1 FROM ec_report_records k JOIN ec_order_packages kp ON kp.id=k.erp_package_id" +
+    "  WHERE k.store_id=r.store_id AND k.kind='order_line' AND k.erp_package_id!=r.erp_package_id AND kp.status IN ('shipped','delivered')" +
+    "  AND json_extract(k.data_json,'$.order_no')=json_extract(r.data_json,'$.order_no')" +
+    "  AND COALESCE(json_extract(k.data_json,'$.barcode'),json_extract(k.data_json,'$.sku'))=COALESCE(json_extract(r.data_json,'$.barcode'),json_extract(r.data_json,'$.sku'))" +
+    "  AND json_extract(k.data_json,'$.quantity')=json_extract(r.data_json,'$.quantity')" +
+    "  AND lower(json_extract(k.data_json,'$.status')) LIKE 'teslim edil%' AND lower(json_extract(k.data_json,'$.status')) NOT LIKE '%edilemedi%')" +
+    " GROUP BY r.erp_package_id").bind(store.id).all()).results;
+  for (const x of failed) {
+    if (out.some(o => o.erp_package_id === x.erp_package_id)) continue;
+    const sales = (await db.prepare(
+      'SELECT c.sale_id,s.revenue_cents,s.quantity_milli,s.occurred_on,p.sku,' +
+      '(SELECT COUNT(*) FROM ec_sale_entries r WHERE r.parent_id=s.id) iade_var' +
+      ' FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id' +
+      " JOIN ec_sale_entries s ON s.id=c.sale_id JOIN ec_products p ON p.id=s.product_id" +
+      " WHERE l.package_id=? AND s.kind='sale' ORDER BY c.id").bind(x.erp_package_id).all()).results;
+    if (!sales.length || sales.some(r => r.iade_var)) continue;
+    out.push({order_no: x.order_no, erp_package_id: x.erp_package_id, reason: 'Paket ' + x.pk + ' teslim edilemedi; sipariş başka paketle teslim edildi.',
+      lines: sales.map(r => ({sale_id: r.sale_id, sku: r.sku, quantity: r.quantity_milli / 1000, revenue_cents: r.revenue_cents, occurred_on: r.occurred_on}))});
   }
   return {store, pending: out, skipped,
     notice: 'Bu liste yazmaz. İade kaydı, mevcut satış iadesi ucundan girilir; mal stoğa döner, kargo ve hizmet bedeli gider olarak kalır.'};

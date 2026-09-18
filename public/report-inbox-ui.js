@@ -457,6 +457,9 @@ export function mountReports(root, namespace = 'ec') {
       // teslim edilmiş siparişlere yazılır. Kullanıcının ayrıca bir düğmeye basması gerekmez.
       state.progress = 'Teslimler ve kesintiler güncelleniyor…'; render();
       const t = await api('/sync-deliveries', {confirm: true});
+      // Raporda iade görünen satışlar da kendiliğinden iade kaydına döner (mal stoğa döner).
+      let iade = 0;
+      for (let i = 0; i < 10; i++) { const r = await api('/stock-link/returns-apply', {store_id: d.store.id, confirm: true}); iade += r.done.length; if (!r.remaining || !r.done.length) break; }
       let cursor = 0, yazilan = 0;
       for (let i = 0; i < 40; i++) {
         const f = await api('/apply-fees', {store_id: d.store.id, confirm: true, cursor});
@@ -464,7 +467,7 @@ export function mountReports(root, namespace = 'ec') {
         if (!f.next_cursor || f.next_cursor <= cursor) break;
         cursor = f.next_cursor;
       }
-      aktarim += (t.count ? ' Teslim güncellenen: ' + t.count + '.' : '') + (yazilan ? ' Kesintisi yazılan satış: ' + yazilan + '.' : '');
+      aktarim += (t.count ? ' Teslim güncellenen: ' + t.count + '.' : '') + (iade ? ' İade kaydedilen satış: ' + iade + '.' : '') + (yazilan ? ' Kesintisi yazılan satış: ' + yazilan + '.' : '');
     }
     await load();
     say('İşlem tamamlandı. ' + Object.entries(result.counts || {}).map(([k, v]) => (OUTCOMES[k] || k) + ': ' + v).join(', ') + aktarim);

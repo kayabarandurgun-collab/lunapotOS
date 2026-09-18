@@ -16,6 +16,8 @@
 //  · Aynı paket ikinci kez aktarılamaz: hem sipariş kimliği hem aktarım kaydı tekildir.
 import {ordersApi} from './orders-api.js';
 import {reportLinkFingerprint} from './report-link-guard.js';
+import {pendingReturns} from './report-inbox-api.js';
+import {accountingApi} from './accounting.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), {status}); };
 
@@ -296,7 +298,7 @@ async function plan(env, storeId, packageId, lineIdentityDeclared = false) {
  */
 async function tazeleTaslakBagi(db, packageId) {
   const pkg = await db.prepare('SELECT id,status,report_linked,report_link_hash,source_changed FROM ec_order_packages WHERE id=?').bind(packageId).first();
-  if (!pkg || pkg.status !== 'draft' || !pkg.report_linked) return {};
+  if (!pkg || !['draft', 'reserved'].includes(pkg.status) || !pkg.report_linked) return {};
   const rows = (await db.prepare("SELECT data_json,updated_at FROM ec_report_records WHERE erp_package_id=? AND kind='order_line'").bind(packageId).all()).results;
   if (!rows.length) return {};
   const records = rows.map(r => ({data: parse(r.data_json, {}), updated_at: r.updated_at}));
@@ -310,7 +312,7 @@ async function tazeleTaslakBagi(db, packageId) {
   const ayni = rapor.size === defter.size && [...rapor].every(([k, q]) => defter.get(k) === q);
   if (!ayni) return {error: 'Sipariş taslak kaldı: raporda ürün veya adet değişti (' +
     [...rapor].map(([k, q]) => k + ' × ' + q).join(', ') + '); taslak ' + [...defter].map(([k, q]) => k + ' × ' + q).join(', ') + '.'};
-  await db.prepare("UPDATE ec_order_packages SET report_link_hash=?,source_changed=0 WHERE id=? AND status='draft'").bind(hash, packageId).run();
+  await db.prepare("UPDATE ec_order_packages SET report_link_hash=?,source_changed=0 WHERE id=? AND status IN ('draft','reserved')").bind(hash, packageId).run();
   return {updated: true};
 }
 
@@ -373,7 +375,7 @@ export async function reportStockLinkApi(request, env, path, readBody) {
         SUM(COALESCE(json_extract(data_json,'$.delivered_date'),'')='') not_delivered,
         MAX(substr(json_extract(data_json,'$.delivered_date'),1,10)) delivered_on
       FROM ec_report_records WHERE store_id=? AND kind='order_line' AND json_extract(data_json,'$.package_id') IS NOT NULL
-        AND (erp_package_id IS NULL OR erp_package_id IN (SELECT id FROM ec_order_packages WHERE status IN ('cancelled','draft')))
+        AND (erp_package_id IS NULL OR erp_package_id IN (SELECT id FROM ec_order_packages WHERE status IN ('cancelled','draft','reserved')))
         -- Bu paket için açılan sipariş İPTAL edildiyse (ör. yanlışlıkla eklenen hediye) karar verilmiştir:
         -- her rapor işlenişinde yeniden denenip "atlanan" diye gösterilmez.
         AND NOT (erp_package_id IN (SELECT id FROM ec_order_packages WHERE status='cancelled')
@@ -391,7 +393,13 @@ export async function reportStockLinkApi(request, env, path, readBody) {
       const own = kardes.filter(r => String(r.data.package_id) === pk);
       if (own.every(eski => kardes.some(r => eskittiMi(r, eski)))) eskiPaket.add(pk);
     }
-    const all = hepsi.filter(c => !eskiPaket.has(String(c.package_id)));
+    // Stok AYRILMIŞ sipariş yalnız rapor kargoya verildiğini söylüyorsa işe girer (gönderim).
+    const ayrilmis = new Set((await db.prepare(`SELECT DISTINCT json_extract(r.data_json,'$.package_id') pk FROM ec_report_records r
+        JOIN ec_order_packages p ON p.id=r.erp_package_id WHERE r.store_id=? AND r.kind='order_line' AND p.status='reserved'`)
+      .bind(storeId).all()).results.map(r => String(r.pk)));
+    const GITTI = /kargo|teslim|shipped|delivered|yolda/;
+    const all = hepsi.filter(c => !eskiPaket.has(String(c.package_id))
+      && (!ayrilmis.has(String(c.package_id)) || GITTI.test(String(c.statuses || '').toLocaleLowerCase('tr-TR'))));
     const results = [];
     const call = (handler, url, body) => handler(new Request('https://internal.invalid' + url, {method: 'POST'}), env, url, async () => body);
     for (const c of all.slice(0, AUTO_LIMIT)) {
@@ -403,11 +411,11 @@ export async function reportStockLinkApi(request, env, path, readBody) {
         // vardır. Elle aktarımda da kullanılan "paket no + stok kodu" kimliği açıkça beyan edilir;
         // aynı pakette aynı kod iki kez geçerse plan zaten incelemeye düşürür.
         // Daha önce açılıp taslak kalmış sipariş yeniden açılmaz; kaldığı yerden sürer.
-        const cur = await db.prepare(`SELECT p.id,p.occurred_on FROM ec_report_records r JOIN ec_order_packages p ON p.id=r.erp_package_id
-          WHERE r.store_id=? AND r.kind='order_line' AND json_extract(r.data_json,'$.package_id')=? AND p.status='draft' LIMIT 1`).bind(storeId, pkg).first();
+        const cur = await db.prepare(`SELECT p.id,p.occurred_on,p.status FROM ec_report_records r JOIN ec_order_packages p ON p.id=r.erp_package_id
+          WHERE r.store_id=? AND r.kind='order_line' AND json_extract(r.data_json,'$.package_id')=? AND p.status IN ('draft','reserved') LIMIT 1`).bind(storeId, pkg).first();
         let id, occurred, steps = [];
         if (cur) {
-          id = cur.id; occurred = cur.occurred_on; steps.push('taslak sürdürüldü');
+          id = cur.id; occurred = cur.occurred_on; steps.push(cur.status === 'reserved' ? 'ayrılmış sipariş sürdürüldü' : 'taslak sürdürüldü');
           const tazele = await tazeleTaslakBagi(db, id);
           if (tazele.error) { results.push({...out, skipped: true, order_package: id, reason: tazele.error}); continue; }
           if (tazele.updated) steps.push('rapor güncellemesi işlendi');
@@ -427,12 +435,12 @@ export async function reportStockLinkApi(request, env, path, readBody) {
             (SELECT MIN(pp.vat_bps) FROM ec_order_line_components c JOIN ec_price_profiles pp ON pp.product_id=c.product_id WHERE c.line_id=l.id) oran,
             (SELECT COUNT(*) FROM ec_order_line_components c LEFT JOIN ec_price_profiles pp ON pp.product_id=c.product_id WHERE c.line_id=l.id AND pp.vat_bps IS NULL) oransiz
           FROM ec_order_lines l WHERE l.package_id=?`).bind(id).all()).results;
-        const eksik = ls.filter(l => l.net_revenue_cents === null && l.gross_cents !== null && l.mapping_id && l.oran_sayisi === 1 && !l.oransiz);
+        const eksik = cur?.status === 'reserved' ? [] : ls.filter(l => l.net_revenue_cents === null && l.gross_cents !== null && l.mapping_id && l.oran_sayisi === 1 && !l.oransiz);
         if (eksik.length) { await call(ordersApi, '/api/orders/' + id + '/map', {lines: eksik.map(l => ({id: l.id, mapping_id: l.mapping_id, vat_rate: l.oran / 100}))}); steps.push('KDV ürün profilinden'); }
         const linked = {occurred_on: occurred};
         // Ürün sipariş tarihinden sonra rafta geçici sayıldıysa sayım satış kadar artırılır; satış sonra düşer.
         if (await sayimiSatislaDuzelt(db, id, occurred || c.order_date)) steps.push('raf sayımı satışla düzeltildi');
-        try { await call(ordersApi, '/api/orders/' + id + '/reserve', {}); steps.push('stok ayrıldı'); }
+        try { if (cur?.status !== 'reserved') { await call(ordersApi, '/api/orders/' + id + '/reserve', {}); steps.push('stok ayrıldı'); } }
         catch (e) { results.push({...out, skipped: true, reason: 'Sipariş taslak kaldı: ' + e.message, order_package: id}); continue; }
         if (/kargo|teslim|shipped|delivered|yolda/.test(durum)) {
           await call(ordersApi, '/api/orders/' + id + '/ship', {occurred_on: linked.occurred_on || c.order_date, reference: 'RAPOR-' + pkg});
@@ -443,6 +451,28 @@ export async function reportStockLinkApi(request, env, path, readBody) {
       } catch (e) { results.push({...out, skipped: true, reason: e.message}); }
     }
     return {results, remaining: Math.max(0, all.length - AUTO_LIMIT)};
+  }
+
+  // OTOMATİK İADE. Raporda tam iade görünen (ya da teslim edilemeyip yeniden gönderilen) ama
+  // defterde hâlâ satış olarak duran paketler, mevcut satış iadesi ucundan iade edilir: mal stoğa
+  // döner, satış tutarı geri alınır; kargo ve hizmet bedeli gider olarak kalır. Kısmi iade
+  // (hangi satır olduğu raporda yok) listede atlanır. Aynı satış ikinci kez iade edilmez.
+  if (sub === '/returns-apply' && method === 'POST') {
+    const x = await readBody(request);
+    if (x.confirm !== true) fail('İade aktarımını onaylayın.');
+    const {pending, skipped} = await pendingReturns(db, x.store_id || '');
+    const done = [], errors = [];
+    for (const p of pending.slice(0, 20)) for (const l of p.lines) {
+      const url = '/api/accounting/sales/' + l.sale_id + '/return';
+      try {
+        await accountingApi(new Request('https://internal.invalid' + url, {method: 'POST'}), env, url, async () => ({
+          quantity: l.quantity, revenue: l.revenue_cents / 100, restock: true,
+          external_id: 'IADE-' + p.order_no + '-' + String(l.sale_id).slice(0, 8), occurred_on: l.occurred_on,
+          notes: (p.reason || 'Pazaryeri raporunda iade: ' + p.order_no + '.') + ' Mal geri döndü; kargo ve hizmet bedeli gider olarak kalır.'}));
+        done.push({order_no: p.order_no, sale_id: l.sale_id});
+      } catch (e) { errors.push({order_no: p.order_no, reason: e.message}); }
+    }
+    return {done, errors, skipped, remaining: Math.max(0, pending.length - 20)};
   }
 
   if (sub === '/preview' && method === 'POST') {
