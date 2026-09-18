@@ -1,0 +1,99 @@
+---
+session: lunapot-panel
+date: 2026-09-18
+status: partial
+outcome: PARTIAL_PLUS
+---
+
+goal: Paneli elle adım gerektirmeyecek hâle getirmek — alış PDF→stok, rapor→sipariş→stok→kesinti otomatik; KDV dahil görünüm; açık maliyet; sade sipariş ekranları
+now: HB'de "Bağlı pazaryeri raporu değişti" diye taslakta kalan 7 siparişi çöz (taslakta stok yok → rapor özeti yenilenip sürdürülmeli), sonra TS1 sayım öncesi 2 satışı çöz
+test: npm test   # 506/506 geçiyor (18 Eylül son hâl)
+
+kullanici:
+  - dil: "Kısa, sade Türkçe. Uzun yazınca okumuyor ('çok uzun yazmışsın okuyamadım'). Sonucu 3-5 satırda ver."
+  - beklenti: "Hiçbir şey elle olmasın; sistem geçmişten öğrensin. 'Ay sonunda bana haber ver' kabul edilmez."
+  - kdv: "HER tutar KDV dahil görünür. KDV hariç yalnız küçük 'vergi beyanı için' satırı."
+  - dogrulama: "Canlıda doğrula, sonra 'hazır' de. Liste/pencere/kâr raporu aynı rakamı göstermeli (kuruşu kuruşuna)."
+  - dosya_tarama: "Sormadan İndirilenler klasörünü tarama; kafası karıştı."
+  - ts1: "HB 'Klassman Ts1 200LT' = 'Klasmann TS1 Torf 210 L' — her yerde aynı ürün say."
+  - pina: "TY 11617217215 Pina Small saksı = yanlışlıkla hediye; iptal edildi, stok dışı (yapıldı)."
+  - kit: "HB 'Orkide Toprağı ve Vitamini Kit' = Orkide Toprağı 3 L + Orkide Besini 225 ml (yaprak temizleyici YOK) — eşleştirildi."
+
+ortam:
+  repo: C:/Users/baran/Desktop/site/lunapot-panel   # Documents/Codex/... kopyası ESKİ, kullanma
+  canli: https://muhasebe.lunapot.com  (push main → Cloudflare Workers Builds otomatik yayın)
+  yayin: "public/sw.js CACHE adını artır (son: lunapot-shell-v65-rapor-oto), push, /sw.js'yi yokla"
+  gecis: "npm run db:remote KOD PUSH'TAN ÖNCE. Wrangler SQL ayrıştırıcısı tetikte CASE…END'i bozar → iif() kullan. Son geçiş 0047_open_cost.sql (uygulandı)."
+  ag: "github.com / Cloudflare API bugün sık koptu; push ve db komutlarını tekrar dene, önce durumu kontrol et. Arada 7403 yetki hatası geçici çıktı."
+  tarayici: "Canlı API'yi tarayıcı panelinden kullanıcının oturumuyla çağırıyoruz (mcp Browser javascript_tool); 45 sn sınırı var, uzun işleri parçala."
+  d1_okuma: "npx wrangler d1 execute lunapot-db --remote --json --command '…' (tablolar ec_ önekli; salt okuma için serbest)"
+
+done_this_session:
+  - task: PDF okuyucu — ters koordinat (cm/q/Q), /W genişlikle parçalı sözcük birleştirme, CID (…) dizgi, Tc; kendi VKN hariç (ayarlardan), satış faturası tanıma, yumuşak tire tarih, tablo bölgesi+komşu satır açıklama, çarpım/KDV doğrulama; birleşik PDF belge kimliği yok; takılı belge yeniden okunur
+    files: [public/pdf-read.js, public/purchase-document-ui.js, src/purchase-document-api.js, tests/pdf-birlesik-fatura.test.js]
+  - task: Alış faturası otomatik tamamla — geçmişten ürün eşleştir (aynı açıklama / aynı kod+ad tek kart), muhasebeleştir, fatura tarihiyle mal teslimi; kartın boş tedarikçisini doldur; geri alınmış kabulü örnek alma
+    files: [src/purchase-autopost-api.js, tests/alis-otomatik-tamamla.test.js]
+  - task: Açık maliyet (0047) — stoksuz satış maliyeti son alış fiyatından tahmin, alış/sayımla gerçeğe çekilir (ec_open_costs, ec_cost_settlements); geçmiş 4 satış kapatıldı (TS1 birim 1516→1120, Yeşil 500 → 32)
+    files: [migrations/0047_open_cost.sql, tests/acik-maliyet.test.js, src/stock-history-api.js]
+  - task: GECICI-SAYIM-* raf sayımı, faturalı mal teslimi gelince kendiliğinden kapanır (kind purchase, ref provisional-close:)
+    files: [src/accounting.js]
+  - task: KDV dahil görünüm — stok (marka grupları Tropikal/Gartengold/Klasmann/SAB), fiyat hesabı (maliyet son alıştan; 37 profilin maliyeti 0'dı), kâr raporu notları, genel durum kartı
+    files: [public/product-list.js, public/accounting-ui.js, src/pricing-api.js, public/business-ui.js, public/decision-overview.js, public/operations-ui.js]
+  - task: Sipariş listesi/pencere/ayrıntı — ürün adı önde, paket kodu yok, dar ekranda kart, hafif yazı; nakit sonucu 3 ekranda aynı formül (iadeler dahil, kalem kalem KDV, stopaj paket sayısına bölünür)
+    files: [public/orders-ui.js, src/orders-api.js, src/order-insights-api.js, public/ui-polish.css]
+  - task: Kâr raporu — DUZELTME-CIFT ile sıfırlanmış RPT kopyası yerine TEA ikizi hesaplanır; kargodaki tahmin aynı içerikli son teslim paketin gerçek kesintilerinden; ikizler kargodakilerde tekrar sayılmaz
+    files: [src/performance-api.js]
+  - task: Rapor Kutusu — tür (sipariş/finans) sütunlardan otomatik; çoklu dosya (önce sipariş sonra finans); işlem sonrası otomatik aktarım (/stock-link/auto), teslim senkronu, kesinti aktarımı
+    files: [public/report-core.js, public/report-inbox-ui.js, src/report-inbox-api.js, src/report-stock-link-api.js, tests/rapor-turu.test.js, tests/report-stock-link.test.js]
+  - task: Canlı veri işlemleri — ASDAFF 4 fatura + TRP1101/KRK874 muhasebeleşti; 34 kartın tedarikçisi dolduruldu; 2 Tropikal ürünün markası; 143 rapor paketi siparişe aktarıldı; kesintiler yazıldı; 8 HB eşleştirmesi eklendi, Pina iptal
+    files: []
+
+state_18_eylul:
+  teslim: "283 paket, 282 hesaplı, cebine kalan ~20.178,88 ₺ (TY 16.268,95 / HB 3.909,93)"
+  kargoda: "106 paket (TY 82 / HB 24), tahmin ~1.798,87 ₺"
+  eksi_stok: "Tropikal Orkide Toprağı 3 L (-19), Orkide Besini 225 ml (-16), Yaprak Temizleyici 250 ml (-14) → Tropikal alış faturaları girilmemiş; maliyet açık maliyetle tahmini"
+
+blockers: []
+
+questions:
+  - "TS1 sayım öncesi satışlar (HB 5518837024, 5518837084): satış kaydedilsin mi? Kaydedilirse GECICI-SAYIM-TS1 (17 Eylül, 13 adet) aynı miktarda artırılmalı ki raftaki 10 bozulmasın. Kullanıcıya kısa sor ya da bu mantıkla otomatik çöz."
+  - "HB 5514249183 ve 5516029811: panelde aynı sipariş numarasıyla iki kayıt → auto 'belirsiz' diye atlıyor. Hangisine bağlanacağını bul (iptal edilmiş import artığı mı?)."
+  - "TY 4169167832: auto 'daha önce aktarıldı' diyor ama siparişe dönüşmemiş olabilir — import_items hedefini kontrol et."
+
+decisions:
+  - acik_maliyet: "Stoksuz satış 0 maliyet değil; tahmin son muhasebeleşmiş alış KDV hariç birim fiyatı; stok değeri eksiye inmez; kapanış FIFO, ec_stock_apply içinde (tetik sırası belirsiz olduğu için tek tetik)."
+  - gecici_sayim: "Kapanış negatif 'count' ile DEĞİL (count<0 kayıp gideri yazar) → kind purchase negatif, ref provisional-close:<countId>:<invoiceId>:<teslimRef>."
+  - raf_sayimi_korumasi: "Sipariş tarihinden SONRA GECICI-SAYIM olan ürünün satışı otomatik stoktan düşmez (çift sayım). DUZ-… gibi aktarım sayımları korunmaz."
+  - kdv_orani: "Rapor KDV vermezse ürün fiyat profilindeki TEK oran (hepsi %20) kullanılır; profil yoksa/çoksa taslak kalır."
+  - kalem_kimligi: "Rapor kalem kimliği yok → otomatik aktarım line_identity_from_package_sku=true (paket no + stok kodu), elle aktarımlarla aynı."
+  - disa_aktarim: "open_costs/cost_settlements iş verisi JSON dışa aktarımına girmez (40 tablo sınırı)."
+  - dup_ikiz: "Veri ameliyatı yok; RPT/TEA ikizi yalnız kâr raporunda birleştirilir."
+
+findings:
+  - kaynaklar: "TEA… (177) ve HB-… (67) paketler 14 Eylül toplu yükleme; sonrası hep Rapor Kutusu (RPT-…). 151 paket hiç aktarılmamıştı (kimse 'Stoğa aktar'a basmamış)."
+  - ts1_yevmiye: "TS1: alınan 11, satılan 14, raf 10 → 13 adet faturasız (ay sonu Yalova Seçkin faturası gelecek; gelince GECICI kendiliğinden kapanır)."
+  - trendyol_hb_kesinti: "HB gerçek kargo bazen tarifenin çok üstünde (132 ₺ satışta 107,90 ₺). Fiyat tarifelerinde pazaryeri hizmet bedeli yok (~14 ₺) → 'kaça satmalıyım' iyimser; geçmiş kesintiye bağlama önerildi, yapılmadı."
+  - pdf_uretici: "EDM PDF'leri HTML'den basılıyor: sayfa 0.24/-0.24 ölçekli ters; sözcükler Tj+Td parçalı; genişlik /W'den okunmazsa birleştirme olmaz."
+
+worked:
+  - "Önce canlıda SALT OKUNUR önizleme/dry-run (preview uçları, SELECT), sonra küçük parti (5 paket), sonra hepsi."
+  - "Gerçek dosyalarla karşılaştırma betiği (Downloads PDF'leri: eski/yeni okuyucu) — 13 iyileşme, 0 kötüleşme."
+  - "Üç ekranın nakit sonucunu script ile karşılaştırma (255/255 aynı)."
+  - "Python düzenlemelerini scratchpad'e .py yazıp çalıştırmak (bash heredoc tırnaklarda kırılıyor)."
+
+failed:
+  - "Bash heredoc içinde karmaşık JS/python → 'unexpected EOF' (tırnak). Write ile dosya yaz, sonra çalıştır."
+  - "'Teslim bekleniyor' etiketini goods_receipts'e çevirmek: bilinçli tasarımı (yanlış teslim → yeniden teslim beklenir) bozdu, geri alındı."
+  - "Yerel sunucudan tarayıcıya dosya aktarma: Private Network Access engelledi; kullanıcı dosyayı kendisi seçmeli."
+  - "Otomatik aktarımın ilk sürümü en eski tarihten başlıyor → Temmuz siparişi yakaladı; raf sayımı koruması sonradan eklendi."
+
+next:
+  - "HB 'Bağlı pazaryeri raporu değişti' 7 taslak (5517609697, 5517890558, 5517890690, 5517911182, 5518137674, 5518360406, 5518837752): report-link-guard (src/report-link-guard.js, order_packages.report_link_hash) taslakta stok olmadığı için güvenle yenilenebilir — /auto içinde durum 'draft' + hash uyuşmazsa: adet/ürün aynıysa hash'i güncelle, değilse satırları rapordan yeniden kur. Test yaz, sonra canlıda çalıştır."
+  - "TS1 sayım öncesi 2 satış: yukarıdaki soru; önerilen otomatik çözüm: satışı kaydet + aynı tarihte GECICI sayımı +adet düzelt (ya da raf sayımı korumasında 'satışı kaydet, sayımı düzelt' yolunu otomatikleştir)."
+  - "HB 2 belirsiz ikiz ve TY 4169167832'yi çöz."
+  - "İsteğe bağlı: 'Kaça satmalıyım' kesintilerini (kargo, hizmet bedeli, komisyon) geçmiş teslimlerden al (kargodaki tahmin gibi)."
+  - "Kullanıcıya: Tropikal alış faturaları girilince 3 eksi stok kapanır; ay sonunda Yalova Seçkin TS1 faturası yüklenince geçici sayım kendiliğinden kapanır."
+
+files:
+  created: [src/purchase-autopost-api.js, migrations/0047_open_cost.sql, tests/pdf-birlesik-fatura.test.js, tests/alis-otomatik-tamamla.test.js, tests/acik-maliyet.test.js, tests/rapor-turu.test.js]
+  modified: [public/pdf-read.js, public/purchase-document-ui.js, src/purchase-document-api.js, src/worker.js, src/accounting.js, src/performance-api.js, src/pricing-api.js, src/orders-api.js, src/order-insights-api.js, src/report-inbox-api.js, src/report-stock-link-api.js, src/stock-history-api.js, src/scoped-db.js, src/settings-api.js, public/accounting-ui.js, public/business-ui.js, public/orders-ui.js, public/product-list.js, public/performance-ui.js, public/stock-history-ui.js, public/decision-overview.js, public/operations-ui.js, public/report-core.js, public/report-inbox-ui.js, public/list-tools.css, public/ui-polish.css, public/sw.js, tests/pdf-okuma.test.js, tests/purchase-documents.test.js, tests/order-insights.test.js, tests/report-stock-link.test.js]
