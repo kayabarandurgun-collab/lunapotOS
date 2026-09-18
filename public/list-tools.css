@@ -5,3 +5,6 @@
 
 .list-select-cell{width:40px!important;min-width:40px!important}.list-tools input[type=checkbox],.list-select-cell input,th>input[type=checkbox]{width:18px;height:18px;min-width:18px}.list-tools button:disabled{opacity:.55;cursor:not-allowed}
 .brand-group{margin:0 0 28px}.brand-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:6px 16px;margin:8px 2px 12px;padding-bottom:8px;border-bottom:2px solid var(--line,#dedbea)}.brand-head h2{margin:0;font-size:22px}.brand-head span{font-size:13px;color:var(--muted,#656170)}
+.list-tools{margin:10px 0}.list-tools input{max-width:320px;min-height:38px!important;padding:7px 11px!important}
+.list-sort{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:3px;font:inherit;color:inherit}.list-sort:hover{color:var(--brand)}.list-sort:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:4px}
+th[aria-sort="none"] .list-sort::after{content:"↕";opacity:.35;font-size:.9em}th[aria-sort="ascending"] .list-sort::after{content:"▲";font-size:.75em}th[aria-sort="descending"] .list-sort::after{content:"▼";font-size:.75em}
