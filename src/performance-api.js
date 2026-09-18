@@ -21,6 +21,12 @@ export async function performanceApi(request,env,path){
  const SALES_SQL='SELECT s.*,l.package_id,pp.vat_bps,(SELECT o.open_milli-o.settled_milli FROM open_costs o WHERE o.sale_id=s.id) open_milli,(SELECT iif(o.estimate_cents IS NULL,1,0) FROM open_costs o WHERE o.sale_id=s.id) no_estimate FROM sale_entries s JOIN order_line_components c ON (s.id=c.sale_id OR s.parent_id=c.sale_id) JOIN order_lines l ON l.id=c.line_id LEFT JOIN price_profiles pp ON pp.product_id=s.product_id WHERE l.package_id IN (SELECT value FROM json_each(?))';
  const db=env.DB,packages=await all(db.prepare(`SELECT *,${stopajSql} FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND ${mode==='delivered'?"status='delivered' AND delivered_on BETWEEN ? AND ?":"status IN ('draft','reserved','shipped') AND occurred_on BETWEEN ? AND ?"} ORDER BY occurred_on DESC,id LIMIT 1001`).bind(from,to));
  if(packages.length>1000)fail('Bu aralıkta 1.000’den fazla paket var. Eksiksiz toplam için tarih aralığını daraltın.',409);
+ // Çift aktarımın asıl kaydı "gönderildi" durumunda kalır ama teslimi kopyasıyla gelmiştir ve
+ // teslim edilenlerin kârında ikiz olarak sayılır. Kargodakilerde ikinci kez görünmez.
+ if(mode==='pending'&&packages.length){
+  const teslimli=new Set((await all(db.prepare("SELECT DISTINCT q.channel||'|'||q.order_no k FROM order_packages q JOIN order_lines l ON l.package_id=q.id JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries r ON r.parent_id=c.sale_id WHERE q.status='delivered' AND r.kind='return' AND r.external_id LIKE 'DUZELTME-CIFT-%' AND q.order_no IN (SELECT value FROM json_each(?))").bind(JSON.stringify([...new Set(packages.map(p=>p.order_no))])))).map(r=>r.k));
+  for(let i=packages.length-1;i>=0;i--)if(packages[i].status==='shipped'&&teslimli.has(packages[i].channel+'|'+packages[i].order_no))packages.splice(i,1);
+ }
  const ids=JSON.stringify(packages.map(p=>p.id));
  const [lines,components,sales,inputs=[],shippingRates=[],commissionRates=[]]=(await db.batch([
   db.prepare('SELECT * FROM order_lines WHERE package_id IN (SELECT value FROM json_each(?))').bind(ids),
@@ -211,7 +217,7 @@ export async function performanceApi(request,env,path){
  // TESLIM ONAYI GELMEYEN PAKETLER. Kar yalniz teslim edilmis pakette hesaplanir; kargoda
  // duran paket sessizce disarida kalirsa ekran "0 bilgi bekliyor" der ve toplam oldugundan
  // dusuk gorunur. Kac paketin bu yuzden hesaba girmedigi SOYLENIR. Tek gruplu sayim; ucuzdur.
- const bekleyen=mode==='delivered'?await all(db.prepare("SELECT channel,COUNT(*) n,MIN(occurred_on) ilk FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND status='shipped' AND occurred_on<=? GROUP BY channel").bind(to)):[];
+ const bekleyen=mode==='delivered'?await all(db.prepare("SELECT channel,COUNT(*) n,MIN(occurred_on) ilk FROM order_packages q WHERE channel IN ('trendyol','hepsiburada') AND status='shipped' AND occurred_on<=? AND NOT EXISTS(SELECT 1 FROM order_packages d JOIN order_lines l ON l.package_id=d.id JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries r ON r.parent_id=c.sale_id WHERE d.channel=q.channel AND d.order_no=q.order_no AND d.status='delivered' AND r.kind='return' AND r.external_id LIKE 'DUZELTME-CIFT-%') GROUP BY channel").bind(to)):[];
  const bekleyenMap=new Map(bekleyen.map(r=>[r.channel,r]));
  const pendingFees=mode==='delivered'?await db.prepare(`SELECT COALESCE(SUM(${effectiveNet(env.WORKSPACE)}-COALESCE((SELECT SUM(a.amount_cents) FROM fee_allocations a WHERE a.invoice_line_id=l.id AND a.reversed_at IS NULL),0)),0) cents FROM purchase_lines l JOIN purchase_invoices i ON i.id=l.invoice_id WHERE i.status='posted' AND l.line_type='expense' AND l.expense_treatment='sales_fee'`).first():{cents:0};
  const channels=['trendyol','hepsiburada'].map(channel=>{
