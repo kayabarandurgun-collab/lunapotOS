@@ -45,6 +45,23 @@ async function digest(parts) {
 // Aynı adet ve tutar, aynı ürün demek değildir.
 const packageFingerprint = records => reportLinkFingerprint(records);
 
+// Durum sırası: aynı malın yenilenen paketlerinden hangisinin güncel olduğunu söyler.
+const durumSirasi = s => { s = String(s || '').toLocaleLowerCase('tr-TR');
+  return /edilemedi/.test(s) ? 0 : /teslim/.test(s) ? 4 : /kargo|yolda|shipped/.test(s) ? 3 : /hazır|hazirlan|toplan/.test(s) ? 2 : 1; };
+const malKodu = d => String(d.barcode || d.sku || '');
+
+/**
+ * YENİDEN NUMARALANAN PAKET. Pazaryeri bir paketi yeni numarayla yeniden açabilir: aynı sipariş,
+ * aynı ürün, aynı adet; eski numara sonraki raporlarda artık görünmez. Kayıt, kardeşi DAHA YENİ
+ * bir raporla gelmiş ve durumu en az onunki kadar ilerideyse eskimiştir. Gerçek bölünmüş
+ * siparişte iki paket aynı raporla birlikte güncellenir; o yüzden eskimiş sayılmaz.
+ * r: {data, updated_at}
+ */
+const eskittiMi = (yeni, eski) => String(yeni.data.package_id) !== String(eski.data.package_id)
+  && String(yeni.data.order_no) === String(eski.data.order_no) && malKodu(yeni.data) === malKodu(eski.data)
+  && Number(yeni.data.quantity) === Number(eski.data.quantity)
+  && String(yeni.updated_at) > String(eski.updated_at) && durumSirasi(yeni.data.status) >= durumSirasi(eski.data.status);
+
 /** Paketi okur ve aktarıma uygun olup olmadığını söyler. Yalnız eskimiş taslağı işaretler. */
 async function plan(env, storeId, packageId, lineIdentityDeclared = false) {
   const db = env.DB, rootDB = env.ROOT_DB || db;
@@ -202,11 +219,16 @@ async function plan(env, storeId, packageId, lineIdentityDeclared = false) {
     // hangi pakete denk geldiği belirsizdir: incelemeye alınır, uydurma eşleme yapılmaz.
     const sahipsiz = [];
     for (const t of twins) {
-      const claimed = await db.prepare(
-        "SELECT 1 FROM ec_report_records WHERE erp_package_id=? AND kind='order_line' AND json_extract(data_json,'$.package_id')!=? LIMIT 1")
-        .bind(t.id, packageId).first();
-      if (!claimed) sahipsiz.push(t);
+      // Kaydı yalnız BU paketin yerine geçtiği eski numara sahipleniyorsa kayıt bu pakete aittir.
+      const claims = (await db.prepare(
+        "SELECT data_json,updated_at FROM ec_report_records WHERE erp_package_id=? AND kind='order_line' AND json_extract(data_json,'$.package_id')!=?")
+        .bind(t.id, packageId).all()).results.map(r => ({data: parse(r.data_json, {}), updated_at: r.updated_at}));
+      if (!claims.length || claims.every(eski => records.some(r => eskittiMi(r, eski)))) sahipsiz.push(t);
     }
+    // Birden çok sahipsiz kayıttan biri paket numarasını kimliğinde AÇIKÇA taşıyorsa
+    // ("HB-5514249183" gibi toplu yüklemeden gelen kayıt) belirsizlik yoktur: o kayıt bu pakettir.
+    const adli = sahipsiz.filter(t => new RegExp('(^|-)' + String(packageId) + '$').test(String(t.external_id || '')));
+    if (sahipsiz.length > 1 && adli.length === 1) sahipsiz.splice(0, sahipsiz.length, adli[0]);
     if (sahipsiz.length === 1) {
       const t = sahipsiz[0];
       return {store, outcome: 'match', stock_write: false, package_id: t.id, external_id: t.external_id, status: t.status,
@@ -265,6 +287,57 @@ async function plan(env, storeId, packageId, lineIdentityDeclared = false) {
     notice: 'Mevcut sipariş ucuna TASLAK olarak gönderilir. Stok yalnızca rezervasyon ve gönderim adımlarında, bir kez değişir.'};
 }
 
+/**
+ * TASLAK siparişin rapor bağlantısını tazeler. Taslakta stok hareketi yoktur; raporun sonradan
+ * değişmesi (çoğunlukla yalnız DURUM: "Gönderime Hazır" → "Teslim edildi") taslağı sonsuza dek
+ * kilitlememeli. Rapordaki ürün/adet taslaktakiyle AYNIYSA içerik özeti yenilenir ve sipariş
+ * sürer; farklıysa dokunulmaz ve sebep döner.
+ * Yeniden numaralanmış paketin eski kaydı (eskittiMi) adet karşılaştırmasında sayılmaz.
+ */
+async function tazeleTaslakBagi(db, packageId) {
+  const pkg = await db.prepare('SELECT id,status,report_linked,report_link_hash,source_changed FROM ec_order_packages WHERE id=?').bind(packageId).first();
+  if (!pkg || pkg.status !== 'draft' || !pkg.report_linked) return {};
+  const rows = (await db.prepare("SELECT data_json,updated_at FROM ec_report_records WHERE erp_package_id=? AND kind='order_line'").bind(packageId).all()).results;
+  if (!rows.length) return {};
+  const records = rows.map(r => ({data: parse(r.data_json, {}), updated_at: r.updated_at}));
+  const hash = await reportLinkFingerprint(records);
+  if (hash === pkg.report_link_hash && !pkg.source_changed) return {};
+  const gecerli = records.filter(r => !records.some(k => eskittiMi(k, r)));
+  const topla = (liste, anahtar, adet) => { const m = new Map(); for (const x of liste) m.set(anahtar(x), (m.get(anahtar(x)) || 0) + adet(x)); return m; };
+  const rapor = topla(gecerli, r => malKodu(r.data), r => Number(r.data.quantity) || 0);
+  const lines = (await db.prepare('SELECT sku,quantity_milli FROM ec_order_lines WHERE package_id=?').bind(packageId).all()).results;
+  const defter = topla(lines, l => String(l.sku || ''), l => (l.quantity_milli || 0) / 1000);
+  const ayni = rapor.size === defter.size && [...rapor].every(([k, q]) => defter.get(k) === q);
+  if (!ayni) return {error: 'Sipariş taslak kaldı: raporda ürün veya adet değişti (' +
+    [...rapor].map(([k, q]) => k + ' × ' + q).join(', ') + '); taslak ' + [...defter].map(([k, q]) => k + ' × ' + q).join(', ') + '.'};
+  await db.prepare("UPDATE ec_order_packages SET report_link_hash=?,source_changed=0 WHERE id=? AND status='draft'").bind(hash, packageId).run();
+  return {updated: true};
+}
+
+// RAF SAYIMI DÜZELTMESİ. Ürün, sipariş tarihinden SONRA rafta geçici sayılmışsa (GECICI-SAYIM) o
+// sayım satıştan SONRAKİ rafı gösterir. Satış şimdi stoktan düşülürse raf eksik görünür. Satış
+// kaydedilir ve aynı sayım, satılan adet kadar artırılır (ayrı referanslı ek sayım hareketi,
+// sayımın kendi birim değeriyle). Raf değişmez; ek adet de faturasızdır ve fatura gelince
+// geçici sayımla birlikte kendiliğinden kapanır. Tekrar çalıştırmada ikinci kez yazılmaz.
+async function sayimiSatislaDuzelt(db, packageId, occurred) {
+  const rows = (await db.prepare(`SELECT c.product_id,SUM(c.quantity_milli) q,
+      (SELECT m.id FROM ec_stock_movements m WHERE m.product_id=c.product_id AND m.kind='count' AND m.quantity_milli>0
+        AND m.reference LIKE 'GECICI-SAYIM-%' AND m.reference NOT LIKE '%-SAT-%' AND m.occurred_on>=? ORDER BY m.occurred_on,m.rowid LIMIT 1) sayim_id
+    FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id WHERE l.package_id=? GROUP BY c.product_id`).bind(occurred, packageId).all()).results
+    .filter(r => r.sayim_id);
+  let yazildi = 0;
+  for (const r of rows) {
+    const m = await db.prepare('SELECT reference,quantity_milli,value_cents,occurred_on FROM ec_stock_movements WHERE id=?').bind(r.sayim_id).first();
+    const ref = m.reference + '-SAT-' + packageId.slice(0, 8);
+    if (await db.prepare("SELECT 1 FROM ec_stock_movements WHERE kind='count' AND reference=? AND product_id=?").bind(ref, r.product_id).first()) continue;
+    await db.prepare(`INSERT INTO ec_stock_movements(id,product_id,quantity_milli,value_cents,kind,reference,notes,occurred_on)
+      VALUES(?,?,?,?,'count',?,?,?)`).bind(crypto.randomUUID(), r.product_id, r.q, Math.round(m.value_cents * r.q / m.quantity_milli), ref,
+      'Geçici sayım, sayımdan önceki satış kadar artırıldı (' + m.reference + '). Raf değişmez; fatura gelince kapanır.', m.occurred_on).run();
+    yazildi++;
+  }
+  return yazildi;
+}
+
 export async function reportStockLinkApi(request, env, path, readBody) {
   if (!path.startsWith('/api/reports/stock-link')) return null;
   if (env.WORKSPACE !== 'ec') fail('Rapor Kutusu yalnızca e-ticaret çalışma alanında kullanılır.', 403);
@@ -294,15 +367,31 @@ export async function reportStockLinkApi(request, env, path, readBody) {
   if (sub === '/auto' && method === 'POST') {
     const x = await readBody(request), storeId = key(x.store_id), skip = new Set(Array.isArray(x.skip) ? x.skip.map(String) : []);
     const AUTO_LIMIT = 5;
-    const all = (await db.prepare(`SELECT json_extract(data_json,'$.package_id') package_id,
+    const hepsi = (await db.prepare(`SELECT json_extract(data_json,'$.package_id') package_id,
         GROUP_CONCAT(COALESCE(json_extract(data_json,'$.status'),''),'|') statuses,
         MAX(substr(json_extract(data_json,'$.order_date'),1,10)) order_date,
         SUM(COALESCE(json_extract(data_json,'$.delivered_date'),'')='') not_delivered,
         MAX(substr(json_extract(data_json,'$.delivered_date'),1,10)) delivered_on
       FROM ec_report_records WHERE store_id=? AND kind='order_line' AND json_extract(data_json,'$.package_id') IS NOT NULL
         AND (erp_package_id IS NULL OR erp_package_id IN (SELECT id FROM ec_order_packages WHERE status IN ('cancelled','draft')))
+        -- Bu paket için açılan sipariş İPTAL edildiyse (ör. yanlışlıkla eklenen hediye) karar verilmiştir:
+        -- her rapor işlenişinde yeniden denenip "atlanan" diye gösterilmez.
+        AND NOT (erp_package_id IN (SELECT id FROM ec_order_packages WHERE status='cancelled')
+          AND erp_package_id IN (SELECT target_id FROM import_items WHERE kind='report_stock_link'
+            AND source_key LIKE '%:'||json_extract(ec_report_records.data_json,'$.package_id')))
       GROUP BY package_id ORDER BY order_date,package_id`).bind(storeId).all()).results
       .filter(c => !skip.has(String(c.package_id)));
+    // Yeniden numaralanmış paketin ESKİ numarası işlenmez; satış yeni numarayla bir kez yazılır.
+    const kardes = (await db.prepare(`SELECT data_json,updated_at FROM ec_report_records WHERE store_id=? AND kind='order_line'
+        AND json_extract(data_json,'$.order_no') IN (SELECT json_extract(data_json,'$.order_no') FROM ec_report_records
+          WHERE store_id=? AND kind='order_line' GROUP BY 1 HAVING COUNT(DISTINCT json_extract(data_json,'$.package_id'))>1)`)
+      .bind(storeId, storeId).all()).results.map(r => ({data: parse(r.data_json, {}), updated_at: r.updated_at}));
+    const eskiPaket = new Set();
+    for (const pk of new Set(kardes.map(r => String(r.data.package_id)))) {
+      const own = kardes.filter(r => String(r.data.package_id) === pk);
+      if (own.every(eski => kardes.some(r => eskittiMi(r, eski)))) eskiPaket.add(pk);
+    }
+    const all = hepsi.filter(c => !eskiPaket.has(String(c.package_id)));
     const results = [];
     const call = (handler, url, body) => handler(new Request('https://internal.invalid' + url, {method: 'POST'}), env, url, async () => body);
     for (const c of all.slice(0, AUTO_LIMIT)) {
@@ -317,7 +406,12 @@ export async function reportStockLinkApi(request, env, path, readBody) {
         const cur = await db.prepare(`SELECT p.id,p.occurred_on FROM ec_report_records r JOIN ec_order_packages p ON p.id=r.erp_package_id
           WHERE r.store_id=? AND r.kind='order_line' AND json_extract(r.data_json,'$.package_id')=? AND p.status='draft' LIMIT 1`).bind(storeId, pkg).first();
         let id, occurred, steps = [];
-        if (cur) { id = cur.id; occurred = cur.occurred_on; steps.push('taslak sürdürüldü'); }
+        if (cur) {
+          id = cur.id; occurred = cur.occurred_on; steps.push('taslak sürdürüldü');
+          const tazele = await tazeleTaslakBagi(db, id);
+          if (tazele.error) { results.push({...out, skipped: true, order_package: id, reason: tazele.error}); continue; }
+          if (tazele.updated) steps.push('rapor güncellemesi işlendi');
+        }
         else {
           const linked = await call(reportStockLinkApi, '/api/reports/stock-link/apply', {store_id: storeId, package_id: pkg, complete_package_confirmed: true, line_identity_from_package_sku: true});
           if (linked.outcome === 'match') { results.push({...out, done: 'bağlandı', order_package: linked.package_id}); continue; }
@@ -336,13 +430,8 @@ export async function reportStockLinkApi(request, env, path, readBody) {
         const eksik = ls.filter(l => l.net_revenue_cents === null && l.gross_cents !== null && l.mapping_id && l.oran_sayisi === 1 && !l.oransiz);
         if (eksik.length) { await call(ordersApi, '/api/orders/' + id + '/map', {lines: eksik.map(l => ({id: l.id, mapping_id: l.mapping_id, vat_rate: l.oran / 100}))}); steps.push('KDV ürün profilinden'); }
         const linked = {occurred_on: occurred};
-        // RAF SAYIMI KORUMASI. Ürün, sipariş tarihinden SONRA rafta sayılmışsa (GECICI-SAYIM) o sayım
-        // bu satıştan sonraki gerçek durumu zaten gösterir; satışı şimdi stoktan düşmek malı iki kez
-        // eksiltir. Böyle paket taslak kalır ve sebebi yazılır.
-        const sayim = await db.prepare(`SELECT pr.name,m.occurred_on FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id
-          JOIN ec_stock_movements m ON m.product_id=c.product_id AND m.kind='count' AND m.reference LIKE 'GECICI-SAYIM-%' AND m.occurred_on>=?
-          JOIN ec_products pr ON pr.id=c.product_id WHERE l.package_id=? LIMIT 1`).bind(occurred || c.order_date, id).first();
-        if (sayim) { results.push({...out, skipped: true, order_package: id, reason: 'Sipariş taslak kaldı: ' + sayim.name + ' ' + sayim.occurred_on + ' tarihinde rafta sayıldı; bu önceki satışı stoktan düşmek çift sayım olur.'}); continue; }
+        // Ürün sipariş tarihinden sonra rafta geçici sayıldıysa sayım satış kadar artırılır; satış sonra düşer.
+        if (await sayimiSatislaDuzelt(db, id, occurred || c.order_date)) steps.push('raf sayımı satışla düzeltildi');
         try { await call(ordersApi, '/api/orders/' + id + '/reserve', {}); steps.push('stok ayrıldı'); }
         catch (e) { results.push({...out, skipped: true, reason: 'Sipariş taslak kaldı: ' + e.message, order_package: id}); continue; }
         if (/kargo|teslim|shipped|delivered|yolda/.test(durum)) {

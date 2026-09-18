@@ -461,7 +461,7 @@ test('Otomatik aktarım: raporda KDV oranı yoksa ürünün fiyat profilindeki o
   } finally { f.close(); }
 });
 
-test('Otomatik aktarım: ürün sipariş tarihinden sonra rafta sayıldıysa satış stoktan düşülmez, taslak kalır', async () => {
+test('Otomatik aktarım: ürün sipariş tarihinden sonra rafta sayıldıysa satış kaydedilir, sayım satış kadar artar, raf değişmez', async () => {
   const f = appFixture(); await f.setup(); try {
     const product = await fourPack(f);
     const s = store(f);
@@ -469,7 +469,111 @@ test('Otomatik aktarım: ürün sipariş tarihinden sonra rafta sayıldıysa sat
     await f.ok('/ec/stock', {product_id: product.id, quantity: 24, unit_cost: 10, kind: 'count', reference: 'GECICI-SAYIM-X', notes: 'Raf sayımı', occurred_on: '2026-09-15'});
     record(f, s, 'TY-1', line({package_id: 'PKS', line_id: 'LS', order_no: 'OS', status: 'Teslim Edildi', delivered_date: '2026-09-13'}), 1);
     const r = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
-    assert.ok(r.results[0].skipped && /rafta sayıldı/.test(r.results[0].reason), JSON.stringify(r.results[0]));
-    assert.equal(stockOf(f, product.id), 24000, 'sayılan stok değişmedi');
+    assert.match(r.results[0].done || '', /raf sayımı satışla düzeltildi.*gönderildi/, JSON.stringify(r.results[0]));
+    assert.equal(stockOf(f, product.id), 24000, 'raf 24 kaldı: satış (8) düştü, sayım 8 arttı');
+    const ek = f.sqlite.prepare("SELECT quantity_milli,occurred_on FROM ec_stock_movements WHERE reference LIKE 'GECICI-SAYIM-X-SAT-%'").all();
+    assert.deepEqual(ek.map(x => [x.quantity_milli, x.occurred_on]), [[8000, '2026-09-15']], 'ek sayım sayımın tarihinde, satılan adet kadar');
+    const again = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
+    assert.equal(again.results.length, 0, 'ikinci çalıştırma yazmaz');
+    assert.equal(stockOf(f, product.id), 24000);
+  } finally { f.close(); }
+});
+
+/** Rapor kaydının içeriğini yeni sürümle değiştirir (sonraki rapor yüklemesi gibi). */
+function guncelle(f, recId, over, zaman = '2026-09-13 10:00:00') {
+  const r = f.sqlite.prepare('SELECT data_json,version FROM ec_report_records WHERE id=?').get(recId);
+  sql(f, 'UPDATE ec_report_records SET data_json=?,version=?,updated_at=? WHERE id=?', JSON.stringify({...JSON.parse(r.data_json), ...over}), r.version + 1, zaman, recId);
+}
+
+test('Otomatik aktarım: taslakken raporda yalnız durum değişirse taslak yenilenir ve sürer', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const product = await fourPack(f);
+    const s = store(f);
+    startDate(f, DATE);
+    record(f, s, 'TY-1', line({package_id: 'PKD', line_id: 'LD', order_no: 'OD', status: 'Gönderime Hazır', delivered_date: ''}), 1);
+    const taslak = await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PKD', complete_package_confirmed: true});
+    guncelle(f, 'rec-TY-1-1', {status: 'Teslim Edildi', delivered_date: '2026-09-14'});
+    assert.equal(f.sqlite.prepare('SELECT source_changed FROM ec_order_packages WHERE id=?').get(taslak.package_id).source_changed, 1);
+    const r = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
+    assert.equal(r.results[0].done, 'taslak sürdürüldü, rapor güncellemesi işlendi, stok ayrıldı, gönderildi, teslim edildi', JSON.stringify(r.results[0]));
+    assert.equal(stockOf(f, product.id), 12000);
+  } finally { f.close(); }
+});
+
+test('Otomatik aktarım: taslakken raporda adet değişirse taslak yeniden onaylanmaz, sebep söylenir', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const product = await fourPack(f);
+    const s = store(f);
+    startDate(f, DATE);
+    record(f, s, 'TY-1', line({package_id: 'PKA', line_id: 'LA', order_no: 'OA', status: 'Gönderime Hazır', delivered_date: ''}), 1);
+    await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PKA', complete_package_confirmed: true});
+    guncelle(f, 'rec-TY-1-1', {quantity: 3, status: 'Kargolandı'});
+    const r = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
+    assert.ok(r.results[0].skipped && /adet değişti/.test(r.results[0].reason), JSON.stringify(r.results[0]));
+    assert.equal(stockOf(f, product.id), 20000, 'stok değişmedi');
+  } finally { f.close(); }
+});
+
+test('Otomatik aktarım: pazaryeri paketi yeni numarayla yeniden açtıysa eski numara sayılmaz, satış bir kez düşer', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const product = await fourPack(f);
+    const s = store(f);
+    startDate(f, DATE);
+    record(f, s, 'TY-1', line({package_id: 'PKE', line_id: 'LE', order_no: 'OX', status: 'Gönderime Hazır', delivered_date: ''}), 1);
+    const taslak = await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PKE', complete_package_confirmed: true});
+    // Sonraki rapor: aynı sipariş, aynı ürün ve adet, YENİ paket no; aynı taslağa bağlanmış.
+    record(f, s, 'TY-1', line({package_id: 'PKY', line_id: 'LY', order_no: 'OX', status: 'Kargolandı', delivered_date: ''}), 2);
+    sql(f, "UPDATE ec_report_records SET erp_package_id=?,updated_at=datetime('now','+1 hour') WHERE id='rec-TY-1-2'", taslak.package_id);
+    const r = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
+    const byPkg = Object.fromEntries(r.results.map(x => [x.package_id, x]));
+    assert.equal(byPkg.PKE, undefined, 'eski numara işlenmedi');
+    assert.match(byPkg.PKY.done || '', /taslak sürdürüldü, rapor güncellemesi işlendi.*gönderildi/, JSON.stringify(r.results));
+    assert.equal(stockOf(f, product.id), 12000, '2 ilan × 4 şişe bir kez düştü');
+  } finally { f.close(); }
+});
+
+test('Aynı sipariş panelde iki kayıtla duruyor ama biri paket numarasını taşıyorsa ona bağlanır', async () => {
+  const f = appFixture(); await f.setup(); try {
+    await fourPack(f);
+    const a = await f.ok('/ec/orders', {channel: 'hepsiburada', external_id: 'HB-PK1', order_no: 'O1', occurred_on: DATE,
+      lines: [{external_id: 'E1', sku: '785457868', name: '4 adet 225 ml', quantity: 2, gross: 500, vat_rate: 20}]});
+    await f.ok('/ec/orders', {channel: 'hepsiburada', external_id: 'HB-PK2', order_no: 'O1', occurred_on: DATE,
+      lines: [{external_id: 'E2', sku: '785457868', name: '4 adet 225 ml', quantity: 2, gross: 500, vat_rate: 20}]});
+    const s = store(f, {provider: 'hepsiburada', code: 'HB-1'});
+    record(f, s, 'HB-1', line(), 1);
+    startDate(f, DATE);
+    const applied = await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PK1', complete_package_confirmed: true});
+    assert.equal(applied.outcome, 'match');
+    assert.equal(applied.package_id, a.id, 'HB-PK1 kaydına bağlandı');
+  } finally { f.close(); }
+});
+
+test('Gönderilmiş siparişin paketi yeni numarayla gelirse ikinci satış açılmaz; mevcut siparişe bağlanır', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const product = await fourPack(f);
+    const s = store(f);
+    startDate(f, DATE);
+    record(f, s, 'TY-1', line({package_id: 'PKE', line_id: 'LE', order_no: 'OX', status: 'Kargolandı', delivered_date: ''}), 1);
+    const ilk = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
+    assert.match(ilk.results[0].done, /gönderildi/);
+    record(f, s, 'TY-1', line({package_id: 'PKY', line_id: 'LY', order_no: 'OX', status: 'Teslim Edildi', delivered_date: '2026-09-14'}), 2);
+    sql(f, "UPDATE ec_report_records SET updated_at=datetime('now','+1 hour') WHERE id='rec-TY-1-2'");
+    const r = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
+    assert.equal(r.results[0].done, 'bağlandı', JSON.stringify(r.results));
+    assert.equal(r.results[0].order_package, ilk.results[0].order_package);
+    assert.equal(stockOf(f, product.id), 12000, 'satış bir kez düştü');
+  } finally { f.close(); }
+});
+
+test('Otomatik aktarım: bu paket için açılan sipariş kullanıcı tarafından iptal edildiyse yeniden denenmez', async () => {
+  const f = appFixture(); await f.setup(); try {
+    await fourPack(f);
+    const s = store(f);
+    startDate(f, DATE);
+    record(f, s, 'TY-1', line({package_id: 'PKH', line_id: 'LH', order_no: 'OH', status: 'Kargolandı', delivered_date: ''}), 1);
+    const a = await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PKH', complete_package_confirmed: true});
+    await f.ok('/ec/orders/' + a.package_id + '/cancel', {reason: 'Yanlışlıkla hediye; satış değil'});
+    const r = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
+    assert.equal(r.results.length, 0, JSON.stringify(r.results));
   } finally { f.close(); }
 });
