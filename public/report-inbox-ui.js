@@ -2,7 +2,7 @@
 // Dosya tarayıcıda okunur; sunucuya ham dosya (denetim) ve kaynak satırlar küçük partilerle gider.
 // Aktarım stok, sevkiyat, satış kaydı veya fatura OLUŞTURMAZ.
 import {readTable, sha256Hex, LIMITS} from './xlsx-read.js';
-import {FIELDS, REPORT_KINDS, PROVIDERS, EVENT_TYPES, headerSignature, suggestMapping, profileFits, normalizeRows, extraFeeCandidates} from './report-core.js';
+import {FIELDS, REPORT_KINDS, PROVIDERS, EVENT_TYPES, headerSignature, detectReportKind, suggestMapping, profileFits, normalizeRows, extraFeeCandidates} from './report-core.js';
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 const money = v => v === null || v === undefined ? '—' : new Intl.NumberFormat('tr-TR', {style: 'currency', currency: 'TRY'}).format(v / 100);
@@ -99,8 +99,11 @@ export function mountReports(root, namespace = 'ec') {
         <button class="primary" type="submit">Mağazayı ekle</button></form></section>` : '');
     if (noStore) return head;
     if (!d || d.step === 'pick') return head + pickForm();
-    if (d.step === 'map') return head + mapForm();
-    if (d.step === 'check') return head + checkView();
+    // Tanınan tür yazılır; yanlışsa buradan değiştirilir (dosya yeniden okunur).
+    const turu = d.file ? `<p class="rb-kind">${esc(d.file.name)} · <b>${esc(REPORT_KINDS[d.kind] || '')}</b> ${d.kindAuto ? '<span class="rb-chip">otomatik tanındı</span>' : ''}
+      <label class="rb-kind-change">Yanlışsa değiştir <select data-rb="kind">${Object.entries(REPORT_KINDS).map(([k, t]) => `<option value="${k}" ${d.kind === k ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label></p>` : '';
+    if (d.step === 'map') return head + turu + mapForm();
+    if (d.step === 'check') return head + turu + checkView();
     if (d.step === 'server') return head + serverView();
     return head;
   }
@@ -110,7 +113,6 @@ export function mountReports(root, namespace = 'ec') {
     return `<section class="v2-card"><h3>1 · Dosyayı seç</h3>
       <div class="rb-grid">
         <label>Mağaza<select data-rb="store">${storeOptions(d.store_id)}</select></label>
-        <label>Rapor türü<select data-rb="kind">${Object.entries(REPORT_KINDS).map(([k, t]) => `<option value="${k}" ${d.kind === k ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
         <label>Rapor ne zaman indirildi?<input type="datetime-local" data-rb="snapshot" value="${esc(d.snapshot_at || localNow())}" required></label>
       </div>
       <details class="rb-add"><summary>Yeni mağaza ekle</summary><form data-rb-form="store" class="rb-grid">
@@ -321,6 +323,13 @@ export function mountReports(root, namespace = 'ec') {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const table = await readTable(bytes, {name: file.name});
     const sha = await sha256Hex(bytes), signature = headerSignature(table.headers);
+    // Tür kullanıcıya sorulmaz: sütunlardan anlaşılır. Kullanıcı ekranda elle değiştirdiyse o geçerlidir.
+    if (!d.kindLocked) {
+      const {profiles = []} = await api('/profiles?provider=' + store.provider);
+      const found = detectReportKind(table.headers, profiles);
+      if (!found) throw new Error('Bu dosyanın sipariş raporu mu finans raporu mu olduğu anlaşılamadı. Pazaryerinden indirdiğiniz sipariş ya da hakediş raporunu yükleyin.');
+      d.kind = found; d.kindAuto = true;
+    } else d.kindAuto = false;
     const {profile} = await api('/profiles?provider=' + store.provider + '&kind=' + d.kind + '&signature=' + encodeURIComponent(signature));
     const suggested = suggestMapping(d.kind, table.headers);
     Object.assign(d, {file, bytes, table, sha, store, signature, suggested, profile,
@@ -503,9 +512,9 @@ export function mountReports(root, namespace = 'ec') {
     if (!t) return;
     state.draft = state.draft || {step: 'pick', kind: 'orders', snapshot_at: localNow()};
     if (t === 'store') state.draft.store_id = e.target.value;
-    if (t === 'kind') state.draft.kind = e.target.value;
+    if (t === 'kind') { state.draft.kind = e.target.value; state.draft.kindLocked = true; const file = state.draft.file; if (file) run(() => takeFile(file)); }
     if (t === 'snapshot') state.draft.snapshot_at = e.target.value;
-    if (t === 'file' && e.target.files[0]) { const file = e.target.files[0]; run(() => takeFile(file)); }
+    if (t === 'file' && e.target.files[0]) { const file = e.target.files[0]; state.draft.kindLocked = false; run(() => takeFile(file)); }
     if (t === 'order-store') { state.storeFilter = e.target.value; state.orderPage = 1; state.backfill = null; state.feeTransfer = null; state.summaryList = ''; run(async () => { await loadOrders(); await loadSummary(); }); }
   }, {signal});
   root.addEventListener('submit', e => {

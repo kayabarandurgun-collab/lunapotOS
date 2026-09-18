@@ -826,6 +826,11 @@ export async function reportInboxApi(request, env, path, readBody) {
     return row;
   }
 
+  if (sub === '/profiles' && method === 'GET' && !url.searchParams.get('kind')) {
+    // Tür tanıma için: bu pazaryerinin kayıtlı biçimleri (yalnız tür ve sütun imzası).
+    const rows = (await db.prepare('SELECT kind,signature,active FROM ec_report_profiles WHERE provider=? AND active=1 ORDER BY rowid DESC LIMIT 50').bind(url.searchParams.get('provider') || '').all()).results;
+    return {profiles: rows};
+  }
   if (sub === '/profiles' && method === 'GET') {
     const p = await db.prepare('SELECT * FROM ec_report_profiles WHERE provider=? AND kind=? AND signature=? AND active=1').bind(url.searchParams.get('provider') || '', url.searchParams.get('kind') || '', url.searchParams.get('signature') || '').first();
     return {profile: p ? {...p, mapping: parse(p.mapping_json, {}), options: parse(p.options_json, {})} : null};

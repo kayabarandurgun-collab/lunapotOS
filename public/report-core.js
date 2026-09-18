@@ -67,6 +67,36 @@ export function headerSignature(headers) {
   return [...new Set(headers.map(lower))].sort().join('␟');
 }
 
+/**
+ * RAPOR TÜRÜNÜ KENDİSİ ANLAR. Kullanıcı yalnız mağazayı (pazaryerini) seçer; dosyanın sipariş mi
+ * finans/hakediş raporu mu olduğu sütunlarından çıkarılır:
+ *  1) Daha önce onaylanmış bir biçimle birebir aynı sütunlar → o biçimin türü.
+ *  2) Kayıtlı biçimlerden biriyle sütunların çoğu ortaksa (en az %60) → en çok örtüşenin türü.
+ *  3) Ayırt edici sütunlar: sipariş raporunda barkod, adet, teslimat adresi, kargo firması…;
+ *     finans raporunda net tutar, hakediş, hizmet bedeli, stopaj, kesinti… (barkod yok).
+ * Karar verilemezse null döner; o zaman ekran türü sorar.
+ */
+export function detectReportKind(headers, profiles = []) {
+  const set = new Set(headers.map(lower)), sig = headerSignature(headers);
+  const active = profiles.filter(p => p && p.active !== 0 && REPORT_KINDS[p.kind]);
+  const exact = active.find(p => p.signature === sig);
+  if (exact) return exact.kind;
+  let best = null;
+  for (const p of active) {
+    const theirs = String(p.signature || '').split('␟').filter(Boolean);
+    if (!theirs.length) continue;
+    const common = theirs.filter(h => set.has(h)).length, ratio = common / Math.max(theirs.length, set.size);
+    if (ratio >= 0.6 && (!best || ratio > best.ratio)) best = {kind: p.kind, ratio};
+  }
+  if (best) return best.kind;
+  const has = re => [...set].some(h => re.test(h));
+  const orders = [/barkod/, /^adet$/, /teslimat adresi/, /kargo firması/, /kargo takip/, /alıcı/, /paket (numarası|no)/, /stok kodu/].filter(has).length;
+  const finance = [/net tutar/, /hakedi[şs]/, /hizmet bedeli/, /stopaj/, /kesinti/, /tahsilat/, /işlem (tipi|türü|tarihi)/, /ceza/].filter(has).length;
+  if (orders >= finance + 2) return 'orders';
+  if (finance >= orders + 2) return 'finance';
+  return null;
+}
+
 /** Başlık adından ÖNERİ (kullanıcı onaylamadan uygulanmaz). */
 export function suggestMapping(kind, headers) {
   const out = {};

@@ -228,3 +228,4 @@ main th{font-weight:600}
 .order-timeline li{font-size:12px;padding:5px 10px}
 @media(max-width:600px){.order-timeline{gap:5px}.order-timeline li{font-size:11px;padding:4px 8px}.order-summary-heading h3{font-size:19px}}
 .decision-pending strong+small{display:block;margin-top:4px;font-size:12px;font-weight:400;color:var(--muted,#6b6878)}
+.rb-kind{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin:8px 0 12px;font-size:14px}.rb-kind-change{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted,#6b6878)}.rb-kind-change select{padding:4px 8px;font-size:12px}
