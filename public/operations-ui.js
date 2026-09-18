@@ -22,12 +22,12 @@ export function mountOperations(root,namespace,view){
  async function load(){
   root.innerHTML='<p class="loading">Çalışma alanı hazırlanıyor…</p>';
   if(view==='overview'){
-   const [ac,connections,settings,attention,performance]=await Promise.all([api(''),api('/connections'),api('/settings'),api('/attention'),api('/performance')]);
+   const [ac,connections,settings,attention,performance,pending]=await Promise.all([api(''),api('/connections'),api('/settings'),api('/attention'),api('/performance'),api('/performance?mode=pending').catch(()=>null)]);
    if(abort.signal.aborted)return;
    const configured=connections.providers.filter(p=>p.configured).length,available=ac.stock.filter(p=>p.quantity_milli-(p.reserved_milli||0)>0).length;
    // Sirket tanimli ve urun kartlari varsa kurulum bitmis sayilir; rehber kapali acilir ama kaybolmaz.
    const setupSteps=[!!settings.settings.tax_id,ac.stock.length>0,available>0,configured>0].filter(Boolean).length,setupDone=!!settings.settings.tax_id&&ac.stock.length>0;
-   root.innerHTML=heading('Bugün işin nasıl gidiyor?','E-ticaret çalışma alanı · Son 30 günün satışları ve güncel stok durumu')+'<div id="op-error" class="notice" hidden></div>'+renderDecisionOverview(performance,ac.stock)+renderAttention(attention,connections,settings.settings,ac.pending_fee_cents)+(setupDone?'':'<div class="dashboard-grid"><details class="card setup-guide" open><summary class="card-heading"><h2>İşe başlamak için</h2><span class="pill">'+setupSteps+'/4 başlangıç adımı</span></summary>'+
+   root.innerHTML=heading('Bugün işin nasıl gidiyor?','E-ticaret çalışma alanı · Son 30 günün satışları ve güncel stok durumu')+'<div id="op-error" class="notice" hidden></div>'+renderDecisionOverview(performance,ac.stock,pending)+renderAttention(attention,connections,settings.settings,ac.pending_fee_cents)+(setupDone?'':'<div class="dashboard-grid"><details class="card setup-guide" open><summary class="card-heading"><h2>İşe başlamak için</h2><span class="pill">'+setupSteps+'/4 başlangıç adımı</span></summary>'+
    link('#settings','Şirketini tanımla',settings.settings.tax_id?'Alış faturalarının alıcısı doğrulanıyor.':'Unvan ve vergi numarası faturaların doğru alana gelmesini sağlar.')+
    link('#stock','Ürünlerini ve açılış stoğunu ekle',ac.stock.length+' ürün · '+available+' üründe kullanılabilir stok var.')+
    link('#pricing','Maliyet ve tarifelerini belirle','Paket ölçüsü, kargo ve komisyonla satıştan önce kârını gör.')+
