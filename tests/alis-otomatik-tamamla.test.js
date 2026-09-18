@@ -65,6 +65,16 @@ test('Bütün satırlar geçmişten bulunursa fatura muhasebeleşir ve fatura ta
     assert.deepEqual(done.lines.map(l => [l.product_id, l.quantity_milli, l.received_milli]), [[p40, 4000, 4000], [p20, 4000, 4000]]);
     assert.deepEqual(done.receipts.map(r => r.occurred_on), ['2026-09-15', '2026-09-15'], 'teslim fatura tarihiyle');
 
+    const cards = f.sqlite.prepare('SELECT supplier_id FROM ec_products WHERE id IN (?,?)').all(p20, p40);
+    assert.deepEqual(cards.map(c => c.supplier_id), [supplier, supplier], 'boş tedarikçi alanı faturadan doldu');
+    // Başka tedarikçiden alınsa da dolu tedarikçi ezilmez.
+    const other = (await f.ok('/ec/suppliers', {name: 'Başka Tedarik', tax_id: '6060606060'})).id;
+    const moved = await invoice(f, other, 'OTH-1', [['Torf 20 Litre GenelKullanım', 1, 100]]);
+    const md = await f.ok('/ec/invoices/' + moved);
+    await f.ok('/ec/invoices/' + moved, {lines: [{id: md.lines[0].id, product_id: p20, stock_quantity: 1}]});
+    await f.ok('/ec/invoices/' + moved + '/autocomplete', {});
+    assert.equal(f.sqlite.prepare('SELECT supplier_id FROM ec_products WHERE id=?').get(p20).supplier_id, supplier);
+
     // Tekrar çağrı ikinci teslim yaratmaz.
     assert.equal((await f.ok('/ec/invoices/' + draft + '/autocomplete', {})).status, 'posted');
     assert.equal((await f.ok('/ec/invoices/' + draft)).receipts.length, 2);

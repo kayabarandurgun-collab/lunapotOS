@@ -87,6 +87,12 @@ export async function purchaseAutopostApi(request, env, path, readBody) {
     env, '/api/accounting/invoices/' + key + sub, async () => body);
   // Bulunan bağlantılar kısmi de olsa kaydedilir: kullanıcı yalnız kalan satırları seçer.
   if (mapped.length) await call('', {lines: payload});
+  // Kartın tedarikçisi BOŞSA bu faturanın tedarikçisi yazılır: kart ondan alınıyor, bu bir
+  // olgudur. Dolu tedarikçi değiştirilmez (ikinci tedarikçi kartın asıl tedarikçisini ezmez).
+  const productIds = [...new Set(payload.map(l => l.product_id).filter(Boolean))];
+  if (env.WORKSPACE === 'ec' && productIds.length)
+    await db.prepare('UPDATE products SET supplier_id=? WHERE supplier_id IS NULL AND id IN (SELECT value FROM json_each(?))')
+      .bind(invoice.supplier_id, JSON.stringify(productIds)).run();
   if (missing.length) return {status: 'draft', mapped, missing,
     reason: missing.length + ' satırın ürünü geçmişte bulunamadı: ' + missing.join('; ')};
 
