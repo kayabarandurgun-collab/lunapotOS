@@ -62,10 +62,15 @@ export async function purchaseAutopostApi(request, env, path, readBody) {
   const pendingSplit = await db.prepare('SELECT 1 FROM purchase_line_splits WHERE invoice_id=? LIMIT 1').bind(key).first();
   if (pendingSplit) return {status: 'draft', reason: 'Çeşit dağılımı olan fatura elle muhasebeleştirilir.'};
 
+  // Mal kabulü geri alınmış satır YANLIŞ eşleşmedir (ör. yanlış çeşide girilmiş): örnek alınmaz.
+  // Geri alma kaydı yalnız e-ticaret alanında vardır.
+  const reversed = env.WORKSPACE === 'ec'
+    ? 'AND NOT EXISTS(SELECT 1 FROM receipt_reversals r JOIN goods_receipts g ON g.id=r.receipt_id WHERE g.line_id=l.id)' : '';
   const history = (await db.prepare(`SELECT l.description,l.external_code,l.invoice_unit,l.invoice_quantity,l.quantity_milli,l.product_id,p.name product_name
     FROM purchase_lines l JOIN purchase_invoices i ON i.id=l.invoice_id JOIN products p ON p.id=l.product_id
     WHERE i.supplier_id=? AND i.status='posted' AND i.id<>? AND l.line_type='product' AND l.product_id IS NOT NULL
-      AND l.quantity_milli>0 AND l.invoice_quantity>0 ORDER BY i.invoice_date DESC LIMIT 3000`).bind(invoice.supplier_id, key).all()).results;
+      AND l.quantity_milli>0 AND l.invoice_quantity>0
+      ${reversed} ORDER BY i.invoice_date DESC LIMIT 3000`).bind(invoice.supplier_id, key).all()).results;
 
   const mapped = [], missing = [];
   const payload = lines.map(l => {
