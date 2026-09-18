@@ -15,7 +15,7 @@ const table=(headers,rows,empty='Kayıt bulunamadı.')=>rows.length?`<div class=
 // SIRALAMA: sunucuda, sayfalamadan önce (bkz. orders-query.js). Başlığa tıklamak ve seçim kutusu aynı değeri değiştirir.
 const SORTS={date_desc:'Tarih · yeniden eskiye',date_asc:'Tarih · eskiden yeniye',profit_desc:'Cebine kalan · çoktan aza',profit_asc:'Cebine kalan · azdan çoğa',amount_desc:'Tutar · çoktan aza',amount_asc:'Tutar · azdan çoğa'};
 const CHIPS=[['','Tümü'],['draft','Hazırlık'],['reserved','Stok ayrıldı'],['shipped','Kargoda'],['delivered','Teslim edildi'],['cancelled','İptal']];
-const KANAL_KISA={trendyol:'Trendyol',hepsiburada:'Hepsiburada',other:'Diğer'};
+const KANAL_KISA={trendyol:'TY',hepsiburada:'HB',other:'Diğer'};
 const tarih=d=>d?d.slice(8,10)+'.'+d.slice(5,7)+'.'+d.slice(0,4):'';
 
 export function mountOrders(root,namespace='ec'){
@@ -112,7 +112,7 @@ export function mountOrders(root,namespace='ec'){
    const bilgi=elapsed!==null?`<small class="${elapsed>=7?'error':''}">${elapsed} gündür kargoda</small>`:p.status==='draft'||p.source_changed?`<small class="${p.readiness==='ready'?'':'error'}">${esc(readiness[p.readiness]||'')}</small>`:'';
    const cebine=p.status==='cancelled'?'<span class="muted">—</span>':p.cash_result_cents!==null&&p.cash_result_cents!==undefined?`<span class="${p.cash_result_cents<0?'ol-neg':'ol-pos'}">${money(p.cash_result_cents)}</span>`:`<small class="muted">${p.result_cents!==null&&p.result_cents!==undefined?'KDV oranı yok':'Kesinti bekliyor'}</small>`;
    const b=brut(p);
-   return `<tr data-ol-row="${esc(p.id)}" tabindex="0" aria-label="${esc((icerik(p)||'Sipariş')+' · '+(p.order_no||''))}"><td class="ol-c-urun"><span class="ol-urun">${esc(icerik(p)||'Ürün eşleşmedi')}</span><small>${esc(p.order_no||'—')}<span class="ol-m"> · ${esc(KANAL_KISA[p.channel]||p.channel)} · ${esc(tarih(p.occurred_on))}</span></small></td><td class="ol-c-kanal"><span class="ol-kanal ol-kanal-${esc(p.channel)}">${esc(KANAL_KISA[p.channel]||p.channel)}</span></td><td class="ol-c-tarih">${esc(tarih(p.occurred_on))}</td><td class="ol-c-durum">${badge(p)}${bilgi}</td><td class="ol-c-tutar">${b!==null?money(b):'—'}</td><td class="ol-c-cep">${cebine}</td></tr>`;}).join('')}</tbody></table></div>`;
+   return `<tr data-ol-row="${esc(p.id)}" tabindex="0" aria-label="${esc((icerik(p)||'Sipariş')+' · '+(p.order_no||''))}"><td class="ol-c-urun"><span class="ol-urun" title="${esc(icerik(p)||'')}">${esc(icerik(p)||'Ürün eşleşmedi')}</span><small>${esc(p.order_no||'—')}<span class="ol-m"> · ${esc(KANAL_KISA[p.channel]||p.channel)} · ${esc(tarih(p.occurred_on))}</span></small></td><td class="ol-c-kanal"><span class="ol-kanal ol-kanal-${esc(p.channel)}" title="${esc(channels[p.channel]||p.channel)}">${esc(KANAL_KISA[p.channel]||p.channel)}</span></td><td class="ol-c-tarih">${esc(tarih(p.occurred_on))}</td><td class="ol-c-durum">${badge(p)}${bilgi}</td><td class="ol-c-tutar">${b!==null?money(b):'—'}</td><td class="ol-c-cep">${cebine}</td></tr>`;}).join('')}</tbody></table></div>`;
  }
  // Sipariş penceresinin üstündeki işlem düğmeleri: yalnız o durumda yapılabilecek adımlar.
  function detayIslemleri(p){
