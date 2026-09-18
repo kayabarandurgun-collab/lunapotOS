@@ -18,7 +18,7 @@ export async function performanceApi(request,env,path){
  // Kayit ayni kanalin magazasindan okunur; siparis numaralari kanallar arasinda karismaz.
  const stopajSql="(SELECT COALESCE(SUM(json_extract(r.data_json,'$.amount_cents')),0) FROM ec_report_records r JOIN ec_report_stores st ON st.id=r.store_id AND st.provider=order_packages.channel WHERE r.kind='finance_event' AND json_extract(r.data_json,'$.type')='withholding' AND json_extract(r.data_json,'$.order_no')=order_packages.order_no) stopaj_cents,(SELECT COUNT(*) FROM order_packages q WHERE q.order_no=order_packages.order_no AND q.channel=order_packages.channel AND q.status!='cancelled') stopaj_paket";
  // Satışın stokta olmadan satılıp henüz alışla kapanmamış (açık) kısmı ve tahmin olup olmadığı.
- const SALES_SQL='SELECT s.*,l.package_id,pp.vat_bps,(SELECT o.open_milli-o.settled_milli FROM open_costs o WHERE o.sale_id=s.id) open_milli,(SELECT iif(o.estimate_cents IS NULL,1,0) FROM open_costs o WHERE o.sale_id=s.id) no_estimate FROM sale_entries s JOIN order_line_components c ON (s.id=c.sale_id OR s.parent_id=c.sale_id) JOIN order_lines l ON l.id=c.line_id LEFT JOIN price_profiles pp ON pp.product_id=s.product_id WHERE l.package_id IN (SELECT value FROM json_each(?))';
+ const SALES_SQL='SELECT s.*,l.package_id,l.vat_bps satir_kdv,pp.vat_bps,(SELECT o.open_milli-o.settled_milli FROM open_costs o WHERE o.sale_id=s.id) open_milli,(SELECT iif(o.estimate_cents IS NULL,1,0) FROM open_costs o WHERE o.sale_id=s.id) no_estimate FROM sale_entries s JOIN order_line_components c ON (s.id=c.sale_id OR s.parent_id=c.sale_id) JOIN order_lines l ON l.id=c.line_id LEFT JOIN price_profiles pp ON pp.product_id=s.product_id WHERE l.package_id IN (SELECT value FROM json_each(?))';
  const db=env.DB,packages=await all(db.prepare(`SELECT *,${stopajSql} FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND ${mode==='delivered'?"status='delivered' AND delivered_on BETWEEN ? AND ?":"status IN ('draft','reserved','shipped') AND occurred_on BETWEEN ? AND ?"} ORDER BY occurred_on DESC,id LIMIT 1001`).bind(from,to));
  if(packages.length>1000)fail('Bu aralıkta 1.000’den fazla paket var. Eksiksiz toplam için tarih aralığını daraltın.',409);
  // Çift aktarımın asıl kaydı "gönderildi" durumunda kalır ama teslimi kopyasıyla gelmiştir ve
@@ -155,13 +155,14 @@ export async function performanceApi(request,env,path){
    else if(fv===null||fv===undefined)row.cash_note='Bu pazaryerinin kesinti KDV durumu beyan edilmedi; nakit sonuç hesaplanmadı.';
    else{
     let nakit=0;
-    for(const e of entries)nakit+=incl(e.revenue_cents,e.vat_bps)-incl(e.cost_cents,e.vat_bps)
+    // Satış kendi satır KDV'siyle (müşterinin ödediği tutar), maliyet alış KDV'siyle (ürün profili) büyür.
+    for(const e of entries)nakit+=incl(e.revenue_cents,e.satir_kdv??e.vat_bps)-incl(e.cost_cents,e.vat_bps)
      -incl(e.commission_cents??0,fv)-incl(e.shipping_cents??0,fv)-incl(e.other_cents??0,fv);
     // Stopaj bankaya gireni azaltir: nakit sonuctan dusulur.
     const stopaj=Math.round(Math.abs(p.stopaj_cents||0)/Math.max(1,p.stopaj_paket||1));
     row.withholding_cents=stopaj?-stopaj:0;
     row.cash_cents=nakit-stopaj;
-    row.revenue_gross_cents=entries.reduce((t,e)=>t+incl(e.revenue_cents,e.vat_bps),0);
+    row.revenue_gross_cents=entries.reduce((t,e)=>t+incl(e.revenue_cents,e.satir_kdv??e.vat_bps),0);
     row.cost_gross_cents=entries.reduce((t,e)=>t+incl(e.cost_cents,e.vat_bps),0);
     row.shipping_gross_cents=entries.reduce((t,e)=>t+incl(e.shipping_cents??0,fv),0);
     row.commission_gross_cents=entries.reduce((t,e)=>t+incl(e.commission_cents??0,fv),0);

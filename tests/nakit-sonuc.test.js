@@ -522,3 +522,23 @@ test('İade edilen sipariş listede iade durumunu taşır (tam / kısmi)', async
     assert.equal(sonra.return_status, 'tam');
   } finally { f.close(); }
 });
+
+// HB bazı ilanlarda satır KDV'sini %10 yazıyor, ürün profili %20. KDV hariç satış satırın oranıyla
+// çıkarılmışsa KDV dahile de AYNI oranla dönülmeli; yoksa satış olduğundan yüksek görünür
+// (canlıda HB 4215556069: 240 TL satış 261,82 TL sayılıyordu).
+test('Cebine kalan: satış, satırın kendi KDV oranıyla geri çevrilir; üç ekran aynı', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    f.sqlite.exec("DROP TRIGGER IF EXISTS ec_order_line_lock");   // teslim edilmiş satır kilitli; test verisi için
+    f.sqlite.exec("UPDATE ec_order_lines SET vat_bps=1000 WHERE id='ln'");
+    const beklenen = 12100 - 5520 - 1932 - 10790 - 1366;   // satış 110 × 1,10; maliyet 46 × 1,20
+    const liste = (await f.ok('/ec/orders')).packages.find(p => p.id === 'pk').cash_result_cents;
+    const ozet = (await f.ok('/ec/orders/pk/insights')).cash_cents;
+    const r = await rapor(f);
+    const satir = r.rows.find(x => x.order_no === 'S1');
+    assert.equal(liste, beklenen, 'liste');
+    assert.equal(ozet, beklenen, 'sipariş penceresi');
+    assert.equal(satir.cash_cents, beklenen, 'kâr raporu');
+    assert.equal(satir.revenue_gross_cents, 12100, 'satış KDV dahil = müşterinin ödediği');
+  } finally { f.close(); }
+});

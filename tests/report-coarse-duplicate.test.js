@@ -136,7 +136,9 @@ test('Artı gelen gider kalemi sessizce kâra yazılmaz; not düşülür', async
   } finally { f.close(); }
 });
 
-test('Aynı tür gider iki raporda paketsiz ve farklı tutarla gelirse toplanmaz, kâr hesaplanmaz', async () => {
+// Ekstre siparişin SON hâlini verir (canlıda HB 4611462604: kargo önce 112,80, sonra 211,19).
+// İki tutar toplanmaz; son rapordaki geçerlidir, eski tutar pakete not olarak yazılır.
+test('Aynı tür gider sonraki raporda farklı tutarla gelirse toplanmaz, son rapor sayılır ve not düşülür', async () => {
   const {f, store, profile, upload} = await fixture(); try {
     const s = await store();
     await profile('orders', ORDER_COLUMNS, ORDER_MAPPING);
@@ -154,7 +156,7 @@ test('Aynı tür gider iki raporda paketsiz ve farklı tutarla gelirse toplanmaz
     await upload(s, 'finance', B_COLS, [['S1', 'Kargo', '-211,19']], '2026-09-04T10:00', 'b.xlsx');
 
     const iki = (await f.ok('/ec/reports/orders?store_id=' + s)).results[0];
-    assert.equal(iki.contribution_cents, null, '112,80 + 211,19 sessizce toplanmadı');
-    assert.ok(iki.contribution_missing.some(n => /toplanmadı, kâr hesaplanmadı/.test(n)), 'sebebi yazıldı');
+    assert.equal(iki.contribution_cents, 20000 - 10000 - 21119, '112,80 + 211,19 toplanmadı; son rapordaki 211,19 sayıldı');
+    assert.ok((iki.notes || []).some(n => /önceki raporda 112\.80 TL, son raporda 211\.19 TL/.test(n)), 'eski tutar nota yazıldı: ' + JSON.stringify(iki.notes));
   } finally { f.close(); }
 });

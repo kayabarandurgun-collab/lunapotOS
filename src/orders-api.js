@@ -121,7 +121,7 @@ export async function ordersApi(request,env,path,readBody){
   // Liste, kâr raporuyla BİREBİR aynı hesaplanır: iade satırları dahil (satışın alt kaydı), KDV
   // kalem kalem eklenip yuvarlanır. Önceden iadeler atlanıyor ve KDV toplamda yuvarlanıyordu;
   // aynı paket iki ekranda kuruşlarca, iadeli pakette yüzlerce lira farklı görünüyordu.
-  const kalemler=(await statement(db,"SELECT l.package_id pid,p.channel kanal,s.id,s.kind,s.quantity_milli,s.revenue_cents,s.cost_cents,s.commission_cents,s.shipping_cents,s.other_cents,pp.vat_bps"
+  const kalemler=(await statement(db,"SELECT l.package_id pid,l.vat_bps satir_kdv,p.channel kanal,s.id,s.kind,s.quantity_milli,s.revenue_cents,s.cost_cents,s.commission_cents,s.shipping_cents,s.other_cents,pp.vat_bps"
     +" FROM order_lines l JOIN order_line_components c ON c.line_id=l.id"
     +" JOIN order_packages p ON p.id=l.package_id"
     +" JOIN sale_entries s ON (s.id=c.sale_id OR s.parent_id=c.sale_id)"
@@ -139,7 +139,8 @@ export async function ordersApi(request,env,path,readBody){
     sonuc:list.reduce((t,e)=>t+e.revenue_cents-e.cost_cents-(e.commission_cents||0)-(e.shipping_cents||0)-(e.other_cents||0),0)};
    // Kesinti KDV'si beyan edilmemisse nakit hesaplanmaz; oran uydurulmaz, alan bos kalir.
    r.nakit=tam&&kdvTam&&Number.isInteger(fv)
-    ?list.reduce((t,e)=>t+inc(e.revenue_cents,e.vat_bps)-inc(e.cost_cents,e.vat_bps)-inc(e.commission_cents,fv)-inc(e.shipping_cents,fv)-inc(e.other_cents,fv),0):null;
+    // Satış kendi satır KDV'siyle (müşterinin ödediği tutar), maliyet alış KDV'siyle (ürün profili) büyür.
+    ?list.reduce((t,e)=>t+inc(e.revenue_cents,e.satir_kdv??e.vat_bps)-inc(e.cost_cents,e.vat_bps)-inc(e.commission_cents,fv)-inc(e.shipping_cents,fv)-inc(e.other_cents,fv),0):null;
    ozet.set(pid,r);
   }
   // STOPAJ bankaya gireni azaltır: kâr raporu ve sipariş özeti nakitten düşüyor, liste düşmüyordu;

@@ -479,6 +479,8 @@ export async function reportStockLinkApi(request, env, path, readBody) {
       try {
         await accountingApi(new Request('https://internal.invalid' + url, {method: 'POST'}), env, url, async () => ({
           quantity: l.quantity, revenue: l.revenue_cents / 100, restock: true,
+          // Kesinti siparişin son hâlinde (satış kaydında) durur; iadeye ayrıca yazılmaz.
+          commission: 0, shipping: 0, other: 0, fees_status: 'confirmed',
           external_id: 'IADE-' + p.order_no + '-' + String(l.sale_id).slice(0, 8), occurred_on: l.occurred_on,
           notes: (p.reason || 'Pazaryeri raporunda iade: ' + p.order_no + '.') + ' Mal geri döndü; kargo ve hizmet bedeli gider olarak kalır.'}));
         done.push({order_no: p.order_no, sale_id: l.sale_id});

@@ -51,7 +51,10 @@ async function orderData(env,key){
  }catch{vatRows=[];feeRow=null;}
  const vat=new Map(vatRows.map(r=>[r.product_id,r.vat_bps])),fv=feeRow?.bps,inc=(v,b)=>Math.round(v*(10000+b)/10000);
  const cashReady=sales.length&&Number.isInteger(fv)&&sales.every(x=>vat.get(x.product_id)!=null&&x.commission_cents!==null&&x.shipping_cents!==null&&x.other_cents!==null);
- const cash_cents=cashReady?sales.reduce((t,x)=>t+inc(x.revenue_cents,vat.get(x.product_id))-inc(x.cost_cents,vat.get(x.product_id))-inc(x.commission_cents,fv)-inc(x.shipping_cents,fv)-inc(x.other_cents,fv),0)-stopaj:null;
+ // Satış kendi satır KDV'siyle (müşterinin ödediği tutar), maliyet alış KDV'siyle (ürün profili) büyür.
+ const satirKdv=new Map(components.filter(c=>c.sale_id).map(c=>[c.sale_id,lines.find(l=>l.id===c.line_id)?.vat_bps]));
+ const satisKdv=x=>satirKdv.get(x.kind==='return'?x.parent_id:x.id)??vat.get(x.product_id);
+ const cash_cents=cashReady?sales.reduce((t,x)=>t+inc(x.revenue_cents,satisKdv(x))-inc(x.cost_cents,vat.get(x.product_id))-inc(x.commission_cents,fv)-inc(x.shipping_cents,fv)-inc(x.other_cents,fv),0)-stopaj:null;
  return {package:p,lines,components,sales,withholding_cents:stopaj,cash_cents,parcel_input:parcelInput,parcel_input_source:parcelInputSource,actual_summary:actualSummary,customer,source,source_facts:sourceFacts,purchase_invoices:purchases.slice(0,50).map(r=>({...r,source:'recent_receipt_not_exact_lot'})),purchase_invoices_truncated:purchases.length>50,fee_evidence:feeEvidence,drafts:drafts.map(unpack),invoice_status:'draft_only',notices:['Alış belgeleri bu stok kartlarının son mal teslimleridir. Satış maliyeti ağırlıklı ortalamadır; kesin parti/fatura çıkışı olduğu iddia edilmez.','Yerel satış faturası taslağı resmî fatura değildir. EDM/GİB gönderimi yapılmaz.',...(p.channel==='hepsiburada'?['Hepsiburada kaynakları henüz paket düzeyinde doğrulanmadığından müşteri ayrıntısı otomatik eşleştirilmedi.']:[])]};
 }
 function billingData(input){

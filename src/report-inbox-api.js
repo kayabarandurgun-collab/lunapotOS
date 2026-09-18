@@ -333,6 +333,28 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
   }
   if (elenen.size) allEvents = allEvents.filter(e => !elenen.has(e.id));
 
+  // SON GÖZLEM. Pazaryeri ekstresi siparişin GÜNCEL hâlini verir: kargo sonradan eklenebilir,
+  // iadede komisyon geri verilip sıfıra iner. Bileşik anahtar tutarı içerdiği için eski tutar
+  // AYRI kayıt olarak kalır; ikisini toplamak gideri iki kez sayar (canlıda HB 4611462604: kargo
+  // 112,80 + 211,19). Her (sipariş, tür, sütun, paket) için yalnız EN SON görülen rapordaki
+  // kayıtlar sayılır. Aynı tutar yeni raporda yeniden görülünce kaydın görülme zamanı ilerler.
+  const gozlemAnahtari = e => e.order_no + '|' + e.type + '|' + (e.source_field || '') + '|' + (e.package_id || '');
+  const sonGozlem = new Map();
+  for (const e of allEvents) {
+    if (!e.order_no || !e.type) continue;
+    const k = gozlemAnahtari(e), t = String(e.source_time || '');
+    if (!sonGozlem.has(k) || t > sonGozlem.get(k)) sonGozlem.set(k, t);
+  }
+  const eskiler = allEvents.filter(e => e.order_no && e.type && String(e.source_time || '') !== sonGozlem.get(gozlemAnahtari(e)));
+  allEvents = allEvents.filter(e => !e.order_no || !e.type || String(e.source_time || '') === sonGozlem.get(gozlemAnahtari(e)));
+  for (const e of eskiler) {
+    if (!e.amount_cents) continue;
+    const yeni = allEvents.filter(x => gozlemAnahtari(x) === gozlemAnahtari(e)).reduce((t, x) => t + (x.amount_cents || 0), 0);
+    if (!kabaNot.has(e.order_no)) kabaNot.set(e.order_no, []);
+    kabaNot.get(e.order_no).push((EVENT_TYPES[e.type] || 'Gider') + ' önceki raporda ' + (Math.abs(e.amount_cents) / 100).toFixed(2) +
+      ' TL, son raporda ' + (Math.abs(yeni) / 100).toFixed(2) + ' TL; ekstre siparişin son hâlini verdiği için son rapor sayıldı.');
+  }
+
   // Gider KDV bilgisi olayın KENDİ dosyasının profil sürümünden gelir; sonradan açılan başka profil
   // geçmiş hesabı değiştirmez.
   const profileOptions = new Map(), profileMapping = new Map();
@@ -679,7 +701,9 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
   const writes = [], skipped = [], changes = [];
   for (const g of all) {
     // Teslim edilmemiş pakette kargo kesinleşmemiştir; deftere de yazılmaz (kâr kuralıyla aynı çizgi).
-    if (!g.delivered) { skipped.push({group: g.group, reason: 'Teslim edilmedi; kargo kesinleşmeden kesinti yazılmaz.'}); continue; }
+    // İade edilmiş paket de kesinleşmiştir: mal döndü, ekstre son hâlini verdi.
+    const iadeli = g.erp_package_id ? await db.prepare("SELECT 1 FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_sale_entries r ON r.parent_id=c.sale_id WHERE l.package_id=? AND r.kind='return' LIMIT 1").bind(g.erp_package_id).first() : null;
+    if (!g.delivered && !iadeli) { skipped.push({group: g.group, reason: 'Teslim edilmedi; kargo kesinleşmeden kesinti yazılmaz.'}); continue; }
     const want = {commission: 0, shipping: 0, other: 0}, kaynak = {commission: false, shipping: false, other: false};
     for (const f of g.fees) {
       const comp = FEE_COMPONENT[f.type];
@@ -731,6 +755,22 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
     });
     writes.push({group: g.group, erp_package_id: g.erp_package_id, ...want});
   }
+  // MÜŞTERİ İADESİNİN KESİNTİSİ SIFIRDIR. Pazaryerinin iadeden sonraki son hâli (geri verilen
+  // komisyon, dönüş kargosu) siparişin kesintisine zaten yazıldı; iade kaydına ayrıca kesinti
+  // yazmak aynı parayı iki kez sayar. Yalnız müşteri iadeleri (IADE-…, TESLIM-EDILEMEDI-…);
+  // çift kayıt düzeltmeleri (DUZELTME-CIFT) kopya satışı bütünüyle sıfırladığı için dokunulmaz.
+  const iadeDuzelt = [];
+  for (const w of writes) {
+    const rs = (await db.prepare("SELECT r.id,r.commission_cents,r.shipping_cents,r.other_cents,r.fees_status FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id" +
+      " JOIN ec_sale_entries r ON r.parent_id=c.sale_id WHERE l.package_id=? AND r.kind='return' AND (r.external_id LIKE 'IADE-%' OR r.external_id LIKE 'TESLIM-EDILEMEDI-%')").bind(w.erp_package_id).all()).results;
+    for (const r of rs) if (r.commission_cents !== 0 || r.shipping_cents !== 0 || r.other_cents !== 0 || r.fees_status !== 'confirmed') iadeDuzelt.push(r);
+  }
+  if (commit && iadeDuzelt.length) await db.batch(iadeDuzelt.flatMap(r => [
+    db.prepare("UPDATE ec_sale_entries SET commission_cents=0,shipping_cents=0,other_cents=0,fees_status='confirmed' WHERE id=?").bind(r.id),
+    db.prepare('INSERT INTO ec_fee_audit(id,sale_id,old_values,new_values) VALUES(?,?,?,?)').bind(id(), r.id,
+      JSON.stringify({commission: r.commission_cents, shipping: r.shipping_cents, other: r.other_cents}),
+      JSON.stringify({commission: 0, shipping: 0, other: 0, source: 'iade: kesinti siparişin son hâlinde'}))
+  ]));
   if (commit && changes.length) {
     for (const part of inChunks(changes, 40)) {
       await db.batch(part.flatMap(c => [
@@ -745,7 +785,7 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
   }
   return {
     store, commit, next_cursor, total_orders,
-    packages: all.length, applied: writes.length, sale_entries_changed: changes.length,
+    packages: all.length, applied: writes.length, sale_entries_changed: changes.length + iadeDuzelt.length,
     skipped: skipped.slice(0, 100), skipped_total: skipped.length,
     totals: writes.reduce((t, w) => ({commission: t.commission + w.commission, shipping: t.shipping + w.shipping, other: t.other + w.other}), {commission: 0, shipping: 0, other: 0}),
     notice: commit
