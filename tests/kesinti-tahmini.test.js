@@ -99,3 +99,29 @@ test('Kaça satmalıyım: geçmiş kesintilerle cebine kalan, başabaş ve hedef
     assert.equal((await f.req('/ec/fiyat-hesap?product_id=' + a)).status, 400, 'kanal seçilmeli');
   } finally { f.close(); }
 });
+
+test('Ürünün bu kanalda teslimi yoksa kargo diğer kanaldaki teslimlerinden; iadesi tamamlanmış paket kargodakilerde görünmez', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const {a, b, teslim, kargoda, rapor} = await kur(f);
+    f.sqlite.exec("INSERT INTO ec_report_profiles(id,provider,kind,signature,version,mapping_json,options_json,created_by) VALUES('pf2','hepsiburada','finance','sig2',1,'{}','{\"fee_amounts_include_vat\":true,\"fee_vat_bps\":2000}','t')");
+    await teslim(a, 1, {kargo: 400});   // hacimli ürün A yalnız Trendyol'da teslim edildi
+    // Hepsiburada'da başka bir ürünün teslimi (kanal ortalaması 40 TL kargo)
+    const hbTeslim = await f.ok('/ec/orders', {channel: 'hepsiburada', external_id: 'H1', order_no: 'H1', occurred_on: D,
+      lines: [{external_id: 'H1-1', sku: 'S', name: 'İlan', product_id: b, quantity: 1, gross: 240, vat_rate: 20}]});
+    await f.ok('/ec/orders/' + hbTeslim.id + '/reserve', {}); await f.ok('/ec/orders/' + hbTeslim.id + '/ship', {occurred_on: D, reference: 'KH1'}); await f.ok('/ec/orders/' + hbTeslim.id + '/deliver', {occurred_on: D});
+    const hs = f.sqlite.prepare("SELECT s.id FROM ec_sale_entries s JOIN ec_order_line_components c ON c.sale_id=s.id JOIN ec_order_lines l ON l.id=c.line_id WHERE l.package_id=?").get(hbTeslim.id);
+    await f.ok('/ec/sales/' + hs.id + '/fees', {commission: 40, shipping: 40, other: 2, fees_status: 'confirmed'});
+    const hbKargo = await f.ok('/ec/orders', {channel: 'hepsiburada', external_id: 'H2', order_no: 'H2', occurred_on: D,
+      lines: [{external_id: 'H2-1', sku: 'S', name: 'İlan', product_id: a, quantity: 1, gross: 240, vat_rate: 20}]});
+    await f.ok('/ec/orders/' + hbKargo.id + '/reserve', {}); await f.ok('/ec/orders/' + hbKargo.id + '/ship', {occurred_on: D, reference: 'KH2'});
+    // Trendyol'da kargoya verilip iadesi tamamlanan paket
+    const donen = await kargoda(a, 1);
+    const ds = f.sqlite.prepare("SELECT s.id FROM ec_sale_entries s JOIN ec_order_line_components c ON c.sale_id=s.id JOIN ec_order_lines l ON l.id=c.line_id WHERE l.package_id=?").get(donen);
+    await f.ok('/ec/sales/' + ds.id + '/return', {external_id: 'IADE-D', quantity: 1, revenue: 200, commission: 0, shipping: 0, other: 0, fees_status: 'confirmed', restock: true, occurred_on: D});
+    const r = await rapor('pending');
+    const row = r.rows.find(x => x.id === hbKargo.id);
+    assert.equal(row.history_source, 'product_other_channel');
+    assert.equal(row.shipping_cents, 40000, 'kargo diğer kanaldaki gerçek teslimden');
+    assert.equal(r.rows.find(x => x.id === donen), undefined, 'iadesi tamamlanan paket kargodakilerde değil');
+  } finally { f.close(); }
+});

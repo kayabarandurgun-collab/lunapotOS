@@ -6,7 +6,9 @@
 // Örnek seçimi (ilk bulunan):
 //  1. aynı kanal, aynı içerik (hangi stok ürününden kaç adet): son 5 teslim
 //  2. aynı kanal, aynı ürünü tek başına taşıyan paketler: adedi en yakın 5 teslim
-//  3. aynı kanal: son 30 teslim
+//  3. aynı ürünün DİĞER kanaldaki teslimleri (kargo, hizmet); komisyon oranı bu kanalın ortancası.
+//     Hacimli ürünün (39 kg torf balyası) kargosu kanal ortalamasıyla tahmin edilemez.
+//  4. aynı kanal: son 30 teslim
 // Tutarlar ORTANCA alınır: tek bir sıra dışı paket (ceza, ek ücret) tahmini bozmaz.
 // İade edilmiş paket örnek alınmaz: dönüş kargosu normal satışın kesintisi değildir.
 // Tutarlar KDV HARİÇTİR (satış kaydındaki kesintilerle aynı); stopaj KDV dahil satışa oranla verilir.
@@ -71,6 +73,16 @@ export async function kesintiTahmincisi(db) {
     }
     if (enIyi) return {...enIyi, withholdingRate: wr,
       note: 'Bu içerikte teslim yok; aynı ürünün adedi en yakın ' + enIyi.n + ' teslimi örnek alındı.'};
+    let diger = null;
+    for (const u of urunler) {
+      const adet = parts.filter(c => c.product_id === u).reduce((t, c) => t + c.quantity_milli, 0);
+      const liste = ornekler.filter(x => x.channel !== channel && x.tekUrun === u).map((x, i) => ({x, i})).sort((a, b) => Math.abs(a.x.adet - adet) - Math.abs(b.x.adet - adet) || a.i - b.i).slice(0, 5).map(a => a.x);
+      if (!liste.length) continue;
+      const o = ozet(liste, 'product_other_channel');
+      if (!diger || o.shipping > diger.shipping) diger = o;
+    }
+    if (diger) return {...diger, commissionRate: ozet(kanal.slice(0, 30), 'channel').commissionRate, withholdingRate: wr,
+      note: 'Bu ürünün bu kanalda teslimi yok; kargo ve hizmet bedeli diğer kanaldaki ' + diger.n + ' teslimden, komisyon oranı bu kanalın ortancasından.'};
     const son = kanal.slice(0, 30);
     return {...ozet(son, 'channel'), withholdingRate: wr,
       note: 'Bu ürünün bu kanalda teslimi yok; kanalın son ' + son.length + ' teslimi örnek alındı.'};

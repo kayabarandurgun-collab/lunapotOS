@@ -27,6 +27,10 @@ export async function performanceApi(request,env,path){
  if(mode==='pending'&&packages.length){
   const teslimli=new Set((await all(db.prepare("SELECT DISTINCT q.channel||'|'||q.order_no k FROM order_packages q JOIN order_lines l ON l.package_id=q.id JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries r ON r.parent_id=c.sale_id WHERE q.status='delivered' AND r.kind='return' AND r.external_id LIKE 'DUZELTME-CIFT-%' AND q.order_no IN (SELECT value FROM json_each(?))").bind(JSON.stringify([...new Set(packages.map(p=>p.order_no))])))).map(r=>r.k));
   for(let i=packages.length-1;i>=0;i--)if(packages[i].status==='shipped'&&teslimli.has(packages[i].channel+'|'+packages[i].order_no))packages.splice(i,1);
+  // İADESİ TAMAMLANMIŞ paket (teslim edilemedi / müşteri iade etti) yolda değildir: satış ve iade
+  // birbirini kapatır. Kargodakiler tahminine girerse olmayan bir kâr eklenir.
+  const iadeli=new Set((await all(db.prepare("SELECT l.package_id pid,SUM(CASE WHEN s.kind='sale' THEN s.quantity_milli ELSE 0 END) satilan,(SELECT COALESCE(SUM(r.quantity_milli),0) FROM sale_entries r WHERE r.parent_id IN (SELECT c2.sale_id FROM order_line_components c2 JOIN order_lines l2 ON l2.id=c2.line_id WHERE l2.package_id=l.package_id) AND r.kind='return') iade FROM order_lines l JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries s ON s.id=c.sale_id WHERE l.package_id IN (SELECT value FROM json_each(?)) GROUP BY l.package_id").bind(JSON.stringify(packages.map(p=>p.id))))).filter(r=>r.iade>0&&r.iade>=r.satilan).map(r=>r.pid));
+  for(let i=packages.length-1;i>=0;i--)if(iadeli.has(packages[i].id))packages.splice(i,1);
  }
  const ids=JSON.stringify(packages.map(p=>p.id));
  const [lines,components,sales,inputs=[],shippingRates=[],commissionRates=[]]=(await db.batch([
