@@ -443,3 +443,20 @@ test('Otomatik aktarım: kargolanan paket açılır, stok ayrılır ve düşer; 
     assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_packages').get().n, 4, 'PK1, PK2, PK5 ve taslak PK4; iptal açılmadı');
   } finally { f.close(); }
 });
+
+test('Otomatik aktarım: raporda KDV oranı yoksa ürünün fiyat profilindeki oranla tamamlanır; oran yoksa taslak kalır', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const product = await fourPack(f);
+    const s = store(f);
+    startDate(f, DATE);
+    record(f, s, 'TY-1', line({package_id: 'PKV', line_id: 'LV', order_no: 'OV', status: 'Kargolandı', vat_bps: undefined, delivered_date: ''}), 1);
+    const once = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
+    assert.ok(once.results[0].skipped && /KDV/.test(once.results[0].reason), 'profil oranı yokken KDV uydurulmadı: ' + JSON.stringify(once.results[0]));
+    sql(f, `INSERT INTO ec_price_profiles(product_id,vat_bps,replacement_cost_cents,packaging_cents,other_cents,withholding_bps,length_mm,width_mm,height_mm,weight_grams,units_per_parcel)
+      VALUES(?,2000,0,0,0,0,100,100,100,500,1)`, product.id);
+    const again = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
+    assert.equal(again.results[0].done, 'taslak sürdürüldü, KDV ürün profilinden, stok ayrıldı, gönderildi');
+    const l = f.sqlite.prepare('SELECT vat_bps,net_revenue_cents,gross_cents FROM ec_order_lines').get();
+    assert.deepEqual([l.vat_bps, l.net_revenue_cents], [2000, Math.round(l.gross_cents / 1.2)]);
+  } finally { f.close(); }
+});

@@ -300,7 +300,7 @@ export async function reportStockLinkApi(request, env, path, readBody) {
         SUM(COALESCE(json_extract(data_json,'$.delivered_date'),'')='') not_delivered,
         MAX(substr(json_extract(data_json,'$.delivered_date'),1,10)) delivered_on
       FROM ec_report_records WHERE store_id=? AND kind='order_line' AND json_extract(data_json,'$.package_id') IS NOT NULL
-        AND (erp_package_id IS NULL OR erp_package_id IN (SELECT id FROM ec_order_packages WHERE status='cancelled'))
+        AND (erp_package_id IS NULL OR erp_package_id IN (SELECT id FROM ec_order_packages WHERE status IN ('cancelled','draft')))
       GROUP BY package_id ORDER BY order_date,package_id`).bind(storeId).all()).results
       .filter(c => !skip.has(String(c.package_id)));
     const results = [];
@@ -313,10 +313,29 @@ export async function reportStockLinkApi(request, env, path, readBody) {
         // Pazaryeri raporunda kalem kimliği sütunu yoktur; her satırda paket no ve barkod/stok kodu
         // vardır. Elle aktarımda da kullanılan "paket no + stok kodu" kimliği açıkça beyan edilir;
         // aynı pakette aynı kod iki kez geçerse plan zaten incelemeye düşürür.
-        const linked = await call(reportStockLinkApi, '/api/reports/stock-link/apply', {store_id: storeId, package_id: pkg, complete_package_confirmed: true, line_identity_from_package_sku: true});
-        if (linked.outcome === 'match') { results.push({...out, done: 'bağlandı', order_package: linked.package_id}); continue; }
-        if (!linked.applied) { results.push({...out, skipped: true, reason: linked.reason || (linked.issues || []).join(' ') || linked.outcome}); continue; }
-        const id = linked.package_id, steps = ['sipariş açıldı'];
+        // Daha önce açılıp taslak kalmış sipariş yeniden açılmaz; kaldığı yerden sürer.
+        const cur = await db.prepare(`SELECT p.id,p.occurred_on FROM ec_report_records r JOIN ec_order_packages p ON p.id=r.erp_package_id
+          WHERE r.store_id=? AND r.kind='order_line' AND json_extract(r.data_json,'$.package_id')=? AND p.status='draft' LIMIT 1`).bind(storeId, pkg).first();
+        let id, occurred, steps = [];
+        if (cur) { id = cur.id; occurred = cur.occurred_on; steps.push('taslak sürdürüldü'); }
+        else {
+          const linked = await call(reportStockLinkApi, '/api/reports/stock-link/apply', {store_id: storeId, package_id: pkg, complete_package_confirmed: true, line_identity_from_package_sku: true});
+          if (linked.outcome === 'match') { results.push({...out, done: 'bağlandı', order_package: linked.package_id}); continue; }
+          if (!linked.applied) { results.push({...out, skipped: true, reason: linked.reason || (linked.issues || []).join(' ') || linked.outcome}); continue; }
+          id = linked.package_id; occurred = linked.occurred_on; steps.push('sipariş açıldı');
+        }
+        // KDV hariç tutar: pazaryeri sipariş raporu KDV oranı vermez. Satırın eşleştiği stok
+        // ürünlerinin fiyat profilinde TEK ve tanımlı bir oran varsa o oranla tamamlanır (ürüne
+        // kullanıcının tanımladığı oran; kategoriden tahmin değil). Yoksa taslak kalır.
+        const ls = (await db.prepare(`SELECT l.id,l.gross_cents,l.net_revenue_cents,
+            (SELECT c.mapping_id FROM ec_order_line_components c WHERE c.line_id=l.id AND c.mapping_id IS NOT NULL LIMIT 1) mapping_id,
+            (SELECT COUNT(DISTINCT pp.vat_bps) FROM ec_order_line_components c JOIN ec_price_profiles pp ON pp.product_id=c.product_id WHERE c.line_id=l.id) oran_sayisi,
+            (SELECT MIN(pp.vat_bps) FROM ec_order_line_components c JOIN ec_price_profiles pp ON pp.product_id=c.product_id WHERE c.line_id=l.id) oran,
+            (SELECT COUNT(*) FROM ec_order_line_components c LEFT JOIN ec_price_profiles pp ON pp.product_id=c.product_id WHERE c.line_id=l.id AND pp.vat_bps IS NULL) oransiz
+          FROM ec_order_lines l WHERE l.package_id=?`).bind(id).all()).results;
+        const eksik = ls.filter(l => l.net_revenue_cents === null && l.gross_cents !== null && l.mapping_id && l.oran_sayisi === 1 && !l.oransiz);
+        if (eksik.length) { await call(ordersApi, '/api/orders/' + id + '/map', {lines: eksik.map(l => ({id: l.id, mapping_id: l.mapping_id, vat_rate: l.oran / 100}))}); steps.push('KDV ürün profilinden'); }
+        const linked = {occurred_on: occurred};
         try { await call(ordersApi, '/api/orders/' + id + '/reserve', {}); steps.push('stok ayrıldı'); }
         catch (e) { results.push({...out, skipped: true, reason: 'Sipariş taslak kaldı: ' + e.message, order_package: id}); continue; }
         if (/kargo|teslim|shipped|delivered|yolda/.test(durum)) {
