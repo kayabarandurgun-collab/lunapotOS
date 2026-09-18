@@ -715,7 +715,9 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
     }
     // Teslim edilmiş bir pazaryeri paketinde komisyon ve kargo MUTLAKA vardır; yoksa rapor eksiktir
     // ve sıfır yazmak veri uydurmak olur. "Diğer" kalemi ise gerçekten alınmamış olabilir: 0 yazılır.
-    if (!kaynak.commission || !kaynak.shipping) {
+    // İade edilen siparişte pazaryeri komisyonu GERİ VERİR: son hâlde komisyonun sıfır olması eksik
+    // veri değildir. Kargo ise iadede de ödenir; o yine zorunludur.
+    if ((!kaynak.commission && !iadeli) || !kaynak.shipping) {
       skipped.push({group: g.group, reason: 'Raporda ' + (!kaynak.commission ? 'komisyon' : 'kargo') + ' kesintisi yok; eksik veri sıfır sayılmaz.'});
       continue;
     }
