@@ -32,7 +32,7 @@ const divided = (value, factor) => value === null || value === undefined ? '' : 
 export function mountBusiness(root, namespace, view) {
   if (!['ec','lp'].includes(namespace) || !['pricing','ledger'].includes(view)) throw new Error('Çalışma alanı veya ekran geçersiz.');
   const controller = new AbortController();
-  const state = { partyKind: '', ledgerQuery: '', ledgerFrom: '', ledgerTo: '', ledgerDue: '', ledgerPage: 1, entryPagination: null,data:null, tab:view === 'pricing' ? 'quote' : 'parties', party:'', search:'', quote:null, quoteInput:{channel:'trendyol',desired_profit:0,max_price:10000}, disposed:false, sequence:0};
+  const state = { partyKind: '', ledgerQuery: '', ledgerFrom: '', ledgerTo: '', ledgerDue: '', ledgerPage: 1, entryPagination: null,data:null, tab:view === 'pricing' ? 'hizli' : 'parties', party:'', search:'', quote:null, quoteInput:{channel:'trendyol',desired_profit:0,max_price:10000}, disposed:false, sequence:0};
   const $ = selector => root.querySelector(selector);
   const api = async (path = '', body) => {
     const response = await fetch(`/api/${namespace}/${view}${path}`, {signal:controller.signal, ...(body === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})});
@@ -68,13 +68,25 @@ export function mountBusiness(root, namespace, view) {
     if (state.disposed || !state.data) return;
     const title = view === 'pricing' ? 'Fiyat ve kâr planı' : 'Cari hesaplar';
     const subtitle = view === 'pricing' ? 'Satmadan önce hesabını gör. Ürün, paket ve geçerli tarifelerle fiyatını belirle.' : 'Kimden alacağın var, kime borçlusun? Belgeleri ve ödemeleri aynı hesapta takip et.';
-    const tabs = view === 'pricing' ? [['quote','Kâr hesapla'],['profiles','Ürün ve paket'],['tariffs','Komisyon ve kargo']] : [['parties','Cariler'],['entries','Hesap hareketleri'],['cash','Kasa ve banka'],['allocations','Belge kapamaları'],['statement','Mutabakat']];
+    const tabs = view === 'pricing' ? [['hizli','Kaça satmalıyım?'],['quote','Tarifeyle hesapla'],['profiles','Ürün ve paket'],['tariffs','Komisyon ve kargo']] : [['parties','Cariler'],['entries','Hesap hareketleri'],['cash','Kasa ve banka'],['allocations','Belge kapamaları'],['statement','Mutabakat']];
     root.innerHTML = `<div class="v2-page"><div class="page-heading"><div><span class="eyebrow">${namespace === 'ec' ? 'E-TİCARET' : 'LUNAPOT'} ÇALIŞMA ALANI</span><h1>${title}</h1><p>${subtitle}</p></div>${view === 'ledger' ? `<div class="ac-actions">${button('Cari ekle','party')}${button('Tahsilat / ödeme','cash','',true)}</div>` : ''}</div><div class="notice" data-business-error role="alert" hidden></div><nav class="v2-tabs" aria-label="${title}">${tabs.map(([key,label]) => `<button type="button" data-business="tab" data-id="${key}" class="${state.tab === key ? 'active' : ''}" aria-current="${state.tab === key ? 'page' : 'false'}">${label}</button>`).join('')}</nav><section data-business-body></section></div>`;
     // Mutabakat kendi modulunde durur; sekme degisince onceki baglanti birakilir.
     if (state.statementDispose) { state.statementDispose(); state.statementDispose = null; }
     const body = $('[data-business-body]');
     if (view === 'ledger' && state.tab === 'statement') mountStatementTab(body);
+    else if (view === 'pricing' && state.tab === 'hizli') mountHizliTab(body);
     else body.innerHTML = view === 'pricing' ? pricingView() : ledgerView();
+  }
+  // Kaça satmalıyım: geçmiş teslimlerin gerçek kesintileriyle hızlı hesap (fiyat-hesap-ui.js).
+  async function mountHizliTab(body) {
+    body.innerHTML = '<div class="loading">Hesap ekranı yükleniyor…</div>';
+    try {
+      const {mountFiyatHesap} = await import('./fiyat-hesap-ui.js');
+      if (state.disposed || !body.isConnected) return;
+      state.statementDispose = mountFiyatHesap(body, state.data.products || []);
+    } catch (e) {
+      if (!state.disposed && body.isConnected) body.innerHTML = `<div class="v2-empty"><h3>Hesap ekranı yüklenemedi.</h3><p>${esc(e.message)}</p></div>`;
+    }
   }
   // Belge motoru ve yazi tipi yalnizca bu sekme acildiginda indirilir.
   async function mountStatementTab(body) {

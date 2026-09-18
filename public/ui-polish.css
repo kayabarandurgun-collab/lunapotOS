@@ -278,3 +278,18 @@ main th{font-weight:600}
  .ol-table tbody tr .ol-c-durum small{margin:0}
  .ol-c-urun small{margin-top:2px}.ol-m{display:inline}
 }
+
+/* ===== KAÇA SATMALIYIM (fh-) ===== */
+.fh-card{overflow:hidden}.fh-form{display:grid;grid-template-columns:2fr 1.3fr 0.8fr 1fr 1fr;gap:12px;align-items:end;padding:16px}
+.fh-form label,.fh-kanal{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:500;min-width:0}.fh-kanal>span{color:var(--ink)}
+.fh-form input,.fh-form select{min-height:42px!important;padding:8px 11px!important;width:100%}.fh-kanal .ol-seg{width:100%}.fh-kanal .ol-seg button{flex:1}
+.fh-sonuc{padding:0 16px 18px}.fh-sonuc[aria-busy="true"]{opacity:.6}
+.fh-kartlar{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:4px 0 16px}
+.fh-kart{border:1px solid var(--line);border-radius:14px;padding:14px 16px;background:#fff;display:flex;flex-direction:column;gap:4px}
+.fh-kart span{font-size:13px;color:var(--muted)}.fh-kart strong{font-size:26px;font-weight:650;font-variant-numeric:tabular-nums;color:var(--ink)}.fh-kart small{font-size:12px;color:var(--muted)}
+.fh-kart.kar{border-color:#bfe0cc;background:#f3fbf6}.fh-kart.kar strong{color:#1f6b43}.fh-kart.zarar{border-color:#f0c4c0;background:#fdf4f3}.fh-kart.zarar strong{color:#b3261e}.fh-kart.hedef{border-color:var(--brand-border);background:var(--brand-soft)}
+.fh-baslik{font-size:14px;margin:6px 0 8px}
+.fh-dokum{width:100%;max-width:560px;border-collapse:collapse;font-size:14px}.fh-dokum th,.fh-dokum td{padding:8px 4px;border-bottom:1px solid var(--line);text-align:left;font-weight:450}
+.fh-dokum td{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}.fh-dokum th small{display:block;font-size:12px;color:var(--muted);font-weight:400}.fh-dokum .fh-toplam th,.fh-dokum .fh-toplam td{font-weight:650;border-bottom:0;font-size:15px}
+@media(max-width:900px){.fh-form{grid-template-columns:1fr 1fr}.fh-urun{grid-column:1/-1}}
+@media(max-width:520px){.fh-form{grid-template-columns:1fr}.fh-kart strong{font-size:22px}}

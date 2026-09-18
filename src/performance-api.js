@@ -1,6 +1,7 @@
 import {effectiveNet} from './purchase-adjustment-api.js';
 import {packageProfit} from './package-profit.js';
 import {compositionKey,estimatePackage,parcelTemplateKey,useParcelTemplate} from './order-estimate-api.js';
+import {kesintiTahmincisi} from './fee-history.js';
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
 const day=v=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(v)||!Number.isFinite(Date.parse(v))||new Date(v).toISOString().slice(0,10)!==v)fail('Tarih geçersiz.');return v;};
 const all=async s=>(await s.all()).results;
@@ -30,7 +31,7 @@ export async function performanceApi(request,env,path){
  const ids=JSON.stringify(packages.map(p=>p.id));
  const [lines,components,sales,inputs=[],shippingRates=[],commissionRates=[]]=(await db.batch([
   db.prepare('SELECT * FROM order_lines WHERE package_id IN (SELECT value FROM json_each(?))').bind(ids),
-  db.prepare('SELECT c.*,l.package_id,b.quantity_milli stock_quantity_milli,b.value_cents,p.stock_unit current_stock_unit,s.cost_cents sale_cost_cents FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN stock_balances b ON b.product_id=c.product_id JOIN products p ON p.id=c.product_id LEFT JOIN sale_entries s ON s.id=c.sale_id WHERE l.package_id IN (SELECT value FROM json_each(?))').bind(ids),
+  db.prepare('SELECT c.*,l.package_id,(SELECT pp.vat_bps FROM price_profiles pp WHERE pp.product_id=c.product_id) urun_kdv,b.quantity_milli stock_quantity_milli,b.value_cents,p.stock_unit current_stock_unit,s.cost_cents sale_cost_cents FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN stock_balances b ON b.product_id=c.product_id JOIN products p ON p.id=c.product_id LEFT JOIN sale_entries s ON s.id=c.sale_id WHERE l.package_id IN (SELECT value FROM json_each(?))').bind(ids),
   db.prepare(SALES_SQL).bind(ids),
   ...(mode==='pending'?[db.prepare('SELECT * FROM order_estimate_inputs WHERE package_id IN (SELECT value FROM json_each(?))').bind(ids),
   db.prepare('SELECT * FROM shipping_rates WHERE archived_at IS NULL LIMIT 1001'),
@@ -60,7 +61,7 @@ export async function performanceApi(request,env,path){
    const tids=JSON.stringify(twins.map(t=>t.id));
    const [tl,tc,ts]=(await db.batch([
     db.prepare('SELECT * FROM order_lines WHERE package_id IN (SELECT value FROM json_each(?))').bind(tids),
-    db.prepare('SELECT c.*,l.package_id,b.quantity_milli stock_quantity_milli,b.value_cents,p.stock_unit current_stock_unit,s.cost_cents sale_cost_cents FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN stock_balances b ON b.product_id=c.product_id JOIN products p ON p.id=c.product_id LEFT JOIN sale_entries s ON s.id=c.sale_id WHERE l.package_id IN (SELECT value FROM json_each(?))').bind(tids),
+    db.prepare('SELECT c.*,l.package_id,(SELECT pp.vat_bps FROM price_profiles pp WHERE pp.product_id=c.product_id) urun_kdv,b.quantity_milli stock_quantity_milli,b.value_cents,p.stock_unit current_stock_unit,s.cost_cents sale_cost_cents FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN stock_balances b ON b.product_id=c.product_id JOIN products p ON p.id=c.product_id LEFT JOIN sale_entries s ON s.id=c.sale_id WHERE l.package_id IN (SELECT value FROM json_each(?))').bind(tids),
     db.prepare(SALES_SQL).bind(tids)])).map(r=>r.results);
    for(const [m,rows] of [[lineMap,tl],[partMap,tc],[saleMap,ts]])for(const [k,v] of group(rows))m.set(k,v);
    const free=twins.filter(t=>!isDup(t.id));
@@ -85,28 +86,9 @@ export async function performanceApi(request,env,path){
  const templateKeys=(mode==='pending'?packages:[]).filter(p=>!inputMap.has(p.id)).map(p=>parcelTemplateKey(p,lineMap.get(p.id)||[],partMap.get(p.id)||[]));
  const templates=mode==='pending'&&templateKeys.length?await all(db.prepare('SELECT * FROM parcel_templates WHERE template_key IN (SELECT value FROM json_each(?))').bind(JSON.stringify(templateKeys))):[];
  const templateMap=new Map(templates.map(t=>[t.template_key,t]));
- // GEÇMİŞTEN KESİNTİ TAHMİNİ. Kargodaki paketin kargo ve komisyonu henüz raporda yok. Elle ölçü
- // ve tarife girilmesini beklemek yerine AYNI KANALDA AYNI İÇERİKLE (hangi stok ürününden kaç
- // adet) en son teslim edilmiş ve kesintileri gelmiş paketin GERÇEK kesintileri kullanılır:
- // kargo ve diğer kesinti tutar olarak, komisyon satışa oranla. Kaynak paket satırda yazılır.
- // Elle girilmiş ölçü/tarife varsa o önceliklidir.
- const icerikAnahtari=(ch,parts)=>ch+'|'+JSON.stringify(Object.entries(parts.reduce((m,c)=>(m[c.product_id]=(m[c.product_id]||0)+c.quantity_milli,m),{})).sort());
- const gecmis=new Map();
- if(mode==='pending'&&packages.length){
-  const [hp,hc,hs]=(await db.batch([
-   db.prepare("SELECT id,channel,external_id,delivered_on FROM order_packages WHERE status='delivered' AND channel IN ('trendyol','hepsiburada') ORDER BY delivered_on DESC LIMIT 1000"),
-   db.prepare("SELECT c.line_id,c.product_id,c.quantity_milli,l.package_id FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN order_packages q ON q.id=l.package_id WHERE q.status='delivered'"),
-   db.prepare("SELECT s.revenue_cents,s.shipping_cents,s.commission_cents,s.other_cents,s.fees_status,s.kind,l.package_id FROM sale_entries s JOIN order_line_components c ON s.id=c.sale_id JOIN order_lines l ON l.id=c.line_id JOIN order_packages q ON q.id=l.package_id WHERE q.status='delivered' AND s.kind='sale'")
-  ])).map(r=>r.results);
-  const hcBy=group(hc),hsBy=group(hs);
-  for(const q of hp){
-   const parts=hcBy.get(q.id)||[],sl=hsBy.get(q.id)||[];
-   if(!parts.length||!sl.length||sl.some(x=>x.shipping_cents===null||x.commission_cents===null||x.other_cents===null))continue;
-   const k=icerikAnahtari(q.channel,parts);if(gecmis.has(k))continue;
-   const rev=sl.reduce((t,x)=>t+x.revenue_cents,0);if(rev<=0)continue;
-   gecmis.set(k,{shipping:sl.reduce((t,x)=>t+x.shipping_cents,0),other:sl.reduce((t,x)=>t+x.other_cents,0),commission:sl.reduce((t,x)=>t+x.commission_cents,0),revenue:rev,from:q.external_id,on:q.delivered_on});
-  }
- }
+ // GEÇMİŞTEN KESİNTİ TAHMİNİ (bkz. fee-history.js): kargodaki paket ve kesintisi ekstreye henüz
+ // yazılmamış teslim, gerçek teslimlerin ortancasıyla hesaplanır. Elle girilmiş ölçü/tarife önceliklidir.
+ const tahmin=await kesintiTahmincisi(db);
  // DEFTER PAKETIN TAMAMINI TUTUYOR MU? Pazaryeri raporu pakette 2 satir gorurken defterde
  // 1 satir varsa, o paketin BUTUN kesintileri eksik ciroya yuklenir ve karli siparis zararli
  // gorunur. Sessizce yanlis rakam vermektense kar HESAPLANMAZ, sebebi yazilir.
@@ -118,7 +100,7 @@ export async function performanceApi(request,env,path){
    raporSatir.set(r.pid,r.n);
  }
  const rows=packages.map(p=>{
-  const packageLines=lineMap.get(p.id)||[],parts=partMap.get(p.id)||[],entries=saleMap.get(p.id)||[];
+  const packageLines=lineMap.get(p.id)||[],parts=partMap.get(p.id)||[];let entries=saleMap.get(p.id)||[];
   const row={twin_of:p.twin_of||null,id:p.id,channel:p.channel,order_no:p.order_no,external_id:p.external_id,status:p.status,occurred_on:p.occurred_on,delivered_on:p.delivered_on,profit_cents:null,cash_cents:null,cash_note:null,missing:[],revenue_net_cents:null,cost_net_cents:null,shipping_cents:null,commission_cents:null,other_cents:null};
   if(p.source_changed){row.missing.push('Kaynak sipariş değişti; farkı inceleyin.');return row;}
   if(mode==='delivered'){
@@ -140,6 +122,20 @@ export async function performanceApi(request,env,path){
     row.missing=[...profit.reasons,'Pazaryeri raporu bu pakette '+raporN+' satır gösteriyor, defterde '+packageLines.length+
      ' satır var. Eksik satırın cirosu yokken paketin bütün kesintileri kalan satıra yüklenir; kâr hesaplanmadı.'];
     return row;
+   }
+   // TESLİM EDİLDİ AMA KESİNTİ EKSTREDE YOK. Pazaryeri kargoyu teslimden birkaç gün sonra yazar
+   // (canlıda HB 4659432212: teslim 18.09, ekstrede kargo 0). Paket "hesaplanmadı" diye dışarıda
+   // kalmaz: eksik kesinti geçmiş teslimlerden TAHMİN edilir, satır işaretlenir; ekstre gelince kesinleşir.
+   const eksikKesinti=entries.some(s=>s.kind==='sale'&&(s.shipping_cents===null||s.commission_cents===null||s.other_cents===null));
+   const h=eksikKesinti&&profit.status==='pending'?tahmin(p.channel,parts):null;
+   if(h){
+    const satislar=entries.filter(s=>s.kind==='sale'),ciro=satislar.reduce((t,s)=>t+s.revenue_cents,0)||1;
+    const pay=(tutar,s)=>Math.round(tutar*s.revenue_cents/ciro);
+    entries=entries.map(s=>s.kind!=='sale'?s:{...s,shipping_cents:s.shipping_cents??pay(h.shipping,s),other_cents:s.other_cents??pay(h.other,s),commission_cents:s.commission_cents??Math.round(s.revenue_cents*h.commissionRate)});
+    const tahminli=packageProfit(p,packageLines,parts,entries);
+    Object.assign(profit,{profit_cents:tahminli.estimated_profit_cents,reasons:[]});
+    row.fees_estimated=true;
+    row.cost_note=(row.cost_note?row.cost_note+' ':'')+'Pazaryeri kesintiyi ekstreye henüz yazmadı; '+h.note.charAt(0).toLocaleLowerCase('tr-TR')+h.note.slice(1)+' Ekstre gelince kendiliğinden kesinleşir.';
    }
    row.revenue_net_cents=total.revenue;row.cost_net_cents=total.cost;
    const fee=key=>entries.every(s=>s[key]!==null)?entries.reduce((sum,s)=>sum+s[key],0):null;
@@ -169,26 +165,30 @@ export async function performanceApi(request,env,path){
     row.other_gross_cents=entries.reduce((t,e)=>t+incl(e.other_cents??0,fv),0);
    }
   }else{
-   const direct=inputMap.get(p.id),template=templateMap.get(parcelTemplateKey(p,packageLines,parts)),saved=direct||template;
+   const direct=inputMap.get(p.id),template=templateMap.get(parcelTemplateKey(p,packageLines,parts));
+   // Sıra: elle girilmiş paket varsayımı → aynı içerikli teslim geçmişi → aynı içeriğin kayıtlı
+   // ölçüleri (tarife) → aynı ürün / kanal geçmişi. Tarife hizmet bedelini bilmez; geçmiş bilir.
+   let h=direct?null:tahmin(p.channel,parts);
+   if(h&&h.source!=='content'&&template)h=null;
+   const saved=h?null:direct||template;
    if(!saved){
-    const h=gecmis.get(icerikAnahtari(p.channel,parts));
-    if(!h){row.missing.push('Bu içerikte daha önce teslim edilmiş ve kesintisi gelmiş paket yok; kargo ve komisyon tahmin edilemedi. İlk teslimden sonra kendiliğinden tahmin edilir.');return row;}
+    if(!h){row.missing.push('Bu kanalda henüz kesintisi gelmiş teslim yok; kargo ve komisyon tahmin edilemedi. İlk teslimden sonra kendiliğinden tahmin edilir.');return row;}
     // Satış ve maliyet paketin kendi kaydından (gönderilmişse satış satırları, değilse ilan ve stok).
     const own=(saleMap.get(p.id)||[]).filter(e=>e.kind==='sale');
     const revenue=own.length?own.reduce((t,e)=>t+e.revenue_cents,0):packageLines.every(l=>l.net_revenue_cents!==null)?packageLines.reduce((t,l)=>t+l.net_revenue_cents,0):null;
     const cost=own.length?own.reduce((t,e)=>t+e.cost_cents,0):parts.every(c=>c.stock_quantity_milli>0)?parts.reduce((t,c)=>t+Math.round(c.value_cents*c.quantity_milli/c.stock_quantity_milli),0):null;
     if(revenue===null||cost===null){row.missing.push('Paketin satış tutarı veya ürün maliyeti bilinmiyor; tahmin yapılmadı.');return row;}
-    const commission=Math.round(revenue*h.commission/h.revenue);
+    const commission=Math.round(revenue*h.commissionRate);
     Object.assign(row,{revenue_net_cents:revenue,cost_net_cents:cost,shipping_cents:h.shipping,commission_cents:commission,other_cents:h.other,
-     profit_cents:revenue-cost-h.shipping-commission-h.other,assumptions_source:'history',history_from:h.from,history_on:h.on,
-     cost_note:'Kargo ve kesintiler aynı içerikli son teslim edilen paketten ('+h.from+', '+h.on+') alındı; komisyon satışa oranlandı.'});
+     profit_cents:revenue-cost-h.shipping-commission-h.other,assumptions_source:'history',history_source:h.source,history_n:h.n,cost_note:h.note});
     const oranlar=[...new Set(packageLines.map(l=>l.vat_bps))],fv=feeVat.get(p.channel);
     if(oranlar.length!==1||oranlar[0]===null||oranlar[0]===undefined)row.cash_note='Paketin satırları farklı KDV oranında; nakit sonuç hesaplanmadı.';
     else if(fv===null||fv===undefined)row.cash_note='Bu pazaryerinin kesinti KDV durumu beyan edilmedi; nakit sonuç hesaplanmadı.';
     else{
-     const v=oranlar[0],inc=(x,b)=>Math.round(x*(10000+b)/10000);
-     row.revenue_gross_cents=inc(revenue,v);row.cost_gross_cents=inc(cost,v);row.shipping_gross_cents=inc(h.shipping,fv);row.commission_gross_cents=inc(commission,fv);row.other_gross_cents=inc(h.other,fv);
-     row.cash_cents=row.revenue_gross_cents-row.cost_gross_cents-row.shipping_gross_cents-row.commission_gross_cents-row.other_gross_cents;
+     const v=oranlar[0],inc=(x,b)=>Math.round(x*(10000+b)/10000),mvs=[...new Set(parts.map(c=>c.urun_kdv))],mv=mvs.length===1&&mvs[0]!==null&&mvs[0]!==undefined?mvs[0]:v;
+     row.revenue_gross_cents=inc(revenue,v);row.cost_gross_cents=inc(cost,mv);row.shipping_gross_cents=inc(h.shipping,fv);row.commission_gross_cents=inc(commission,fv);row.other_gross_cents=inc(h.other,fv);
+     const stopaj=Math.round(row.revenue_gross_cents*h.withholdingRate);row.withholding_cents=stopaj?-stopaj:0;
+     row.cash_cents=row.revenue_gross_cents-row.cost_gross_cents-row.shipping_gross_cents-row.commission_gross_cents-row.other_gross_cents-stopaj;
     }
     return row;
    }
