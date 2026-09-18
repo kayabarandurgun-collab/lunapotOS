@@ -27,7 +27,19 @@ export async function fifoProduct(db, productId) {
     while (q > 0 && layers.length) { const l = layers[0], t = Math.min(q, l.q); onTake(t, l.unit); l.q -= t; q -= t; if (!l.q) layers.shift(); }
     return q;
   };
-  for (const m of list) {
+  // İade, iade ettiği satıştan ÖNCE işlenemez (aynı gün girişler önce sıralanır): satışı
+  // görülmemiş iade ertelenir ve satış işlenir işlenmez onun ardından işlenir.
+  const ertelenen = new Map();
+  const handle = m => {
+    const iadeKaydi = m.quantity_milli > 0 && m.kind === 'return' ? sales.get(m.reference) : null;
+    if (iadeKaydi?.kind === 'return' && sales.has(iadeKaydi.parent_id) && !cost.has(iadeKaydi.parent_id)) {
+      if (!ertelenen.has(iadeKaydi.parent_id)) ertelenen.set(iadeKaydi.parent_id, []);
+      ertelenen.get(iadeKaydi.parent_id).push(m); return;
+    }
+    islem(m);
+    if (m.kind === 'sale' && ertelenen.has(m.reference)) { const l = ertelenen.get(m.reference); ertelenen.delete(m.reference); l.forEach(handle); }
+  };
+  const islem = m => {
     if (m.quantity_milli > 0) {
       let q = m.quantity_milli, unit = m.value_cents / m.quantity_milli;
       const iade = m.kind === 'return' ? sales.get(m.reference) : null;
@@ -42,7 +54,7 @@ export async function fifoProduct(db, productId) {
       // Önce stoksuz satılmış (bekleyen) kısımlar bu girişten karşılanır.
       while (q > 0 && pending.length) { const p = pending[0], t = Math.min(q, p.q); add(p.sale, t, t * unit); p.q -= t; q -= t; if (!p.q) pending.shift(); }
       if (q > 0) layers.push({q, unit, src: m.id});
-      continue;
+      return;
     }
     let q = -m.quantity_milli;
     if (m.kind === 'sale' && sales.has(m.reference)) {
@@ -50,7 +62,7 @@ export async function fifoProduct(db, productId) {
       if (!cost.has(id)) { cost.set(id, 0); adet.set(id, 0); }
       q = take(q, (t, u) => add(id, t, t * u));
       if (q > 0) pending.push({sale: id, q});
-      continue;
+      return;
     }
     const kapanis = /^provisional-close:([^:]+):/.exec(m.reference || '');
     if (kapanis) {
@@ -58,7 +70,10 @@ export async function fifoProduct(db, productId) {
       if (i >= 0) { const t = Math.min(q, layers[i].q); layers[i].q -= t; q -= t; if (!layers[i].q) layers.splice(i, 1); }
     }
     take(q, () => {});
-  }
+  };
+  for (const m of list) handle(m);
+  // Satışı hiç görülmeyen iade (veri hatası) kendi değeriyle işlenir.
+  for (const l of ertelenen.values()) l.forEach(islem);
   const bekleyen = new Set(pending.map(p => p.sale));
   const writes = [];
   for (const [id, c] of cost) {
@@ -92,8 +107,11 @@ export async function fifoRevalue(db, limit = 8) {
 }
 
 // POST /api/ec/cost-fifo — bekleyen ürünleri hemen işler (toplu yeniden hesap; kalan 0 olana dek çağrılır).
-export async function fifoApi(request, env, path) {
+export async function fifoApi(request, env, path, readBody) {
   if (path !== '/api/cost-fifo' || request.method !== 'POST') return null;
   if (env.WORKSPACE !== 'ec') return {products: 0, changed: 0, remaining: 0};
+  // {all:true}: bütün ürünler yeniden hesaplanmak üzere işaretlenir (kural değişikliğinden sonra).
+  if ((await readBody(request))?.all === true)
+    await env.DB.prepare('INSERT OR IGNORE INTO ec_cost_dirty(product_id) SELECT DISTINCT product_id FROM ec_stock_movements').run();
   return fifoRevalue(env.DB, 15);
 }

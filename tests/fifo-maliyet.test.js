@@ -51,3 +51,19 @@ test('Geçmiş tarihli alış sonradan girilince önceki satışların maliyeti 
     assert.deepEqual(bakiye(f, product), {q: 3000, v: 39000}, '2 × 150 + iade 90');
   } finally { f.close(); }
 });
+
+test('Aynı gün iade edilen satışın malı sıfır değerle stoğa girmez; sonraki satış gerçek maliyeti alır', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const {supplier, product} = await kur(f);
+    await alis(f, supplier, product, 'A', '2026-09-02', 2, 1400);
+    await satis(f, product, 'S1', '2026-09-02');
+    const s1 = f.sqlite.prepare("SELECT id FROM ec_sale_entries WHERE external_id='S1'").get().id;
+    await f.ok('/ec/sales/' + s1 + '/return', {external_id: 'DUZELTME-CIFT-S1', quantity: 1, revenue: 291.67, restock: true, occurred_on: '2026-09-02'});
+    await satis(f, product, 'S2', '2026-09-03');
+    await satis(f, product, 'S3', '2026-09-03');
+    assert.equal(maliyet(f, 'S1'), 140000);
+    assert.equal(maliyet(f, 'DUZELTME-CIFT-S1'), -140000);
+    assert.equal(maliyet(f, 'S2'), 140000, 'sıfır değil');
+    assert.equal(maliyet(f, 'S3'), 140000, 'sıfır değil');
+  } finally { f.close(); }
+});
