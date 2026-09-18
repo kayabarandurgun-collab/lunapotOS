@@ -310,7 +310,10 @@ export async function reportStockLinkApi(request, env, path, readBody) {
       const out = {package_id: pkg};
       try {
         if (CANCELLED.test(durum)) { results.push({...out, skipped: true, reason: 'İptal/iade: satış açılmadı.'}); continue; }
-        const linked = await call(reportStockLinkApi, '/api/reports/stock-link/apply', {store_id: storeId, package_id: pkg, complete_package_confirmed: true});
+        // Pazaryeri raporunda kalem kimliği sütunu yoktur; her satırda paket no ve barkod/stok kodu
+        // vardır. Elle aktarımda da kullanılan "paket no + stok kodu" kimliği açıkça beyan edilir;
+        // aynı pakette aynı kod iki kez geçerse plan zaten incelemeye düşürür.
+        const linked = await call(reportStockLinkApi, '/api/reports/stock-link/apply', {store_id: storeId, package_id: pkg, complete_package_confirmed: true, line_identity_from_package_sku: true});
         if (linked.outcome === 'match') { results.push({...out, done: 'bağlandı', order_package: linked.package_id}); continue; }
         if (!linked.applied) { results.push({...out, skipped: true, reason: linked.reason || (linked.issues || []).join(' ') || linked.outcome}); continue; }
         const id = linked.package_id, steps = ['sipariş açıldı'];
