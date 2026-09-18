@@ -26,7 +26,9 @@ export function enhanceLists(){
   // Dar ekranda kart düzeni için hücre etiketleri (CSS data-label kullanır).
   heads.forEach((h,i)=>{const label=text(h);rows.forEach(r=>r.cells[i].dataset.label=label||'İşlem');});
   let search=null;
-  if(rows.length>=15&&!table.closest('dialog')){
+  // Sayfanın kendi araması varsa ikinci arama eklenmez.
+  const kendiArama=table.closest('main')?.querySelector('input[type=search]:not(.list-tools input),input[name=q],input[name=search]');
+  if(rows.length>=15&&!table.closest('dialog')&&!kendiArama){
    const bar=make('div',null,'list-tools');search=make('input');search.type='search';search.placeholder='Tabloda ara…';search.setAttribute('aria-label','Bu tablodaki satırlarda ara');
    bar.append(search);host.before(bar);search.addEventListener('input',apply);
   }
