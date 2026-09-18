@@ -125,3 +125,19 @@ test('Ürünün bu kanalda teslimi yoksa kargo diğer kanaldaki teslimlerinden; 
     assert.equal(r.rows.find(x => x.id === donen), undefined, 'iadesi tamamlanan paket kargodakilerde değil');
   } finally { f.close(); }
 });
+
+test('Ürün kârlılığı: satılan adet iadeler düşülerek, ciro ve kâr KDV dahil; kesintisi yoksa tahmin ve işaret', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const {a, b, teslim, kargoda} = await kur(f);
+    await teslim(a, 1, {kargo: 50, komisyon: 30, diger: 5});
+    await teslim(a, 2, {kargo: 50, komisyon: 60, diger: 5, iade: true});   // 2 adet satıldı, hepsi iade
+    await kargoda(a, 1);                                                  // kesintisi yok: tahmin
+    const r = await f.ok('/ec/urun-karlilik');
+    const x = r.rows.find(y => y.product_id === a);
+    assert.equal(x.adet_milli, 2000, '1 + 2 − 2 iade + 1 kargoda');
+    // Birinci satış: 240 − 60 − (30+50+5)×1,2 = 78
+    assert.equal(r.rows.find(y => y.product_id === b), undefined, 'satılmayan ürün yok');
+    assert.equal(x.tahmini_paket, 1);
+    assert.ok(x.kar_adet_cents !== null);
+  } finally { f.close(); }
+});
