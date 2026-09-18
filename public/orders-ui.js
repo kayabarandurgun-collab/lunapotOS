@@ -45,7 +45,10 @@ export function mountOrders(root,namespace='ec'){
  function renderList(){const box=$('[data-order-list]');if(!box)return;const packages=state.data.packages;// Satırda önce SATILAN ÜRÜN görünür (eşleşen stok kartı, yoksa ilan adı); sipariş ve paket
  // kodu altında küçük. Tutar satırların KDV dahil toplamıdır; oran sabit %20 varsayılmaz.
  const icerik=p=>{const ls=(state.data.lines||[]).filter(l=>l.package_id===p.id);if(!ls.length)return '';
-  return ls.map(l=>{const c=(state.data.components||[]).filter(x=>x.line_id===l.id);const names=c.map(x=>state.data.products.find(y=>y.id===x.product_id)?.name).filter(Boolean);return (names.length?names.join(' + '):l.name)+' × '+qty(l.quantity_milli);}).join(' · ');};
+  // Aynı ürün birden çok satırda gelirse tek satırda toplanır: "× 1 · × 1" yerine "× 2".
+  const toplam=new Map();
+  for(const l of ls){const c=(state.data.components||[]).filter(x=>x.line_id===l.id);const names=c.map(x=>state.data.products.find(y=>y.id===x.product_id)?.name).filter(Boolean);const ad=names.length?names.join(' + '):l.name;toplam.set(ad,(toplam.get(ad)||0)+l.quantity_milli);}
+  return [...toplam].map(([ad,q])=>ad+' × '+qty(q)).join(' · ');};
  const brut=p=>{const ls=(state.data.lines||[]).filter(l=>l.package_id===p.id);return ls.length&&ls.every(l=>l.gross_cents!==null&&l.gross_cents!==undefined)?ls.reduce((t,l)=>t+l.gross_cents,0):null;};
  // SADE LİSTE: ürün adı (tıklayınca açılır) ve altında tek satır "sipariş no · kanal · tarih";
  // durum tek rozet + tek bilgi; tutar ve cebine kalan KDV dahil. Paket kodu, ayrı kanal/tarih/
@@ -55,7 +58,7 @@ export function mountOrders(root,namespace='ec'){
   const elapsed=p.status==='shipped'&&p.shipped_on?Math.max(0,Math.floor((Date.parse(today())-Date.parse(p.shipped_on))/86400000)):null;
   const durumBilgi=elapsed!==null?`<small class="${elapsed>=7?'error':''}">${elapsed} gündür kargoda</small>`:p.delivered_on?`<small>Teslim ${esc(gun(p.delivered_on))}</small>`:'';
   const hazirlik=p.status==='draft'||p.source_changed?`<small class="${p.readiness==='ready'?'':'error'}">${esc(readiness[p.readiness]||'')}</small>`:'';
-  const cebine=p.cash_result_cents!==null&&p.cash_result_cents!==undefined?`<span class="rb-num order-cash-cell ${p.cash_result_cents<0?'error':''}">${money(p.cash_result_cents)}</span>`:`<small class="muted">${p.result_cents!==null&&p.result_cents!==undefined?'Kesinti KDV oranı yok':'Kesinti bekliyor'}</small>`;
+  const cebine=p.status==='cancelled'?'<small class="muted">—</small>':p.cash_result_cents!==null&&p.cash_result_cents!==undefined?`<span class="rb-num order-cash-cell ${p.cash_result_cents<0?'error':''}">${money(p.cash_result_cents)}</span>`:`<small class="muted">${p.result_cents!==null&&p.result_cents!==undefined?'Kesinti KDV oranı yok':'Kesinti bekliyor'}</small>`;
   return [`<button type="button" class="text-button order-name" data-order="detail" data-id="${esc(p.id)}">${esc(icerik(p)||'Ürün eşleşmedi')}</button><small>${esc(p.order_no||'—')} · ${esc(channels[p.channel]||p.channel)} · ${esc(gun(p.occurred_on))}</small>`,
    badge(p)+durumBilgi+hazirlik,
    brut(p)!==null?`<span class="rb-num">${money(brut(p))}</span>`:'—',
@@ -93,7 +96,8 @@ export function mountOrders(root,namespace='ec'){
  }
  function copyRow(p){
   const codes=[["Sipariş",p.order_no],["Paket",p.external_id]].filter(([,v])=>v);
-  return codes.length?`<div class="order-copy-row">${codes.map(([label,value])=>`<button type="button" class="secondary" data-copy="${esc(value)}">${label}: ${esc(value)} ⧉</button>`).join("")}</div>`:"";
+  // Paket kodu uzun ve anlamsızdır: ekranda yazılmaz, yalnızca kopyalanır.
+  return codes.length?`<div class="order-copy-row">${codes.map(([label,value])=>`<button type="button" class="secondary" data-copy="${esc(value)}" title="${esc(value)}">${label==='Paket'?'Paket kodunu kopyala':label+': '+esc(value)} ⧉</button>`).join("")}</div>`:"";
  }
  function insightsBody(data){
   const p=data.package,s=data.actual_summary||{},actual=s.profit_cents,estimate=s.estimated_profit_cents,profit=actual??estimate,lines=data.lines||[],components=data.components||[],drafts=data.drafts||[];

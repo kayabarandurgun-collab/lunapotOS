@@ -224,3 +224,6 @@ main .text-button{font-weight:560}
 .v2-badge,.pill{font-weight:560}
 main th{font-weight:600}
 .order-sold-main strong{font-weight:560}.order-sold-qty{font-weight:600}
+.order-copy-row{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.order-copy-row button{width:auto!important;min-height:32px!important;padding:5px 10px!important;font-size:12px!important;font-weight:500!important}
+.order-timeline li{font-size:12px;padding:5px 10px}
+@media(max-width:600px){.order-timeline{gap:5px}.order-timeline li{font-size:11px;padding:4px 8px}.order-summary-heading h3{font-size:19px}}
