@@ -39,8 +39,8 @@ export function mountOrders(root,namespace='ec'){
  const notify=message=>{const box=$('[data-order-error]');if(box){box.hidden=false;box.textContent=message;box.scrollIntoView({block:'nearest'});}};
  const options=(selected='',empty='Ürünle sonra eşleştir',onlyAdet=false)=>`<option value="">${esc(empty)}</option>`+(state.data?.products||[]).filter(p=>!onlyAdet||p.stock_unit==='adet').map(p=>`<option value="${esc(p.id)}" ${p.id===selected?'selected':''}>${esc(p.name)} · ${esc(p.sku)} · ${qty(p.available_milli)} ${esc(p.stock_unit)} kullanılabilir</option>`).join('');
  // Açık siparişin bilgisi listede (görünen sayfa) ya da pencerenin kendi özetinde bulunur.
- const findPkg=id=>state.data?.packages.find(x=>x.id===id)||(state.insights?.package?.id===id?state.insights.package:null);
- const linesOf=id=>{const a=(state.data?.lines||[]).filter(l=>l.package_id===id);return a.length?a:(state.insights?.package?.id===id?state.insights.lines||[]:[]);};
+ const findPkg=id=>!id?null:state.data?.packages.find(x=>x.id===id)||(state.insights?.package?.id===id?state.insights.package:null);
+ const linesOf=id=>{if(!id)return [];const a=(state.data?.lines||[]).filter(l=>l.package_id===id);return a.length?a:(state.insights?.package?.id===id?state.insights.lines||[]:[]);};
  const stockComponents=line=>{const a=(state.data?.components||[]).filter(c=>c.line_id===line.id);return a.length?a:(state.insights?.components||[]).filter(c=>c.line_id===line.id);};
  const pricingComponent=line=>{const parts=stockComponents(line);return parts.length===1?parts[0]:!parts.length&&line.product_id?{product_id:line.product_id,quantity_milli:line.quantity_milli}:null;};
  function closeDialog(){const d=state.dialog;if(!d)return;state.dialog=null;d.close();d.remove();}
@@ -125,7 +125,7 @@ export function mountOrders(root,namespace='ec'){
  function quoteForm(p,lines){
   if(!lines.length)return '<p class="notice">Paket satırları bulunamadı.</p>';
   const multi=lines.length>1;
-  const saved=state.insights?.package.id===p.id?state.insights.parcel_input:null;
+  const saved=state.insights?.package?.id===p.id?state.insights.parcel_input:null;
   const l=lines[0],component=multi?null:pricingComponent(l),profile=saved||(component?state.pricing?.profiles.find(x=>x.product_id===component.product_id&&x.units_per_parcel===component.quantity_milli/1000&&x.vat_bps===l.vat_bps):null);
   const missing=[];if(lines.some(item=>!stockComponents(item).length&&!item.product_id))missing.push('İlanı stok ürünlerine veya set bağlantısına eşleştirin.');if(lines.some(item=>item.gross_cents===null))missing.push('KDV dahil satış toplamı eksik.');if(lines.some(item=>item.vat_bps===null))missing.push('İlan satırının KDV oranı doğrulanmalı.');if(state.pricingError)missing.push(state.pricingError);
   if(missing.length)return `<div class="notice"><strong>Hesap için eksik bilgi var</strong><ul>${missing.map(m=>`<li>${esc(m)}</li>`).join('')}</ul></div>`;
