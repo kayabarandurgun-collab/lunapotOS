@@ -410,3 +410,36 @@ test('Defterdeki adet rapordaki toplamı karşılıyorsa ikinci paket AÇILMAZ',
     assert.equal(onizleme.stock_write, false);
   } finally { f.close(); }
 });
+
+// Rapor işlenince bağlanmamış paketler elle "Stoğa aktar → Stok ayır → Gönder" beklemeden
+// kendiliğinden siparişe döner. İptal/iade ve eşleşmemiş ürün atlanır, sebebi döner.
+test('Otomatik aktarım: kargolanan paket açılır, stok ayrılır ve düşer; iptal ve eşleşmeyen atlanır', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const product = await fourPack(f);
+    const s = store(f);
+    startDate(f, DATE);
+    sql(f, "UPDATE workspace_settings SET allow_negative_stock=1 WHERE workspace='ec'");   // canlıdaki ayar
+    record(f, s, 'TY-1', line({package_id: 'PK1', line_id: 'L1', order_no: 'O1', status: 'Kargolandı', delivered_date: ''}), 1);
+    record(f, s, 'TY-1', line({package_id: 'PK2', line_id: 'L2', order_no: 'O2', status: 'Teslim Edildi', delivered_date: '2026-09-14'}), 2);
+    record(f, s, 'TY-1', line({package_id: 'PK3', line_id: 'L3', order_no: 'O3', status: 'İptal Edildi'}), 3);
+    record(f, s, 'TY-1', line({package_id: 'PK4', line_id: 'L4', order_no: 'O4', barcode: 'BILINMEYEN', status: 'Kargolandı'}), 4);
+    record(f, s, 'TY-1', line({package_id: 'PK5', line_id: 'L5', order_no: 'O5', status: 'Toplanmaya Başlandı', delivered_date: ''}), 5);
+
+    const r = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
+    const by = Object.fromEntries(r.results.map(x => [x.package_id, x]));
+    assert.equal(by.PK1.done, 'sipariş açıldı, stok ayrıldı, gönderildi');
+    assert.equal(by.PK2.done, 'sipariş açıldı, stok ayrıldı, gönderildi, teslim edildi');
+    assert.equal(by.PK5.done, 'sipariş açıldı, stok ayrıldı', 'henüz kargoya verilmemiş: yalnız stok ayrılır ' + JSON.stringify(by.PK5));
+    assert.ok(by.PK3.skipped, 'iptal atlandı');
+    assert.ok(by.PK4.skipped && /taslak/.test(by.PK4.reason), 'eşleşmeyen ürün: sipariş taslak açılır, stok düşmez');
+    // 20 − (PK1 + PK2) × 2 ilan × 4 şişe = 4; PK5 ayrıldı ama düşmedi.
+    assert.equal(stockOf(f, product.id), 4000);
+    const statuses = f.sqlite.prepare("SELECT external_id,status FROM ec_order_packages ORDER BY external_id").all().map(x => x.status);
+    assert.ok(statuses.includes('delivered') && statuses.includes('shipped') && statuses.includes('reserved'));
+
+    // İkinci çağrı çoğaltmaz: bağlananlar yeniden açılmaz, atlananlar atlanır.
+    const again = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: r.results.filter(x => x.skipped).map(x => x.package_id)});
+    assert.equal(again.results.length, 0);
+    assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_packages').get().n, 4, 'PK1, PK2, PK5 ve taslak PK4; iptal açılmadı');
+  } finally { f.close(); }
+});

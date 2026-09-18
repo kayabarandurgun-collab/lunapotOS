@@ -425,6 +425,18 @@ export function mountReports(root, namespace = 'ec') {
     const ok = done.filter(x => x.ok), bad = done.filter(x => !x.ok);
     say(ok.length + ' dosya işlendi' + (ok.length ? ': ' + ok.map(x => x.label).join(', ') : '') + (bad.length ? '. İşlenmeyen: ' + bad.map(x => x.label + ' — ' + x.note).join('; ') : '.'), bad.length > 0 && !ok.length);
   }
+  // Sipariş raporu işlenince panelde karşılığı olmayan paketler kendiliğinden siparişe dönüşür,
+  // stok ayrılır ve (kargolandıysa) gönderilir. Atlananlar sebebiyle listelenir.
+  async function autoLink(storeId) {
+    const skip = [], done = [], atlanan = [];
+    for (let tur = 0; tur < 80; tur++) {
+      state.progress = 'Yeni siparişler panele aktarılıyor… ' + done.length + ' tamam'; render();
+      const r = await api('/stock-link/auto', {store_id: storeId, skip});
+      for (const x of r.results) { if (x.done) done.push(x); else { atlanan.push(x); skip.push(x.package_id); } }
+      if (!r.results.length || (!r.remaining && r.results.length < 5)) break;
+    }
+    return {done, atlanan};
+  }
   async function apply(fileId) {
     let result;
     for (;;) {
@@ -433,8 +445,15 @@ export function mountReports(root, namespace = 'ec') {
       if (result.done) break;
     }
     if (state.draft?.fileId === fileId) { state.draft.progress = null; state.draft.result = result.counts; }
+    let aktarim = '';
+    const d = state.draft;
+    if (d?.fileId === fileId && d.kind === 'orders' && d.store?.id) {
+      const a = await autoLink(d.store.id);
+      d.autoLink = a;
+      aktarim = ' Panele aktarılan yeni sipariş: ' + a.done.length + (a.atlanan.length ? ' · atlanan: ' + a.atlanan.length + ' (' + [...new Set(a.atlanan.map(x => x.reason))].slice(0, 3).join('; ') + ')' : '') + '.';
+    }
     await load();
-    say('İşlem tamamlandı. ' + Object.entries(result.counts || {}).map(([k, v]) => (OUTCOMES[k] || k) + ': ' + v).join(', '));
+    say('İşlem tamamlandı. ' + Object.entries(result.counts || {}).map(([k, v]) => (OUTCOMES[k] || k) + ': ' + v).join(', ') + aktarim);
   }
   async function evidenceDialog(group) {
     const row = state.orders.results.find(r => r.group === group), open = row.fee_events.filter(e => !e.invoice_line_id);

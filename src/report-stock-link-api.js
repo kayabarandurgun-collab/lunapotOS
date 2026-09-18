@@ -285,6 +285,48 @@ export async function reportStockLinkApi(request, env, path, readBody) {
       notice: 'Aktarım sipariş taslağı açar; stok rezervasyon ve gönderim adımlarında değişir.'};
   }
 
+  // OTOMATİK AKTARIM. Sipariş raporu işlendikten sonra, panele bağlanmamış her paket için elle
+  // "Stoğa aktar → Stok ayır → Gönder" yapmak gerekiyordu. Bu uç aynı adımları mevcut akışlardan
+  // (bütün korumalarıyla) sırayla çalıştırır: sipariş panelde varsa bağlar, yoksa açar; ürün
+  // eşleşmesi tamamsa stok ayırır; raporda kargoya verilmişse gönderir (stok düşer), teslim
+  // edilmişse teslim işler. İptal/iade ve incelemeye düşen paket ATLANIR ve sebebi döner.
+  // Tek çağrı en çok AUTO_LIMIT paket işler; ekran bitene kadar tekrar çağırır (skip: atlananlar).
+  if (sub === '/auto' && method === 'POST') {
+    const x = await readBody(request), storeId = key(x.store_id), skip = new Set(Array.isArray(x.skip) ? x.skip.map(String) : []);
+    const AUTO_LIMIT = 5;
+    const all = (await db.prepare(`SELECT json_extract(data_json,'$.package_id') package_id,
+        GROUP_CONCAT(COALESCE(json_extract(data_json,'$.status'),''),'|') statuses,
+        MAX(substr(json_extract(data_json,'$.order_date'),1,10)) order_date,
+        SUM(COALESCE(json_extract(data_json,'$.delivered_date'),'')='') not_delivered,
+        MAX(substr(json_extract(data_json,'$.delivered_date'),1,10)) delivered_on
+      FROM ec_report_records WHERE store_id=? AND kind='order_line' AND json_extract(data_json,'$.package_id') IS NOT NULL
+        AND (erp_package_id IS NULL OR erp_package_id IN (SELECT id FROM ec_order_packages WHERE status='cancelled'))
+      GROUP BY package_id ORDER BY order_date,package_id`).bind(storeId).all()).results
+      .filter(c => !skip.has(String(c.package_id)));
+    const results = [];
+    const call = (handler, url, body) => handler(new Request('https://internal.invalid' + url, {method: 'POST'}), env, url, async () => body);
+    for (const c of all.slice(0, AUTO_LIMIT)) {
+      const pkg = String(c.package_id), durum = String(c.statuses || '').toLocaleLowerCase('tr-TR');
+      const out = {package_id: pkg};
+      try {
+        if (CANCELLED.test(durum)) { results.push({...out, skipped: true, reason: 'İptal/iade: satış açılmadı.'}); continue; }
+        const linked = await call(reportStockLinkApi, '/api/reports/stock-link/apply', {store_id: storeId, package_id: pkg, complete_package_confirmed: true});
+        if (linked.outcome === 'match') { results.push({...out, done: 'bağlandı', order_package: linked.package_id}); continue; }
+        if (!linked.applied) { results.push({...out, skipped: true, reason: linked.reason || (linked.issues || []).join(' ') || linked.outcome}); continue; }
+        const id = linked.package_id, steps = ['sipariş açıldı'];
+        try { await call(ordersApi, '/api/orders/' + id + '/reserve', {}); steps.push('stok ayrıldı'); }
+        catch (e) { results.push({...out, skipped: true, reason: 'Sipariş taslak kaldı: ' + e.message, order_package: id}); continue; }
+        if (/kargo|teslim|shipped|delivered|yolda/.test(durum)) {
+          await call(ordersApi, '/api/orders/' + id + '/ship', {occurred_on: linked.occurred_on || c.order_date, reference: 'RAPOR-' + pkg});
+          steps.push('gönderildi');
+          if (!c.not_delivered && day(c.delivered_on)) { await call(ordersApi, '/api/orders/' + id + '/deliver', {occurred_on: c.delivered_on}); steps.push('teslim edildi'); }
+        }
+        results.push({...out, done: steps.join(', '), order_package: id});
+      } catch (e) { results.push({...out, skipped: true, reason: e.message}); }
+    }
+    return {results, remaining: Math.max(0, all.length - AUTO_LIMIT)};
+  }
+
   if (sub === '/preview' && method === 'POST') {
     const x = await readBody(request);
     const result = await plan(env, x.store_id, x.package_id, x.line_identity_from_package_sku === true);
