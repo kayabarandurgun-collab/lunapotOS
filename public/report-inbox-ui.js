@@ -112,7 +112,7 @@ export function mountReports(root, namespace = 'ec') {
     const d = state.draft || {};
     return `<section class="v2-card"><h3>1 · Dosyayı seç</h3>
       <div class="rb-grid">
-        <label>Mağaza<select data-rb="store">${storeOptions(d.store_id)}</select></label>
+        <label>Mağaza <small class="muted">· dosyadan kendiliğinden tanınır</small><select data-rb="store">${storeOptions(d.store_id).replace("Mağaza seçin…","Dosyadan tanı")}</select></label>
         <label>Rapor ne zaman indirildi?<input type="datetime-local" data-rb="snapshot" value="${esc(d.snapshot_at || localNow())}" required></label>
       </div>
       <details class="rb-add"><summary>Yeni mağaza ekle</summary><form data-rb-form="store" class="rb-grid">
@@ -315,13 +315,37 @@ export function mountReports(root, namespace = 'ec') {
   }
 
   /* ---------- işlemler ---------- */
+  // MAĞAZA TANIMA. Dosyanın sütunları her pazaryerinin kayıtlı rapor biçimleriyle karşılaştırılır;
+  // tek bir pazaryerine açıkça uyuyorsa ve o pazaryerinde tek mağaza varsa mağaza kendiliğinden
+  // seçilir. Böylece TY ve HB dosyaları birlikte sürüklenebilir; mağaza seçmeyi unutmak iş durdurmaz.
+  const profilOnbellek = new Map();
+  async function magazaTani(headers) {
+    const norm = h => String(h ?? '').toLocaleLowerCase('tr-TR').replace(/\s+/g, ' ').trim();
+    const set = new Set(headers.map(norm)), sig = headerSignature(headers), skor = new Map();
+    for (const provider of new Set(state.data.stores.map(x => x.provider))) {
+      if (!profilOnbellek.has(provider)) profilOnbellek.set(provider, (await api('/profiles?provider=' + provider)).profiles || []);
+      let best = 0;
+      for (const p of profilOnbellek.get(provider)) {
+        if (p.signature === sig) { best = 1; break; }
+        const theirs = String(p.signature || '').split('␟').filter(Boolean);
+        if (theirs.length) best = Math.max(best, theirs.filter(h => set.has(h)).length / Math.max(theirs.length, set.size));
+      }
+      skor.set(provider, best);
+    }
+    const sirali = [...skor].sort((a, b) => b[1] - a[1]);
+    if (!sirali.length || sirali[0][1] < 0.6 || (sirali[1] && sirali[1][1] >= sirali[0][1] - 0.05)) return null;
+    const adaylar = state.data.stores.filter(x => x.provider === sirali[0][0]);
+    return adaylar.length === 1 ? adaylar[0] : null;
+  }
   async function takeFile(file) {
     const d = state.draft || {};
-    const store = state.data.stores.find(s => s.id === d.store_id);
-    if (!store) throw new Error('Önce mağazayı seçin.');
     if (file.size > LIMITS.fileBytes) throw new Error('Dosya 25 MB sınırını aşıyor.');
     const bytes = new Uint8Array(await file.arrayBuffer());
     const table = await readTable(bytes, {name: file.name});
+    const tanilan = await magazaTani(table.headers);
+    if (tanilan) { d.store_id = tanilan.id; d.storeAuto = true; } else d.storeAuto = false;
+    const store = state.data.stores.find(s => s.id === d.store_id);
+    if (!store) throw new Error('Bu dosyanın hangi mağazaya ait olduğu sütunlarından anlaşılamadı. Mağazayı seçip tekrar deneyin.');
     const sha = await sha256Hex(bytes), signature = headerSignature(table.headers);
     // Tür kullanıcıya sorulmaz: sütunlardan anlaşılır. Kullanıcı ekranda elle değiştirdiyse o geçerlidir.
     if (!d.kindLocked) {
@@ -391,25 +415,26 @@ export function mountReports(root, namespace = 'ec') {
   // işlenir; biçimi hiç görülmemiş dosya atlanır ve sonda "eşleştirme gerekiyor" diye yazılır.
   async function takeMany(files) {
     const base = state.draft || {};
-    const store = state.data.stores.find(s => s.id === base.store_id);
-    if (!store) throw new Error('Önce mağazayı seçin.');
-    const {profiles = []} = await api('/profiles?provider=' + store.provider);
+    // Her dosyanın mağazası sütunlarından tanınır; tanınmazsa seçili mağaza kullanılır.
     const queue = [];
     for (const file of files) {
       state.progress = file.name + ' okunuyor…'; render();
       try {
         const table = await readTable(new Uint8Array(await file.arrayBuffer()), {name: file.name});
-        queue.push({file, kind: detectReportKind(table.headers, profiles)});
+        const store = await magazaTani(table.headers) || state.data.stores.find(s => s.id === base.store_id);
+        if (!store) { queue.push({file, error: 'mağazası anlaşılamadı; mağazayı seçip tekrar deneyin'}); continue; }
+        if (!profilOnbellek.has(store.provider)) profilOnbellek.set(store.provider, (await api('/profiles?provider=' + store.provider)).profiles || []);
+        queue.push({file, store, kind: detectReportKind(table.headers, profilOnbellek.get(store.provider))});
       } catch (e) { queue.push({file, error: e.message}); }
     }
     const order = {orders: 0, finance: 1};
     queue.sort((a, b) => (order[a.kind] ?? 2) - (order[b.kind] ?? 2));
     const done = [];
     for (const [i, q] of queue.entries()) {
-      const label = q.file.name + (q.kind ? ' (' + REPORT_KINDS[q.kind] + ')' : '');
+      const label = q.file.name + (q.kind ? ' (' + (q.store ? q.store.name + ' · ' : '') + REPORT_KINDS[q.kind] + ')' : '');
       state.progress = (i + 1) + ' / ' + queue.length + ' · ' + label; render();
       if (q.error || !q.kind) { done.push({label, note: q.error || 'türü anlaşılamadı'}); continue; }
-      state.draft = {step: 'pick', store_id: base.store_id, snapshot_at: base.snapshot_at || localNow(), kind: q.kind, kindLocked: true};
+      state.draft = {step: 'pick', store_id: q.store.id, snapshot_at: base.snapshot_at || localNow(), kind: q.kind, kindLocked: true};
       try {
         await takeFile(q.file);
         if (state.draft.step !== 'check') { done.push({label, note: 'ilk kez görülen biçim — tek başına yükleyip sütunları bir kez eşleştirin'}); continue; }
