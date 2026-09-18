@@ -120,8 +120,8 @@ export function mountReports(root, namespace = 'ec') {
         <label>Mağaza kodu / satıcı no<input name="code" required maxlength="80"></label>
         <label>Görünen ad<input name="name" required maxlength="120"></label>
         <button class="secondary" type="submit">Mağazayı ekle</button></form></details>
-      <label class="rb-drop" data-rb-drop><input type="file" accept=".xlsx,.csv" data-rb="file" aria-label="Excel ya da CSV rapor dosyasını seç">
-        <strong>Excel (.xlsx) ya da CSV dosyasını buraya sürükle</strong><span>ya da tıklayıp seç · en çok ${LIMITS.fileBytes / 1024 / 1024} MB</span></label>
+      <label class="rb-drop" data-rb-drop><input type="file" accept=".xlsx,.csv" data-rb="file" multiple aria-label="Excel ya da CSV rapor dosyasını seç">
+        <strong>Rapor dosyalarını buraya sürükle — sipariş ve finans raporunu birlikte seçebilirsin</strong><span>ya da tıklayıp seç · en çok ${LIMITS.fileBytes / 1024 / 1024} MB</span></label>
       <p class="rb-muted">"Rapor ne zaman indirildi" hangi bilginin daha yeni olduğunu belirler: eski tarihli bir rapor güncel durumu geri almaz.</p></section>`;
   }
 
@@ -385,6 +385,46 @@ export function mountReports(root, namespace = 'ec') {
     d.serverPreview = await api('/files/' + d.fileId + '/preview');
     say(created.resume ? 'Yarım kalan yükleme tamamlandı.' : 'Dosya alındı ve doğrulandı. Önizlemeyi kontrol edip "İşle"ye bas.');
   }
+  // BİRDEN ÇOK DOSYA. Kullanıcı aynı mağazanın sipariş ve finans raporlarını birlikte seçer.
+  // Türler sütunlardan tanınır; önce sipariş raporları, sonra finans raporları işlenir (hakediş
+  // kayıtları siparişlere bağlanır). Biçimi daha önce onaylanmış dosya kendiliğinden yüklenip
+  // işlenir; biçimi hiç görülmemiş dosya atlanır ve sonda "eşleştirme gerekiyor" diye yazılır.
+  async function takeMany(files) {
+    const base = state.draft || {};
+    const store = state.data.stores.find(s => s.id === base.store_id);
+    if (!store) throw new Error('Önce mağazayı seçin.');
+    const {profiles = []} = await api('/profiles?provider=' + store.provider);
+    const queue = [];
+    for (const file of files) {
+      state.progress = file.name + ' okunuyor…'; render();
+      try {
+        const table = await readTable(new Uint8Array(await file.arrayBuffer()), {name: file.name});
+        queue.push({file, kind: detectReportKind(table.headers, profiles)});
+      } catch (e) { queue.push({file, error: e.message}); }
+    }
+    const order = {orders: 0, finance: 1};
+    queue.sort((a, b) => (order[a.kind] ?? 2) - (order[b.kind] ?? 2));
+    const done = [];
+    for (const [i, q] of queue.entries()) {
+      const label = q.file.name + (q.kind ? ' (' + REPORT_KINDS[q.kind] + ')' : '');
+      state.progress = (i + 1) + ' / ' + queue.length + ' · ' + label; render();
+      if (q.error || !q.kind) { done.push({label, note: q.error || 'türü anlaşılamadı'}); continue; }
+      state.draft = {step: 'pick', store_id: base.store_id, snapshot_at: base.snapshot_at || localNow(), kind: q.kind, kindLocked: true};
+      try {
+        await takeFile(q.file);
+        if (state.draft.step !== 'check') { done.push({label, note: 'ilk kez görülen biçim — tek başına yükleyip sütunları bir kez eşleştirin'}); continue; }
+        await upload();
+        if (state.draft.step !== 'server' || !state.draft.fileId) { done.push({label, note: state.error || 'yüklenemedi'}); continue; }
+        await apply(state.draft.fileId);
+        done.push({label, ok: true, counts: state.draft.result});
+      } catch (e) { done.push({label, note: e.message}); }
+    }
+    state.progress = null;
+    state.draft = {step: 'pick', store_id: base.store_id, snapshot_at: localNow(), kind: 'orders'};
+    await load();
+    const ok = done.filter(x => x.ok), bad = done.filter(x => !x.ok);
+    say(ok.length + ' dosya işlendi' + (ok.length ? ': ' + ok.map(x => x.label).join(', ') : '') + (bad.length ? '. İşlenmeyen: ' + bad.map(x => x.label + ' — ' + x.note).join('; ') : '.'), bad.length > 0 && !ok.length);
+  }
   async function apply(fileId) {
     let result;
     for (;;) {
@@ -514,7 +554,8 @@ export function mountReports(root, namespace = 'ec') {
     if (t === 'store') state.draft.store_id = e.target.value;
     if (t === 'kind') { state.draft.kind = e.target.value; state.draft.kindLocked = true; const file = state.draft.file; if (file) run(() => takeFile(file)); }
     if (t === 'snapshot') state.draft.snapshot_at = e.target.value;
-    if (t === 'file' && e.target.files[0]) { const file = e.target.files[0]; state.draft.kindLocked = false; run(() => takeFile(file)); }
+    if (t === 'file' && e.target.files.length > 1) { const files = [...e.target.files]; run(() => takeMany(files)); }
+    else if (t === 'file' && e.target.files[0]) { const file = e.target.files[0]; state.draft.kindLocked = false; run(() => takeFile(file)); }
     if (t === 'order-store') { state.storeFilter = e.target.value; state.orderPage = 1; state.backfill = null; state.feeTransfer = null; state.summaryList = ''; run(async () => { await loadOrders(); await loadSummary(); }); }
   }, {signal});
   root.addEventListener('submit', e => {
@@ -532,8 +573,10 @@ export function mountReports(root, namespace = 'ec') {
     const z = e.target.closest('[data-rb-drop]');
     if (!z) return;
     e.preventDefault(); z.classList.remove('over');
-    const file = e.dataTransfer.files[0];
-    if (file) run(() => takeFile(file));
+    const files = [...e.dataTransfer.files];
+    state.draft = state.draft || {step: 'pick', kind: 'orders', snapshot_at: localNow()};
+    if (files.length > 1) run(() => takeMany(files));
+    else if (files[0]) { state.draft.kindLocked = false; run(() => takeFile(files[0])); }
   }, {signal});
 
   state.draft = {step: 'pick', kind: 'orders', snapshot_at: localNow()};
