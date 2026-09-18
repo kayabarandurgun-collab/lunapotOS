@@ -197,27 +197,6 @@ td strong,.recipe-card h2,.studio-material strong,.history-links li{overflow-wra
 .rb-degisti{border-left:3px solid currentColor;padding-left:.5rem;background:color-mix(in srgb,currentColor 7%,transparent)}
 .rb-degisti dt{font-weight:600}
 .order-sold{margin:14px 0}.order-sold-item{padding:14px 0;border-bottom:1px solid var(--line,#e8e5ef)}.order-sold-item:last-child{border-bottom:0}.order-sold-main{display:flex;justify-content:space-between;gap:12px;align-items:baseline}.order-sold-main strong{font-size:16px;line-height:1.4;overflow-wrap:anywhere}.order-sold-qty{font-weight:700;white-space:nowrap;font-size:16px}.order-sold-money{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:6px;font-size:13px}.order-sold-stock,.order-stock-plain{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:8px}.order-sold-stock li,.order-stock-plain li{display:grid;grid-template-columns:minmax(0,2fr) auto auto;gap:6px 16px;align-items:center;padding:10px 12px;border-radius:10px;background:var(--brand-soft,#f4f1fb);font-size:13px}.order-stock-plain li{grid-template-columns:minmax(0,2fr) repeat(3,auto)}.order-sold-stock small,.order-stock-plain small{display:block;color:var(--muted,#656170)}@media(max-width:600px){.order-sold-stock li,.order-stock-plain li{grid-template-columns:1fr}}
-[data-order-list] td:nth-child(2){max-width:320px;white-space:normal}[data-order-list] td:nth-child(2) .text-button{white-space:normal;text-align:left;line-height:1.35}[data-order-list] td:nth-child(2) small{overflow-wrap:anywhere;word-break:break-all}
-[data-order-list] td:nth-child(2){max-width:none}
-[data-order-list] .order-name{font-weight:500;font-size:14px;line-height:1.35;white-space:normal;text-align:left;padding:0}
-[data-order-list] td small{display:block;margin-top:3px;font-size:12px;font-weight:400;color:var(--muted,#6b6878)}
-[data-order-list] td{vertical-align:middle;padding-top:10px;padding-bottom:10px}
-[data-order-list] .v2-badge{font-weight:500}
-[data-order-list] .order-cash-cell{font-weight:600}
-@media(max-width:760px){
- [data-order-list] table,[data-order-list] tbody{display:block;width:100%}
- [data-order-list] thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
- [data-order-list] tr{display:grid;grid-template-columns:auto 1fr auto;gap:4px 10px;align-items:start;padding:12px 4px;border-bottom:1px solid var(--line,#e8e5ef)}
- [data-order-list] tr[hidden]{display:none}
- [data-order-list] td{display:block;padding:0;border:0;min-width:0}
- [data-order-list] td:nth-child(1){grid-row:1 / span 2}
- [data-order-list] td:nth-child(2){grid-column:2}
- [data-order-list] td:nth-child(3){grid-column:2;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
- [data-order-list] td:nth-child(3) small{margin:0}
- [data-order-list] td:nth-child(4){grid-column:3;grid-row:1;text-align:right}
- [data-order-list] td:nth-child(5){grid-column:3;grid-row:2;text-align:right}
- [data-order-list] .v2-table-wrap,[data-order-list] .table-wrap,[data-order-list] .card{overflow-x:visible}
-}
 /* Daha sade yazı: tablo, özet satırı ve rozetlerde kalınlık bir kademe hafif. */
 main td strong,main dd,.v2-summary-line strong,.product-tile dd{font-weight:560}
 main .text-button{font-weight:560}
@@ -229,3 +208,70 @@ main th{font-weight:600}
 @media(max-width:600px){.order-timeline{gap:5px}.order-timeline li{font-size:11px;padding:4px 8px}.order-summary-heading h3{font-size:19px}}
 .decision-pending strong+small{display:block;margin-top:4px;font-size:12px;font-weight:400;color:var(--muted,#6b6878)}
 .rb-kind{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin:8px 0 12px;font-size:14px}.rb-kind-change{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted,#6b6878)}.rb-kind-change select{padding:4px 8px;font-size:12px}
+
+/* ===== SİPARİŞ LİSTESİ (ol-) =====
+   Tablo-önce düzen: durum etiketleri, tek satır araç çubuğu (kanal · arama · sıralama), hemen altında
+   tablo. Satırın tamamı tıklanır; detay pencerede açılır. Dar ekranda satır iki satırlık karta döner. */
+.ol-heading{margin-bottom:14px}.ol-heading h1{margin:0}.ol-heading p{margin:4px 0 0;font-size:13px;color:var(--muted)}
+.ol-chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
+.ol-chip{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:7px 13px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--ink);font-size:13px;font-weight:500;cursor:pointer}
+.ol-chip b{font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums}
+.ol-chip:hover{border-color:var(--brand-border);background:var(--brand-soft)}
+.ol-chip[aria-pressed="true"]{background:var(--brand);border-color:var(--brand);color:#fff}.ol-chip[aria-pressed="true"] b{color:#ffffffd0}
+.ol-card{overflow:hidden}
+.ol-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
+.ol-seg{display:inline-flex;border:1px solid var(--line);border-radius:11px;overflow:hidden;background:#fff;flex:none}
+.ol-seg button{min-height:40px;padding:8px 14px;border:0;border-right:1px solid var(--line);background:transparent;color:var(--ink);font-size:13px;font-weight:500;cursor:pointer}
+.ol-seg button:last-child{border-right:0}.ol-seg button:hover{background:var(--brand-soft)}
+.ol-seg button[aria-pressed="true"]{background:var(--brand);color:#fff}
+.ol-search{display:flex;gap:6px;flex:1 1 220px;min-width:0;margin:0}
+.ol-search input{flex:1;min-width:0;min-height:40px!important;padding:8px 12px!important}
+.ol-search button{min-height:40px;padding:8px 14px;flex:none}
+.ol-sort{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500;margin:0;flex:none}
+.ol-sort span{color:var(--muted)}.ol-sort select{min-height:40px!important;padding:6px 10px!important;width:auto}
+.ol-more{border-bottom:1px solid var(--line)}
+.ol-more summary{padding:10px 16px;font-size:13px;color:var(--muted);cursor:pointer;list-style-position:inside}
+.ol-more-form{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;padding:0 16px 14px}
+.ol-more-form label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:500;min-width:150px;flex:1 1 150px}
+.ol-more-form input,.ol-more-form select{min-height:40px!important;padding:6px 10px!important}
+.ol-more-actions{display:flex;gap:8px}.ol-more-actions button{min-height:40px;padding:8px 14px}
+.ol-table-wrap{width:100%;overflow-x:auto}
+.ol-table{width:100%;border-collapse:collapse;font-size:13.5px}
+.ol-table th{position:sticky;top:0;background:#faf9fc;text-align:left;font-size:12px;font-weight:600;color:var(--muted);padding:0 12px;height:42px;border-bottom:1px solid var(--line);white-space:nowrap}
+.ol-table th button{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:2px;height:42px;color:inherit;font:inherit}
+.ol-table th button:hover{color:var(--brand)}.ol-table th button:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:4px}
+.ol-table th[aria-sort="ascending"] button,.ol-table th[aria-sort="descending"] button{color:var(--brand-dark)}
+.ol-table td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+.ol-table tbody tr{cursor:pointer;transition:background .12s}
+.ol-table tbody tr:hover{background:var(--brand-soft)}
+.ol-table tbody tr:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
+.ol-h-tarih,.ol-c-tarih{white-space:nowrap}
+.ol-h-amount,.ol-h-profit,.ol-c-tutar,.ol-c-cep{text-align:right!important;white-space:nowrap;font-variant-numeric:tabular-nums}
+.ol-h-amount button,.ol-h-profit button{justify-content:flex-end}
+.ol-urun{display:block;color:var(--ink);font-weight:500;line-height:1.35}
+.ol-c-urun small,.ol-c-durum small{display:block;margin-top:3px;font-size:12px;color:var(--muted);font-weight:400}
+.ol-c-urun{min-width:220px}.ol-m{display:none}
+.ol-kanal{display:inline-block;padding:3px 8px;border-radius:6px;font-size:11.5px;font-weight:500;background:#f1f0f5;color:#4b4861;white-space:nowrap}
+.ol-kanal-trendyol{background:#fff1e6;color:#9a4a0b}.ol-kanal-hepsiburada{background:#eaf2ff;color:#1f4f99}
+.ol-c-durum .v2-badge{font-weight:500}
+.ol-pos{font-weight:600;color:#1f6b43}.ol-neg{font-weight:600;color:#b3261e}
+.ol-pager{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;font-size:13px;color:var(--muted)}
+.ol-pager .ac-actions{display:flex;align-items:center;gap:8px}.ol-pager button{min-height:38px;padding:7px 13px}
+.ol-page{font-size:13px;color:var(--ink);white-space:nowrap}
+.ol-detay-islem{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#faf9fc}
+.ol-detay-islem button{width:auto!important;min-height:40px}
+@media(max-width:760px){
+ .ol-toolbar{padding:12px}.ol-seg{width:100%}.ol-seg button{flex:1;padding:8px 6px}
+ .ol-search{flex:1 1 100%}.ol-sort{flex:1 1 100%}.ol-sort select{flex:1}
+ .ol-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+ .ol-table,.ol-table tbody{display:block}
+ .ol-table tbody tr{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"urun cep" "bilgi tutar";gap:4px 12px;padding:12px;border-bottom:1px solid var(--line)}
+ .ol-table td{display:block;padding:0;border:0;min-width:0}
+ .ol-c-urun{grid-area:urun;min-width:0}
+ .ol-c-cep{grid-area:cep;text-align:right}
+ .ol-c-tutar{grid-area:tutar;text-align:right;font-size:12px;color:var(--muted)}
+ .ol-c-kanal,.ol-c-tarih,.ol-c-durum{grid-area:bilgi;display:none}
+ .ol-table tbody tr .ol-c-durum{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+ .ol-table tbody tr .ol-c-durum small{margin:0}
+ .ol-c-urun small{margin-top:2px}.ol-m{display:inline}
+}

@@ -71,8 +71,21 @@ export async function ordersApi(request,env,path,readBody){
  if(!path.startsWith('/api/orders'))return null;if(env.WORKSPACE!=='ec')fail('Siparişler e-ticaret çalışma alanına aittir.',403);
  const db=env.DB,method=request.method;
  if(path==='/api/orders'&&method==='GET'){
-  const {scope,args,page,limit,offset}=ordersQuery(request.url);
-  const pageSQL=scope+' ORDER BY occurred_on DESC,created_at DESC,rowid DESC LIMIT ? OFFSET ?',pageArgs=[...args,limit,offset];
+  const {scope,args,page,limit,offset,sort}=ordersQuery(request.url);
+  // SIRALAMA sayfalamadan ÖNCE, filtreye uyan bütün paketler üzerinde yapılır; yalnız görünen
+  // sayfayı sıralamak yanlış olurdu. Tarih SQL'de; tutar ve cebine kalan (nakit) bütün paketler
+  // için hesaplanıp sıralanır. Değeri olmayan (kesintisi bekleyen) paketler her yönde en sonda.
+  const [anahtar,yon]=sort.split('_'),artan=yon==='asc';
+  let pageSQL,pageArgs,sira=null,ozet=null;
+  if(anahtar==='date'){const d=artan?'ASC':'DESC';pageSQL=scope+` ORDER BY occurred_on ${d},created_at ${d},rowid ${d} LIMIT ? OFFSET ?`;pageArgs=[...args,limit,offset];}
+  else{
+   const hepsi=(await statement(db,'SELECT id,occurred_on,(SELECT SUM(l.gross_cents) FROM order_lines l WHERE l.package_id=order_packages.id) brut FROM order_packages'+scope,args).all()).results;
+   if(anahtar==='profit')ozet=await nakitOzeti(hepsi.map(r=>r.id));
+   const deger=r=>anahtar==='profit'?(ozet.get(r.id)?.nakit??null):(r.brut??null);
+   hepsi.sort((a,b)=>{const x=deger(a),y=deger(b);if(x===null||y===null)return x===null&&y===null?b.occurred_on.localeCompare(a.occurred_on):x===null?1:-1;return artan?x-y:y-x;});
+   sira=hepsi.slice(offset,offset+limit).map(r=>r.id);
+   pageSQL=' WHERE id IN (SELECT value FROM json_each(?))';pageArgs=[JSON.stringify(sira)];
+  }
 
   const [packages,lines,products,reservations,components]=(await db.batch([
    statement(db,'SELECT * FROM order_packages'+pageSQL,pageArgs),
@@ -86,13 +99,17 @@ export async function ordersApi(request,env,path,readBody){
   // Ayrimin olcutu uydurma degil kayitlarin kendisi: kargoya hic verilmemis, satis kaydi yok ve
   // ayni siparis numarasinda iptal olmayan bir paket duruyor.
   const yenidenKurulan="status='cancelled' AND shipped_on IS NULL AND NOT EXISTS(SELECT 1 FROM order_line_components c JOIN order_lines l ON l.id=c.line_id WHERE l.package_id=order_packages.id AND c.sale_id IS NOT NULL) AND EXISTS(SELECT 1 FROM order_packages q WHERE q.order_no=order_packages.order_no AND q.channel=order_packages.channel AND q.id!=order_packages.id AND q.status!='cancelled')";
-  const counts=(await db.prepare('SELECT status,COUNT(*) count,SUM(CASE WHEN '+yenidenKurulan+' THEN 1 ELSE 0 END) rebuilt FROM order_packages GROUP BY status').all()).results;
+  // Durum sayıları seçili KANALA göre verilir: Trendyol seçiliyken Hepsiburada sayılmaz.
+  const kanal=new URL(request.url).searchParams.get('channel')||'';
+  const counts=(await statement(db,'SELECT status,COUNT(*) count,SUM(CASE WHEN '+yenidenKurulan+' THEN 1 ELSE 0 END) rebuilt FROM order_packages'+(kanal?' WHERE channel=?':'')+' GROUP BY status',kanal?[kanal]:[]).all()).results;
   const total=(await statement(db,'SELECT COUNT(*) count FROM order_packages'+scope,args).first()).count;
   const stock=new Map(products.map(p=>[p.id,p.quantity_milli-p.reserved_milli]));
   // Listede gosterilen rakam NAKIT olmali; kar raporuyla ayni sayiyi vermeli. Onceki halinde
   // KDV haric katki ekranda 1,2 ile carpiliyordu: bu nakit DEGILDIR, cunku kesintilerin KDV'si
   // indirilebilir. Nakit burada kalem kalem kuruluyor ve oranlar UYDURULMUYOR:
   // urun KDV'si fiyat profilinden, kesinti KDV'si pazaryeri finans profilinin beyanindan.
+  // Listede gosterilen rakam NAKIT olmali; kar raporuyla ayni sayiyi vermeli (bkz. nakitOzeti).
+  async function nakitOzeti(ids){
   const feeVat=new Map();
   for(const r of (await db.prepare("SELECT provider,json_extract(options_json,'$.fee_vat_bps') bps FROM ec_report_profiles WHERE kind='finance' AND json_extract(options_json,'$.fee_amounts_include_vat')=1 AND json_extract(options_json,'$.fee_vat_bps') IS NOT NULL").all()).results){
    if(feeVat.has(r.provider)&&feeVat.get(r.provider)!==r.bps)feeVat.set(r.provider,null);else if(!feeVat.has(r.provider))feeVat.set(r.provider,r.bps);
@@ -109,7 +126,7 @@ export async function ordersApi(request,env,path,readBody){
     +" JOIN order_packages p ON p.id=l.package_id"
     +" JOIN sale_entries s ON (s.id=c.sale_id OR s.parent_id=c.sale_id)"
     +" LEFT JOIN ec_price_profiles pp ON pp.product_id=s.product_id"
-    +" WHERE l.package_id IN (SELECT id FROM order_packages"+pageSQL+")",pageArgs).all()).results;
+    +" WHERE l.package_id IN (SELECT value FROM json_each(?))",[JSON.stringify(ids)]).all()).results;
   const inc=(v,b)=>Math.round(v*(10000+b)/10000);
   for(const [pid,list] of kalemler.reduce((m,e)=>m.set(e.pid,[...(m.get(e.pid)||[]),e]),new Map())){
    const fv=feeVat.get(list[0].kanal);
@@ -129,6 +146,10 @@ export async function ordersApi(request,env,path,readBody){
   if(ozet.size)for(const r of (await statement(db,"SELECT q.id pid,(SELECT COALESCE(SUM(json_extract(r.data_json,'$.amount_cents')),0) FROM ec_report_records r JOIN ec_report_stores st ON st.id=r.store_id AND st.provider=q.channel WHERE r.kind='finance_event' AND json_extract(r.data_json,'$.type')='withholding' AND json_extract(r.data_json,'$.order_no')=q.order_no) stopaj,(SELECT COUNT(*) FROM order_packages x WHERE x.order_no=q.order_no AND x.channel=q.channel AND x.status!='cancelled') paket FROM order_packages q WHERE q.id IN (SELECT value FROM json_each(?))",[JSON.stringify([...ozet.keys()])]).all()).results){
    const o=ozet.get(r.pid);if(o&&o.nakit!==null&&o.nakit!==undefined)o.nakit-=Math.round(Math.abs(r.stopaj||0)/Math.max(1,r.paket||1));
   }
+  return ozet;
+  }
+  if(!ozet)ozet=await nakitOzeti(packages.map(p=>p.id));
+  if(sira){const yer=new Map(sira.map((id,i)=>[id,i]));packages.sort((a,b)=>yer.get(a.id)-yer.get(b.id));}
   return {packages:packages.slice(0,500).map(p=>{const ls=lines.filter(l=>l.package_id===p.id),lineIDs=new Set(ls.map(l=>l.id)),cs=components.filter(c=>lineIDs.has(c.line_id)),needs=new Map();for(const c of cs)needs.set(c.product_id,(needs.get(c.product_id)||0)+c.quantity_milli);const readiness=p.source_changed?'source_changed':ls.some(l=>cs.filter(c=>c.line_id===l.id).reduce((n,c)=>n+c.revenue_share_bps,0)!==10000)||cs.some(c=>c.stock_unit!==c.current_stock_unit)?'needs_mapping':ls.some(l=>l.net_revenue_cents===null)?'needs_amounts':p.status==='draft'&&[...needs].some(([product,q])=>(stock.get(product)||0)<q)?'needs_stock':'ready';return {...p,revenue_net_cents:ozet.get(p.id)?.gelir??null,result_cents:ozet.get(p.id)?.tam?ozet.get(p.id).sonuc:null,cash_result_cents:ozet.get(p.id)?.nakit??null,readiness};}),lines,components,products:products.map(p=>({...p,available_milli:p.quantity_milli-p.reserved_milli})),reservations,counts,truncated:offset+packages.length<total,pagination:{page,limit,total,pages:Math.max(1,Math.ceil(total/limit)),has_more:offset+packages.length<total}};
  }
  const previewMatch=path.match(/^\/api\/orders\/([\w-]+)\/source$/);
