@@ -447,10 +447,24 @@ export function mountReports(root, namespace = 'ec') {
     if (state.draft?.fileId === fileId) { state.draft.progress = null; state.draft.result = result.counts; }
     let aktarim = '';
     const d = state.draft;
-    if (d?.fileId === fileId && d.kind === 'orders' && d.store?.id) {
-      const a = await autoLink(d.store.id);
-      d.autoLink = a;
-      aktarim = ' Panele aktarılan yeni sipariş: ' + a.done.length + (a.atlanan.length ? ' · atlanan: ' + a.atlanan.length + ' (' + [...new Set(a.atlanan.map(x => x.reason))].slice(0, 3).join('; ') + ')' : '') + '.';
+    if (d?.fileId === fileId && d.store?.id) {
+      if (d.kind === 'orders') {
+        const a = await autoLink(d.store.id);
+        d.autoLink = a;
+        aktarim = ' Panele aktarılan yeni sipariş: ' + a.done.length + (a.atlanan.length ? ' · atlanan: ' + a.atlanan.length + ' (' + [...new Set(a.atlanan.map(x => x.reason))].slice(0, 3).join('; ') + ')' : '') + '.';
+      }
+      // Her rapordan sonra: rapora göre teslim edilenler güncellenir ve rapordaki kesintiler
+      // teslim edilmiş siparişlere yazılır. Kullanıcının ayrıca bir düğmeye basması gerekmez.
+      state.progress = 'Teslimler ve kesintiler güncelleniyor…'; render();
+      const t = await api('/sync-deliveries', {confirm: true});
+      let cursor = 0, yazilan = 0;
+      for (let i = 0; i < 40; i++) {
+        const f = await api('/apply-fees', {store_id: d.store.id, confirm: true, cursor});
+        yazilan += f.sale_entries_changed || 0;
+        if (!f.next_cursor || f.next_cursor <= cursor) break;
+        cursor = f.next_cursor;
+      }
+      aktarim += (t.count ? ' Teslim güncellenen: ' + t.count + '.' : '') + (yazilan ? ' Kesintisi yazılan satış: ' + yazilan + '.' : '');
     }
     await load();
     say('İşlem tamamlandı. ' + Object.entries(result.counts || {}).map(([k, v]) => (OUTCOMES[k] || k) + ': ' + v).join(', ') + aktarim);
