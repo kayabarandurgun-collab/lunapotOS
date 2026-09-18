@@ -227,3 +227,4 @@ main th{font-weight:600}
 .order-copy-row{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.order-copy-row button{width:auto!important;min-height:32px!important;padding:5px 10px!important;font-size:12px!important;font-weight:500!important}
 .order-timeline li{font-size:12px;padding:5px 10px}
 @media(max-width:600px){.order-timeline{gap:5px}.order-timeline li{font-size:11px;padding:4px 8px}.order-summary-heading h3{font-size:19px}}
+.decision-pending strong+small{display:block;margin-top:4px;font-size:12px;font-weight:400;color:var(--muted,#6b6878)}
