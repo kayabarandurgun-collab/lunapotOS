@@ -119,6 +119,12 @@ export async function ordersApi(request,env,path,readBody){
     ?r.sonuc+r.urun_kdv-yuvarla(r.komisyon)-yuvarla(r.kargo)-yuvarla(r.diger):null;
    ozet.set(r.pid,r);
   }
+  // STOPAJ bankaya gireni azaltır: kâr raporu ve sipariş özeti nakitten düşüyor, liste düşmüyordu;
+  // aynı sipariş iki ekranda farklı görünüyordu. Kural kâr raporuyla AYNI: sipariş stopajı,
+  // siparişin iptal edilmemiş paket sayısına bölünür.
+  if(ozet.size)for(const r of (await statement(db,"SELECT q.id pid,(SELECT COALESCE(SUM(json_extract(r.data_json,'$.amount_cents')),0) FROM ec_report_records r JOIN ec_report_stores st ON st.id=r.store_id AND st.provider=q.channel WHERE r.kind='finance_event' AND json_extract(r.data_json,'$.type')='withholding' AND json_extract(r.data_json,'$.order_no')=q.order_no) stopaj,(SELECT COUNT(*) FROM order_packages x WHERE x.order_no=q.order_no AND x.channel=q.channel AND x.status!='cancelled') paket FROM order_packages q WHERE q.id IN (SELECT value FROM json_each(?))",[JSON.stringify([...ozet.keys()])]).all()).results){
+   const o=ozet.get(r.pid);if(o&&o.nakit!==null&&o.nakit!==undefined)o.nakit-=Math.round(Math.abs(r.stopaj||0)/Math.max(1,r.paket||1));
+  }
   return {packages:packages.slice(0,500).map(p=>{const ls=lines.filter(l=>l.package_id===p.id),lineIDs=new Set(ls.map(l=>l.id)),cs=components.filter(c=>lineIDs.has(c.line_id)),needs=new Map();for(const c of cs)needs.set(c.product_id,(needs.get(c.product_id)||0)+c.quantity_milli);const readiness=p.source_changed?'source_changed':ls.some(l=>cs.filter(c=>c.line_id===l.id).reduce((n,c)=>n+c.revenue_share_bps,0)!==10000)||cs.some(c=>c.stock_unit!==c.current_stock_unit)?'needs_mapping':ls.some(l=>l.net_revenue_cents===null)?'needs_amounts':p.status==='draft'&&[...needs].some(([product,q])=>(stock.get(product)||0)<q)?'needs_stock':'ready';return {...p,revenue_net_cents:ozet.get(p.id)?.gelir??null,result_cents:ozet.get(p.id)?.tam?ozet.get(p.id).sonuc:null,cash_result_cents:ozet.get(p.id)?.nakit??null,readiness};}),lines,components,products:products.map(p=>({...p,available_milli:p.quantity_milli-p.reserved_milli})),reservations,counts,truncated:offset+packages.length<total,pagination:{page,limit,total,pages:Math.max(1,Math.ceil(total/limit)),has_more:offset+packages.length<total}};
  }
  const previewMatch=path.match(/^\/api\/orders\/([\w-]+)\/source$/);
