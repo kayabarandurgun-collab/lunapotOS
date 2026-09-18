@@ -17,13 +17,15 @@ export async function performanceApi(request,env,path){
  // ayni stopaj birden cok kez dusulur ve kar oldugundan DUSUK gorunur: paket sayisina bolunur.
  // Kayit ayni kanalin magazasindan okunur; siparis numaralari kanallar arasinda karismaz.
  const stopajSql="(SELECT COALESCE(SUM(json_extract(r.data_json,'$.amount_cents')),0) FROM ec_report_records r JOIN ec_report_stores st ON st.id=r.store_id AND st.provider=order_packages.channel WHERE r.kind='finance_event' AND json_extract(r.data_json,'$.type')='withholding' AND json_extract(r.data_json,'$.order_no')=order_packages.order_no) stopaj_cents,(SELECT COUNT(*) FROM order_packages q WHERE q.order_no=order_packages.order_no AND q.channel=order_packages.channel AND q.status!='cancelled') stopaj_paket";
+ // Satışın stokta olmadan satılıp henüz alışla kapanmamış (açık) kısmı ve tahmin olup olmadığı.
+ const SALES_SQL='SELECT s.*,l.package_id,pp.vat_bps,(SELECT o.open_milli-o.settled_milli FROM open_costs o WHERE o.sale_id=s.id) open_milli,(SELECT iif(o.estimate_cents IS NULL,1,0) FROM open_costs o WHERE o.sale_id=s.id) no_estimate FROM sale_entries s JOIN order_line_components c ON (s.id=c.sale_id OR s.parent_id=c.sale_id) JOIN order_lines l ON l.id=c.line_id LEFT JOIN price_profiles pp ON pp.product_id=s.product_id WHERE l.package_id IN (SELECT value FROM json_each(?))';
  const db=env.DB,packages=await all(db.prepare(`SELECT *,${stopajSql} FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND ${mode==='delivered'?"status='delivered' AND delivered_on BETWEEN ? AND ?":"status IN ('draft','reserved','shipped') AND occurred_on BETWEEN ? AND ?"} ORDER BY occurred_on DESC,id LIMIT 1001`).bind(from,to));
  if(packages.length>1000)fail('Bu aralıkta 1.000’den fazla paket var. Eksiksiz toplam için tarih aralığını daraltın.',409);
  const ids=JSON.stringify(packages.map(p=>p.id));
  const [lines,components,sales,inputs=[],shippingRates=[],commissionRates=[]]=(await db.batch([
   db.prepare('SELECT * FROM order_lines WHERE package_id IN (SELECT value FROM json_each(?))').bind(ids),
   db.prepare('SELECT c.*,l.package_id,b.quantity_milli stock_quantity_milli,b.value_cents,p.stock_unit current_stock_unit,s.cost_cents sale_cost_cents FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN stock_balances b ON b.product_id=c.product_id JOIN products p ON p.id=c.product_id LEFT JOIN sale_entries s ON s.id=c.sale_id WHERE l.package_id IN (SELECT value FROM json_each(?))').bind(ids),
-  db.prepare('SELECT s.*,l.package_id,pp.vat_bps FROM sale_entries s JOIN order_line_components c ON (s.id=c.sale_id OR s.parent_id=c.sale_id) JOIN order_lines l ON l.id=c.line_id LEFT JOIN price_profiles pp ON pp.product_id=s.product_id WHERE l.package_id IN (SELECT value FROM json_each(?))').bind(ids),
+  db.prepare(SALES_SQL).bind(ids),
   ...(mode==='pending'?[db.prepare('SELECT * FROM order_estimate_inputs WHERE package_id IN (SELECT value FROM json_each(?))').bind(ids),
   db.prepare('SELECT * FROM shipping_rates WHERE archived_at IS NULL LIMIT 1001'),
   db.prepare('SELECT * FROM commission_rates WHERE archived_at IS NULL LIMIT 1001')]:[])
@@ -36,6 +38,44 @@ export async function performanceApi(request,env,path){
  for(const r of feeVatRows){if(feeVat.has(r.provider)&&feeVat.get(r.provider)!==r.bps)feeVat.set(r.provider,null);else if(!feeVat.has(r.provider))feeVat.set(r.provider,r.bps);}
  const group=items=>{const m=new Map();for(const r of items){const list=m.get(r.package_id)||[];list.push(r);m.set(r.package_id,list);}return m;};
  const lineMap=group(lines),partMap=group(components),saleMap=group(sales),inputMap=new Map(inputs.map(r=>[r.package_id,r]));
+ // ÇİFT KAYIT İKİZİ. Eski aktarımda aynı pazaryeri paketi panele iki kez girdi: rapor kopyası
+ // (teslim bilgisi ve pazaryeri kesintileri) ve satış faturası kaydı (satış ve maliyet). Kopyanın
+ // defter satırları "DUZELTME-CIFT" iadesiyle sıfırlandı; asıl satış ikizde kaldı ama ikiz
+ // "gönderildi" durumunda olduğu için teslim edilenlerin kârına HİÇ girmiyordu. Kopyanın yerine
+ // ikiz hesaplanır: teslim tarihi ve rapor kesintileri kopyadan, satış ve maliyet ikizden.
+ // Yalnız rapor okunur; hiçbir kayıt değişmez. İkiz bulunamazsa kopya olduğu gibi kalır.
+ if(mode==='delivered'){
+  const isDup=id=>{const e=saleMap.get(id)||[],s=e.filter(x=>x.kind==='sale');
+   return s.length>0&&s.every(x=>e.filter(r=>r.kind==='return'&&r.parent_id===x.id&&String(r.external_id||'').startsWith('DUZELTME-CIFT-')).reduce((n,r)=>n+r.quantity_milli,0)>=x.quantity_milli);};
+  const dups=packages.filter(p=>isDup(p.id));
+  if(dups.length){
+   const keys=JSON.stringify([...new Set(dups.map(p=>p.channel+'|'+p.order_no))]);
+   const twins=await all(db.prepare("SELECT * FROM order_packages WHERE channel||'|'||order_no IN (SELECT value FROM json_each(?)) AND status IN ('shipped','delivered') AND id NOT IN (SELECT value FROM json_each(?)) ORDER BY occurred_on,external_id").bind(keys,ids));
+   const tids=JSON.stringify(twins.map(t=>t.id));
+   const [tl,tc,ts]=(await db.batch([
+    db.prepare('SELECT * FROM order_lines WHERE package_id IN (SELECT value FROM json_each(?))').bind(tids),
+    db.prepare('SELECT c.*,l.package_id,b.quantity_milli stock_quantity_milli,b.value_cents,p.stock_unit current_stock_unit,s.cost_cents sale_cost_cents FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN stock_balances b ON b.product_id=c.product_id JOIN products p ON p.id=c.product_id LEFT JOIN sale_entries s ON s.id=c.sale_id WHERE l.package_id IN (SELECT value FROM json_each(?))').bind(tids),
+    db.prepare(SALES_SQL).bind(tids)])).map(r=>r.results);
+   for(const [m,rows] of [[lineMap,tl],[partMap,tc],[saleMap,ts]])for(const [k,v] of group(rows))m.set(k,v);
+   const free=twins.filter(t=>!isDup(t.id));
+   const byOrder=g=>{const m=new Map();for(const p of g){const k=p.channel+'|'+p.order_no;m.set(k,[...(m.get(k)||[]),p]);}return m;};
+   const freeBy=byOrder(free);
+   for(const [k,list] of byOrder([...dups].sort((a,b)=>a.occurred_on.localeCompare(b.occurred_on)||a.external_id.localeCompare(b.external_id)))){
+    const pool=freeBy.get(k)||[];
+    list.forEach((dup,i)=>{
+     const twin=pool[i];if(!twin)return;
+     // Pazaryeri kesintileri kopyanın asıl satırında (iade edilmeden önceki hâli) kayıtlı.
+     const dupSales=(saleMap.get(dup.id)||[]).filter(x=>x.kind==='sale');
+     saleMap.set(twin.id,(saleMap.get(twin.id)||[]).map(e=>{
+      if(e.kind!=='sale'||(e.commission_cents!==null&&e.shipping_cents!==null&&e.other_cents!==null))return e;
+      const src=dupSales.find(d=>d.product_id===e.product_id);
+      return src?{...e,commission_cents:e.commission_cents??src.commission_cents,shipping_cents:e.shipping_cents??src.shipping_cents,other_cents:e.other_cents??src.other_cents,fees_status:src.fees_status}:e;
+     }));
+     packages[packages.indexOf(dup)]={...twin,status:'delivered',delivered_on:dup.delivered_on,stopaj_cents:dup.stopaj_cents,stopaj_paket:dup.stopaj_paket,twin_of:dup.external_id};
+    });
+   }
+  }
+ }
  const templateKeys=(mode==='pending'?packages:[]).filter(p=>!inputMap.has(p.id)).map(p=>parcelTemplateKey(p,lineMap.get(p.id)||[],partMap.get(p.id)||[]));
  const templates=mode==='pending'&&templateKeys.length?await all(db.prepare('SELECT * FROM parcel_templates WHERE template_key IN (SELECT value FROM json_each(?))').bind(JSON.stringify(templateKeys))):[];
  const templateMap=new Map(templates.map(t=>[t.template_key,t]));
@@ -51,7 +91,7 @@ export async function performanceApi(request,env,path){
  }
  const rows=packages.map(p=>{
   const packageLines=lineMap.get(p.id)||[],parts=partMap.get(p.id)||[],entries=saleMap.get(p.id)||[];
-  const row={id:p.id,channel:p.channel,order_no:p.order_no,external_id:p.external_id,status:p.status,occurred_on:p.occurred_on,delivered_on:p.delivered_on,profit_cents:null,cash_cents:null,cash_note:null,missing:[],revenue_net_cents:null,cost_net_cents:null,shipping_cents:null,commission_cents:null,other_cents:null};
+  const row={twin_of:p.twin_of||null,id:p.id,channel:p.channel,order_no:p.order_no,external_id:p.external_id,status:p.status,occurred_on:p.occurred_on,delivered_on:p.delivered_on,profit_cents:null,cash_cents:null,cash_note:null,missing:[],revenue_net_cents:null,cost_net_cents:null,shipping_cents:null,commission_cents:null,other_cents:null};
   if(p.source_changed){row.missing.push('Kaynak sipariş değişti; farkı inceleyin.');return row;}
   if(mode==='delivered'){
    const profit=packageProfit(p,packageLines,parts,entries),total=profit.totals;
@@ -59,9 +99,12 @@ export async function performanceApi(request,env,path){
    // MALIYET SIFIR OLAMAZ. Alis kaydi olmayan bir maldan satis yapilinca (stok eksiye dustugu
    // icin birim maliyet 0 cikar) sistem mali BEDAVA sayiyor ve kar sisiyordu. Eksik veri sifir
    // sayilmaz: kar hesaplanmaz, sebebi yazilir. Alis belgesi girilince kendiliginde duzelir.
-   const maliyetsiz=entries.filter(e=>e.kind==='sale'&&e.cost_cents===0&&e.quantity_milli>0);
+   // Tahmin de yoksa (ürünün hiç alışı yok) maliyet BİLİNMİYOR. Tahminli açık satış kâra girer, notla işaretlenir.
+   const maliyetsiz=entries.filter(e=>e.kind==='sale'&&e.quantity_milli>0&&((e.cost_cents===0&&!(e.open_milli>0))||(e.open_milli>0&&e.no_estimate===1)));
+   if(entries.some(e=>e.kind==='sale'&&e.open_milli>0&&e.no_estimate===0))
+    row.cost_note='Mal stokta yokken satıldı: maliyetin bir kısmı son alış fiyatından TAHMİNİ. Alış faturası girilince kesinleşir.';
    if(maliyetsiz.length){
-    row.missing=[...profit.reasons,'Satılan ürünün alış kaydı yok; birim maliyet bilinmiyor. Sıfır sayılmadı, kâr hesaplanmadı. Alış faturasını girince düzelir.'];
+    row.missing=[...profit.reasons,'Satılan ürünün alış kaydı yok; maliyet tahmin de edilemiyor. Sıfır sayılmadı, kâr hesaplanmadı. Alış faturası girilince kendiliğinden kapanır.'];
     return row;
    }
    const raporN=raporSatir.get(p.id);
