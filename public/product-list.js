@@ -1,5 +1,5 @@
 
-export const BRANDS=['Klasmann','Tropikal','Gartengold'];
+export const BRANDS=['Tropikal','Gartengold','Klasmann','SAB'];
 export const CATEGORIES=['Torf ve yetiştirme ortamı','Bitki besini','Toprak düzenleyici','Bitki bakım ürünü','Saksı ve aksesuar'];
 const norm=s=>String(s||'').toLocaleLowerCase('tr-TR');
 // Siralama ve gosterim ayni tedarikci kaynagini kullanir: once kartta secili olan,
@@ -22,12 +22,31 @@ export function productList(products,data,state,helpers){
  // Kaynak alis faturasidir; tahmin yapilmaz. Hic alinmamis urunde alan bos kalir.
  const supplier=p=>data.suppliers.find(s=>s.id===p.supplier_id)?.name
    ||(p.last_supplier_name?p.last_supplier_name+' · alışlardan':'Tedarikçi seçilmedi');
+ // Tutarlar KDV DAHİL gösterilir: kullanıcı ödediği ve tahsil ettiği parayı görür. Oran ürünün
+ // fiyat profilinden, yoksa son alış faturasından gelir. Oran bilinmiyorsa KDV hariç tutar
+ // "KDV hariç" diye işaretlenir; oran uydurulmaz.
+ const gross=(p,v)=>v==null?null:p.vat_bps==null?v:Math.round(v*(10000+p.vat_bps)/10000);
+ const tag=p=>p.vat_bps==null?' <small>KDV hariç</small>':'';
  const price=p=>saleAverage(data.sales,p.id);
  const available=p=>p.quantity_milli-(p.reserved_milli||0);
  const cost=p=>p.quantity_milli>0&&p.value_cents!=null?Math.round(p.value_cents*1000/p.quantity_milli):null;
  const actions=p=>(helpers.editable===false?'':'<button type="button" class="text-button" data-ac="edit-product" data-id="'+esc(p.id)+'">Düzenle</button>')+'<button type="button" class="text-button" data-ac="stock-history" data-id="'+esc(p.id)+'">Hareketler →</button>';
- const status=p=>p.quantity_milli===0?'Stok yok':available(p)<=p.min_stock_milli?'Kritik stok':'Stokta';
+ const status=p=>p.quantity_milli<0?'Eksi stok':p.quantity_milli===0?'Stok yok':available(p)<=p.min_stock_milli?'Kritik stok':'Stokta';
  if(!products.length)return '<div class="card product-empty"><h2>Bu seçimde ürün bulunamadı</h2><p>Filtreleri temizleyebilir veya ürün listesini içe aktarmak için hazırlayabilirsin.</p></div>';
- if(state.stockView==='table')return '<div class="card table-wrap"><table class="ac-table"><thead><tr>'+['Ürün / Kod','Marka','Kategori','Tedarikçi','Eldeki','Ayrılan','Kullanılabilir','Ort. alış fiyatı','Ort. stok maliyeti','Ort. net satış','İşlem'].map(x=>'<th>'+x+'</th>').join('')+'</tr></thead><tbody>'+products.map(p=>'<tr><td>'+esc(p.name)+'<small>'+esc(p.sku)+'</small></td><td>'+esc(p.brand||'Belirtilmedi')+'</td><td>'+esc(p.category||'Kategorisiz')+'</td><td>'+esc(supplier(p))+'</td><td>'+qty(p.quantity_milli)+' '+esc(p.stock_unit)+'</td><td>'+qty(p.reserved_milli||0)+'</td><td>'+qty(available(p))+'</td><td>'+money(p.average_purchase_cents)+'</td><td>'+money(cost(p))+'</td><td>'+money(price(p))+'</td><td>'+actions(p)+'</td></tr>').join('')+'</tbody></table></div>';
- return '<div class="product-grid">'+products.map(p=>'<article class="card product-tile"><div class="product-eyebrow"><span>'+esc(p.brand||'Marka belirtilmedi')+'</span><span class="pill neutral">'+status(p)+'</span></div><h2>'+esc(p.name)+'</h2><p class="muted">'+esc(p.sku)+' · '+esc(p.category||'Kategorisiz')+'</p><p class="product-supplier">'+esc(supplier(p))+'</p><dl><div><dt>Kullanılabilir</dt><dd>'+qty(available(p))+' '+esc(p.stock_unit)+'</dd></div><div><dt>Eldeki / ayrılan</dt><dd>'+qty(p.quantity_milli)+' / '+qty(p.reserved_milli||0)+'</dd></div><div><dt>Ort. alış fiyatı</dt><dd>'+money(p.average_purchase_cents)+'</dd></div><div><dt>Ort. stok maliyeti</dt><dd>'+money(cost(p))+'</dd></div><div><dt>Ort. net satış</dt><dd>'+money(price(p))+'</dd></div></dl><div class="product-actions">'+actions(p)+'</div></article>').join('')+'</div>';
+ // MARKA GRUPLARI. Tropikal, Gartengold, Klasmann… her marka kendi başlığı altında; başlıkta
+ // o markanın eldeki adedi ve stok değeri (KDV dahil). Markasız ürünler en sonda.
+ const order=[...BRANDS];
+ const groups=new Map();
+ for(const p of products){const b=p.brand||'';if(!groups.has(b))groups.set(b,[]);groups.get(b).push(p);}
+ const keys=[...groups.keys()].sort((a,b)=>(!a)-(!b)||((order.indexOf(a)+1||99)-(order.indexOf(b)+1||99))||a.localeCompare(b,'tr'));
+ const head=(b,list)=>{
+  const onHand=list.reduce((s,p)=>s+Math.max(0,p.quantity_milli),0);
+  const value=list.reduce((s,p)=>s+(gross(p,p.value_cents)||0),0);
+  const eksi=list.filter(p=>p.quantity_milli<0).length;
+  return '<div class="brand-head"><h2>'+esc(b||'Markası belirtilmemiş')+'</h2><span>'+list.length+' ürün · eldeki '+qty(onHand)+' · stok değeri '+money(value)+' (KDV dahil)'+(eksi?' · <b>'+eksi+' üründe eksi stok</b>':'')+'</span></div>';
+ };
+ const tableRows=list=>list.map(p=>'<tr><td>'+esc(p.name)+'<small>'+esc(p.sku)+'</small></td><td>'+esc(p.category||'Kategorisiz')+'</td><td>'+esc(supplier(p))+'</td><td>'+qty(p.quantity_milli)+' '+esc(p.stock_unit)+'</td><td>'+qty(p.reserved_milli||0)+'</td><td>'+qty(available(p))+'</td><td>'+money(gross(p,p.average_purchase_cents))+tag(p)+'</td><td>'+money(gross(p,cost(p)))+tag(p)+'</td><td>'+money(gross(p,price(p)))+tag(p)+'</td><td>'+actions(p)+'</td></tr>').join('');
+ if(state.stockView==='table')return keys.map(b=>'<section class="brand-group">'+head(b,groups.get(b))+'<div class="card table-wrap"><table class="ac-table"><thead><tr>'+['Ürün / Kod','Kategori','Tedarikçi','Eldeki','Ayrılan','Kullanılabilir','Ort. alış (KDV dahil)','Birim stok maliyeti (KDV dahil)','Ort. satış (KDV dahil)','İşlem'].map(x=>'<th>'+x+'</th>').join('')+'</tr></thead><tbody>'+tableRows(groups.get(b))+'</tbody></table></div></section>').join('');
+ const tile=p=>'<article class="card product-tile"><div class="product-eyebrow"><span>'+esc(p.category||'Kategorisiz')+'</span><span class="pill '+(p.quantity_milli<=0?'warning':'neutral')+'">'+status(p)+'</span></div><h2>'+esc(p.name)+'</h2><p class="muted">'+esc(p.sku)+'</p><p class="product-supplier">'+esc(supplier(p))+'</p><dl><div><dt>Kullanılabilir</dt><dd>'+qty(available(p))+' '+esc(p.stock_unit)+'</dd></div><div><dt>Eldeki / ayrılan</dt><dd>'+qty(p.quantity_milli)+' / '+qty(p.reserved_milli||0)+'</dd></div><div><dt>Ort. alış fiyatı</dt><dd>'+money(gross(p,p.average_purchase_cents))+tag(p)+'</dd></div><div><dt>Birim stok maliyeti</dt><dd>'+money(gross(p,cost(p)))+tag(p)+'</dd></div><div><dt>Ort. satış fiyatı</dt><dd>'+money(gross(p,price(p)))+tag(p)+'</dd></div><div><dt>Stok değeri</dt><dd>'+money(gross(p,p.value_cents))+tag(p)+'</dd></div></dl><div class="product-actions">'+actions(p)+'</div></article>';
+ return '<p class="help">Tutarlar KDV dahildir.</p>'+keys.map(b=>'<section class="brand-group">'+head(b,groups.get(b))+'<div class="product-grid">'+groups.get(b).map(tile).join('')+'</div></section>').join('');
 }

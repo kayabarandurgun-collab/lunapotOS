@@ -13,16 +13,25 @@ function common(x){
  const r={label:text(x.label,'Tarife adı'),channel:channel(x.channel),valid_from:day(x.valid_from),valid_to:day(x.valid_to),price_min_cents:integer(x.price_min_cents,'Alt fiyat',0,10000000),price_max_cents:x.price_max_cents===null?null:integer(x.price_max_cents,'Üst fiyat',1,10000001),vat_bps:integer(x.vat_bps,'KDV',0,10000),tax_included:bool(x.tax_included),source:text(x.source,'Tarife kaynağı',500)};
  if(r.valid_to<r.valid_from||r.price_max_cents!==null&&r.price_max_cents<=r.price_min_cents)fail('Tarife aralığı geçersiz.');return r;
 }
-async function state(db){
- const [profiles,shippingRates,commissionRates,products]=await Promise.all([
- all(db,'SELECT pp.*,p.sku,p.category,p.name product_name FROM price_profiles pp JOIN products p ON p.id=pp.product_id'),
+// ÜRÜN MALİYETİ profildeki elle girilen alandan okunuyordu; katalogdan açılan profillerin hepsinde
+// 0 kalmıştı ve hesap malı BEDAVA sayıyordu. Elle girilmiş değer 0 ise maliyet son muhasebeleşmiş
+// alışın KDV hariç birim fiyatından (yeniden stoklama maliyeti), o da yoksa eldeki stoğun birim
+// maliyetinden alınır. Hiçbiri yoksa maliyet EKSİK sayılır; sıfır varsayılmaz.
+async function state(db,ec=true){
+ const cost=ec?",(SELECT CAST(ROUND(l.net_cents*1000.0/l.quantity_milli) AS INTEGER) FROM purchase_lines l JOIN purchase_invoices i ON i.id=l.invoice_id WHERE l.product_id=p.id AND i.status='posted' AND l.quantity_milli>0 ORDER BY i.invoice_date DESC,i.rowid DESC LIMIT 1) last_purchase_cents,(SELECT CAST(ROUND(b.value_cents*1000.0/b.quantity_milli) AS INTEGER) FROM stock_balances b WHERE b.product_id=p.id AND b.quantity_milli>0) stock_unit_cents":",NULL last_purchase_cents,NULL stock_unit_cents";
+ const [raw,shippingRates,commissionRates,products]=await Promise.all([
+ all(db,'SELECT pp.*,p.sku,p.category,p.name product_name'+cost+' FROM price_profiles pp JOIN products p ON p.id=pp.product_id'),
  boundedRows(db,'shipping_rates'),boundedRows(db,'commission_rates'),all(db,'SELECT id,name,sku,category FROM products ORDER BY name')
- ]);return {profiles,shippingRates,commissionRates,products};
+ ]);
+ const profiles=raw.map(pp=>{const manual=pp.replacement_cost_cents>0,derived=pp.last_purchase_cents??pp.stock_unit_cents??null;
+  return {...pp,manual_cost_cents:pp.replacement_cost_cents,replacement_cost_cents:manual?pp.replacement_cost_cents:derived,
+   cost_source:manual?'manual':pp.last_purchase_cents!=null?'last_purchase':pp.stock_unit_cents!=null?'stock':'missing'};});
+ return {profiles,shippingRates,commissionRates,products};
 }
 export async function pricingApi(request,env,path,readBody){
  if(!['ec','lp'].includes(env.WORKSPACE))fail('Çalışma alanı geçersiz.',403);
  const db=env.DB,method=request.method;
- if(path==='/api/pricing'&&method==='GET')return state(db);
+ if(path==='/api/pricing'&&method==='GET')return state(db,env.WORKSPACE==='ec');
  if(path==='/api/pricing/profiles'&&method==='POST'){
   const x=await readBody(request),r={product_id:text(x.product_id,'Ürün',100)};
   if(!await stmt(db,'SELECT id FROM products WHERE id=?',[r.product_id]).first())fail('Bu çalışma alanında ürün bulunamadı.',404);
@@ -58,7 +67,7 @@ export async function pricingApi(request,env,path,readBody){
   if(!row)fail('Tarife bulunamadı.',404);if(!row.archived_at)await stmt(db,'UPDATE '+table+' SET archived_at=CURRENT_TIMESTAMP WHERE id=?',[archive[2]]).run();return {id:row.id,archived:true};
  }
  if(path==='/api/pricing/quote'&&method==='POST'){
-  const x=await readBody(request),data=await state(db),profile=data.profiles.find(p=>p.product_id===x.product_id);
+  const x=await readBody(request),data=await state(db,env.WORKSPACE==='ec'),profile=data.profiles.find(p=>p.product_id===x.product_id);
   const input={profile,shippingRates:data.shippingRates,commissionRates:data.commissionRates,priceCents:x.price_cents,quantity:x.quantity??1,channel:x.channel,carrier:x.carrier,date:x.date,desiredProfitCents:x.desired_profit_cents??0,maxPriceCents:x.max_price_cents??1000000};
   return priceDecision(input);
  }

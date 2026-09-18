@@ -37,6 +37,29 @@ async function batch(db,items){try{return await db.batch(items);}catch(e){
  if(message.includes('INVOICE_ALREADY_HANDLED')||message.includes('IMMUTABLE_INVOICE'))fail('Bu fatura daha önce işlendi.',409);
  throw e;
 }}
+// GEÇİCİ SAYIM KENDİLİĞİNDEN KAPANIR. Tedarikçi faturayı ay sonunda keser; mal ondan önce gelir
+// ve rafta sayılır. Böyle bir mal "GECICI-SAYIM-..." referanslı sayımla girilmişse, faturası gelip
+// mal teslimi yapıldığında AYNI mal ikinci kez stoğa girmiş olur. Teslimden hemen sonra o ürünün
+// açık geçici sayımı, teslim edilen adet kadar (en eskisi önce) sayımın kendi birim değeriyle
+// düşülür. Kapanış alış hareketidir (sayım düşüşü "kayıp" gideri yazardı); değer stoğu aşamaz.
+// Kullanıcının kimseye haber vermesi gerekmez.
+async function closeProvisionalCounts(db,invoiceId,lineIds,date,reference){
+ const rows=(await db.prepare(`SELECT l.product_id,SUM(g.quantity_milli) q FROM goods_receipts g JOIN purchase_lines l ON l.id=g.line_id
+  WHERE l.invoice_id=? AND g.reference=? AND l.id IN (SELECT value FROM json_each(?)) AND l.product_id IS NOT NULL GROUP BY l.product_id`).bind(invoiceId,reference,JSON.stringify(lineIds)).all()).results;
+ for(const r of rows){
+  const open=(await db.prepare(`SELECT m.id,m.quantity_milli,m.value_cents,m.quantity_milli-COALESCE((SELECT -SUM(c.quantity_milli) FROM stock_movements c WHERE c.kind='purchase' AND c.product_id=m.product_id AND c.reference LIKE 'provisional-close:'||m.id||':%'),0) remaining
+   FROM stock_movements m WHERE m.product_id=? AND m.kind='count' AND m.quantity_milli>0 AND m.reference LIKE 'GECICI-SAYIM-%' ORDER BY m.occurred_on,m.rowid`).bind(r.product_id).all()).results.filter(m=>m.remaining>0);
+  let left=r.q;
+  for(const m of open){
+   if(left<=0)break;
+   const take=Math.min(left,m.remaining);left-=take;
+   const bal=await db.prepare('SELECT quantity_milli,value_cents FROM stock_balances WHERE product_id=?').bind(r.product_id).first();
+   const value=Math.min(bal?.value_cents||0,Math.round(m.value_cents*take/m.quantity_milli));
+   await db.prepare("INSERT INTO stock_movements(id,product_id,quantity_milli,value_cents,kind,reference,notes,occurred_on) VALUES(?,?,?,?,'purchase',?,?,?)")
+    .bind(crypto.randomUUID(),r.product_id,-take,-value,'provisional-close:'+m.id+':'+invoiceId+':'+reference,'Geçici sayım faturayla kapandı ('+reference+')',date).run();
+  }
+ }
+}
 export async function accountingApi(request,env,path,readBody){
  const db=env.DB,url=new URL(request.url),method=request.method,receiptTable=env.WORKSPACE==='ec'?'effective_receipts':'goods_receipts';
  if(path.startsWith('/api/accounting/integrations')&&env.WORKSPACE!=='ec')fail('Bu bağlantılar e-ticaret çalışma alanına aittir.',403);
@@ -56,7 +79,7 @@ export async function accountingApi(request,env,path,readBody){
  if(path==='/api/accounting'&&method==='GET'){
   const from=day(url.searchParams.get('from')||localDay(Date.now()-30*86400000)),to=day(url.searchParams.get('to')||localDay());if(from>to)fail('Başlangıç tarihi bitişten sonra olamaz.');
   const queries=[
-   db.prepare(`SELECT p.id,p.name,p.sku,${env.WORKSPACE==='ec'?"p.category,p.brand,p.supplier_id,":"'' category,'' brand,NULL supplier_id,"}${env.WORKSPACE==='ec'?"(SELECT CAST(ROUND(SUM(v.effective_net-v.closed_net)*1000.0/NULLIF(SUM(l.quantity_milli-v.closed_milli),0)) AS INTEGER) FROM purchase_lines l JOIN purchase_invoices i ON i.id=l.invoice_id JOIN purchase_line_limits v ON v.id=l.id WHERE l.product_id=p.id AND l.line_type='product' AND i.status='posted' AND l.quantity_milli>v.closed_milli)":'NULL'} average_purchase_cents,${env.WORKSPACE==='ec'?"(SELECT s.name FROM purchase_lines pl JOIN purchase_invoices pi ON pi.id=pl.invoice_id JOIN suppliers s ON s.id=pi.supplier_id WHERE pl.product_id=p.id AND pl.line_type='product' AND pi.status!='cancelled' ORDER BY pi.invoice_date DESC,pi.rowid DESC LIMIT 1)":'NULL'} last_supplier_name,${env.WORKSPACE==='ec'?"(SELECT pi.supplier_id FROM purchase_lines pl JOIN purchase_invoices pi ON pi.id=pl.invoice_id WHERE pl.product_id=p.id AND pl.line_type='product' AND pi.status!='cancelled' ORDER BY pi.invoice_date DESC,pi.rowid DESC LIMIT 1)":'NULL'} last_supplier_id,p.stock_unit,p.min_stock_milli,b.quantity_milli,b.value_cents,${env.WORKSPACE==='ec'?"COALESCE((SELECT SUM(r.quantity_milli) FROM order_reservations r WHERE r.product_id=p.id AND r.released_on IS NULL),0)":'0'} reserved_milli FROM products p JOIN stock_balances b ON b.product_id=p.id ORDER BY p.name`),
+   db.prepare(`SELECT p.id,p.name,p.sku,${env.WORKSPACE==='ec'?"p.category,p.brand,p.supplier_id,":"'' category,'' brand,NULL supplier_id,"}${env.WORKSPACE==='ec'?"(SELECT CAST(ROUND(SUM(v.effective_net-v.closed_net)*1000.0/NULLIF(SUM(l.quantity_milli-v.closed_milli),0)) AS INTEGER) FROM purchase_lines l JOIN purchase_invoices i ON i.id=l.invoice_id JOIN purchase_line_limits v ON v.id=l.id WHERE l.product_id=p.id AND l.line_type='product' AND i.status='posted' AND l.quantity_milli>v.closed_milli)":'NULL'} average_purchase_cents,${env.WORKSPACE==='ec'?"(SELECT s.name FROM purchase_lines pl JOIN purchase_invoices pi ON pi.id=pl.invoice_id JOIN suppliers s ON s.id=pi.supplier_id WHERE pl.product_id=p.id AND pl.line_type='product' AND pi.status!='cancelled' ORDER BY pi.invoice_date DESC,pi.rowid DESC LIMIT 1)":'NULL'} last_supplier_name,${env.WORKSPACE==='ec'?"(SELECT pi.supplier_id FROM purchase_lines pl JOIN purchase_invoices pi ON pi.id=pl.invoice_id WHERE pl.product_id=p.id AND pl.line_type='product' AND pi.status!='cancelled' ORDER BY pi.invoice_date DESC,pi.rowid DESC LIMIT 1)":'NULL'} last_supplier_id,p.stock_unit,p.min_stock_milli,b.quantity_milli,b.value_cents,${env.WORKSPACE==='ec'?"COALESCE((SELECT SUM(r.quantity_milli) FROM order_reservations r WHERE r.product_id=p.id AND r.released_on IS NULL),0)":'0'} reserved_milli,${env.WORKSPACE==='ec'?"COALESCE((SELECT vat_bps FROM price_profiles WHERE product_id=p.id),(SELECT CAST(ROUND(pl.tax_cents*10000.0/pl.net_cents) AS INTEGER) FROM purchase_lines pl JOIN purchase_invoices pi ON pi.id=pl.invoice_id WHERE pl.product_id=p.id AND pl.line_type='product' AND pi.status='posted' AND pl.net_cents>0 ORDER BY pi.invoice_date DESC,pi.rowid DESC LIMIT 1))":'NULL'} vat_bps FROM products p JOIN stock_balances b ON b.product_id=p.id ORDER BY p.name`),
    statement(db,'SELECT s.*,p.name product_name,p.sku FROM sale_entries s JOIN products p ON p.id=s.product_id WHERE s.occurred_on BETWEEN ? AND ? ORDER BY s.occurred_on DESC,s.created_at DESC LIMIT 5001',[from,to]),
    statement(db,'SELECT * FROM expenses WHERE occurred_on BETWEEN ? AND ? ORDER BY occurred_on DESC LIMIT 5001',[from,to]),
    db.prepare('SELECT s.*,COALESCE((SELECT SUM(l.net_cents+l.tax_cents) FROM purchase_lines l JOIN purchase_invoices i ON i.id=l.invoice_id WHERE i.supplier_id=s.id AND i.status=\'posted\'),0) purchase_cents,COALESCE((SELECT SUM(amount_cents) FROM supplier_payments WHERE supplier_id=s.id),0) paid_cents,COALESCE((SELECT SUM(amount_cents) FROM party_entries WHERE party_id=s.id),0) balance_cents FROM suppliers s ORDER BY name'),
@@ -155,7 +178,9 @@ export async function accountingApi(request,env,path,readBody){
    const receiptLines=new Set((await statement(db,"SELECT id FROM purchase_lines WHERE invoice_id=? AND line_type='product'",[key]).all()).results.map(l=>l.id));
    for(const line of x.lines){const q=milli(line.quantity);if(!receiptLines.has(line.id))fail('Bu faturada ürün satırı bulunamadı.',404);
     statements.push(statement(db,`INSERT INTO goods_receipts(id,line_id,quantity_milli,value_cents,occurred_on,reference) SELECT ?,id,?,CAST(ROUND(net_cents*(?+COALESCE((SELECT SUM(quantity_milli) FROM ${receiptTable} WHERE line_id=l.id),0))/(quantity_milli*1.0)) AS INTEGER)-COALESCE((SELECT SUM(value_cents) FROM ${receiptTable} WHERE line_id=l.id),0),?,? FROM purchase_lines l WHERE id=?`,[id(),q,q,date,reference,line.id]));
-   }await batch(db,[...statements,log(db,'Mal teslimi kaydedildi; eldeki stok güncellendi')]);return {id:key};
+   }await batch(db,[...statements,log(db,'Mal teslimi kaydedildi; eldeki stok güncellendi')]);
+   if(env.WORKSPACE==='ec')await closeProvisionalCounts(db,key,x.lines.map(l=>l.id),date,reference);
+   return {id:key};
   }
   if(existing.status!=='draft')fail('Bu fatura daha önce işlendi.',409);
   // Iptal edilen taslak numarasi serbest kalir: belge kaydi silinir ve numara mezar tasi ile isaretlenir.

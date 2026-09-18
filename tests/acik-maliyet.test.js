@@ -86,3 +86,23 @@ test('0047 geçişi Wrangler ayrıştırıcısından eksiksiz geçer', () => {
   assert.equal(triggers.length, 6);
   for (const t of triggers) assert.match(t.trim(), /END;?$/, 'tetik gövdesi bölünmedi: ' + t.slice(0, 60));
 });
+
+// Ay sonu faturasından önce rafta sayılıp "GECICI-SAYIM-" ile girilmiş mal, faturası gelip teslim
+// yapılınca kendiliğinden kapanır: aynı mal iki kez stokta görünmez, kimsenin haber vermesi gerekmez.
+test('Geçici sayım, faturalı mal teslimiyle kendiliğinden kapanır; stok çift sayılmaz', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const {supplier, product} = await kur(f);
+    await alis(f, supplier, product, 'YSK-1', D, 2, 1400);
+    await f.ok('/ec/stock', {product_id: product, quantity: 10, unit_cost: 1400, kind: 'count', reference: 'GECICI-SAYIM-TS1', notes: 'Faturası ay sonunda gelecek', occurred_on: '2026-09-05'});
+    assert.equal(bakiye(f, product).q, 10000, 'rafta 10 (2 faturalı + 8 geçici)');
+    await satis(f, product, 'S1', '2026-09-10');
+    await alis(f, supplier, product, 'YSK-AYSONU', '2026-09-30', 8, 1500);            // geçici 8 adetin faturası
+    assert.equal(bakiye(f, product).q, 9000, '10 − 1 satış; faturalı 8 adet ikinci kez eklenmedi');
+    const close = f.sqlite.prepare("SELECT quantity_milli q,value_cents v FROM ec_stock_movements WHERE reference LIKE 'provisional-close:%'").all();
+    assert.deepEqual(close.map(r => r.q), [-8000], 'geçici sayımın 8 adedi kapandı');
+    assert.equal(f.sqlite.prepare("SELECT COUNT(*) n FROM ec_expenses WHERE category='loss'").get().n, 0, 'kapanış kayıp gideri yazmadı');
+    // İkinci bir teslim geçici sayımı yeniden düşmez.
+    await alis(f, supplier, product, 'YSK-2', '2026-10-02', 3, 1500);
+    assert.equal(bakiye(f, product).q, 12000);
+  } finally { f.close(); }
+});

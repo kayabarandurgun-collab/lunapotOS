@@ -4,6 +4,7 @@ const money=v=>new Intl.NumberFormat('tr-TR',{style:'currency',currency:'TRY'}).
 export function movementLabel(row){
  if(row.kind==='adjustment')return 'Alış maliyeti düzeltmesi';
  if(row.kind==='cost_settlement')return 'Stoksuz satışın maliyeti kapandı';
+ if(String(row.reference).startsWith('provisional-close:'))return 'Geçici sayım faturayla kapandı';
  if(String(row.reference).startsWith('purchase-return:'))return row.quantity_milli<0?'Tedarikçiye iade':'Tedarikçi iadesi geri alındı';
  if(String(row.reference).startsWith('receipt-reverse:'))return 'Mal teslimi düzeltmesi';
  if(row.origin==='production')return row.quantity_milli<0?'Üretim çıkışı':'Üretim girişi / düzeltmesi';
