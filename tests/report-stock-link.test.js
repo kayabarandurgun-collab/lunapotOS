@@ -430,7 +430,7 @@ test('Otomatik aktarım: kargolanan paket açılır, stok ayrılır ve düşer; 
     assert.equal(by.PK1.done, 'sipariş açıldı, stok ayrıldı, gönderildi');
     assert.equal(by.PK2.done, 'sipariş açıldı, stok ayrıldı, gönderildi, teslim edildi');
     assert.equal(by.PK5.done, 'sipariş açıldı, stok ayrıldı', 'henüz kargoya verilmemiş: yalnız stok ayrılır ' + JSON.stringify(by.PK5));
-    assert.ok(by.PK3.skipped, 'iptal atlandı');
+    assert.equal(by.PK3, undefined, 'panelde karşılığı olmayan iptal paketi listeye girmez');
     assert.ok(by.PK4.skipped && /taslak/.test(by.PK4.reason), 'eşleşmeyen ürün: sipariş taslak açılır, stok düşmez');
     // 20 − (PK1 + PK2) × 2 ilan × 4 şişe = 4; PK5 ayrıldı ama düşmedi.
     assert.equal(stockOf(f, product.id), 4000);
@@ -658,5 +658,40 @@ test('Otomatik iade: teslim edilemeyen paket ayrı satış olarak yazılmışsa 
     assert.equal(r.done.length, 1, JSON.stringify(r));
     assert.equal(stockOf(f, product.id), 12000, 'teslim edilemeyen paketin malı stoğa döndü');
     assert.equal((await f.ok('/ec/reports/stock-link/returns-apply', {store_id: s, confirm: true})).done.length, 0, 'ikinci kez yazılmaz');
+  } finally { f.close(); }
+});
+
+test('Otomatik aktarım: ayrılmış sipariş raporda iptal olursa sipariş iptal edilir, stok serbest kalır', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const product = await fourPack(f);
+    const s = store(f);
+    startDate(f, DATE);
+    record(f, s, 'TY-1', line({package_id: 'PKC', line_id: 'LC', order_no: 'OC', status: 'Toplanmaya Başlandı', delivered_date: ''}), 1);
+    const once = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
+    assert.equal(once.results[0].done, 'sipariş açıldı, stok ayrıldı');
+    guncelle(f, 'rec-TY-1-1', {status: 'İptal Edildi'});
+    const r = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
+    assert.equal(r.results[0].done, 'iptal edildi', JSON.stringify(r.results));
+    assert.equal(f.sqlite.prepare("SELECT status FROM ec_order_packages WHERE id=?").get(once.results[0].order_package).status, 'cancelled');
+    assert.equal(stockOf(f, product.id), 20000);
+    assert.equal((await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []})).results.length, 0, 'bir daha listelenmez');
+  } finally { f.close(); }
+});
+
+test('Otomatik iade: tek satırlı pakette kısmi iade birim fiyatın katıysa o kadar adet iade edilir; değilse elle kalır', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const product = await fourPack(f);
+    const s = store(f);
+    startDate(f, DATE);
+    record(f, s, 'TY-1', line({package_id: 'PKK', line_id: 'LK', order_no: 'OK', status: 'Kargolandı', delivered_date: '', quantity: 2, gross: 96000}), 1);
+    await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
+    assert.equal(stockOf(f, product.id), 12000);
+    finans(f, s, 'TY-1', 1, {order_no: 'OK', type: 'refund', amount_cents: -30000});
+    const yok = await f.ok('/ec/reports/stock-link/returns-apply', {store_id: s, confirm: true});
+    assert.equal(yok.done.length, 0, 'katı olmayan tutar uydurulmaz');
+    finans(f, s, 'TY-1', 2, {order_no: 'OK', type: 'refund', amount_cents: -18000});
+    const r = await f.ok('/ec/reports/stock-link/returns-apply', {store_id: s, confirm: true});
+    assert.equal(r.done.length, 1, JSON.stringify(r));
+    assert.equal(stockOf(f, product.id), 16000, '2 ilandan 1 ilan (4 şişe) stoğa döndü');
   } finally { f.close(); }
 });

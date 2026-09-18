@@ -770,7 +770,7 @@ export async function pendingReturns(db, storeId) {
     " (SELECT SUM(json_extract(f.data_json,'$.amount_cents')) FROM ec_report_records f" +
     "  WHERE f.store_id=r.store_id AND f.kind='finance_event' AND json_extract(f.data_json,'$.type')='refund'" +
     "  AND json_extract(f.data_json,'$.order_no')=json_extract(r.data_json,'$.order_no')) refund_cents," +
-    " SUM(json_extract(r.data_json,'$.gross')) rapor_brut" +
+    " SUM(json_extract(r.data_json,'$.gross')) rapor_brut, SUM(json_extract(r.data_json,'$.quantity')) rapor_adet" +
     " FROM ec_report_records r WHERE r.store_id=? AND r.kind='order_line' AND r.erp_package_id IS NOT NULL" +
     " GROUP BY r.erp_package_id").bind(store.id).all()).results.filter(x => x.refund_cents && x.refund_cents < 0);
 
@@ -790,7 +790,18 @@ export async function pendingReturns(db, storeId) {
     // karşılaştırmak indirimli siparişlerde şaşırır, çünkü iade indirimsiz tutarı gösterir.
     const iade = Math.abs(x.refund_cents), raporBrut = x.rapor_brut || 0;
     const tamIade = raporBrut > 0 && Math.abs(iade - raporBrut) <= 200;
-    if (!tamIade) { skipped.push({order_no: x.order_no, reason: 'Kısmi iade (' + (iade / 100).toFixed(2) + ' TL); hangi satırın iade edildiği raporda yok, elle girilmeli.'}); continue; }
+    // TEK SATIRLI pakette kısmi iade belirsiz değildir: iade tutarı birim fiyatın tam katıysa o
+    // kadar adet iade edilmiştir (2 × 480 TL'lik satışta 480 TL iade = 1 adet).
+    if (!tamIade) {
+      const adet = Number(x.rapor_adet) || 0, birim = adet > 0 ? raporBrut / adet : 0, k = birim > 0 ? Math.round(iade / birim) : 0;
+      if (sales.length === 1 && k >= 1 && k < adet && Math.abs(k * birim - iade) <= 200) {
+        const r = sales[0];
+        out.push({order_no: x.order_no, erp_package_id: x.erp_package_id, refund_cents: iade, reason: 'Pazaryeri raporunda kısmi iade: ' + x.order_no + ', ' + adet + ' adetten ' + k + '.',
+          lines: [{sale_id: r.sale_id, sku: r.sku, quantity: Math.round(r.quantity_milli * k / adet) / 1000, revenue_cents: Math.round(r.revenue_cents * k / adet), occurred_on: r.occurred_on}]});
+        continue;
+      }
+      skipped.push({order_no: x.order_no, reason: 'Kısmi iade (' + (iade / 100).toFixed(2) + ' TL); hangi satırın iade edildiği raporda yok, elle girilmeli.'}); continue;
+    }
     out.push({order_no: x.order_no, erp_package_id: x.erp_package_id, refund_cents: iade,
       lines: sales.map(r => ({sale_id: r.sale_id, sku: r.sku, quantity: r.quantity_milli / 1000, revenue_cents: r.revenue_cents, occurred_on: r.occurred_on}))});
   }

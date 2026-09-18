@@ -398,15 +398,27 @@ export async function reportStockLinkApi(request, env, path, readBody) {
         JOIN ec_order_packages p ON p.id=r.erp_package_id WHERE r.store_id=? AND r.kind='order_line' AND p.status='reserved'`)
       .bind(storeId).all()).results.map(r => String(r.pk)));
     const GITTI = /kargo|teslim|shipped|delivered|yolda/;
+    const iptalAcik = new Set((await db.prepare(`SELECT DISTINCT json_extract(r.data_json,'$.package_id') pk FROM ec_report_records r
+        JOIN ec_order_packages p ON p.id=r.erp_package_id WHERE r.store_id=? AND r.kind='order_line' AND p.status IN ('draft','reserved')`)
+      .bind(storeId).all()).results.map(r => String(r.pk)));
     const all = hepsi.filter(c => !eskiPaket.has(String(c.package_id))
-      && (!ayrilmis.has(String(c.package_id)) || GITTI.test(String(c.statuses || '').toLocaleLowerCase('tr-TR'))));
+      && (!CANCELLED.test(String(c.statuses || '').toLocaleLowerCase('tr-TR')) || iptalAcik.has(String(c.package_id)))
+      && (!ayrilmis.has(String(c.package_id)) || GITTI.test(String(c.statuses || '').toLocaleLowerCase('tr-TR')) || CANCELLED.test(String(c.statuses || '').toLocaleLowerCase('tr-TR'))));
     const results = [];
     const call = (handler, url, body) => handler(new Request('https://internal.invalid' + url, {method: 'POST'}), env, url, async () => body);
     for (const c of all.slice(0, AUTO_LIMIT)) {
       const pkg = String(c.package_id), durum = String(c.statuses || '').toLocaleLowerCase('tr-TR');
       const out = {package_id: pkg};
       try {
-        if (CANCELLED.test(durum)) { results.push({...out, skipped: true, reason: 'İptal/iade: satış açılmadı.'}); continue; }
+        // İPTAL: gönderilmemiş (taslak/ayrılmış) sipariş iptal edilir, ayrılan stok serbest kalır.
+        // Panelde karşılığı olmayan iptal paketi listeye hiç girmez (yukarıda elendi).
+        if (CANCELLED.test(durum)) {
+          const acik = await db.prepare(`SELECT DISTINCT p.id FROM ec_report_records r JOIN ec_order_packages p ON p.id=r.erp_package_id
+            WHERE r.store_id=? AND r.kind='order_line' AND json_extract(r.data_json,'$.package_id')=? AND p.status IN ('draft','reserved')`).bind(storeId, pkg).first();
+          if (acik) { await call(ordersApi, '/api/orders/' + acik.id + '/cancel', {reason: 'Pazaryeri raporunda iptal/iade: ' + pkg}); results.push({...out, done: 'iptal edildi', order_package: acik.id}); }
+          else results.push({...out, skipped: true, reason: 'İptal/iade: satış açılmadı.'});
+          continue;
+        }
         // Pazaryeri raporunda kalem kimliği sütunu yoktur; her satırda paket no ve barkod/stok kodu
         // vardır. Elle aktarımda da kullanılan "paket no + stok kodu" kimliği açıkça beyan edilir;
         // aynı pakette aynı kod iki kez geçerse plan zaten incelemeye düşürür.
