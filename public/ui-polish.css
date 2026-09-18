@@ -255,7 +255,8 @@ main th{font-weight:600}
 .ol-table td.ol-c-urun{min-width:180px;max-width:440px;white-space:normal}.ol-m{display:none}
 .ol-kanal{display:inline-block;padding:3px 8px;border-radius:6px;font-size:11.5px;font-weight:500;background:#f1f0f5;color:#4b4861;white-space:nowrap}
 .ol-kanal-trendyol{background:#fff1e6;color:#9a4a0b}.ol-kanal-hepsiburada{background:#eaf2ff;color:#1f4f99}
-.ol-c-durum .v2-badge{font-weight:500}
+.ol-c-durum .v2-badge{font-weight:500}.ol-c-durum .ol-iade{margin-left:4px}
+.ol-rozetler{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center}.ol-iade-not{margin:0 0 14px}
 .ol-pos{font-weight:600;color:#1f6b43}.ol-neg{font-weight:600;color:#b3261e}
 .ol-pager{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;font-size:13px;color:var(--muted)}
 .ol-pager .ac-actions{display:flex;align-items:center;gap:8px}.ol-pager button{min-height:38px;padding:7px 13px}

@@ -511,3 +511,14 @@ test('Sipariş listesi kâr edenler / zarar edenler diye süzülür; kesintisi o
     assert.equal((await f.req('/ec/orders?sonuc=belki')).status, 400);
   } finally { f.close(); }
 });
+
+test('İade edilen sipariş listede iade durumunu taşır (tam / kısmi)', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);   // pk: 1 adet satış
+    const once = (await f.ok('/ec/orders')).packages.find(p => p.id === 'pk');
+    assert.equal(once.return_status, null, 'iade yokken rozet yok');
+    await f.ok('/ec/sales/se/return', {external_id: 'IADE-S1', quantity: 1, revenue: 110, restock: true, occurred_on: '2026-09-06'});
+    const sonra = (await f.ok('/ec/orders')).packages.find(p => p.id === 'pk');
+    assert.equal(sonra.return_status, 'tam');
+  } finally { f.close(); }
+});

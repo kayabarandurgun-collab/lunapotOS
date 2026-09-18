@@ -121,7 +121,7 @@ export async function ordersApi(request,env,path,readBody){
   // Liste, kâr raporuyla BİREBİR aynı hesaplanır: iade satırları dahil (satışın alt kaydı), KDV
   // kalem kalem eklenip yuvarlanır. Önceden iadeler atlanıyor ve KDV toplamda yuvarlanıyordu;
   // aynı paket iki ekranda kuruşlarca, iadeli pakette yüzlerce lira farklı görünüyordu.
-  const kalemler=(await statement(db,"SELECT l.package_id pid,p.channel kanal,s.id,s.kind,s.revenue_cents,s.cost_cents,s.commission_cents,s.shipping_cents,s.other_cents,pp.vat_bps"
+  const kalemler=(await statement(db,"SELECT l.package_id pid,p.channel kanal,s.id,s.kind,s.quantity_milli,s.revenue_cents,s.cost_cents,s.commission_cents,s.shipping_cents,s.other_cents,pp.vat_bps"
     +" FROM order_lines l JOIN order_line_components c ON c.line_id=l.id"
     +" JOIN order_packages p ON p.id=l.package_id"
     +" JOIN sale_entries s ON (s.id=c.sale_id OR s.parent_id=c.sale_id)"
@@ -132,7 +132,9 @@ export async function ordersApi(request,env,path,readBody){
    const fv=feeVat.get(list[0].kanal);
    const tam=list.every(e=>e.commission_cents!==null&&e.shipping_cents!==null&&e.other_cents!==null);
    const kdvTam=list.every(e=>e.vat_bps!==null&&e.vat_bps!==undefined);
-   const r={pid,kanal:list[0].kanal,tam,
+   // İADE: paketin satışlarına bağlı iade kaydı varsa listede rozet olarak söylenir (tam / kısmi).
+   const satilan=list.filter(e=>e.kind==='sale').reduce((t,e)=>t+e.quantity_milli,0),iadeAdet=list.filter(e=>e.kind==='return').reduce((t,e)=>t+e.quantity_milli,0);
+   const r={pid,kanal:list[0].kanal,tam,iade:iadeAdet>0?(iadeAdet>=satilan?'tam':'kismi'):null,
     gelir:list.reduce((t,e)=>t+e.revenue_cents,0),
     sonuc:list.reduce((t,e)=>t+e.revenue_cents-e.cost_cents-(e.commission_cents||0)-(e.shipping_cents||0)-(e.other_cents||0),0)};
    // Kesinti KDV'si beyan edilmemisse nakit hesaplanmaz; oran uydurulmaz, alan bos kalir.
@@ -149,7 +151,7 @@ export async function ordersApi(request,env,path,readBody){
   return ozet;
   }
   {const yer=new Map(sira.map((id,i)=>[id,i]));packages.sort((a,b)=>yer.get(a.id)-yer.get(b.id));}
-  return {packages:packages.slice(0,500).map(p=>{const ls=lines.filter(l=>l.package_id===p.id),lineIDs=new Set(ls.map(l=>l.id)),cs=components.filter(c=>lineIDs.has(c.line_id)),needs=new Map();for(const c of cs)needs.set(c.product_id,(needs.get(c.product_id)||0)+c.quantity_milli);const readiness=p.source_changed?'source_changed':ls.some(l=>cs.filter(c=>c.line_id===l.id).reduce((n,c)=>n+c.revenue_share_bps,0)!==10000)||cs.some(c=>c.stock_unit!==c.current_stock_unit)?'needs_mapping':ls.some(l=>l.net_revenue_cents===null)?'needs_amounts':p.status==='draft'&&[...needs].some(([product,q])=>(stock.get(product)||0)<q)?'needs_stock':'ready';return {...p,revenue_net_cents:ozet.get(p.id)?.gelir??null,result_cents:ozet.get(p.id)?.tam?ozet.get(p.id).sonuc:null,cash_result_cents:ozet.get(p.id)?.nakit??null,readiness};}),lines,components,products:products.map(p=>({...p,available_milli:p.quantity_milli-p.reserved_milli})),reservations,counts,sonuc_counts:sonucSayilari,truncated:offset+packages.length<total,pagination:{page,limit,total,pages:Math.max(1,Math.ceil(total/limit)),has_more:offset+packages.length<total}};
+  return {packages:packages.slice(0,500).map(p=>{const ls=lines.filter(l=>l.package_id===p.id),lineIDs=new Set(ls.map(l=>l.id)),cs=components.filter(c=>lineIDs.has(c.line_id)),needs=new Map();for(const c of cs)needs.set(c.product_id,(needs.get(c.product_id)||0)+c.quantity_milli);const readiness=p.source_changed?'source_changed':ls.some(l=>cs.filter(c=>c.line_id===l.id).reduce((n,c)=>n+c.revenue_share_bps,0)!==10000)||cs.some(c=>c.stock_unit!==c.current_stock_unit)?'needs_mapping':ls.some(l=>l.net_revenue_cents===null)?'needs_amounts':p.status==='draft'&&[...needs].some(([product,q])=>(stock.get(product)||0)<q)?'needs_stock':'ready';return {...p,revenue_net_cents:ozet.get(p.id)?.gelir??null,result_cents:ozet.get(p.id)?.tam?ozet.get(p.id).sonuc:null,cash_result_cents:ozet.get(p.id)?.nakit??null,return_status:ozet.get(p.id)?.iade??null,readiness};}),lines,components,products:products.map(p=>({...p,available_milli:p.quantity_milli-p.reserved_milli})),reservations,counts,sonuc_counts:sonucSayilari,truncated:offset+packages.length<total,pagination:{page,limit,total,pages:Math.max(1,Math.ceil(total/limit)),has_more:offset+packages.length<total}};
  }
  const previewMatch=path.match(/^\/api\/orders\/([\w-]+)\/source$/);
  if(previewMatch&&method==='GET'){
