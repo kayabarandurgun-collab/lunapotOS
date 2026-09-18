@@ -6,7 +6,7 @@
 //  · Bu ekran EDM'den fatura ÇEKMEZ, fatura kesmez/iptal etmez. Belgeyi kullanıcı yükler.
 //  · Taslak kaydı borç ve stok yazmaz: borç muhasebeleştirmede, stok mal tesliminde oluşur.
 //  · Çeşit adetleri hiçbir zaman hatırlanmaz; her belgede yeniden girilir ve onaylanır.
-import {readPdf, guessHeader, guessLines, guessTotals, sha256Hex, PDF_LIMITS} from './pdf-read.js';
+import {readPdf, guessHeader, guessLines, guessTotals, splitInvoices, sha256Hex, PDF_LIMITS} from './pdf-read.js';
 import {parseInvoiceXML} from './invoice-import.js';
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -280,6 +280,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
 
   function otomatikEngel() {
     const h = state.header || {};
+    if (h.own_issued) return 'Bu faturayı şirketiniz kesmiş (satış faturası); alış olarak işlenmez';
     if (h.uncertain?.length) return 'Belgede kesin okunamayan alan var';
     if (!h.invoice_no || !h.invoice_date) return 'Fatura numarası veya tarihi okunamadı';
     if (!state.lines?.length) return 'Satır okunamadı';
@@ -297,17 +298,18 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
   // Sayfa sayfa okunan satırlardan her sayfanın fatura numarası çıkarılır; numarası olmayan
   // sayfa bir öncekinin devamı sayılır (çok sayfalı fatura). En az İKİ ayrı numara yoksa
   // bölme YAPILMAZ: tek fatura gibi işlenir. Bölme uydurulmaz, numaraya dayanır.
-  function faturalaraAyir(pageLines) {
-    if (!Array.isArray(pageLines) || pageLines.length < 2) return [];
-    const gruplar = [];
-    pageLines.forEach((satirlar, i) => {
-      const no = String(guessHeader(satirlar)?.invoice_no || '').trim();
-      const son = gruplar[gruplar.length - 1];
-      if (no && (!son || son.no !== no)) gruplar.push({no, sayfalar: [i + 1], satirlar: [...satirlar]});
-      else if (son) { son.sayfalar.push(i + 1); son.satirlar.push(...satirlar); }
-      else gruplar.push({no: '', sayfalar: [i + 1], satirlar: [...satirlar]});
-    });
-    return new Set(gruplar.map(g => g.no).filter(Boolean)).size >= 2 ? gruplar : [];
+  // Ayırma mantığı pdf-read.js:splitInvoices'tadır (testler de onu sınar).
+  const faturalaraAyir = splitInvoices;
+
+  // Çalışma alanının kendi şirketi: faturada ALICI olarak geçer. Bilinmezse okuyucu belgedeki
+  // ilk VKN'yi tedarikçi sanıyordu; birleşik belgede bu bizim numaramızdı.
+  async function loadOwn() {
+    if (state.own) return state.own;
+    try {
+      const {settings} = await api('/settings');
+      state.own = {taxIds: [settings?.tax_id].filter(Boolean), name: settings?.legal_name || ''};
+    } catch { state.own = {taxIds: [], name: ''}; }
+    return state.own;
   }
 
   // Birleşik belgenin BİR faturasını işlenecek hâle getirir. Belge yeniden yüklenmez:
@@ -316,7 +318,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     const b = is.bolum;
     state.docId = is.docId;
     state.warnings = [];
-    state.header = guessHeader(b.satirlar);
+    state.header = guessHeader(b.satirlar, state.own || {});
     state.totals = guessTotals(b.satirlar);
     state.lines = guessLines(b.satirlar).map(l => ({...l, line_type: 'product', expense_category: 'other', source: l.description}));
     if (!state.lines.length) state.lines = [{description: '', invoice_quantity: 1, invoice_unit: 'adet', net: '', tax: '', line_type: 'product', expense_category: 'other', uncertain: []}];
@@ -375,7 +377,8 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     const m = DOSYA_ADI.exec(String(ad || '').trim());
     if (!m) return [];
     const [, vkn, no, uuid] = m, alindi = [];
-    if (!header.supplier_tax_id) { header.supplier_tax_id = vkn; alindi.push('VKN'); }
+    // Adın başındaki numara çoğu zaman ALICININ (bizim) numaramızdır; o tedarikçi sayılmaz.
+    if (!header.supplier_tax_id && !(state.own?.taxIds || []).includes(vkn)) { header.supplier_tax_id = vkn; alindi.push('VKN'); }
     if (!header.invoice_no) { header.invoice_no = no.toUpperCase(); alindi.push('fatura numarası'); }
     if (!header.uuid) { header.uuid = uuid.toLowerCase(); alindi.push('ETTN'); }
     if (alindi.length) header.uncertain = (header.uncertain || []).filter(k =>
@@ -388,12 +391,13 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     const bytes = new Uint8Array(await file.arrayBuffer());
     state.file = file; state.bytes = bytes; state.kind = kind; state.warnings = [];
     let header, lines = [], totals = null, pageCount = null, textLayer = 1;
+    const own = await loadOwn();
 
     if (kind === 'pdf') {
       const pdf = await readPdf(bytes, {name: file.name});
       state.extracted = pdf; pageCount = pdf.pages; textLayer = pdf.textLayer ? 1 : 0;
       state.warnings.push(...pdf.warnings);
-      header = guessHeader(pdf.lines);
+      header = guessHeader(pdf.lines, own);
       totals = guessTotals(pdf.lines);
       lines = guessLines(pdf.lines).map(l => ({...l, line_type: 'product', expense_category: 'other', source: l.description}));
       if (pdf.textLayer && !lines.length)
@@ -413,12 +417,21 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     state.header = header; state.totals = totals;
     state.lines = lines.length ? lines : [{description: '', invoice_quantity: 1, invoice_unit: 'adet', net: '', tax: '', line_type: 'product', expense_category: 'other', uncertain: []}];
 
+    // Birleşik belge ÖNCE tanınır. Belgenin kimliği tek bir faturanınki değildir: ilk okunan
+    // fatura numarasıyla kaydedilirse, içindeki faturalardan biri daha önce işlendiği için
+    // BÜTÜN dosya "mükerrer" diye reddedilir ve diğer faturalar hiç işlenmez. Mükerrer kontrolü
+    // birleşik belgede her fatura için ayrı yapılır (taslak oluşturulurken).
+    const gruplar = kind === 'pdf' ? faturalaraAyir(state.extracted?.pageLines) : [];
+    const birlesik = gruplar.length > 1;
+
     // Belgeyi ÖNCE sakla ve mükerrer kontrolünü yap: veri girmeden önce uyarılsın.
     const created = await api('/invoices/documents', {kind, filename: file.name, mime: file.type || (kind === 'pdf' ? 'application/pdf' : 'application/xml'),
       size_bytes: bytes.length, sha256: await sha256Hex(bytes), chunk_count: Math.max(1, Math.ceil(bytes.length / CHUNK)),
-      page_count: pageCount, text_layer: textLayer, supplier_tax_id: header.supplier_tax_id || '', doc_no: header.invoice_no || '',
-      doc_uuid: header.uuid || '', extracted: {header, totals, line_count: lines.length}, warnings: state.warnings});
+      page_count: pageCount, text_layer: textLayer, supplier_tax_id: birlesik ? '' : header.supplier_tax_id || '', doc_no: birlesik ? '' : header.invoice_no || '',
+      doc_uuid: birlesik ? '' : header.uuid || '', extracted: birlesik ? {invoices: gruplar.map(g => g.no), pages: gruplar.map(g => g.sayfalar)} : {header, totals, line_count: lines.length},
+      warnings: state.warnings});
     if (created.duplicate) { state.step = 'pick'; throw new Error(created.notice); }
+    if (created.reread) state.warnings.push(created.notice);
     state.docId = created.id;
     if (!created.resume) {
       const chunks = Math.max(1, Math.ceil(bytes.length / CHUNK));
@@ -433,13 +446,16 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
 
     // Belge birden çok fatura taşıyorsa her fatura AYRI bir iş olarak sıraya alınır. Dosya
     // çoğaltılmaz: aynı belge kimliği paylaşılır, sayfa bağlantısı sonunda kurulur.
-    const gruplar = kind === 'pdf' ? faturalaraAyir(state.extracted?.pageLines) : [];
-    if (gruplar.length > 1) {
+    if (birlesik) {
       state.warnings.push(gruplar.length + ' fatura tek belgede geldi (' + gruplar.map(g => g.no || '?').join(', ') +
         '). Her biri ayrı fatura olarak işlenecek; belge bir kez saklandı.');
       state.parts = gruplar.map(g => ({no: g.no, sayfalar: g.sayfalar, satirlar: g.satirlar}));
       state.queue.unshift(...state.parts.map(p => ({bolum: p, docId: state.docId, dosyaAdi: file.name})));
-      state.queueTotal += state.parts.length;
+      // Dosyanın kendisi bir iş sayılmıştı; artık yerini faturaları alır ("1 / 5" … "5 / 5").
+      state.queueTotal += state.parts.length - 1;
+      // Tek dosya da olsa içindeki faturalar sırayla kendiliğinden işlenir. Duran fatura
+      // (tanınmayan tedarikçi, şüpheli alan) yine kullanıcıya sorulur.
+      state.auto = true;
       state.step = 'document';
       return;
     }

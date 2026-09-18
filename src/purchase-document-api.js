@@ -120,8 +120,23 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
 
     // Aynı belge ikinci kez yüklenemez. Üç ayrı kimlik denetlenir: dosya özeti, ETTN ve
     // tedarikçi VKN + fatura no. Dosya adı değişse de belge yakalanır.
-    const same = await db.prepare('SELECT id,status,filename FROM purchase_documents WHERE sha256=?').bind(x.sha256).first();
+    const same = await db.prepare(`SELECT d.id,d.status,d.filename,d.invoice_id,
+      EXISTS(SELECT 1 FROM purchase_document_pages p WHERE p.document_id=d.id) paged FROM purchase_documents d WHERE d.sha256=?`).bind(x.sha256).first();
     if (same?.status === 'receiving') return {id: same.id, resume: true};
+    // Saklanmış ama HİÇBİR faturaya bağlanmamış belge yeniden okunabilir: eski okuyucu belgeyi
+    // "taranmış" sanıp tek fatura çıkaramadıysa dosya burada kilitli kalıyordu. Çift kayıt
+    // koruması fatura düzeyindedir (fatura no + VKN ve ETTN kaydı); belge yeniden okununca
+    // zaten işlenmiş fatura yine reddedilir. Dosya yeniden yüklenmez, okunan alanlar yenilenir.
+    if (same && same.status === 'stored' && !same.invoice_id && !same.paged) {
+      // Kimlik alanları (VKN, fatura no, ETTN) boş değerle EZİLMEZ: mükerrer denetimi onlara dayanır.
+      await db.prepare(`UPDATE purchase_documents SET page_count=?,text_layer=?,supplier_tax_id=COALESCE(NULLIF(?,''),supplier_tax_id),
+        doc_no=COALESCE(NULLIF(?,''),doc_no),doc_uuid=COALESCE(NULLIF(?,''),doc_uuid),extracted_json=?,warnings_json=?
+        WHERE id=? AND status='stored' AND invoice_id IS NULL`).bind(
+        Number.isSafeInteger(x.page_count) ? x.page_count : null, x.text_layer ? 1 : 0, taxId, docNo, uuid,
+        JSON.stringify(x.extracted && typeof x.extracted === 'object' ? x.extracted : {}),
+        JSON.stringify((x.warnings || []).slice(0, 20).map(w => String(w).slice(0, 500))), same.id).run();
+      return {id: same.id, resume: true, reread: true, notice: 'Bu dosya önce yüklenmiş ama hiçbir faturaya işlenmemişti; yeniden okundu.'};
+    }
     if (same) return {duplicate: true, existing: same, reason: 'sha256', notice: 'Bu dosya daha önce yüklendi; ikinci kez işlenmedi.'};
     if (uuid) {
       const byUuid = await db.prepare('SELECT id,filename,invoice_id FROM purchase_documents WHERE doc_uuid=?').bind(uuid).first();

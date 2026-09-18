@@ -55,11 +55,15 @@ test('Aynı belge ikinci kez yüklenemez; yükleme borç veya stok oluşturmaz, 
     assert.ok(first.id);
     assert.equal(f.s.prepare('SELECT status FROM ec_purchase_documents WHERE id=?').get(first.id).status, 'stored');
 
-    // 1) Aynı dosya (aynı özet), farklı dosya adıyla bile olsa.
+    // 1) Aynı dosya (aynı özet), farklı dosya adıyla bile olsa YENİ kayıt açmaz. Henüz hiçbir
+    // faturaya işlenmediyse aynı kayıt yeniden okunur (eski okuyucunun okuyamadığı belge
+    // kilitli kalmasın); faturaya bağlandıktan sonra reddedilir
+    // (tests/pdf-birlesik-fatura.test.js). Çift kayıt koruması fatura düzeyindedir.
     const sameFile = await f.doc('/documents', {kind: 'pdf', filename: 'baska-ad.pdf', size_bytes: first.bytes.length,
       sha256: await sha(first.bytes), chunk_count: 1, text_layer: 1});
-    assert.equal(sameFile.duplicate, true);
-    assert.equal(sameFile.reason, 'sha256');
+    assert.equal(sameFile.id, first.id);
+    assert.equal(sameFile.reread, true);
+    assert.equal(f.s.prepare('SELECT COUNT(*) n FROM ec_purchase_documents').get().n, 1, 'dosya çoğaltılmadı');
 
     // 2) Farklı dosya, aynı ETTN.
     const sameEttn = await upload(f, 'fatura-b', {doc_uuid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'});

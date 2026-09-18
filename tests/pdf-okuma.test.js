@@ -94,21 +94,8 @@ test('Gerçekten metinsiz belgede satır UYDURULMAZ', async () => {
 // EDM'den "hepsini indir" denince tek dosyada birden çok fatura gelir. Sayfa sayfa okunan
 // satırlardan her sayfanın fatura numarası çıkarılır; numarası olmayan sayfa bir öncekinin
 // devamı sayılır (çok sayfalı fatura). En az İKİ ayrı numara yoksa bölme YAPILMAZ.
-// Ayırma mantığı public/purchase-document-ui.js:faturalaraAyir ile aynıdır.
-import {guessHeader} from '../public/pdf-read.js';
-
-function faturalaraAyir(pageLines) {
-  if (!Array.isArray(pageLines) || pageLines.length < 2) return [];
-  const gruplar = [];
-  pageLines.forEach((satirlar, i) => {
-    const no = String(guessHeader(satirlar)?.invoice_no || '').trim();
-    const son = gruplar[gruplar.length - 1];
-    if (no && (!son || son.no !== no)) gruplar.push({no, sayfalar: [i + 1], satirlar: [...satirlar]});
-    else if (son) { son.sayfalar.push(i + 1); son.satirlar.push(...satirlar); }
-    else gruplar.push({no: '', sayfalar: [i + 1], satirlar: [...satirlar]});
-  });
-  return new Set(gruplar.map(g => g.no).filter(Boolean)).size >= 2 ? gruplar : [];
-}
+// Ayırma mantığı pdf-read.js:splitInvoices'tadır; ekran da aynı fonksiyonu kullanır.
+import {splitInvoices as faturalaraAyir} from '../public/pdf-read.js';
 
 const sayfa = no => ['Fatura No: ' + no, 'Fatura Tarihi: 16-09-2026', 'Ödenecek Tutar 1.200,00 TL'];
 
