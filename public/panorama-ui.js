@@ -50,7 +50,7 @@ function delta(p){
 
 function periodButton(p,secili){
  const d=delta(p);
- return `<button type="button" class="pn-period${p.key===secili?' is-selected':''}" data-donem="${p.key}" aria-pressed="${p.key===secili}"><span class="pn-period-label">${esc(p.label)}</span><strong class="${p.cash_cents<0?'is-negative':''}">${p.packages?money(p.cash_cents):'—'}</strong><small>${p.packages} paket${p.losses?' · '+p.losses+' zarar ('+tamTL(p.loss_cents)+')':''}</small>${d?`<em class="pn-delta ${d.yon}" title="${esc(d.uzun)}">${esc(d.metin)}</em>`:''}</button>`;
+ return `<button type="button" class="pn-period${p.key===secili?' is-selected':''}" data-donem="${p.key}" aria-pressed="${p.key===secili}"><span class="pn-period-label">${esc(p.label)}</span><strong class="${p.cash_cents<0?'is-negative':''}">${p.packages?money(p.cash_cents):'—'}</strong><small>${p.packages} paket</small>${p.losses?`<span class="pn-period-loss">${p.losses} zarar · ${tamTL(p.loss_cents)}</span>`:''}${d?`<em class="pn-delta ${d.yon}" title="${esc(d.uzun)}">${esc(d.metin)}</em>`:''}</button>`;
 }
 
 function shareBar(p){
