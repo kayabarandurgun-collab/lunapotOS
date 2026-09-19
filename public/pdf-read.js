@@ -47,6 +47,8 @@ function objects(text) {
 
 /** Nesnenin gövdesindeki stream baytlarını (varsa çözülmüş olarak) verir. */
 async function streamOf(obj, bytes, text) {
+  // Nesne akışından açılan nesne (start<0) akış taşıyamaz.
+  if (obj.start < 0) return null;
   const at = obj.body.indexOf('stream');
   if (at < 0) return null;
   const dict = obj.body.slice(0, at);
@@ -309,18 +311,40 @@ export async function readPdf(input, {name = ''} = {}) {
   if (/\/Encrypt\b/.test(text)) fail('PDF şifreli. Şifresiz bir kopya kaydedip yükleyin.');
 
   const warnings = [];
-  const pages = Math.min((text.match(/\/Type\s*\/Page\b/g) || []).length || 1, PDF_LIMITS.pages);
-  if ((text.match(/\/Type\s*\/Page\b/g) || []).length > PDF_LIMITS.pages)
+  const all = objects(text);
+  // SIKIŞTIRILMIŞ NESNE AKIŞI (/ObjStm). PDF 1.5+ üreticileri yazı tipi sözlüklerini, ToUnicode
+  // başvurularını ve sayfa sözlüklerini buraya koyar; düz metinde görünmezler. Açılmazsa kod→harf
+  // tablosu bulunamaz ve kodlar ANLAMSIZ metin olarak "okunmuş" sayılır. Akıştaki nesneler (kendileri
+  // akış taşıyamaz) listeye eklenir; aramalar bu genişletilmiş metin üzerinde yapılır.
+  let ekMetin = '';
+  for (const obj of [...all]) {
+    if (!/\/Type\s*\/ObjStm\b/.test(obj.body)) continue;
+    const s = await streamOf(obj, bytes, text);
+    if (!s) continue;
+    const icerik = raw(s.data), n = Number(/\/N\s+(\d+)/.exec(s.dict)?.[1]), ilk = Number(/\/First\s+(\d+)/.exec(s.dict)?.[1]);
+    if (!Number.isSafeInteger(n) || !Number.isSafeInteger(ilk) || ilk > icerik.length) continue;
+    const sayilar = icerik.slice(0, ilk).trim().split(/\s+/).map(Number);
+    for (let i = 0; i < n && all.length <= 20000; i++) {
+      const num = sayilar[2 * i], bas = ilk + sayilar[2 * i + 1], son = i + 1 < n ? ilk + sayilar[2 * i + 3] : icerik.length;
+      if (!Number.isSafeInteger(num) || !(bas >= ilk) || !(son >= bas)) break;
+      const body = icerik.slice(bas, son);
+      all.push({num, start: -1, end: -1, body});
+      ekMetin += '\n' + body;
+    }
+  }
+  const tumMetin = ekMetin ? text + ekMetin : text;
+  const sayfaSayisi = (tumMetin.match(/\/Type\s*\/Page\b/g) || []).length;
+  const pages = Math.min(sayfaSayisi || 1, PDF_LIMITS.pages);
+  if (sayfaSayisi > PDF_LIMITS.pages)
     warnings.push('Belge ' + PDF_LIMITS.pages + ' sayfadan uzun; yalnız ilk sayfalar okundu. Toplamları belgeyle karşılaştırın.');
 
-  const all = objects(text);
   // 1) Yazı tipi kod→harf tabloları.
   const unicodeByObj = new Map();
   // ToUnicode tablosu AYRI bir nesnededir ve SIKIŞTIRILMIŞTIR: gövdesinde ne '/Type /Font'
   // ne de 'beginbfchar' yazar — ikisi de ancak açıldıktan sonra ortaya çıkar. Yalnız gövdeye
   // bakan bir süzgeç bu tabloları hiç açmaz; metin okunur ama kodlar çözülemediği için
   // anlamsız çıkar. Bu yüzden önce /ToUnicode ile GÖSTERİLEN nesne numaraları toplanır.
-  const toUnicodeRefs = new Set([...text.matchAll(/\/ToUnicode\s+(\d+)\s+\d+\s+R/g)].map(m => Number(m[1])));
+  const toUnicodeRefs = new Set([...tumMetin.matchAll(/\/ToUnicode\s+(\d+)\s+\d+\s+R/g)].map(m => Number(m[1])));
   for (const obj of all) {
     if (!toUnicodeRefs.has(obj.num) && !/\/Type\s*\/Font|beginbfchar|beginbfrange/.test(obj.body)) continue;
     const s = await streamOf(obj, bytes, text);
@@ -405,7 +429,10 @@ export async function readPdf(input, {name = ''} = {}) {
   const pageLines = [...itemsByPage.entries()].sort((a, b) => a[0] - b[0]).map(([, list]) => toLines(list));
   const lines = pageLines.length ? pageLines.flat() : toLines(items);
   const joined = lines.join('\n');
-  const textLayer = joined.replace(/\s/g, '').length >= 40;
+  // Çözülemeyen yazı tipi kodları kontrol karakteri olarak gelir (\x00\x0E…): bu METİN DEĞİLDİR.
+  // Anlamsız çıktıyı "okundu" saymak fatura satırlarını bozar; o durumda metin katmanı yok denir.
+  const gorunur = joined.replace(/\s/g, ''), bozuk = (gorunur.match(/[\x00-\x1f�]/g) || []).length;
+  const textLayer = gorunur.length >= 40 && bozuk / gorunur.length < 0.05;
   if (!textLayer)
     warnings.push('Bu PDF\'te okunabilir metin katmanı yok; büyük olasılıkla taranmış veya fotoğraflanmış. Bu panelde OCR (görüntüden yazı okuma) hizmeti bulunmuyor, bu yüzden satırlar okunamadı. Belgeyi ekranda görüp bilgileri elle girebilirsiniz.');
   return {pages, textLayer, lines: textLayer ? lines : [], pageLines: textLayer ? pageLines : [], text: textLayer ? joined : '', warnings};

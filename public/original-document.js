@@ -24,7 +24,8 @@ export async function openOriginalDocument(belge, parcaGetir) {
       const {PDFDocument} = await yukle('/vendor/pdf-lib.min.js', 'PDFLib');
       const kaynak = await PDFDocument.load(bayt, {ignoreEncryption: true}), yeni = await PDFDocument.create();
       const [sayfa] = await yeni.copyPages(kaynak, [belge.page_no - 1]); yeni.addPage(sayfa);
-      bayt = await yeni.save();
+      // Nesne akışsız kayıt: eski görüntüleyiciler ve kendi okuyucumuz da sorunsuz açar.
+      bayt = await yeni.save({useObjectStreams: false});
     }
     const url = URL.createObjectURL(new Blob([bayt], {type: 'application/pdf'}));
     if (pencere && !pencere.closed) pencere.location.href = url;
