@@ -1,7 +1,7 @@
 // Tablo aracının sıralama değerleri: tutar, eksi tutar, tarih ve birimli miktar doğru okunur.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {sortValue, columnKind} from '../public/list-tools.js';
+import {sortValue, columnKind, gecerli} from '../public/list-tools.js';
 
 test('Sıralama değeri: TL tutarı, eksi (− ve -) tutar, tarih ve birimli miktar sayı/tarih olarak okunur', () => {
   assert.equal(sortValue('₺1.234,56'), 1234.56);
@@ -18,4 +18,11 @@ test('Sütun türü: tutar, tarih, sayı ve metin ayrılır', () => {
   assert.equal(columnKind(['2026-08-17', '2026-09-01']), 'tarih');
   assert.equal(columnKind(['5 adet', '12 adet']), 'sayi');
   assert.equal(columnKind(['Karakuş', 'Tropikal']), 'metin');
+});
+
+test('Tutar sıralamasında "Eksik veri" gibi hücreler geçersiz sayılır (her iki yönde sona)', () => {
+  assert.equal(gecerli(sortValue('Eksik veri'), 'tutar'), false);
+  assert.equal(gecerli(sortValue('-₺324,17'), 'tutar'), true);
+  assert.equal(gecerli(sortValue('—'), 'tarih'), false);
+  assert.equal(gecerli(sortValue('2026-09-18'), 'tarih'), true);
 });

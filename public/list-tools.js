@@ -30,6 +30,7 @@ export function columnKind(values){
  return 'metin';
 }
 const SECENEK={tutar:[['desc','büyükten küçüğe'],['asc','küçükten büyüğe']],sayi:[['desc','çoktan aza'],['asc','azdan çoğa']],tarih:[['desc','yeniden eskiye'],['asc','eskiden yeniye']],metin:[['asc','A → Z']]};
+export const gecerli=(v,kind)=>kind==='metin'?v!=='':kind==='tarih'?/^\d{8}$/.test(v):typeof v==='number';
 const make=(tag,content,cls)=>{const e=document.createElement(tag);if(content)e.textContent=content;if(cls)e.className=cls;return e;};
 export function enhanceLists(){
  for(const table of document.querySelectorAll('main table:not([data-list-tools]),dialog table:not([data-list-tools])')){
@@ -38,7 +39,7 @@ export function enhanceLists(){
   if(heads.length<2||rows.some(r=>r.cells.length!==heads.length||[...r.cells].some(c=>c.colSpan>1||c.rowSpan>1)))continue;
   table.dataset.listTools='true';
   const sunucu=table.dataset.listSort==='server';
-  const state={column:-1,ascending:true};
+  const state={column:-1,ascending:true,kind:'metin'};
   const host=table.closest('.table-wrap,.v2-table-wrap')||table;
   // Kart düzeni için hücre etiketleri (CSS data-label kullanır).
   heads.forEach((h,i)=>{const label=text(h).replace(/[↕▲▼]/g,'').trim();rows.forEach(r=>r.cells[i].dataset.label=label||'İşlem');});
@@ -61,22 +62,22 @@ export function enhanceLists(){
    const sira={tutar:0,tarih:1,sayi:2,metin:3};
    for(const s of [...sutunlar].sort((a,b)=>sira[a.kind]-sira[b.kind]))for(const [yon,ad] of SECENEK[s.kind])select.append(new Option(s.label+': '+ad,s.i+':'+yon));
    label.append(select);bar.append(label);
-   select.addEventListener('change',()=>{const [i,yon]=select.value.split(':');state.column=select.value?Number(i):-1;state.ascending=yon==='asc';basliklar();apply();});
+   select.addEventListener('change',()=>{const [i,yon]=select.value.split(':');state.column=select.value?Number(i):-1;state.ascending=yon==='asc';state.kind=sutunlar.find(s=>s.i===state.column)?.kind||'metin';basliklar();apply();});
   }
   if(bar.childElementCount)host.before(bar);
   const basliklar=()=>heads.forEach((x,j)=>x.hasAttribute('aria-sort')&&x.setAttribute('aria-sort',j===state.column?(state.ascending?'ascending':'descending'):'none'));
   for(const s of sutunlar){
    const h=heads[s.i],b=make('button',s.label,'list-sort');b.type='button';b.setAttribute('aria-label',s.label+' alanına göre sırala');h.textContent='';h.append(b);h.setAttribute('aria-sort','none');
    // İlk tıklama tutar ve tarihte büyükten küçüğe, metinde A→Z.
-   b.addEventListener('click',()=>{state.ascending=state.column===s.i?!state.ascending:s.kind==='metin';state.column=s.i;basliklar();
+   b.addEventListener('click',()=>{state.ascending=state.column===s.i?!state.ascending:s.kind==='metin';state.column=s.i;state.kind=s.kind;basliklar();
     if(select){const v=s.i+':'+(state.ascending?'asc':'desc');if([...select.options].some(o=>o.value===v))select.value=v;else select.selectedIndex=0;}apply();});
   }
   const empty=make('p','Aramaya uyan satır yok.','list-empty');empty.hidden=true;host.after(empty);
   function apply(){
    const query=search?folded(search.value.trim()):'';
    const i=state.column,sorted=i<0?rows:[...rows].sort((a,b)=>{const x=sortValue(ilkSatir(a.cells[i])),y=sortValue(ilkSatir(b.cells[i]));
-    // Boş hücre her iki yönde de sona.
-    if(x===''&&y!=='')return 1;if(y===''&&x!=='')return -1;
+    // Boş ya da türüne uymayan hücre ("Eksik veri", "—") her iki yönde de sona.
+    const gx=gecerli(x,state.kind),gy=gecerli(y,state.kind);if(!gx||!gy)return gx===gy?0:gx?-1:1;
     const n=typeof x==='number'&&typeof y==='number'?x-y:String(x).localeCompare(String(y),'tr',{numeric:true});return state.ascending?n:-n;});
    sorted.forEach(r=>table.tBodies[0].append(r));
    let shown=0;for(const row of rows){const visible=!query||folded(text(row)).includes(query);row.hidden=!visible;if(visible)shown++;}
