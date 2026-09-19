@@ -17,40 +17,31 @@
 import {accountingApi} from './accounting.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), {status}); };
-const letters = s => String(s || '').toLocaleUpperCase('tr').replace(/[^A-ZÇĞİÖŞÜ0-9]/g, '');
-const words = s => String(s || '').toLocaleLowerCase('tr').split(/[^a-zçğıöşü0-9]+/).filter(w => w.length >= 3 && !['ile', 'için'].includes(w));
-const codeOf = l => letters(l.external_code) || letters((String(l.description || '').match(/^\S+/) || [''])[0]);
+// Eşleme kuralı ekranla ortaktır: public/purchase-match.js
+import {matchFromHistory} from '../public/purchase-match.js';
+export {matchFromHistory};
 
-/** Geçmiş satırlarından bu satıra uyan TEK kartı bulur; bulamazsa null. */
-export function matchFromHistory(line, history) {
-  const unit = line.invoice_unit, same = history.filter(h => h.invoice_unit === unit);
-  const ratioOf = rows => { const r = [...new Set(rows.map(h => h.quantity_milli / h.invoice_quantity))]; return r.length === 1 && r[0] > 0 ? r[0] : null; };
-  const pick = (rows, how) => {
-    const ids = [...new Set(rows.map(h => h.product_id))];
-    if (ids.length !== 1) return null;
-    const ratio = ratioOf(rows.filter(h => h.product_id === ids[0]));
-    return ratio ? {product_id: ids[0], product_name: rows[0].product_name, ratio, how} : null;
-  };
-  const exact = same.filter(h => letters(h.description) === letters(line.description));
-  if (exact.length) return pick(exact, 'aynı açıklama');
-  const code = codeOf(line);
-  if (!code) return null;
-  const byCode = same.filter(h => codeOf(h) === code);
-  const products = [...new Map(byCode.map(h => [h.product_id, h.product_name])).entries()];
-  if (!products.length) return null;
-  // Ayırt edici sözcük: bütün aday kartlarda ortak OLMAYAN sözcük.
-  const sets = products.map(([, name]) => new Set(words(name)));
-  const common = [...sets[0]].filter(w => sets.every(s => s.has(w)));
-  const text = words(line.description);
-  const fits = products.filter(([, name], i) => {
-    const own = [...sets[i]].filter(w => !common.includes(w));
-    return own.length > 0 && own.every(w => text.some(t => t === w || t.startsWith(w)));
-  });
-  if (fits.length !== 1) return null;
-  return pick(byCode.filter(h => h.product_id === fits[0][0]), 'aynı ürün kodu ve ad');
+async function gecmisSatirlar(env, supplierId, haricId) {
+  // Aynı tedarikçinin muhasebeleşmiş faturalarındaki ürün satırları (en yeni önce).
+  // Mal kabulü geri alınmış satır YANLIŞ eşleşmedir (ör. yanlış çeşide girilmiş): örnek alınmaz.
+  // Geri alma kaydı yalnız e-ticaret alanında vardır.
+  const reversed = env.WORKSPACE === 'ec'
+  ? 'AND NOT EXISTS(SELECT 1 FROM receipt_reversals r JOIN goods_receipts g ON g.id=r.receipt_id WHERE g.line_id=l.id)' : '';
+  return (await env.DB.prepare(`SELECT l.description,l.external_code,l.invoice_unit,l.invoice_quantity,l.quantity_milli,l.product_id,p.name product_name
+  FROM purchase_lines l JOIN purchase_invoices i ON i.id=l.invoice_id JOIN products p ON p.id=l.product_id
+  WHERE i.supplier_id=? AND i.status='posted' AND i.id<>? AND l.line_type='product' AND l.product_id IS NOT NULL
+  AND l.quantity_milli>0 AND l.invoice_quantity>0
+  ${reversed} ORDER BY i.invoice_date DESC LIMIT 3000`).bind(supplierId, haricId).all()).results;
 }
 
 export async function purchaseAutopostApi(request, env, path, readBody) {
+  // Ekran satırları gösterirken aynı geçmişe bakar: öneri ile kayıt aynı kuraldan çıkar.
+  //   GET /api/invoices/match-history?supplier_id=…
+  if (path === '/api/invoices/match-history' && request.method === 'GET') {
+    const supplier = new URL(request.url).searchParams.get('supplier_id') || '';
+    if (!/^[\w-]{1,80}$/.test(supplier)) fail('Tedarikçi geçersiz.');
+    return {rows: await gecmisSatirlar(env, supplier, '')};
+  }
   const m = path.match(/^\/api\/invoices\/([\w-]+)\/autocomplete$/);
   if (!m || request.method !== 'POST') return null;
   const db = env.DB, key = m[1];
@@ -62,15 +53,7 @@ export async function purchaseAutopostApi(request, env, path, readBody) {
   const pendingSplit = await db.prepare('SELECT 1 FROM purchase_line_splits WHERE invoice_id=? LIMIT 1').bind(key).first();
   if (pendingSplit) return {status: 'draft', reason: 'Çeşit dağılımı olan fatura elle muhasebeleştirilir.'};
 
-  // Mal kabulü geri alınmış satır YANLIŞ eşleşmedir (ör. yanlış çeşide girilmiş): örnek alınmaz.
-  // Geri alma kaydı yalnız e-ticaret alanında vardır.
-  const reversed = env.WORKSPACE === 'ec'
-    ? 'AND NOT EXISTS(SELECT 1 FROM receipt_reversals r JOIN goods_receipts g ON g.id=r.receipt_id WHERE g.line_id=l.id)' : '';
-  const history = (await db.prepare(`SELECT l.description,l.external_code,l.invoice_unit,l.invoice_quantity,l.quantity_milli,l.product_id,p.name product_name
-    FROM purchase_lines l JOIN purchase_invoices i ON i.id=l.invoice_id JOIN products p ON p.id=l.product_id
-    WHERE i.supplier_id=? AND i.status='posted' AND i.id<>? AND l.line_type='product' AND l.product_id IS NOT NULL
-      AND l.quantity_milli>0 AND l.invoice_quantity>0
-      ${reversed} ORDER BY i.invoice_date DESC LIMIT 3000`).bind(invoice.supplier_id, key).all()).results;
+  const history = await gecmisSatirlar(env, invoice.supplier_id, key);
 
   const mapped = [], missing = [];
   const payload = lines.map(l => {

@@ -8,6 +8,7 @@
 //  · Çeşit adetleri hiçbir zaman hatırlanmaz; her belgede yeniden girilir ve onaylanır.
 import {readPdf, guessHeader, guessLines, guessTotals, splitInvoices, sha256Hex, PDF_LIMITS} from './pdf-read.js';
 import {parseInvoiceXML} from './invoice-import.js';
+import {matchFromHistory, codeOf} from './purchase-match.js';
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 const money = n => n === null || n === undefined || Number.isNaN(n) ? '—' : new Intl.NumberFormat('tr-TR', {style: 'currency', currency: 'TRY'}).format(n);
@@ -74,7 +75,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
   function pickView() {
     return `<section class="v2-card v2-card-body">
       <h2>Alış faturası yükle</h2>
-      <p class="pd-muted">Tedarikçinin gönderdiği faturanın PDF'ini buraya bırak. Belge özgün hâliyle saklanır; okunan bilgileri onaylamadan hiçbir kayıt oluşmaz.</p>
+      <p class="pd-muted">Tedarikçinin gönderdiği faturanın PDF'ini buraya bırak. Belge özgün hâliyle saklanır. Okunan satırlar belgenin toplamıyla tutuyor ve ürünler geçmiş alışlardan biliniyorsa fatura kendiliğinden işlenir (borç + stok); emin olunamayan yerde durup sana sorar.</p>
       <label class="pd-drop" data-pd-drop><input type="file" accept=".pdf,application/pdf" data-pd="file" multiple hidden>
         <strong>PDF faturaları buraya sürükle — birden fazla seçebilirsin</strong><span>ya da tıklayıp seç · en çok ${PDF_LIMITS.fileBytes / 1024 / 1024} MB</span></label>
       <div class="pd-alt">
@@ -227,7 +228,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
       <div class="pd-totals">${cmp('Satırların net toplamı', net, d.net)}${cmp('Satırların KDV toplamı', tax, d.tax)}${cmp('Genel toplam', net + tax, d.gross)}</div>
       <p class="pd-muted">Belgedeki toplam okunamadıysa karşılaştırma yapılamaz; tutarları belgeden kendin doğrula. Belge düzeyi iskonto veya farklı vergi yapısı varsa satırlar elle düzeltilmelidir.</p>
       ${problems.length ? `<p class="pd-alert warn">Kesinleştirmeden önce: <br>${problems.map(esc).join('<br>')}</p>` : '<p class="pd-alert ok">Eksik görünmüyor.</p>'}
-      <p class="pd-alert info">Kaydet dediğinde <b>taslak</b> oluşur: cari borç ve stok HENÜZ yazılmaz. Borç “Muhasebeleştir”, stok “Mal teslimi” ile oluşur.</p>
+      <p class="pd-alert info">Kaydet dediğinde fatura oluşur. Bütün satırlar stok kartına bağlıysa sistem kendiliğinden <b>muhasebeleştirir</b> (cari borç) ve fatura tarihiyle <b>stoğa alır</b>. Çeşit dağılımı olan ya da ürünü bulunamayan satır varsa taslak kalır.</p>
       <div class="pd-actions"><button class="secondary pd-left" type="button" data-pd="back-allocate">← Geri</button>
         <button class="primary" type="button" data-pd="save-draft">Taslağı oluştur ve belgeyi bağla</button></div></section>`;
   }
@@ -272,11 +273,17 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     return null;
   }
 
+  // Öneri kaynakları: elle hatırlanan bağlar, ürün aileleri ve tedarikçinin geçmiş alışları.
+  async function oneriKaynaklari() {
+    const {links, families} = await api('/invoices/families');
+    state.familyLinks = links; state.families = families;
+    state.purchaseHistory = state.supplierId ? (await api('/invoices/match-history?' + new URLSearchParams({supplier_id: state.supplierId}))).rows : [];
+  }
+
   // Satir -> urun baglantilari tedarikci bazinda HATIRLANIR. Elle yolda uygulaniyordu ama
   // otomatik yolda atlaniyordu: taslak urunsuz satirla olusuyordu. Ayni oneri burada da uygulanir.
   async function hatirlananlariUygula() {
-    const {links} = await api('/invoices/families');
-    state.familyLinks = links;
+    await oneriKaynaklari();
     state.lines.forEach((_, i) => { try { applyLink(i); } catch { /* öneri zorunlu değil */ } });
   }
 
@@ -289,6 +296,13 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     if (state.lines.some(l => !String(l.description || '').trim() || !(Number(l.invoice_quantity) > 0) || l.net === '' || l.net === null || l.net === undefined))
       return 'Satırlarda eksik alan var';
     if (state.lines.some(l => l.uncertain?.length)) return 'Satırlarda kesin okunamayan alan var';
+    // Tek dosya da otomatik işlendiği için okunan satırlar belgenin kendi toplamıyla doğrulanır:
+    // bir satır eksik ya da yanlış okunduysa durulur, kullanıcıya gösterilir.
+    const t = state.totals || {};
+    if (t.net === null || t.net === undefined) return 'Belgedeki toplam okunamadı; satırlar toplamla karşılaştırılamadı';
+    if (Math.abs(state.lines.reduce((s, l) => s + (Number(l.net) || 0), 0) - t.net) > 0.01) return 'Satırların toplamı belgedeki toplamla tutmuyor';
+    if (t.tax !== null && t.tax !== undefined && Math.abs(state.lines.reduce((s, l) => s + (Number(l.tax) || 0), 0) - t.tax) > 0.05)
+      return 'Satırların KDV toplamı belgedekiyle tutmuyor';
     // Cesit dagilimi belgede YAZMAZ: "5'li set 10 adet" satiri hangi cesitten kac adet
     // oldugunu soylemez. Hatirlanan bag yalnizca "bu satir su urun ailesine gider" bilgisidir,
     // adetleri degil. Burada karar uydurulamaz; kullanici girer.
@@ -331,7 +345,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
 
   async function kuyrugaAl(files, kind) {
     state.queue = files.map(f => ({file: f, kind: /\.xml$/i.test(f.name) ? 'xml' : kind}));
-    state.queueTotal = files.length; state.queueDone = []; state.auto = files.length > 1;
+    state.queueTotal = files.length; state.queueDone = []; state.auto = true;
     await siradakini();
   }
 
@@ -501,7 +515,28 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     }
     const mapping = (state.catalog.mappings || []).find(m => m.source === 'purchase' && m.supplier_id === supplier && m.active === 1 &&
       m.match_by === matchBy && m.match_value === value && m.source_unit === line.invoice_unit);
-    if (!mapping) { line.status_text = 'Bu tedarikçi kodu/adı ve birimi için kayıtlı bağlantı yok. Ürünü seçip "hatırla" diyebilirsin.'; return; }
+    if (!mapping) {
+      // GEÇMİŞTEN: aynı tedarikçinin muhasebeleşmiş faturalarında bu kod/açıklama hangi karta
+      // gittiyse o. Kural sunucuyla ortaktır (purchase-match.js): kaydedince de aynısı yapılır.
+      const hit = matchFromHistory(line, state.purchaseHistory || []);
+      if (hit) {
+        line.product_id = hit.product_id; line.family_id = null; line.allocations = null;
+        line.stock_quantity = Number(line.invoice_quantity) * hit.ratio / 1000;
+        line.status_text = 'Geçmiş faturalardan eşlendi (' + hit.how + '): ' + hit.product_name + ' · ' + num(line.stock_quantity) + '. Kontrol et.';
+        return;
+      }
+      // Kod geçmişte birden çok ÇEŞİDE dağıtıldıysa ve belgede hangisi olduğu yazmıyorsa ürün
+      // ailesine yönlendirilir: yalnız çeşit adetleri sorulur (adet belgede yazmaz, uydurulmaz).
+      const kod = codeOf(line), cesitler = [...new Set((state.purchaseHistory || []).filter(h => h.invoice_unit === line.invoice_unit && kod && codeOf(h) === kod).map(h => h.product_id))];
+      const aile = cesitler.length > 1 && (state.families || []).find(f => cesitler.every(id => f.members.some(m => m.product_id === id)));
+      if (aile) {
+        line.family_id = aile.id; line.product_id = null; line.stock_quantity = Number(line.invoice_quantity); line.allocations = [{}, {}];
+        line.status_text = 'Bu kod geçmişte ' + cesitler.length + ' çeşide dağıtıldı; belgede hangisi olduğu yazmıyor. Sonraki adımda çeşit adetlerini gir.';
+        return;
+      }
+      line.status_text = 'Bu tedarikçiden bu kodla/adla daha önce muhasebeleşmiş alış yok. Ürünü seçip "hatırla" diyebilirsin.';
+      return;
+    }
     const parts = (state.catalog.components || []).filter(c => c.mapping_id === mapping.id);
     if (parts.length !== 1) { line.status_text = 'Alış bağlantısı tek stok kartına bağlanmalı.'; return; }
     line.product_id = parts[0].product_id;
@@ -655,8 +690,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
       state.step = 'lines';
       // Kayıtlı bağlantılar öneri olarak uygulanır; kullanıcı her satırı yine onaylar.
       run(async () => {
-        const {links} = await api('/invoices/families');
-        state.familyLinks = links;
+        await oneriKaynaklari();
         if (state.supplierId) state.lines.forEach((_, i) => { try { applyLink(i); } catch { /* öneri zorunlu değil */ } });
       });
       return;

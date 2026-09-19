@@ -100,3 +100,47 @@ test('Bir satır bile bulunamazsa fatura taslak kalır; bulunanlar kaydedilir, b
     assert.equal(still.receipts.length, 0);
   } finally { f.close(); }
 });
+
+// Canlıdaki Tropikal TRP2026000001102: kod aynı, açıklamanın yazımı değişmiş ("/" eklenmiş,
+// boşluk farklı) ya da satıra "Orkide sıvı besini" notu düşülmüş. Geçmiş net olduğu için elle
+// eşleme istenmemeli.
+test('Kod geçmişte hep tek karta gittiyse açıklama değişse de o karta; çeşit notu tek çeşidi seçer', () => {
+  const tr = (description, id, name, extra = {}) => h(description, id, name, extra);
+  const history = [
+    tr('Y.TEMİZLEYİCİ YAPRAK TEMİZLEYİCİ250 ML', 'tem250', 'Tropikal Yaprak Temizleyici 250 ml'),
+    tr('Y.TEMİZLEYİCİ2 YAPRAK TEMİZLEYİCİ500 ML', 'tem500', 'Tropikal Yaprak Temizleyici 500 ml'),
+    tr('B.BESİNİ1 BİTKİ BESİNİ 225 ML / Tropikal Genel Bitki Besini 225 ml', 'genel225', 'Tropikal Genel Bitki Besini 225 ml'),
+    tr('B.BESİNİ1 BİTKİ BESİNİ 225 ML / Tropikal Orkide Bitki Besini 225 ml', 'orkide225', 'Tropikal Orkide Bitki Besini 225 ml'),
+    tr('B.BESİNİ1 BİTKİ BESİNİ 225 ML / Tropikal Menekşe Bitki Besini 225 ml', 'menekse225', 'Tropikal Menekşe Bitki Besini 225 ml')];
+  const bul = (description, external_code = '') => matchFromHistory({description, external_code, invoice_unit: 'adet'}, history);
+  const tem = bul('Y.TEMİZLEYİCİ / YAPRAK TEMİZLEYİCİ 250 ML (yeni ambalaj)', 'Y.TEMİZLEYİCİ');
+  assert.deepEqual([tem.product_id, tem.how], ['tem250', 'aynı ürün kodu'], '500 ml (Y.TEMİZLEYİCİ2) ile karışmadı');
+  assert.equal(bul('B.BESİNİ1 BİTKİ BESİNİ 225 ML Orkide sıvı besini', 'B.BESİNİ1').product_id, 'orkide225');
+  assert.equal(bul('B.BESİNİ1 BİTKİ BESİNİ 225 ML', 'B.BESİNİ1'), null, 'çeşit yazmıyorsa tahmin yok (adetler sorulur)');
+});
+
+test('Ekran aynı geçmişi alır: yalnız o tedarikçinin muhasebeleşmiş ürün satırları', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const supplier = (await f.ok('/ec/suppliers', {name: 'Sentetik Torf', tax_id: '9340990552'})).id;
+    const other = (await f.ok('/ec/suppliers', {name: 'Başka Tedarik', tax_id: '6060606060'})).id;
+    const p20 = (await f.ok('/ec/products', {name: 'Torf 20 L', sku: 'SNT-T20', stock_unit: 'adet', min_stock: 0})).id;
+    const old = await invoice(f, supplier, 'SNT-1', [['Torf 20 Litre', 5, 500]]);
+    const d = await f.ok('/ec/invoices/' + old);
+    await f.ok('/ec/invoices/' + old, {lines: [{id: d.lines[0].id, product_id: p20, stock_quantity: 5}]});
+    await f.ok('/ec/invoices/' + old + '/post', {});
+    await invoice(f, supplier, 'SNT-2', [['Taslakta kalan', 1, 10]]);
+    const rows = (await f.ok('/ec/invoices/match-history?supplier_id=' + supplier)).rows;
+    assert.deepEqual(rows.map(r => [r.description, r.product_id, r.product_name]), [['Torf 20 Litre', p20, 'Torf 20 L']], 'taslak satır örnek alınmadı');
+    assert.deepEqual((await f.ok('/ec/invoices/match-history?supplier_id=' + other)).rows, []);
+    assert.equal((await f.req('/ec/invoices/match-history?supplier_id=' + encodeURIComponent("x' OR 1=1"))).status, 400);
+  } finally { f.close(); }
+});
+
+test('Tek karta giden kodda bile marka adı kod sayılmaz; yeni ölçü (80 L) eski karta bağlanmaz', () => {
+  assert.equal(matchFromHistory({description: 'Marka 80 Litre Torf', invoice_unit: 'adet'}, [h('Marka 20 Litre Torf', 'p20', 'Marka Torf 20 L')]), null,
+    'ilk sözcük marka: kod değil');
+  assert.equal(matchFromHistory({description: 'TOPRAK3 TOPRAK 20 LT', external_code: 'TOPRAK3', invoice_unit: 'adet'},
+    [h('TOPRAK3 TOPRAK 10 LT', 't10', 'Perlit Karışımlı Toprak 10 L')]), null, 'geçmişte görülmemiş ölçü');
+  assert.equal(matchFromHistory({description: 'TOPRAK3 / TOPRAK 10 LT', external_code: 'TOPRAK3', invoice_unit: 'adet'},
+    [h('TOPRAK3 TOPRAK 10 LT', 't10', 'Perlit Karışımlı Toprak 10 L')]).product_id, 't10');
+});
