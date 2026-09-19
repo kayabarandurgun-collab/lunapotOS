@@ -727,11 +727,19 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
     // Böyle bir siparişte indirimi bir de gider yazmak aynı parayı iki kez düşer.
     // Karar sipariş bazında verilir: defterdeki brüt, rapordaki brütten indirim kadar düşükse
     // indirim zaten uygulanmıştır ve gidere EKLENMEZ. Tahmin yok, iki rakam karşılaştırılır.
+    // KISMİ İADE: pazaryeri iade edilen adedin indirimini geri alır, ekstrede yalnız KALAN adedin
+    // indirimi durur (canlıda TY 11534399836: 2 adet, defter 936 / rapor 960 → 24 TL fark; 1 adet
+    // iade, ekstrede indirim 12). Fark kalan adede oranlanarak da karşılaştırılır.
     const indirimBrut = g.discount_gross_cents || 0;
     if (indirimBrut > 0) {
       const raporBrut = g.lines.reduce((t, l) => t + (l.gross_cents || 0), 0);
-      const defter = await db.prepare('SELECT COALESCE(SUM(gross_cents),0) b FROM ec_order_lines WHERE package_id=?').bind(g.erp_package_id).first();
-      if (Math.abs((raporBrut - defter.b) - indirimBrut) <= 2) {
+      const defter = await db.prepare("SELECT COALESCE(SUM(gross_cents),0) b," +
+        "(SELECT COALESCE(SUM(s.quantity_milli),0) FROM ec_order_line_components c JOIN ec_order_lines x ON x.id=c.line_id JOIN ec_sale_entries s ON s.id=c.sale_id WHERE x.package_id=?1 AND s.kind='sale') satilan," +
+        "(SELECT COALESCE(SUM(r.quantity_milli),0) FROM ec_order_line_components c JOIN ec_order_lines x ON x.id=c.line_id JOIN ec_sale_entries r ON r.parent_id=c.sale_id WHERE x.package_id=?1 AND r.kind='return') iade " +
+        'FROM ec_order_lines WHERE package_id=?1').bind(g.erp_package_id).first();
+      const fark = raporBrut - defter.b;
+      const kalanFark = defter.satilan > 0 && defter.iade > 0 ? Math.round(fark * Math.max(0, defter.satilan - defter.iade) / defter.satilan) : fark;
+      if (Math.abs(fark - indirimBrut) <= 2 || Math.abs(kalanFark - indirimBrut) <= 2) {
         want.other -= (g.discount_net_cents || 0);
         skipped.push({group: g.group, reason: 'İndirim satış fiyatına zaten uygulanmış; gider olarak ikinci kez yazılmadı (' + (indirimBrut / 100).toFixed(2) + ' TL).'});
       }

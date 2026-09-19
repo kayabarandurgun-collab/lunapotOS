@@ -24,7 +24,7 @@ const orderLine = (over = {}) => ({package_id: 'PK1', line_id: 'L1', order_no: '
 const feeOf = (f, saleId) => ({...f.sqlite.prepare('SELECT commission_cents,shipping_cents,other_cents,fees_status FROM ec_sale_entries WHERE id=?').get(saleId)});
 
 /** Teslim edilmiş, ERP'ye bağlanmış, kesintileri raporda duran bir paket kurar. */
-async function delivered(f, {teslimTarihi = TESLIM, kargo = true} = {}) {
+async function delivered(f, {teslimTarihi = TESLIM, kargo = true, indirim = 0, defterBrut = null} = {}) {
   const product = await f.ok('/ec/products', {name: 'Çiçek besini 225 ml', sku: 'TR-CICEK-225ML', stock_unit: 'adet', min_stock: 0});
   await f.ok('/ec/stock', {product_id: product.id, quantity: 20, unit_cost: 10, kind: 'opening', reference: 'ACILIS', occurred_on: DATE, notes: 'Test açılışı'});
   await f.ok('/ec/catalog/mappings', {source: 'trendyol', match_by: 'code', external_code: '785457868', external_name: '4 adet 225 ml',
@@ -35,8 +35,12 @@ async function delivered(f, {teslimTarihi = TESLIM, kargo = true} = {}) {
   rec(f, s, 'finance_event', 'F:K1', {event_id: 'K1', order_no: 'O1', package_id: 'PK1', type: 'commission', amount_cents: -8000, event_date: TESLIM}, 2);
   if (kargo) rec(f, s, 'finance_event', 'F:K2', {event_id: 'K2', order_no: 'O1', package_id: 'PK1', type: 'cargo', amount_cents: -5000, event_date: TESLIM}, 3);
   rec(f, s, 'finance_event', 'F:K3', {event_id: 'K3', order_no: 'O1', package_id: 'PK1', type: 'service', amount_cents: -1000, event_date: TESLIM}, 4);
+  // Pazaryeri indirimi ekstrede ayrı sütunda (Trendyol 'İndirim'); satır brütü liste fiyatıdır.
+  if (indirim) rec(f, s, 'finance_event', 'F:K4', {event_id: 'K4', order_no: 'O1', package_id: 'PK1', type: 'other_fee', amount_cents: -indirim, source_field: 'ek:İndirim', event_date: TESLIM}, 5);
   sql(f, 'UPDATE workspace_settings SET inventory_start_date=? WHERE workspace=?', DATE, 'ec');
   const applied = await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PK1', complete_package_confirmed: true});
+  // Defter müşterinin ödediği (indirimli) brütü tutar.
+  if (defterBrut !== null) sql(f, 'UPDATE ec_order_lines SET gross_cents=? WHERE package_id=?', defterBrut, applied.package_id);
   await f.ok('/ec/orders/' + applied.package_id + '/reserve', {});
   await f.ok('/ec/orders/' + applied.package_id + '/ship', {occurred_on: DATE, reference: 'SEVK-1'});
   if (teslimTarihi) await f.ok('/ec/orders/' + applied.package_id + '/deliver', {occurred_on: teslimTarihi});
@@ -130,4 +134,30 @@ test('Sıfır kargo bilgi sayılmaz: teslim edilmiş pakette kesinti eksikse pak
     assert.ok(r.skipped.some(x => /kargo kesintisi yok/.test(x.reason)));
     assert.equal(feeOf(f, sale).shipping_cents, null, 'sıfır yazılmadı, bilinmiyor kaldı');
   } finally { f.close(); }
+});
+
+// İndirim satış fiyatına zaten uygulanmışsa (defter brütü = rapor brütü − indirim) gider olarak
+// ikinci kez yazılmaz. Kısmi iadede pazaryeri iade edilen adedin indirimini geri alır; ekstrede
+// yalnız kalan adedin indirimi durur (canlıda TY 11534399836: 24 TL fark, ekstrede 12 TL).
+test('İndirim satış fiyatında ise gider sayılmaz; kısmi iadede de kalan adede göre tanınır', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const {s, sale} = await delivered(f, {indirim: 2000, defterBrut: 48000});
+    await f.ok('/ec/reports/apply-fees', {store_id: s, confirm: true});
+    assert.equal(feeOf(f, sale).other_cents, 1000, 'yalnız hizmet bedeli; 20 TL indirim ikinci kez düşülmedi');
+  } finally { f.close(); }
+  const g = appFixture(); await g.setup(); try {
+    // 2 ilan adedi (8 ürün), defter 480 / rapor 500 → 20 TL indirim; 1 ilan adedi (4 ürün) iade edildi,
+    // ekstrede yalnız kalan adedin indirimi: 10 TL.
+    const {s, sale} = await delivered(g, {indirim: 1000, defterBrut: 48000});
+    await g.ok('/ec/sales/' + sale + '/return', {external_id: 'IADE-O1', quantity: 4, revenue: 200, restock: true, occurred_on: TESLIM});
+    const r = await g.ok('/ec/reports/apply-fees', {store_id: s, confirm: true});
+    assert.ok(r.skipped.some(x => /zaten uygulanmış/.test(x.reason)), 'kalan adedin indirimi satış fiyatında tanındı');
+    assert.equal(feeOf(g, sale).other_cents, 1000, 'indirim gider yazılmadı');
+  } finally { g.close(); }
+  const h = appFixture(); await h.setup(); try {
+    // Karşı örnek: defter liste fiyatını tutuyorsa (fark yok) indirim gerçek bir kesintidir.
+    const {s, sale} = await delivered(h, {indirim: 2000});
+    await h.ok('/ec/reports/apply-fees', {store_id: s, confirm: true});
+    assert.equal(feeOf(h, sale).other_cents, 3000, 'hizmet 10 + indirim 20 TL');
+  } finally { h.close(); }
 });
