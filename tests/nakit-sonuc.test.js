@@ -542,3 +542,52 @@ test('Cebine kalan: satış, satırın kendi KDV oranıyla geri çevrilir; üç 
     assert.equal(satir.revenue_gross_cents, 12100, 'satış KDV dahil = müşterinin ödediği');
   } finally { f.close(); }
 });
+
+// Canlıda HB 4731515470: pazaryeri paketi yeniden numaraladı (5517911182 → 5518837752, aynı ürün
+// ve adet). İki numaranın satırı da aynı deftere bağlı; eskisi sayılınca "raporda 2 satır" denip
+// kâr hesaplanmıyordu. Yalnız en son görülen paket numarasının satırları sayılır.
+test('Yeniden numaralanan paketin eski satırı "eksik satır" sayılmaz; kâr hesaplanır', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    f.sqlite.exec("INSERT INTO ec_report_files(id,store_id,kind,filename,size_bytes,sha256,snapshot_at,sheet,headers_json,row_count,chunk_count,status,created_by) VALUES('fl','st','orders','r.xlsx',10,'" + 'c'.repeat(64) + "','2026-09-06T10:00','S','[]',2,1,'applied','t')");
+    const satir = (i, paket, zaman, sku = 'U1') => f.sqlite.prepare("INSERT INTO ec_report_records(id,store_id,kind,record_key,key_source,data_json,source_time,file_id,row_no,erp_package_id) VALUES(?,'st','order_line',?,'provider',?,?,'fl',?,'pk')")
+      .run('r' + i, 'P:' + paket + '|' + sku, JSON.stringify({order_no: 'S1', package_id: paket, sku, quantity: 1, status: 'Teslim edildi', order_date: '2026-09-01', gross: 13200}), zaman, i);
+    satir(1, 'ESKI-PAKET', '2026-09-03T10:00');
+    satir(2, 'YENI-PAKET', '2026-09-06T10:00');
+    const r = (await rapor(f)).rows.find(x => x.id === 'pk');
+    assert.ok(Number.isSafeInteger(r.cash_cents), 'kâr hesaplandı: ' + JSON.stringify(r.missing));
+    // Aynı (son) paket numarasında gerçekten iki satır varsa koruma sürer.
+    satir(3, 'YENI-PAKET', '2026-09-06T10:00', 'U2');
+    const r2 = (await rapor(f)).rows.find(x => x.id === 'pk');
+    assert.equal(r2.cash_cents, null, 'son pakette 2 satır, defterde 1: hesaplanmadı');
+  } finally { f.close(); }
+});
+
+// Canlıda HB 4611462604: ilk gönderim teslim edilemedi ve iade edildi, sipariş ikinci gönderimle
+// teslim oldu. Kesintinin yarısı dönen pakette kaldı; paket "gönderildi" durumunda kaldığı için
+// kâra hiç girmiyor, kargo ve hizmet bedeli kayboluyordu.
+test('Teslim edilemeyip iadesi tamamlanan paketin kesintisi iade tarihiyle zarar olarak girer', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    f.sqlite.exec("INSERT INTO ec_order_packages(id,channel,external_id,order_no,occurred_on,status,source_fingerprint) VALUES('pk2','hepsiburada','P2','S2','2026-09-02','draft','t')");
+    f.sqlite.exec("INSERT INTO ec_order_lines(id,package_id,external_id,name,quantity_milli,net_revenue_cents) VALUES('ln2','pk2','L2','Ürün',1000,11000)");
+    f.sqlite.exec("INSERT INTO ec_sale_entries(id,channel,external_id,product_id,kind,quantity_milli,revenue_cents,cost_cents,commission_cents,shipping_cents,other_cents,fees_status,occurred_on) VALUES('se2','hepsiburada','S-2','p1','sale',1000,11000,4600,1000,5000,500,'confirmed','2026-09-03')");
+    f.sqlite.exec("INSERT INTO ec_order_line_components(id,line_id,product_id,quantity_milli,revenue_share_bps,sale_id,stock_unit) VALUES('cm2','ln2','p1',1000,10000,'se2','adet')");
+    f.sqlite.exec("UPDATE ec_order_packages SET status='reserved' WHERE id='pk2'");
+    f.sqlite.exec("UPDATE ec_order_packages SET status='shipped',shipped_on='2026-09-03' WHERE id='pk2'");
+    // Teslim edilemedi: satış bütünüyle iade edilir (mal stoğa döner), kesintiler satışta kalır.
+    await f.ok('/ec/sales/se2/return', {external_id: 'TESLIM-EDILEMEDI-S2', quantity: 1, revenue: 110, commission: 0, shipping: 0, other: 0, fees_status: 'confirmed', restock: true, occurred_on: '2026-09-08'});
+    const r = await rapor(f);
+    const row = r.rows.find(x => x.id === 'pk2');
+    assert.ok(row, 'dönen paket kâr raporunda');
+    assert.equal(row.teslim_edilemedi, true);
+    assert.equal(row.delivered_on, '2026-09-08', 'iade tarihiyle sonuçlandı');
+    assert.equal(row.revenue_gross_cents, 0, "satış iadeyle sıfırlandı " + JSON.stringify(row));
+    assert.equal(row.cost_gross_cents, 0, 'mal stoğa döndü');
+    assert.equal(row.cash_cents, -Math.round((1000 + 5000 + 500) * 1.2), 'kargo, komisyon ve hizmet bedeli KDV dahil zarar');
+    assert.match(row.cost_note, /Teslim edilemedi/);
+    // Aralık dışındaki iade bu döneme girmez.
+    const eylulOncesi = await performanceApi(new Request('https://test.local/api/ec/performance?from=2026-08-01&to=2026-08-31'), {...f.env, WORKSPACE: 'ec', DB: scopedDB(f.env.DB, 'ec')}, '/api/performance');
+    assert.equal(eylulOncesi.rows.some(x => x.id === 'pk2'), false);
+  } finally { f.close(); }
+});

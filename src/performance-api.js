@@ -30,6 +30,18 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
  const SALES_SQL='SELECT s.*,l.package_id,l.vat_bps satir_kdv,pp.vat_bps,(SELECT o.open_milli-o.settled_milli FROM open_costs o WHERE o.sale_id=s.id) open_milli,(SELECT iif(o.estimate_cents IS NULL,1,0) FROM open_costs o WHERE o.sale_id=s.id) no_estimate FROM sale_entries s JOIN order_line_components c ON (s.id=c.sale_id OR s.parent_id=c.sale_id) JOIN order_lines l ON l.id=c.line_id LEFT JOIN price_profiles pp ON pp.product_id=s.product_id WHERE l.package_id IN (SELECT value FROM json_each(?))';
  const db=env.DB,packages=await all(db.prepare(`SELECT *,${stopajSql} FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND ${mode==='delivered'?"status='delivered' AND delivered_on BETWEEN ? AND ?":"status IN ('draft','reserved','shipped') AND occurred_on BETWEEN ? AND ?"} ORDER BY occurred_on DESC,id LIMIT ${max+1}`).bind(from,to));
  if(packages.length>max)fail('Bu aralıkta '+max.toLocaleString('tr-TR')+'’den fazla paket var. Eksiksiz toplam için tarih aralığını daraltın.',409);
+ // TESLİM EDİLEMEYİP DÖNEN PAKET. Satış iadeyle sıfırlanır ama gidiş-dönüş kargosu ve hizmet bedeli
+ // gerçek giderdir. Paket "gönderildi" durumunda kaldığı için kâra hiç girmiyor, o gider kayboluyordu
+ // (canlıda HB 4611462604: kesintinin yarısı, ~132 TL; TY 11581049903). İadesi tamamlanan gönderilmiş
+ // paket İADE TARİHİYLE sonuçlanmış sayılır; çift kayıt düzeltmesi (DUZELTME-CIFT) iade sayılmaz.
+ if(mode==='delivered'){
+  const satilan="(SELECT COALESCE(SUM(s.quantity_milli),0) FROM order_lines l JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries s ON s.id=c.sale_id WHERE l.package_id=order_packages.id AND s.kind='sale')";
+  const iade="(SELECT COALESCE(SUM(r.quantity_milli),0) FROM order_lines l JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries r ON r.parent_id=c.sale_id WHERE l.package_id=order_packages.id AND r.kind='return' AND r.external_id NOT LIKE 'DUZELTME-CIFT-%')";
+  const iadeTarihi="(SELECT MAX(r.occurred_on) FROM order_lines l JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries r ON r.parent_id=c.sale_id WHERE l.package_id=order_packages.id AND r.kind='return')";
+  const donen=await all(db.prepare(`SELECT *,${stopajSql},${iadeTarihi} iade_tarihi FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND status IN ('shipped','reserved')
+   AND ${satilan}>0 AND ${iade}>=${satilan} AND ${iadeTarihi} BETWEEN ? AND ? LIMIT 101`).bind(from,to));
+  for(const d of donen)packages.push({...d,status:'delivered',delivered_on:d.iade_tarihi,teslim_edilemedi:true});
+ }
  // Çift aktarımın asıl kaydı "gönderildi" durumunda kalır ama teslimi kopyasıyla gelmiştir ve
  // teslim edilenlerin kârında ikiz olarak sayılır. Kargodakilerde ikinci kez görünmez.
  if(mode==='pending'&&packages.length){
@@ -108,8 +120,15 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
  // indirimli fiyati tutar) ve gercek bir eksiklik degildir.
  const raporSatir=new Map();
  if(mode==='delivered'&&ids!=='[]'){
-  for(const r of await all(db.prepare("SELECT erp_package_id pid,COUNT(*) n FROM ec_report_records WHERE kind='order_line' AND erp_package_id IN (SELECT value FROM json_each(?)) GROUP BY erp_package_id").bind(ids)))
-   raporSatir.set(r.pid,r.n);
+  // YENİDEN NUMARALANAN PAKET: pazaryeri aynı siparişe yeni paket numarası verirse (canlıda HB
+  // 4731515470: 5517911182 → 5518837752, aynı ürün ve adet) iki numaranın satırları da aynı
+  // deftere bağlıdır. Eski numara sayılırsa "raporda 2 satır, defterde 1" denip kâr hesaplanmazdı.
+  // Pakete bağlı rapor satırlarından yalnız EN SON görülen paket numarasınınkiler sayılır.
+  for(const r of await all(db.prepare("SELECT erp_package_id pid,json_extract(data_json,'$.package_id') rpk,COUNT(*) n,MAX(source_time) t FROM ec_report_records WHERE kind='order_line' AND erp_package_id IN (SELECT value FROM json_each(?)) GROUP BY 1,2").bind(ids))){
+   const prev=raporSatir.get(r.pid);
+   if(!prev||String(r.t)>String(prev.t))raporSatir.set(r.pid,{n:r.n,t:r.t});
+  }
+  for(const [k,v] of raporSatir)raporSatir.set(k,v.n);
  }
  // Satırda ürün adı gösterilir (stok kartı adı, pazaryeri ilan adı değil): "2 × Torf 20 L".
  const urunIdleri=[...new Set([...partMap.values()].flat().map(c=>c.product_id))];
@@ -118,7 +137,7 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
   return [...m].map(([id,q])=>(q===1000?'':(q/1000).toLocaleString('tr-TR')+' × ')+(urunAdi.get(id)||'Ürün')).join(', ');};
  const rows=packages.map(p=>{
   const packageLines=lineMap.get(p.id)||[],parts=partMap.get(p.id)||[];let entries=saleMap.get(p.id)||[];
-  const row={twin_of:p.twin_of||null,id:p.id,channel:p.channel,order_no:p.order_no,external_id:p.external_id,status:p.status,occurred_on:p.occurred_on,delivered_on:p.delivered_on,urun:urunOzet(parts),profit_cents:null,cash_cents:null,cash_note:null,missing:[],revenue_net_cents:null,cost_net_cents:null,shipping_cents:null,commission_cents:null,other_cents:null};
+  const row={twin_of:p.twin_of||null,id:p.id,channel:p.channel,order_no:p.order_no,external_id:p.external_id,status:p.status,occurred_on:p.occurred_on,delivered_on:p.delivered_on,urun:urunOzet(parts),teslim_edilemedi:!!p.teslim_edilemedi,profit_cents:null,cash_cents:null,cash_note:null,missing:[],revenue_net_cents:null,cost_net_cents:null,shipping_cents:null,commission_cents:null,other_cents:null};
   if(p.source_changed){row.missing.push('Kaynak sipariş değişti; farkı inceleyin.');return row;}
   if(mode==='delivered'){
    const profit=packageProfit(p,packageLines,parts,entries),total=profit.totals;
@@ -159,6 +178,7 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
    row.shipping_cents=fee('shipping_cents');row.commission_cents=fee('commission_cents');row.other_cents=fee('other_cents');
    row.missing=profit.reasons;row.profit_cents=profit.profit_cents;
    row.returns=entries.filter(s=>s.kind==='return').length;
+   if(p.teslim_edilemedi)row.cost_note=(row.cost_note?row.cost_note+' ':'')+'Teslim edilemedi / geri döndü: satış iadeyle sıfırlandı, kargo ve hizmet bedeli gider olarak yazıldı (iade tarihi '+p.delivered_on+').';
    // NAKIT SONUC: KDV dahil satis - KDV dahil mal maliyeti - KDV dahil kesintiler.
    // Kullanicinin gordugu rakam budur; KDV haric katki ayrica durur.
    const fv=feeVat.get(p.channel);
