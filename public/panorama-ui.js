@@ -60,7 +60,7 @@ function shareBar(p){
 
 function productList(title,list,enBuyuk,bos){
  if(!list.length)return bos?`<div class="pn-products-group"><h3>${title}</h3><p class="help">${bos}</p></div>`:'';
- return `<div class="pn-products-group"><h3>${title}</h3><ol>${list.map(u=>`<li><div class="pn-product-line"><span class="pn-product-name">${esc(u.name)}</span><strong class="${u.cash_cents<0?'is-negative':''}">${money(u.cash_cents)}</strong></div><div class="pn-product-meter" aria-hidden="true"><span class="${u.cash_cents<0?'neg':'pos'}" data-pay="${Math.max(12,Math.round(Math.abs(u.cash_cents)*1000/(enBuyuk||1)))}"></span></div><small>${sayi(u.qty_milli)} adet · adet başı ${money(u.per_unit_cents)}${u.cash_cents<0?' · zarar':''}</small></li>`).join('')}</ol></div>`;
+ return `<div class="pn-products-group"><h3>${title}</h3><ol>${list.map(u=>`<li><div class="pn-product-line"><span class="pn-product-name" title="${esc(u.name)}">${esc(u.name)}</span><strong class="${u.cash_cents<0?'is-negative':''}">${money(u.cash_cents)}</strong></div><div class="pn-product-meter" aria-hidden="true"><span class="${u.cash_cents<0?'neg':'pos'}" data-pay="${Math.max(12,Math.round(Math.abs(u.cash_cents)*1000/(enBuyuk||1)))}"></span></div><small>${sayi(u.qty_milli)} adet · adet başı ${money(u.per_unit_cents)}${u.cash_cents<0?' · zarar':''}</small></li>`).join('')}</ol></div>`;
 }
 
 function detail(data,p){
