@@ -33,8 +33,11 @@ const KOPYA=q=>`(EXISTS(SELECT 1 FROM order_lines l JOIN order_line_components c
 // Stopaj SIPARIS duzeyinde bildirilir ve siparişin iptal olmayan EKONOMİK paketlerine bölünür (ikiz kopya
 // sayılmaz). Kuruş artığı paket kimliği sırasıyla ilk paketlere yazılır: payların toplamı olaya EŞİTTİR.
 // Kayit ayni kanalin magazasindan okunur; siparis numaralari kanallar arasinda karismaz.
+// "=+order_packages.order_no": tekli + sütunun TEXT eğilimini kaldırır; yoksa SQLite (store_id,kind,order_no)
+// ifade indeksini kullanamıyor, her pakette bütün finans kayıtlarını tarıyordu (canlıda 3,4 sn → 13 ms).
+// Rapor kayıtlarında sipariş no her zaman metindir (json_type='text'), sonuç aynıdır.
 // Kâr raporu, sipariş penceresi ve liste bu parçayı ve stopajPayi'ni paylaşır.
-export const STOPAJ_SQL=`(SELECT COALESCE(SUM(json_extract(r.data_json,'$.amount_cents')),0) FROM ec_report_records r JOIN ec_report_stores st ON st.id=r.store_id AND st.provider=order_packages.channel WHERE r.kind='finance_event' AND json_extract(r.data_json,'$.type')='withholding' AND json_extract(r.data_json,'$.order_no')=order_packages.order_no) stopaj_cents,`
+export const STOPAJ_SQL=`(SELECT COALESCE(SUM(json_extract(r.data_json,'$.amount_cents')),0) FROM ec_report_records r JOIN ec_report_stores st ON st.id=r.store_id AND st.provider=order_packages.channel WHERE r.kind='finance_event' AND json_extract(r.data_json,'$.type')='withholding' AND json_extract(r.data_json,'$.order_no')=+order_packages.order_no) stopaj_cents,`
  +`(SELECT COUNT(*) FROM order_packages q WHERE q.order_no=order_packages.order_no AND q.channel=order_packages.channel AND q.status!='cancelled' AND NOT ${KOPYA('q')}) stopaj_paket,`
  +`(SELECT COUNT(*) FROM order_packages q WHERE q.order_no=order_packages.order_no AND q.channel=order_packages.channel AND q.status!='cancelled' AND q.id<order_packages.id AND NOT ${KOPYA('q')}) stopaj_sira`;
 export const stopajPayi=p=>{const t=Math.abs(p.stopaj_cents||0),n=Math.max(1,p.stopaj_paket||0),b=Math.floor(t/n);return b+(Math.min(p.stopaj_sira||0,n-1)<t-b*n?1:0);};
