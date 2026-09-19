@@ -394,7 +394,7 @@ main th{font-weight:600}
 .pn-products-group ol{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
 .pn-products-group li{min-width:0}
 .pn-product-line{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;font-size:13px}
-.pn-product-name{min-width:0;overflow:hidden;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-height:1.35}
+.pn-product-name{min-width:0;overflow-wrap:anywhere;line-height:1.35}
 .pn-product-line strong{font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
 .pn-product-meter{height:4px;border-radius:2px;background:var(--pn-grid);margin:5px 0 3px;overflow:hidden}
 .pn-product-meter span{display:block;height:100%;border-radius:2px}
