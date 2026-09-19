@@ -1,0 +1,56 @@
+---
+session: lunapot-panel
+date: 2026-09-20
+status: complete
+outcome: SUCCEEDED
+---
+
+goal: "Codex'in 25 bulgusu (docs/CODEX-SORUN-COZUM-RAPORU-2026-09-19.md) ve tasarım çalışması (docs/TASARIM-RAPORU-2026-09-19.md) doğrulandı, testle düzeltildi, gözden geçirildi, canlıya alındı; kâr ekranları 3-5 kat hızlandı."
+now: "Açık iş yok. Kullanıcı isterse: başabaş altı fiyatlı ürün listesi (Kaça satmalıyım ile); aşağıdaki 'kalan' maddeleri."
+test: "npm test   # 618/618 (HEAD 176adbb). Yayın: npm test > out; grep -q '^ℹ fail 0' out && git push origin main"
+
+kullanici:
+  - "Tam yetki verdi: 'kontroller/testler bitince haber etmene gerek yok, direk canlıya al'. Kısa, basit Türkçe ister."
+  - "Dönem kartlarında 'N zarar · −X ₺' şart (Codex kaldırmıştı, geri kondu)."
+
+ortam:
+  repo: "C:/Users/baran/Desktop/site/lunapot-panel (main, HEAD 176adbb). Documents/Codex/... kopyası ESKİ."
+  canli: "https://muhasebe.lunapot.com — CACHE lunapot-shell-v112-gunluk-tablo-telefon. Migration 0049, 0050, 0051 canlıda."
+  d1: "wrangler d1 execute --remote bazen geçici 7403 verir; SELECT 1 ile dene, sonra tekrarla. Veri okuyan SELECT'ler izin sisteminde 'Production Reads' ile engelli; canlı kontrolü kullanıcının tarayıcı sekmesinden (tab-2) /api/ec/... fetch ile yap. Yalnız COUNT/süre dönen ölçümler (scratchpad zamanla.mjs) geçti."
+  onizleme: "Tam uygulama yerel önizleme: scratchpad preview.mjs (:8790) — gerçek worker.fetch + bellekte örnek veri, çerez sunucuda. Tohumda ec_price_profiles.vat_bps ve ec_report_profiles fee_vat_bps şart."
+
+done_this_session:
+  - task: "Maliyet motoru (R02 R03 R07-R12 R15 R16): FIFO izlenen partiler, kirli kuyruk nesli (yarışta tek düzeltme), teslim+geçici sayım kapanışı tek batch, iade başka açık satışı kapatır, kısmi açık iade değer bırakmaz, teslim geri alma doğru parti, sayım eksiği kayıtlı değer, satılmış geçici sayım fatura fiyatına, alış fiyat düzeltmesi FIFO'ya, iadede kuruş kaybolmaz. İnceleme sonrası: aynı ürün faturada iki satırsa sayım bir kez ayrılır (ec_stock_apply tetiği)."
+    files: [src/fifo-cost.js, src/accounting.js, src/purchase-autopost-api.js, migrations/0049_maliyet_motoru.sql, tests/codex-maliyet-*.test.js, tests/gecici-sayim-cok-satir.test.js]
+  - task: "Rapor akışı (R01 R04 R05 R06 R14 R24): yazma koruması (eski dosya yeni gözlemi ezemez), iade paket/satır tahsisi (DUZ teknik iade tüketmez), sayım telafisi yalnız gönderimde (tetik), taslak tutar tazeleme, hatalı dosya geri çekilme süresi + ekranda deneme sayısı/sebep."
+    files: [src/report-inbox-api.js, src/report-stock-link-api.js, src/otomatik-bakim.js, migrations/0050_report_pipeline_guards.sql, public/report-inbox-ui.js, tests/codex-rapor-*.test.js]
+  - task: "Ortak kâr (R13 R17-R22): ana sayfa, kâr raporu, ürün kârlılığı, sipariş listesi/penceresi performanceReport satırlarından (paketSonuclari, tumSatirlar, ilkSonucTarihi); pencerenin kalem dökümü de aynı satırdan (cash_breakdown)."
+    files: [src/performance-api.js, src/panorama-api.js, src/urun-karlilik-api.js, src/order-insights-api.js, src/orders-api.js, public/orders-ui.js, public/panorama-ui.js, public/product-list.js, tests/codex-kar-*.test.js]
+  - task: "Fiyat (R23) adet uyumlu kargo + ambalaj/diğer gider; yetki (R25) fiyat-hesap→pricing, urun-karlilik→stock; Türkçe para alanları gizlenir."
+    files: [src/fee-history.js, src/fiyat-hesap-api.js, src/permission-policy.js, public/fiyat-hesap-ui.js, tests/codex-fiyat-r23.test.js, tests/codex-yetki-r25.test.js]
+  - task: "Stok geçmişi FIFO düzeltmelerini ve kapanış farklarını listeler (döküm toplamı = stok değeri)."
+    files: [src/stock-history-api.js, public/stock-history-ui.js, tests/stok-gecmisi-degerleme.test.js]
+  - task: "Hız: STOPAJ_SQL '=+order_packages.order_no' (TEXT eğilimi ifade indeksini engelliyordu; 3,4 sn → 13 ms); bağımsız okumalar paralel; 0051 indeksleri. Canlı: sipariş listesi 4,5 sn → 0,7-1,4 sn; kâr raporu 2,2 → 0,5 sn."
+    files: [src/performance-api.js, src/orders-api.js, migrations/0051_performans_indeksleri.sql]
+  - task: "Codex tasarımı (commerce-design.css) yayında; dönem kartlarına zarar satırı geri kondu; günlük tablo telefonda sığar."
+    files: [public/commerce-design.css, public/panorama-ui.js]
+
+canli_dogrulama:
+  - "Rakamlar yayından önce/sonra aynı: tüm zamanlar 356 pk 24.762,46; son 1 ay 302 pk 23.381,02; kargoda 124 pk 8.942,10."
+  - "Sipariş listesi = kâr raporu: teslim edilen 347/347 paket kuruşu kuruşuna; ürün kârlılığı teslim toplamı = ana sayfa (24.762,46)."
+  - "FIFO önizleme (37 ürün): yeni motor geçmişte yalnız 2 kuruş değiştirir (TS1 Torf 210 L, 2 satış), 4 satış atlanır (eski iade kaydında cancelled_milli yok; güvenli atlama). R15: kapasiteyi aşan geçmiş kaynak 0."
+  - "Telefon 375 px: 12 ekranda sayfa taşması / JS hatası yok."
+
+kalan:
+  - "Kargodaki tahmin: ana sayfa hazırlanan (reserved) 8 paketi de sayar (8.942,10), ürün kârlılığı yalnız gönderilenleri (8.231,06). Etiketler doğru; kullanıcı sorarsa açıkla."
+  - "Eski (0049 öncesi) açık kısmı iade edilmiş satışlarda ec_open_costs.cancelled_milli=0; FIFO bu satışları atlar (az düzeltme, yanlış yazma yok). Gerekirse geri doldurma betiği."
+  - "Kargodaki tahminin (performance pending) adet uyumu R23 gibi sınırlandırılmadı."
+  - "Rapor Kutusu orderResults ayrı nakit formülü (report-inbox-api) ortak satıra bağlanmadı."
+  - "applyReportFees 'iadeli' kontrolü DUZ teknik iadeyi de iade sayıyor (bilinçli olabilir, incelenmedi)."
+  - "Güvenlik alt incelemesi Codex tarafında yarım kalmıştı; tam güvenlik denetimi yapılmadı."
+  - "Cron'un canlıda çalıştığı doğrudan doğrulanmadı (ec_activity okuma izni kapalı)."
+
+learnings:
+  - "SQLite: json_extract(...)=tablo.TEXT_sütun karşılaştırması ifade indeksini kullanmaz (sütun eğilimi). '=+sütun' ile eğilim kalkar; değerler metinse sonuç aynı."
+  - "D1 ölçümü: 'SELECT COUNT(*) FROM (...)' alt sorgudaki kullanılmayan sütunları atar; SUM(sütun) ile zorla."
+  - "Paralel ajanlarla iş bölümü dosya sahipliğiyle çakışmasız yürüdü; ortak dosyada (performance-api) sıralı kaldı."
