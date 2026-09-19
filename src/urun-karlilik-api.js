@@ -1,65 +1,61 @@
 // ÜRÜN KÂRLILIĞI. Ürünler ve stok ekranı için, bugüne kadar: satılan adet (iadeler düşülür), ciro
 // (KDV dahil, müşterinin ödediği), toplam kâr (cebine kalan: KDV dahil satış − KDV dahil maliyet −
-// KDV dahil kesintiler − stopaj) ve adet başı kâr. Hesap kâr raporuyla aynıdır.
+// KDV dahil kesintiler − stopaj) ve adet başı kâr.
 //
-// Kargoya verilmiş (gönderilmiş/teslim edilmiş) paketlerin satışları sayılır. Kesintisi henüz
-// ekstreye yazılmamış paketin kesintisi geçmiş teslimlerden TAHMİN edilir ve sayısı ayrıca söylenir.
-// Birden çok ürünlü pakette kesinti ve stopaj ürünlere satış tutarı oranında dağılır.
+// TEK FORMÜL (Codex R13/R17): ayrı SQL toplamı YOKTUR. Kâr raporunun (performanceReport) paket satırları
+// ürünlere dağıtılır; ana sayfa ve kâr raporuyla aynı paket aynı kuruşu verir.
+//  - Teslim edilenler (iade tarihiyle sonuçlananlar ve çift aktarım ikizi dahil): kâr raporunun kendisi.
+//    Kesintisi ekstreye yazılmamış paket geçmişten TAHMİN edilir, sayısı söylenir (tahmini_paket).
+//  - Kargodakiler (gönderilmiş, teslim bekleyen): kâr raporunun "Kargoda · Tahmin" satırları; ayrı alanda
+//    (kargoda_kar_cents) ve tahmini sayılır.
+//  - Maliyeti/kesintisi bilinmeyen paket SIFIR SAYILMAZ: ürünün toplam kârı boş (null) kalır, hesaplanan
+//    kısım (hesaplanan_kar_cents), eksik paket sayısı ve kısa nedeni ayrıca verilir.
+// Birden çok ürünlü pakette kesinti ve stopaj ürünlere KDV dahil satış oranında dağılır.
 //
 //   GET /api/urun-karlilik
+import {tumSatirlar, ilkSonucTarihi} from './performance-api.js';
 import {kesintiTahmincisi} from './fee-history.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), {status}); };
-const inc = (v, bps) => Math.round(v * (10000 + (bps ?? 0)) / 10000);
+const nakitVar = r => r.cash_cents !== null && r.cash_cents !== undefined;
 
 export async function urunKarlilikApi(request, env, path) {
   if (path !== '/api/urun-karlilik' || request.method !== 'GET') return null;
   if (env.WORKSPACE !== 'ec') fail('Ürün kârlılığı e-ticaret çalışma alanına aittir.', 403);
-  const db = env.DB;
-  const [satirlar, bilesenler, feeVatRows, stopajlar] = (await db.batch([
-    db.prepare(`SELECT s.id,s.kind,s.parent_id,s.product_id,s.quantity_milli,s.revenue_cents,s.cost_cents,s.commission_cents,s.shipping_cents,s.other_cents,
-        l.vat_bps satir_kdv,pp.vat_bps urun_kdv,p.id pkg,p.channel,p.order_no
-      FROM ec_sale_entries s JOIN ec_order_line_components c ON (s.id=c.sale_id OR s.parent_id=c.sale_id) JOIN ec_order_lines l ON l.id=c.line_id
-      JOIN ec_order_packages p ON p.id=l.package_id LEFT JOIN ec_price_profiles pp ON pp.product_id=s.product_id
-      WHERE p.status IN ('shipped','delivered') AND p.channel IN ('trendyol','hepsiburada')`),
-    db.prepare(`SELECT l.package_id,c.product_id,c.quantity_milli FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id
-      JOIN ec_order_packages p ON p.id=l.package_id WHERE p.status IN ('shipped','delivered')`),
-    db.prepare("SELECT provider,json_extract(options_json,'$.fee_vat_bps') bps FROM ec_report_profiles WHERE kind='finance' AND json_extract(options_json,'$.fee_amounts_include_vat')=1 AND json_extract(options_json,'$.fee_vat_bps') IS NOT NULL"),
-    // Stopaj sipariş düzeyinde bildirilir; siparişin iptal olmayan paketlerine eşit bölünür (kâr raporuyla aynı).
-    db.prepare(`SELECT p.id pkg,(SELECT COALESCE(SUM(json_extract(r.data_json,'$.amount_cents')),0) FROM ec_report_records r JOIN ec_report_stores st ON st.id=r.store_id AND st.provider=p.channel
-        WHERE r.kind='finance_event' AND json_extract(r.data_json,'$.type')='withholding' AND json_extract(r.data_json,'$.order_no')=p.order_no) stopaj,
-        (SELECT COUNT(*) FROM ec_order_packages q WHERE q.order_no=p.order_no AND q.channel=p.channel AND q.status!='cancelled') paket
-      FROM ec_order_packages p WHERE p.status IN ('shipped','delivered') AND p.channel='hepsiburada'`)
-  ])).map(r => r.results);
-  const feeVat = new Map(feeVatRows.map(r => [r.provider, r.bps]));
-  const stopajOf = new Map(stopajlar.map(r => [r.pkg, Math.round(Math.abs(r.stopaj || 0) / Math.max(1, r.paket || 1))]));
+  const db = env.DB, today = new Date().toLocaleDateString('sv-SE', {timeZone: 'Europe/Istanbul'});
   const tahmin = await kesintiTahmincisi(db);
-  const paketler = new Map();
-  for (const s of satirlar) { if (!paketler.has(s.pkg)) paketler.set(s.pkg, []); paketler.get(s.pkg).push(s); }
-  const partsOf = new Map();
-  for (const c of bilesenler) { if (!partsOf.has(c.package_id)) partsOf.set(c.package_id, []); partsOf.get(c.package_id).push(c); }
-  const urun = new Map(), al = id => { if (!urun.has(id)) urun.set(id, {product_id: id, adet_milli: 0, ciro_cents: 0, kar_cents: 0, paketler: new Set(), tahmini: new Set()}); return urun.get(id); };
+  const ilk = await ilkSonucTarihi(db, today);
+  const kargoIlk = (await db.prepare("SELECT MIN(occurred_on) d FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND status='shipped' AND occurred_on<=?").bind(today).first())?.d;
+  const teslim = ilk ? (await tumSatirlar(env, {mode: 'delivered', from: ilk, to: today, tahmin, detay: true})).rows : [];
+  const kargoda = kargoIlk ? (await tumSatirlar(env, {mode: 'pending', from: kargoIlk, to: today, tahmin, detay: true})).rows.filter(r => r.status === 'shipped') : [];
 
-  for (const [pkg, list] of paketler) {
-    const fv = feeVat.get(list[0].channel) ?? 2000;
-    const satislar = list.filter(s => s.kind === 'sale'), ciroNet = satislar.reduce((t, s) => t + s.revenue_cents, 0) || 1;
-    // Kesintisi yazılmamış paket: geçmiş teslimlerden tahmin, satış tutarı oranında dağıtılır.
-    const eksik = satislar.some(s => s.shipping_cents === null || s.commission_cents === null || s.other_cents === null);
-    const h = eksik ? tahmin(list[0].channel, partsOf.get(pkg) || []) : null;
-    const brutCiro = satislar.reduce((t, s) => t + inc(s.revenue_cents, s.satir_kdv ?? s.urun_kdv), 0);
-    const stopaj = stopajOf.has(pkg) ? stopajOf.get(pkg) : h ? Math.round(brutCiro * h.withholdingRate) : 0;
-    for (const s of list) {
-      const u = al(s.product_id), pay = s.kind === 'sale' ? s.revenue_cents / ciroNet : 0;
-      const kom = s.commission_cents ?? (h && s.kind === 'sale' ? Math.round(s.revenue_cents * h.commissionRate) : 0);
-      const kargo = s.shipping_cents ?? (h && s.kind === 'sale' ? Math.round(h.shipping * pay) : 0);
-      const diger = s.other_cents ?? (h && s.kind === 'sale' ? Math.round(h.other * pay) : 0);
-      const ciro = inc(s.revenue_cents, s.satir_kdv ?? s.urun_kdv);
-      u.adet_milli += s.kind === 'return' ? -s.quantity_milli : s.quantity_milli;
-      u.ciro_cents += ciro;
-      u.kar_cents += ciro - inc(s.cost_cents, s.urun_kdv) - inc(kom, fv) - inc(kargo, fv) - inc(diger, fv) - Math.round(stopaj * pay);
-      if (s.kind === 'sale') { u.paketler.add(pkg); if (h) u.tahmini.add(pkg); }
+  const urun = new Map(), al = id => {
+    if (!urun.has(id)) urun.set(id, {product_id: id, adet_milli: 0, ciro_cents: 0, kar_cents: 0, teslim_kar_cents: 0, kargoda_kar_cents: 0,
+      paketler: new Set(), tahmini: new Set(), kargodaki: new Set(), eksik: new Set(), neden: null});
+    return urun.get(id);
+  };
+  for (const [liste, yolda] of [[teslim, false], [kargoda, true]]) for (const r of liste) {
+    if (nakitVar(r) && r.urunler) {
+      for (const u of r.urunler) {
+        const x = al(u.product_id);
+        x.adet_milli += u.qty_milli; x.ciro_cents += u.revenue_gross_cents; x.kar_cents += u.cash_cents;
+        if (yolda) { x.kargoda_kar_cents += u.cash_cents; x.kargodaki.add(r.id); } else x.teslim_kar_cents += u.cash_cents;
+        x.paketler.add(r.id);
+        if (yolda || r.fees_estimated || r.cost_estimated) x.tahmini.add(r.id);
+      }
+    } else for (const u of r.urunler_eksik || []) {
+      const x = al(u.product_id);
+      x.adet_milli += u.qty_milli; x.paketler.add(r.id); x.eksik.add(r.id);
+      x.neden = x.neden || r.missing[0] || r.cash_note || 'Kâr hesaplanamadı.';
     }
   }
-  return {as_of: new Date().toISOString(), rows: [...urun.values()].map(u => ({product_id: u.product_id, adet_milli: u.adet_milli, ciro_cents: u.ciro_cents, kar_cents: u.kar_cents,
-    kar_adet_cents: u.adet_milli > 0 ? Math.round(u.kar_cents * 1000 / u.adet_milli) : null, paket: u.paketler.size, tahmini_paket: u.tahmini.size}))};
+  return {as_of: new Date().toISOString(), from: ilk, to: today,
+    notice: 'Teslim edilenler (iade tarihiyle sonuçlananlar dahil) kâr raporuyla aynıdır; kargodakiler tahminidir. Maliyeti veya kesintisi bilinmeyen paket sıfır sayılmaz.',
+    rows: [...urun.values()].map(u => {
+      const kar = u.eksik.size ? null : u.kar_cents;
+      return {product_id: u.product_id, adet_milli: u.adet_milli, ciro_cents: u.ciro_cents, kar_cents: kar, hesaplanan_kar_cents: u.kar_cents,
+        kar_adet_cents: kar !== null && u.adet_milli > 0 ? Math.round(kar * 1000 / u.adet_milli) : null,
+        teslim_kar_cents: u.teslim_kar_cents, kargoda_kar_cents: u.kargoda_kar_cents, kargoda_paket: u.kargodaki.size,
+        paket: u.paketler.size, tahmini_paket: u.tahmini.size, eksik_paket: u.eksik.size, eksik_neden: u.neden};
+    })};
 }

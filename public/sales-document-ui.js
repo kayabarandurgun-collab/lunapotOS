@@ -312,9 +312,9 @@ export function mountSalesDocuments(root, namespace = 'ec') {
 
   function render() {
     root.innerHTML = `<div class="rb">
-      <section class="rb-intro"><h2>Fatura belgeleri</h2>
+      <section class="page-heading"><div><h1>Fatura belgeleri</h1>
         <p>Özgün fatura dosyalarının arşivi. Bu ekran <strong>satış, gelir, borç veya stok kaydı oluşturmaz</strong>;
-          belgeyi saklar ve hangi sayfanın hangi faturaya ait olduğunu kaydeder.</p></section>
+          belgeyi saklar ve hangi sayfanın hangi faturaya ait olduğunu kaydeder.</p></div></section>
       ${tabs()}
       ${state.error ? `<p class="rb-alert warn" role="alert">${esc(state.error)}</p>` : ''}
       ${state.message ? `<p class="rb-alert ok" role="status">${esc(state.message)}</p>` : ''}

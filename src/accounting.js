@@ -39,26 +39,32 @@ async function batch(db,items){try{return await db.batch(items);}catch(e){
 }}
 // GEÇİCİ SAYIM KENDİLİĞİNDEN KAPANIR. Tedarikçi faturayı ay sonunda keser; mal ondan önce gelir
 // ve rafta sayılır. Böyle bir mal "GECICI-SAYIM-..." referanslı sayımla girilmişse, faturası gelip
-// mal teslimi yapıldığında AYNI mal ikinci kez stoğa girmiş olur. Teslimden hemen sonra o ürünün
+// mal teslimi yapıldığında AYNI mal ikinci kez stoğa girmiş olur. Teslimle birlikte o ürünün
 // açık geçici sayımı, teslim edilen adet kadar (en eskisi önce) sayımın kendi birim değeriyle
 // düşülür. Kapanış alış hareketidir (sayım düşüşü "kayıp" gideri yazardı); değer stoğu aşamaz.
-// Kullanıcının kimseye haber vermesi gerekmez.
-async function closeProvisionalCounts(db,invoiceId,lineIds,date,reference){
- const rows=(await db.prepare(`SELECT l.product_id,SUM(g.quantity_milli) q FROM goods_receipts g JOIN purchase_lines l ON l.id=g.line_id
-  WHERE l.invoice_id=? AND g.reference=? AND l.id IN (SELECT value FROM json_each(?)) AND l.product_id IS NOT NULL GROUP BY l.product_id`).bind(invoiceId,reference,JSON.stringify(lineIds)).all()).results;
- for(const r of rows){
-  const open=(await db.prepare(`SELECT m.id,m.quantity_milli,m.value_cents,m.quantity_milli-COALESCE((SELECT -SUM(c.quantity_milli) FROM stock_movements c WHERE c.kind='purchase' AND c.product_id=m.product_id AND c.reference LIKE 'provisional-close:'||m.id||':%'),0) remaining
-   FROM stock_movements m WHERE m.product_id=? AND m.kind='count' AND m.quantity_milli>0 AND m.reference LIKE 'GECICI-SAYIM-%' ORDER BY m.occurred_on,m.rowid`).bind(r.product_id).all()).results.filter(m=>m.remaining>0);
-  let left=r.q;
-  for(const m of open){
-   if(left<=0)break;
-   const take=Math.min(left,m.remaining);left-=take;
-   const bal=await db.prepare('SELECT quantity_milli,value_cents FROM stock_balances WHERE product_id=?').bind(r.product_id).first();
-   const value=Math.min(bal?.value_cents||0,Math.round(m.value_cents*take/m.quantity_milli));
-   await db.prepare("INSERT INTO stock_movements(id,product_id,quantity_milli,value_cents,kind,reference,notes,occurred_on) VALUES(?,?,?,?,'purchase',?,?,?)")
-    .bind(crypto.randomUUID(),r.product_id,-take,-value,'provisional-close:'+m.id+':'+invoiceId+':'+reference,'Geçici sayım faturayla kapandı ('+reference+')',date).run();
-  }
- }
+// Kullanıcının kimseye haber vermesi gerekmez. Satılmış sayım adetlerinin gerçek fatura maliyetine
+// geçmesini FIFO yapar (fifo-cost.js).
+// Kapanış teslimle AYNI batch'te yazılır (R03): teslim kaydolup kapanış yarım kalamaz. İfade
+// tekrar güvenlidir: bu teslimin (fatura+referans) daha önce kapattığı adet düşülür; teslimden
+// SONRA girilmiş sayımlar kapatılmaz. Böylece eski sürümden kalan yarım iş de yeniden çalıştırılarak tamamlanır.
+function provisionalClose(db,invoiceId,productId,date,reference){
+ const suffix=':'+invoiceId+':'+reference,receipts='FROM effective_receipts g JOIN purchase_lines l ON l.id=g.line_id WHERE l.invoice_id=? AND g.reference=? AND l.product_id=?';
+ return db.prepare(`INSERT INTO stock_movements(id,product_id,quantity_milli,value_cents,kind,reference,notes,occurred_on)
+  SELECT lower(hex(randomblob(16))),t.product_id,-t.take,-MAX(0,MIN(t.val0,b.value_cents-COALESCE(SUM(t.val0) OVER (ORDER BY t.occurred_on,t.rid ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0))),'purchase','provisional-close:'||t.id||?,?,?
+  FROM (SELECT u.*,CAST(ROUND(u.value_cents*1.0*u.take/u.quantity_milli) AS INTEGER) val0 FROM (
+    SELECT m.*,MIN(m.rem,MAX(0,n.need-COALESCE(SUM(m.rem) OVER (ORDER BY m.occurred_on,m.rid ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0))) take
+    FROM (SELECT m.rowid rid,m.id,m.product_id,m.quantity_milli,m.value_cents,m.occurred_on,
+      m.quantity_milli-COALESCE((SELECT -SUM(c.quantity_milli) FROM stock_movements c WHERE c.kind='purchase' AND c.product_id=m.product_id AND c.reference LIKE 'provisional-close:'||m.id||':%'),0) rem
+     FROM stock_movements m WHERE m.product_id=? AND m.kind='count' AND m.quantity_milli>0 AND m.reference LIKE 'GECICI-SAYIM-%' AND m.created_at<=(SELECT MAX(g.created_at) ${receipts})) m,
+     (SELECT COALESCE((SELECT SUM(g.quantity_milli) ${receipts}),0)-COALESCE((SELECT -SUM(c.quantity_milli) FROM stock_movements c WHERE c.product_id=? AND c.kind='purchase' AND c.reference LIKE 'provisional-close:%' AND substr(c.reference,-length(?))=?),0) need) n
+    WHERE m.rem>0) u WHERE u.take>0) t JOIN stock_balances b ON b.product_id=t.product_id`)
+  .bind(suffix,'Geçici sayım faturayla kapandı ('+reference+')',date,productId,invoiceId,reference,productId,invoiceId,reference,productId,productId,suffix,suffix);
+}
+/** Eski sürümden kalan yarım işi tamamlar: teslimi yazılmış ama geçici sayım kapanışı yazılamamış fatura. */
+export async function completeProvisionalClose(db,invoiceId,reference){
+ const rows=(await db.prepare("SELECT l.product_id,MAX(g.occurred_on) d FROM effective_receipts g JOIN purchase_lines l ON l.id=g.line_id WHERE l.invoice_id=? AND g.reference=? AND l.product_id IS NOT NULL GROUP BY l.product_id").bind(invoiceId,reference).all()).results;
+ if(rows.length)await batch(db,rows.map(r=>provisionalClose(db,invoiceId,r.product_id,r.d,reference)));
+ return rows.length;
 }
 export async function accountingApi(request,env,path,readBody){
  const db=env.DB,url=new URL(request.url),method=request.method,receiptTable=env.WORKSPACE==='ec'?'effective_receipts':'goods_receipts';
@@ -93,8 +99,12 @@ export async function accountingApi(request,env,path,readBody){
   if(adjustments.length>5000)fail('Çok fazla iade maliyet farkı var; tarih aralığını daraltın.',409);
   const credits=env.WORKSPACE==='ec'?(await statement(db,`SELECT a.id,a.reference,'purchase_correction' category,iif(a.reversal_of IS NULL,a.stock_cents-a.net_cents,a.net_cents-a.stock_cents) amount_cents,a.occurred_on,0 paid,a.reason notes FROM purchase_adjustments a JOIN purchase_lines l ON l.id=a.line_id WHERE a.occurred_on BETWEEN ? AND ? AND (a.kind='price' OR (a.kind='service' AND l.expense_treatment='general')) ORDER BY a.occurred_on DESC LIMIT 5001`,[from,to]).all()).results:[];
   if(credits.length>5000)fail('Düzeltme sayısı fazla; tarih aralığını daraltın.',409);
+  // Geçici sayımın kayba giden adetleri tahmini değerle gidere yazılmıştı; fatura gelince gerçek fiyat
+  // farkı (FIFO'nun değiştirilemez "kayip" tamamlaması) kayıp giderini düzeltir (bkz. 0049).
+  const closeLoss=env.WORKSPACE==='ec'?(await statement(db,`SELECT c.id,'kapanis-kayip:'||c.id reference,'loss' category,c.value_cents amount_cents,m.occurred_on,0 paid,'Geçici sayımla kapanan kayıp malın gerçek fatura farkı' notes FROM ec_close_cost_revaluations c JOIN stock_movements m ON m.id=c.movement_id WHERE c.kind='kayip' AND m.occurred_on BETWEEN ? AND ? ORDER BY m.occurred_on DESC LIMIT 5001`,[from,to]).all()).results:[];
+  if(closeLoss.length>5000)fail('Düzeltme sayısı fazla; tarih aralığını daraltın.',409);
   const costMovements=env.WORKSPACE==='ec'?(await db.prepare(`SELECT a.id,l.product_id,p.name product_name,p.stock_unit,0 quantity_milli,iif(a.reversal_of IS NULL,-a.stock_cents,a.stock_cents) value_cents,'purchase' kind,'price-adjustment:'||a.id reference,a.reference||' · '||a.reason notes,a.occurred_on,a.created_at FROM purchase_adjustments a JOIN purchase_lines l ON l.id=a.line_id JOIN products p ON p.id=l.product_id WHERE a.stock_cents!=0 ORDER BY a.created_at DESC,a.rowid DESC LIMIT 200`).all()).results:[];
-  return filterAccounting({from,to,stock,sales,expenses:[...expenses,...adjustments,...credits],suppliers,invoices,movements:[...movements,...costMovements].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,200),pending_fee_cents:pendingFees[0].pending_fee_cents},env.USER,env.WORKSPACE);
+  return filterAccounting({from,to,stock,sales,expenses:[...expenses,...adjustments,...credits,...closeLoss],suppliers,invoices,movements:[...movements,...costMovements].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,200),pending_fee_cents:pendingFees[0].pending_fee_cents},env.USER,env.WORKSPACE);
  }
  if(path==='/api/accounting/suppliers'&&method==='POST'){
   const x=await readBody(request),key=id(),tax=optional(x.tax_id);if(tax&&!/^\d{10,11}$/.test(tax))fail('VKN/TCKN 10 veya 11 rakam olmalı.');
@@ -131,7 +141,21 @@ export async function accountingApi(request,env,path,readBody){
  if(returnMatch&&method==='POST'){
   const x=await readBody(request),key=id(),parent=returnMatch[1],qty=milli(x.quantity),restock=x.restock===true?1:0;
   const original=await statement(db,"SELECT id FROM sale_entries WHERE id=? AND kind='sale'",[parent]).first();if(!original)fail('Asıl satış bulunamadı.',404);
-  await batch(db,[statement(db,"INSERT INTO sale_entries(id,channel,external_id,product_id,kind,parent_id,quantity_milli,revenue_cents,cost_cents,commission_cents,shipping_cents,other_cents,fees_status,restock,occurred_on,notes) SELECT ?,channel,?,product_id,'return',id,?,-?,CASE WHEN ?=1 THEN -(CAST(ROUND(cost_cents*(COALESCE((SELECT SUM(quantity_milli) FROM sale_entries r WHERE r.parent_id=s.id),0)+?)/(quantity_milli*1.0)) AS INTEGER)-CAST(ROUND(cost_cents*COALESCE((SELECT SUM(quantity_milli) FROM sale_entries r WHERE r.parent_id=s.id),0)/(quantity_milli*1.0)) AS INTEGER)) ELSE 0 END,?,?,?, ?,?,?,? FROM sale_entries s WHERE id=?",[key,text(x.external_id,'İade referansı'),qty,amount(x.revenue),restock,qty,fee(x.commission,true),fee(x.shipping,true),fee(x.other,true),x.fees_status==='confirmed'?'confirmed':'pending',restock,day(x.occurred_on),optional(x.notes).slice(0,2000),parent]),log(db,'Satış iadesi kaydedildi')]);return {id:key};
+  // İade maliyeti (e-ticaret, R08): satışın henüz kapanmamış AÇIK adedi önce iade edilir; o adetler
+  // stoktan hiç çıkmadı, iade yalnız onların TAHMİNİNİ geri alır (tetikteki payla aynı formül). Kalan
+  // adetler satışın gerçek (tahmin dışı) maliyetinden kalan-yöntemiyle pay alır; son iade kalanı alır.
+  // Eskiden oran tahmin dahil tüm maliyetten alınıyor, tahmin payını karşılamayan kısım kayboluyor,
+  // FIFO sonrası sıfır stokta değer kalıyordu.
+  const ec=env.WORKSPACE==='ec';
+  const cost=ec?'iif(?=1,-(k.est+iif(?-k.qo>0 AND k.qr>0,CAST(ROUND(k.kr*1.0*(?-k.qo)/k.qr) AS INTEGER),0)),0)'
+   :'CASE WHEN ?=1 THEN -(CAST(ROUND(s.cost_cents*(COALESCE((SELECT SUM(quantity_milli) FROM sale_entries r WHERE r.parent_id=s.id),0)+?)/(s.quantity_milli*1.0)) AS INTEGER)-CAST(ROUND(s.cost_cents*COALESCE((SELECT SUM(quantity_milli) FROM sale_entries r WHERE r.parent_id=s.id),0)/(s.quantity_milli*1.0)) AS INTEGER)) ELSE 0 END';
+  const from=ec?`FROM sale_entries s JOIN (SELECT x.id,MIN(?,x.o) qo,iif(x.o>0,CAST(ROUND(x.e*1.0*MIN(?,x.o)/x.o) AS INTEGER),0) est,x.quantity_milli-x.pr-x.o qr,x.cost_cents+x.pc-x.e kr
+    FROM (SELECT s2.id,s2.quantity_milli,s2.cost_cents,COALESCE((SELECT o.open_milli-o.settled_milli FROM open_costs o WHERE o.sale_id=s2.id AND o.open_milli>o.settled_milli),0) o,
+     COALESCE((SELECT COALESCE(o.estimate_cents,0)-o.settled_estimate_cents FROM open_costs o WHERE o.sale_id=s2.id AND o.open_milli>o.settled_milli),0) e,
+     COALESCE((SELECT SUM(r.quantity_milli) FROM sale_entries r WHERE r.parent_id=s2.id AND r.restock=1),0) pr,COALESCE((SELECT SUM(r.cost_cents) FROM sale_entries r WHERE r.parent_id=s2.id AND r.restock=1),0) pc
+    FROM sale_entries s2 WHERE s2.id=?) x) k ON k.id=s.id`:'FROM sale_entries s';
+  await batch(db,[statement(db,`INSERT INTO sale_entries(id,channel,external_id,product_id,kind,parent_id,quantity_milli,revenue_cents,cost_cents,commission_cents,shipping_cents,other_cents,fees_status,restock,occurred_on,notes) SELECT ?,s.channel,?,s.product_id,'return',s.id,?,-?,${cost},?,?,?,?,?,?,? ${from} WHERE s.id=?`,
+   [key,text(x.external_id,'İade referansı'),qty,amount(x.revenue),restock,qty,...(ec?[qty]:[]),fee(x.commission,true),fee(x.shipping,true),fee(x.other,true),x.fees_status==='confirmed'?'confirmed':'pending',restock,day(x.occurred_on),optional(x.notes).slice(0,2000),...(ec?[qty,qty,parent]:[]),parent]),log(db,'Satış iadesi kaydedildi')]);return {id:key};
  }
  const feeMatch=path.match(/^\/api\/accounting\/sales\/([\w-]+)\/fees$/);
  if(feeMatch&&method==='POST'){
@@ -177,11 +201,13 @@ export async function accountingApi(request,env,path,readBody){
    if(existing.status!=='posted')fail('Önce faturayı muhasebeleştirin.',409);
    if(!Array.isArray(x.lines)||!x.lines.length||x.lines.length>40||new Set(x.lines.map(l=>l.id)).size!==x.lines.length)fail('Teslim satırlarını kontrol edin.');
    const date=day(x.occurred_on),reference=text(x.reference,'Teslim referansı'),statements=[];
-   const receiptLines=new Set((await statement(db,"SELECT id FROM purchase_lines WHERE invoice_id=? AND line_type='product'",[key]).all()).results.map(l=>l.id));
+   const receiptLines=new Map((await statement(db,"SELECT id,product_id FROM purchase_lines WHERE invoice_id=? AND line_type='product'",[key]).all()).results.map(l=>[l.id,l.product_id]));
    for(const line of x.lines){const q=milli(line.quantity);if(!receiptLines.has(line.id))fail('Bu faturada ürün satırı bulunamadı.',404);
     statements.push(statement(db,`INSERT INTO goods_receipts(id,line_id,quantity_milli,value_cents,occurred_on,reference) SELECT ?,id,?,CAST(ROUND(net_cents*(?+COALESCE((SELECT SUM(quantity_milli) FROM ${receiptTable} WHERE line_id=l.id),0))/(quantity_milli*1.0)) AS INTEGER)-COALESCE((SELECT SUM(value_cents) FROM ${receiptTable} WHERE line_id=l.id),0),?,? FROM purchase_lines l WHERE id=?`,[id(),q,q,date,reference,line.id]));
-   }await batch(db,[...statements,log(db,'Mal teslimi kaydedildi; eldeki stok güncellendi')]);
-   if(env.WORKSPACE==='ec')await closeProvisionalCounts(db,key,x.lines.map(l=>l.id),date,reference);
+   }
+   // Geçici sayım kapanışı teslimle aynı batch'te: ya ikisi birden yazılır ya hiçbiri (R03).
+   if(env.WORKSPACE==='ec')for(const product of new Set(x.lines.map(l=>receiptLines.get(l.id)).filter(Boolean)))statements.push(provisionalClose(db,key,product,date,reference));
+   await batch(db,[...statements,log(db,'Mal teslimi kaydedildi; eldeki stok güncellendi')]);
    return {id:key};
   }
   if(existing.status!=='draft')fail('Bu fatura daha önce işlendi.',409);

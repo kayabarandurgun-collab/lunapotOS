@@ -14,7 +14,11 @@
 // Bütün ürün satırları bağlandıysa fatura muhasebeleştirilir (cari borç) ve FATURA TARİHİYLE mal
 // teslimi yapılır (stok). İkisi de mevcut muhasebe akışından geçer; doğrulamalar atlanmaz.
 // Çeşit dağılımı bekleyen (ürün ailesine yönlendirilmiş) faturalar otomatik işlenmez.
-import {accountingApi} from './accounting.js';
+// Muhasebeleşmiş ("posted") fatura, teslimin de bittiği anlamına gelmez (R03): teslim adımı
+// hata verdiyse ya da eski sürüm teslimi yazıp geçici sayım kapanışını yazamadıysa tekrar çağrı
+// kaldığı yerden tamamlar. Teslim referansı sabittir ("Fatura ile teslim <no>"): ikinci teslim
+// yazılmaz; kapanış yalnız eksik kalan adet kadar yazılır. Elle kısmi teslim alınmış faturaya dokunulmaz.
+import {accountingApi, completeProvisionalClose} from './accounting.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), {status}); };
 // Eşleme kuralı ekranla ortaktır: public/purchase-match.js
@@ -47,6 +51,25 @@ export async function purchaseAutopostApi(request, env, path, readBody) {
   const db = env.DB, key = m[1];
   const invoice = await db.prepare('SELECT id,supplier_id,invoice_no,invoice_date,status FROM purchase_invoices WHERE id=?').bind(key).first();
   if (!invoice) fail('Fatura bulunamadı.', 404);
+  const call = (sub, body) => accountingApi(new Request('https://internal/api/accounting/invoices/' + key + sub, {method: 'POST'}),
+    env, '/api/accounting/invoices/' + key + sub, async () => body);
+  const teslimRef = 'Fatura ile teslim ' + invoice.invoice_no;
+  const teslimEt = async () => {
+    const fresh = (await db.prepare("SELECT id,quantity_milli FROM purchase_lines WHERE invoice_id=? AND line_type='product'").bind(key).all()).results;
+    if (fresh.length) await call('/receive', {occurred_on: invoice.invoice_date, reference: teslimRef, lines: fresh.map(l => ({id: l.id, quantity: l.quantity_milli / 1000}))});
+    return fresh.length > 0;
+  };
+  if (invoice.status === 'posted') {
+    const r = await db.prepare(`SELECT COUNT(*) hepsi,COALESCE(SUM(g.reference=?),0) bizim FROM goods_receipts g JOIN purchase_lines l ON l.id=g.line_id WHERE l.invoice_id=?`).bind(teslimRef, key).first();
+    if (r.bizim) {
+      if (env.WORKSPACE === 'ec') await completeProvisionalClose(db, key, teslimRef);
+      return {status: 'posted', received: true, notice: 'Fatura zaten işlenmiş.'};
+    }
+    if (!r.hepsi) {
+      try { return {status: 'posted', received: await teslimEt(), notice: 'Muhasebeleşmişti; ' + invoice.invoice_date + ' tarihli mal teslimi şimdi tamamlandı.'}; }
+      catch (e) { return {status: 'posted', received: false, reason: 'Muhasebeleşti ama mal teslimi yapılamadı: ' + e.message}; }
+    }
+  }
   if (invoice.status !== 'draft') return {status: invoice.status, notice: 'Fatura zaten işlenmiş.'};
   const lines = (await db.prepare('SELECT * FROM purchase_lines WHERE invoice_id=? ORDER BY rowid').bind(key).all()).results;
   if (!lines.length) return {status: 'draft', reason: 'Faturada satır yok.'};
@@ -66,8 +89,6 @@ export async function purchaseAutopostApi(request, env, path, readBody) {
     mapped.push({description: l.description, product_name: hit.product_name, how: hit.how, stock_quantity: stock});
     return {...base, product_id: hit.product_id, stock_quantity: stock};
   });
-  const call = (sub, body) => accountingApi(new Request('https://internal/api/accounting/invoices/' + key + sub, {method: 'POST'}),
-    env, '/api/accounting/invoices/' + key + sub, async () => body);
   // Bulunan bağlantılar kısmi de olsa kaydedilir: kullanıcı yalnız kalan satırları seçer.
   if (mapped.length) await call('', {lines: payload});
   // Kartın tedarikçisi BOŞSA bu faturanın tedarikçisi yazılır: kart ondan alınıyor, bu bir
@@ -80,15 +101,12 @@ export async function purchaseAutopostApi(request, env, path, readBody) {
     reason: missing.length + ' satırın ürünü geçmişte bulunamadı: ' + missing.join('; ')};
 
   await call('/post', {});
-  const fresh = (await db.prepare("SELECT id,quantity_milli FROM purchase_lines WHERE invoice_id=? AND line_type='product'").bind(key).all()).results;
-  // Teslim ayrı adımdır: başarısız olursa fatura muhasebeleşmiş kalır ve bu SÖYLENİR.
-  try {
-    if (fresh.length)
-      await call('/receive', {occurred_on: invoice.invoice_date, reference: 'Fatura ile teslim ' + invoice.invoice_no,
-        lines: fresh.map(l => ({id: l.id, quantity: l.quantity_milli / 1000}))});
-  } catch (e) {
+  // Teslim ayrı adımdır: başarısız olursa fatura muhasebeleşmiş kalır ve bu SÖYLENİR; tekrar çağrı tamamlar.
+  let received;
+  try { received = await teslimEt(); }
+  catch (e) {
     return {status: 'posted', received: false, mapped, reason: 'Muhasebeleşti ama mal teslimi yapılamadı: ' + e.message};
   }
-  return {status: 'posted', received: fresh.length > 0, mapped,
+  return {status: 'posted', received, mapped,
     notice: 'Muhasebeleşti ve ' + invoice.invoice_date + ' tarihli mal teslimiyle stoğa girdi.'};
 }

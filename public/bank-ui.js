@@ -124,8 +124,8 @@ export function mountBank(root, namespace = 'ec') {
 
   function render() {
     root.innerHTML = '<div class="rb">' +
-      `<section class="v2-card rb-intro"><h2>Banka ekstresi</h2>
-        <p>Paranın gerçekten yattığını buradan doğrularız. ${esc(state.data?.notice || '')}</p></section>` +
+      `<section class="page-heading"><div><h1>Banka ekstresi</h1>
+        <p>Paranın gerçekten yattığını buradan doğrularız. ${esc(state.data?.notice || '')}</p></div></section>` +
       (state.error ? `<p class="rb-alert error" role="alert">${esc(state.error)}</p>` : '') +
       (state.message ? `<p class="rb-alert ok" role="status">${esc(state.message)}</p>` : '') +
       hesapKarti() + yuklemeKarti() + dosyaKarti() + satirKarti() +

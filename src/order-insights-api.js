@@ -1,6 +1,7 @@
 import {filterInsights} from './permission-policy.js';
 import {compositionKey,parcelTemplateKey,useParcelTemplate} from './order-estimate-api.js';
 import {packageProfit} from './package-profit.js';
+import {STOPAJ_SQL,stopajPayi,paketSonuclari} from './performance-api.js';
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
 const stmt=(db,sql,args=[])=>db.prepare(sql).bind(...args);
 const all=async q=>(await q.all()).results;
@@ -9,12 +10,10 @@ const day=v=>{if(typeof v!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(v)||!Number.is
 const integer=(v,name,max=10000000000)=>{if(!Number.isSafeInteger(v)||v<0||v>max)fail(name+' eksik veya geçersiz.');return v;};
 const unpack=row=>row?{id:row.id,package_id:row.package_id,version:row.version,status:row.status,snapshot:JSON.parse(row.snapshot_json),created_at:row.created_at}:null;
 async function orderData(env,key){
- // Stopaj kâr raporuyla AYNI kuralla: siparişin kendi kanalındaki mağaza kaydı, iptal edilmemiş
- // paket sayısına bölünür. Önceden siparişin bütün stopajı her pakete yazılıyordu.
- const db=env.DB,p=await stmt(db,"SELECT *,(SELECT COALESCE(SUM(json_extract(r.data_json,'$.amount_cents')),0)"
-  +" FROM ec_report_records r JOIN ec_report_stores st ON st.id=r.store_id AND st.provider=order_packages.channel WHERE r.kind='finance_event' AND json_extract(r.data_json,'$.type')='withholding'"
-  +" AND json_extract(r.data_json,'$.order_no')=order_packages.order_no) stopaj_cents,"
-  +"(SELECT COUNT(*) FROM order_packages q WHERE q.order_no=order_packages.order_no AND q.channel=order_packages.channel AND q.status!='cancelled') stopaj_paket"
+ // Stopaj kâr raporuyla AYNI parça ve payla (STOPAJ_SQL/stopajPayi): siparişin kendi kanalındaki mağaza
+ // kaydı, iptal edilmemiş EKONOMİK paketlere kuruş artığı korunarak bölünür (çift aktarım kopyası sayılmaz).
+ // ikiz_kopya: bu kargodaki paketin teslimli çift aktarım kopyası var mı (sonuç kâr raporundan gelir).
+ const db=env.DB,p=await stmt(db,'SELECT *,'+STOPAJ_SQL+",(SELECT COUNT(*) FROM order_packages d JOIN order_lines l ON l.package_id=d.id JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries r ON r.parent_id=c.sale_id WHERE d.channel=order_packages.channel AND d.order_no=order_packages.order_no AND d.id!=order_packages.id AND d.status='delivered' AND r.kind='return' AND r.external_id LIKE 'DUZELTME-CIFT-%') ikiz_kopya"
   +' FROM order_packages WHERE id=?',[key]).first();if(!p)fail('Sipariş bu çalışma alanında bulunamadı.',404);
  const sourceRows=p.channel==='trendyol'?await all(stmt(db,"SELECT r.id,r.provider,r.fingerprint,r.source_updated_at,r.last_seen_at,r.payload_json FROM provider_records r JOIN provider_connections co ON co.provider=r.provider AND co.seller_id=r.seller_id WHERE r.provider=? AND r.kind='orders' AND r.external_id=? ORDER BY r.source_updated_at DESC,r.last_seen_at DESC,r.rowid DESC LIMIT 1",[p.channel,p.external_id])):[];
  const [lines,components,sales,drafts,purchases,feeEvidence]=await Promise.all([
@@ -39,7 +38,7 @@ async function orderData(env,key){
  // Paket sorgusunun icinde alinir; ek sorgu maliyeti yoktur.
  // NAKİT SONUÇ sunucuda, kâr raporu ve sipariş listesiyle AYNI formülle: her kalemde ürün KDV'si
  // ve kesinti KDV'si ayrı eklenip yuvarlanır, stopaj düşülür. Üç ekran aynı rakamı gösterir.
- const stopaj=Math.round(Math.abs(p.stopaj_cents||0)/Math.max(1,p.stopaj_paket||1));
+ let stopaj=stopajPayi(p);
  // Oran kaynağı yoksa (eski kurulum) nakit boş kalır; oran uydurulmaz.
  let vatRows=[],feeRow=null;
  try{
@@ -54,8 +53,17 @@ async function orderData(env,key){
  // Satış kendi satır KDV'siyle (müşterinin ödediği tutar), maliyet alış KDV'siyle (ürün profili) büyür.
  const satirKdv=new Map(components.filter(c=>c.sale_id).map(c=>[c.sale_id,lines.find(l=>l.id===c.line_id)?.vat_bps]));
  const satisKdv=x=>satirKdv.get(x.kind==='return'?x.parent_id:x.id)??vat.get(x.product_id);
- const cash_cents=cashReady?sales.reduce((t,x)=>t+inc(x.revenue_cents,satisKdv(x))-inc(x.cost_cents,vat.get(x.product_id))-inc(x.commission_cents,fv)-inc(x.shipping_cents,fv)-inc(x.other_cents,fv),0)-stopaj:null;
- return {package:p,lines,components,sales,withholding_cents:stopaj,cash_cents,parcel_input:parcelInput,parcel_input_source:parcelInputSource,actual_summary:actualSummary,customer,source,source_facts:sourceFacts,purchase_invoices:purchases.slice(0,50).map(r=>({...r,source:'recent_receipt_not_exact_lot'})),purchase_invoices_truncated:purchases.length>50,fee_evidence:feeEvidence,drafts:drafts.map(unpack),invoice_status:'draft_only',notices:['Alış belgeleri bu stok kartlarının son mal teslimleridir. Satış maliyeti ağırlıklı ortalamadır; kesin parti/fatura çıkışı olduğu iddia edilmez.','Yerel satış faturası taslağı resmî fatura değildir. EDM/GİB gönderimi yapılmaz.',...(p.channel==='hepsiburada'?['Hepsiburada kaynakları henüz paket düzeyinde doğrulanmadığından müşteri ayrıntısı otomatik eşleştirilmedi.']:[])]};
+ let cash_cents=cashReady?sales.reduce((t,x)=>t+inc(x.revenue_cents,satisKdv(x))-inc(x.cost_cents,vat.get(x.product_id))-inc(x.commission_cents,fv)-inc(x.shipping_cents,fv)-inc(x.other_cents,fv),0)-stopaj:null;
+ // TEK FORMÜL (Codex R22): teslim edilen, iade tarihiyle sonuçlanan ya da çift aktarım ikizi olan paketin
+ // sonucu kâr raporunun AYNI satırıdır: geçmişten kesinti tahmini, "tahmini" işareti ve eksik nedeniyle.
+ // Kapsam dışındaki (henüz teslim edilmemiş) pakette yukarıdaki gerçekleşen kayıt hesabı kalır.
+ let cash_estimated=false,cash_note=null,cash_source='records',cash_breakdown=null;
+ if(p.status==='delivered'||['shipped','reserved'].includes(p.status)&&(sales.some(s=>s.kind==='return')||p.ikiz_kopya>0)){
+  // Okunamazsa pencere yine açılır; nakit ikinci formülle uydurulmaz, boş kalır ve nedeni yazılır.
+  let o;try{o=(await paketSonuclari(env,[p.id])).get(p.id);}catch(e){console.error('paket sonucu',e.message);o={cash_cents:null,estimated:false,withholding_cents:null,note:'Kâr raporundaki sonuç okunamadı; nakit hesaplanmadı.'};}
+  if(o){cash_cents=o.cash_cents;cash_estimated=o.estimated;cash_note=o.note;cash_source='performance';cash_breakdown=o.kalemler||null;if(o.withholding_cents!==null)stopaj=Math.abs(o.withholding_cents);}
+ }
+ return {package:p,lines,components,sales,withholding_cents:stopaj,cash_cents,cash_estimated,cash_note,cash_source,cash_breakdown,parcel_input:parcelInput,parcel_input_source:parcelInputSource,actual_summary:actualSummary,customer,source,source_facts:sourceFacts,purchase_invoices:purchases.slice(0,50).map(r=>({...r,source:'recent_receipt_not_exact_lot'})),purchase_invoices_truncated:purchases.length>50,fee_evidence:feeEvidence,drafts:drafts.map(unpack),invoice_status:'draft_only',notices:['Alış belgeleri bu stok kartlarının son mal teslimleridir. Satış maliyeti ağırlıklı ortalamadır; kesin parti/fatura çıkışı olduğu iddia edilmez.','Yerel satış faturası taslağı resmî fatura değildir. EDM/GİB gönderimi yapılmaz.',...(p.channel==='hepsiburada'?['Hepsiburada kaynakları henüz paket düzeyinde doğrulanmadığından müşteri ayrıntısı otomatik eşleştirilmedi.']:[])]};
 }
 function billingData(input){
  if(!input||typeof input!=='object'||Array.isArray(input))fail('Fatura alıcısı gerekli.');

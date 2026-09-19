@@ -804,6 +804,85 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
   };
 }
 
+/* ---------------- iade tahsisi ---------------- */
+// DUZELTME-CIFT teknik ters kaydıdır (eski çift aktarımın kopyası sıfırlandı): mal dönmedi, para iade
+// edilmedi. Müşteri iadesi sayılmaz, iade olayının tutarını tüketmez, gerçek iadeyi engellemez.
+const teknikIade = r => String(r.external_id || '').startsWith('DUZELTME-CIFT-');
+// Teslim edilemeyip dönen paketin iadesi para iadesi değildir: olayın tutarını tüketmez.
+const teslimEdilemediIadesi = r => /^(TESLIM-EDILEMEDI-|IADE-T-)/.test(String(r.external_id || '')) || /^Paket .+ teslim edilemedi;/.test(String(r.notes || ''));
+const IADE_TOLERANS = 200;
+const tlYaz = c => (c / 100).toFixed(2).replace('.', ',') + ' TL';
+
+/**
+ * Paketlerin satışları; her satışın iade edilmiş (hepsi), iade olayını tüketmiş (gerçek müşteri
+ * iadesi) ve kalan miktarı. Satır bazında: bir satırın iadesi diğer satırı kilitlemez.
+ */
+async function iadeDurumu(db, packageIds) {
+  const out = new Map(packageIds.map(p => [p, []]));
+  if (!packageIds.length) return out;
+  const sales = (await db.prepare(
+    'SELECT l.package_id,l.id line_id,l.quantity_milli line_milli,l.gross_cents line_gross,c.sale_id,s.revenue_cents,s.quantity_milli,s.occurred_on,p.sku' +
+    ' FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_sale_entries s ON s.id=c.sale_id JOIN ec_products p ON p.id=s.product_id' +
+    " WHERE l.package_id IN (SELECT value FROM json_each(?)) AND s.kind='sale' ORDER BY l.rowid,c.rowid").bind(JSON.stringify(packageIds)).all()).results;
+  const iadeler = sales.length ? (await db.prepare("SELECT parent_id,quantity_milli,revenue_cents,external_id,notes FROM ec_sale_entries WHERE kind='return' AND parent_id IN (SELECT value FROM json_each(?))")
+    .bind(JSON.stringify(sales.map(s => s.sale_id))).all()).results : [];
+  const topla = (liste, alan) => liste.reduce((t, x) => t + Math.abs(x[alan] || 0), 0);
+  for (const s of sales) {
+    const r = iadeler.filter(x => x.parent_id === s.sale_id), iade = topla(r, 'quantity_milli');
+    out.get(s.package_id).push({...s, iade_milli: iade, iade_gelir: topla(r, 'revenue_cents'),
+      tuketen_milli: topla(r.filter(x => !teknikIade(x) && !teslimEdilemediIadesi(x)), 'quantity_milli'), kalan_milli: Math.max(0, s.quantity_milli - iade)});
+  }
+  return out;
+}
+/** Satıştan iade satırı. Son parça kalan geliri kuruşu kuruşuna alır; toplam satışı aşmaz. */
+const iadeSatiri = (s, milli) => {
+  const kalanGelir = Math.max(0, s.revenue_cents - s.iade_gelir);
+  return {sale_id: s.sale_id, sku: s.sku, quantity: milli / 1000, occurred_on: s.occurred_on, prior_milli: s.iade_milli,
+    revenue_cents: milli >= s.kalan_milli ? kalanGelir : Math.min(kalanGelir, Math.round(s.revenue_cents * milli / s.quantity_milli))};
+};
+/** Paketin rapor brütü satışlara gelir oranında paylaştırılır; tüketilmiş ve kalan iade tutarı bu paylardan. */
+function paketDegeri(sales, brut) {
+  const w = sales.map(s => Math.max(0, s.revenue_cents)), top = w.reduce((a, b) => a + b, 0);
+  const pay = sales.map((s, i) => brut * (top > 0 ? w[i] / top : 1 / sales.length));
+  return {pay, tuketilen: sales.reduce((t, s, i) => t + pay[i] * s.tuketen_milli / s.quantity_milli, 0),
+    kalan: sales.reduce((t, s, i) => t + pay[i] * s.kalan_milli / s.quantity_milli, 0)};
+}
+/** Paketin rapor satırları: yeniden numaralanan paketin eski numarası bir kez sayılır. */
+function raporPaketi(kayitlar) {
+  if (!kayitlar.length) return null;
+  const gruplar = new Map();
+  for (const r of kayitlar) gruplar.set(String(r.data.package_id), [...(gruplar.get(String(r.data.package_id)) || []), r]);
+  const imza = g => g.map(r => String(r.data.barcode || r.data.sku || '') + '×' + Number(r.data.quantity)).sort().join('|');
+  const son = g => g.map(r => String(r.updated_at || '')).sort().at(-1);
+  let secilen = [...gruplar.values()];
+  if (secilen.length > 1 && new Set(secilen.map(imza)).size === 1) secilen = [secilen.reduce((a, b) => son(a) >= son(b) ? a : b)];
+  const satirlar = secilen.flat();
+  return {brut: satirlar.some(r => r.data.gross == null) ? null : satirlar.reduce((t, r) => t + Number(r.data.gross), 0),
+    iade: satirlar.some(r => /iade/.test(String(r.data.status || '').toLocaleLowerCase('tr-TR')))};
+}
+/**
+ * Tutarın (U) aday paketlerde kaç AÇIKLAMASI var: bütün adayların kalanı, tek paketin kalanı ya da
+ * kalanı olan TEK satırın birim fiyatının tam katı. Tahsis yalnız TEK açıklama varsa yapılır; iki paket
+ * aynı tutarı açıklıyorsa hangisi olduğu belli değildir, uydurulmaz.
+ */
+function iadeAciklamalari(U, adaylar) {
+  const planlar = [], tam = p => p.sales.filter(s => s.kalan_milli > 0).map(s => iadeSatiri(s, s.kalan_milli));
+  if (adaylar.length > 1 && Math.abs(U - adaylar.reduce((t, p) => t + p.deger.kalan, 0)) <= IADE_TOLERANS) planlar.push(adaylar.map(p => ({p, tutar: p.deger.kalan, lines: tam(p)})));
+  for (const p of adaylar) {
+    if (Math.abs(U - p.deger.kalan) <= IADE_TOLERANS) { planlar.push([{p, tutar: p.deger.kalan, lines: tam(p)}]); continue; }
+    const satirlar = [...new Set(p.sales.filter(s => s.kalan_milli > 0).map(s => s.line_id))];
+    if (satirlar.length !== 1) continue;
+    const ss = p.sales.filter(s => s.line_id === satirlar[0]), adet = Math.round(ss[0].line_milli / 1000);
+    if (!(adet > 0)) continue;
+    const birim = ss.reduce((t, s) => t + p.deger.pay[p.sales.indexOf(s)], 0) / adet;
+    const kalanAdet = Math.min(...ss.map(s => Math.floor(s.kalan_milli * adet / s.quantity_milli + 1e-9)));
+    const k = birim > 0 ? Math.round(U / birim) : 0;
+    if (k >= 1 && k < kalanAdet && Math.abs(k * birim - U) <= IADE_TOLERANS)
+      planlar.push([{p, k, adet, tutar: k * birim, lines: ss.map(s => iadeSatiri(s, Math.round(s.quantity_milli * k / adet)))}]);
+  }
+  return planlar;
+}
+
 /**
  * Raporda İADE görünen ama defterde hâlâ tam gelirle duran paketler.
  * Bu uç YAZMAZ, yalnızca listeler: hangi satış kaydının ne kadar iade edilmesi gerektiğini söyler.
@@ -811,49 +890,83 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
  *
  * İade edilen siparişte mal geri döner (maliyet geri alınır) ama GİDİŞ KARGOSU, DÖNÜŞ KARGOSU ve
  * hizmet bedeli cepte kalır: zarar satıştan değil, iadeden doğar. Bu yüzden kesintiler silinmez.
+ *
+ * TAHSİS (R04, R14). İade olayı SİPARİŞ düzeyindedir; eskiden aynı toplam her pakete ayrı ayrı
+ * uygulanıyordu (tek iade → iki paket iadesi) ve paketin herhangi bir satırında iade varsa bütün
+ * paket atlanıyordu (kısmi iadeden sonra kalan adet hiç iade edilmiyordu). Şimdi:
+ *  · olayların toplamından, siparişin paketlerinde ZATEN girilmiş gerçek iadelerin rapor tutarı
+ *    düşülür (kümülatif; DUZELTME-CIFT ve teslim edilemedi iadeleri düşülmez);
+ *  · kalan tutar yalnız TEK açıklaması varsa tahsis edilir (paket numarası olan olay yalnız kendi
+ *    paketine; rapordaki "iade" durumu kanıttır); belirsizse gerekçesiyle listede kalır;
+ *  · her iade satırı satışın O ANKİ iade miktarını taşır: aynı durumdan iki çalıştırma (ekran + bakım)
+ *    aynı referansı üretir, satış defterindeki tekillik ikinciyi yazdırmaz.
  */
 export async function pendingReturns(db, storeId) {
   const store = await db.prepare('SELECT * FROM ec_report_stores WHERE id=?').bind(key(storeId)).first();
   if (!store) fail('Mağaza bulunamadı.', 404);
-  const rows = (await db.prepare(
-    "SELECT json_extract(r.data_json,'$.order_no') order_no, r.erp_package_id," +
-    " (SELECT SUM(json_extract(f.data_json,'$.amount_cents')) FROM ec_report_records f" +
-    "  WHERE f.store_id=r.store_id AND f.kind='finance_event' AND json_extract(f.data_json,'$.type')='refund'" +
-    "  AND json_extract(f.data_json,'$.order_no')=json_extract(r.data_json,'$.order_no')) refund_cents," +
-    " SUM(json_extract(r.data_json,'$.gross')) rapor_brut, SUM(json_extract(r.data_json,'$.quantity')) rapor_adet" +
-    " FROM ec_report_records r WHERE r.store_id=? AND r.kind='order_line' AND r.erp_package_id IS NOT NULL" +
-    " GROUP BY r.erp_package_id").bind(store.id).all()).results.filter(x => x.refund_cents && x.refund_cents < 0);
-
   const out = [], skipped = [];
-  for (const x of rows) {
-    const sales = (await db.prepare(
-      'SELECT c.sale_id,s.revenue_cents,s.quantity_milli,s.occurred_on,p.sku,' +
-      '(SELECT COUNT(*) FROM ec_sale_entries r WHERE r.parent_id=s.id) iade_var' +
-      ' FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id' +
-      " JOIN ec_sale_entries s ON s.id=c.sale_id JOIN ec_products p ON p.id=s.product_id" +
-      " WHERE l.package_id=? AND s.kind='sale' ORDER BY c.id").bind(x.erp_package_id).all()).results;
-    if (!sales.length) { skipped.push({order_no: x.order_no, reason: 'Pakette satış kaydı yok.'}); continue; }
-    if (sales.some(r => r.iade_var)) { skipped.push({order_no: x.order_no, reason: 'Bu paketin iadesi zaten girilmiş.'}); continue; }
-    // Rapor iadesi paketin TAMAMINI kapsıyorsa satırların tamamı iade edilir. Kısmi iadede
-    // hangi satırın iade edildiği raporda yazmadığı için elle karara bırakılır: uydurulmaz.
-    // Tam iade ölçüsü RAPORDAKİ satış tutarıdır: iade onu aynalar. Defterdeki KDV hariç tutarla
-    // karşılaştırmak indirimli siparişlerde şaşırır, çünkü iade indirimsiz tutarı gösterir.
-    const iade = Math.abs(x.refund_cents), raporBrut = x.rapor_brut || 0;
-    const tamIade = raporBrut > 0 && Math.abs(iade - raporBrut) <= 200;
-    // TEK SATIRLI pakette kısmi iade belirsiz değildir: iade tutarı birim fiyatın tam katıysa o
-    // kadar adet iade edilmiştir (2 × 480 TL'lik satışta 480 TL iade = 1 adet).
-    if (!tamIade) {
-      const adet = Number(x.rapor_adet) || 0, birim = adet > 0 ? raporBrut / adet : 0, k = birim > 0 ? Math.round(iade / birim) : 0;
-      if (sales.length === 1 && k >= 1 && k < adet && Math.abs(k * birim - iade) <= 200) {
-        const r = sales[0];
-        out.push({order_no: x.order_no, erp_package_id: x.erp_package_id, refund_cents: iade, reason: 'Pazaryeri raporunda kısmi iade: ' + x.order_no + ', ' + adet + ' adetten ' + k + '.',
-          lines: [{sale_id: r.sale_id, sku: r.sku, quantity: Math.round(r.quantity_milli * k / adet) / 1000, revenue_cents: Math.round(r.revenue_cents * k / adet), occurred_on: r.occurred_on}]});
-        continue;
+  const olaylar = (await db.prepare(
+    "SELECT json_extract(data_json,'$.order_no') order_no,json_extract(data_json,'$.package_id') pk,SUM(json_extract(data_json,'$.amount_cents')) tutar" +
+    " FROM ec_report_records WHERE store_id=? AND kind='finance_event' AND json_extract(data_json,'$.type')='refund' AND json_extract(data_json,'$.order_no') IS NOT NULL" +
+    " GROUP BY 1,2").bind(store.id).all()).results;
+  const siparisler = new Map();
+  for (const o of olaylar) siparisler.set(String(o.order_no), [...(siparisler.get(String(o.order_no)) || []), o]);
+  for (const [k, evs] of siparisler) if (!(evs.reduce((t, e) => t - (Number(e.tutar) || 0), 0) > IADE_TOLERANS)) siparisler.delete(k);
+  if (siparisler.size) {
+    const nolar = JSON.stringify([...siparisler.values()].map(evs => evs[0].order_no));
+    // Siparişin paketleri: bu mağazanın rapor satırlarının bağlı olduğu gönderilmiş paketler ve (mağaza
+    // ayrımı kesinse) hiçbir rapor satırına bağlı olmayan aynı numaralı gönderilmiş paketler — çift
+    // aktarımın "asıl" kaydı gibi: gerçek satış onda durur, kopyası DUZELTME-CIFT ile sıfırlanmıştır.
+    const kayitlar = (await db.prepare("SELECT r.erp_package_id,r.data_json,r.updated_at FROM ec_report_records r JOIN ec_order_packages p ON p.id=r.erp_package_id" +
+      " WHERE r.store_id=? AND r.kind='order_line' AND json_extract(r.data_json,'$.order_no') IN (SELECT value FROM json_each(?)) AND p.status IN ('shipped','delivered')")
+      .bind(store.id, nolar).all()).results.map(r => ({...r, data: parse(r.data_json, {})}));
+    const tekMagaza = (await db.prepare('SELECT COUNT(*) n FROM ec_report_stores WHERE provider=?').bind(store.provider).first()).n === 1;
+    const bagsiz = tekMagaza ? (await db.prepare("SELECT p.id,p.order_no FROM ec_order_packages p WHERE p.channel=? AND p.order_no IN (SELECT value FROM json_each(?))" +
+      " AND p.status IN ('shipped','delivered') AND NOT EXISTS(SELECT 1 FROM ec_report_records r WHERE r.erp_package_id=p.id)").bind(store.provider, nolar).all()).results : [];
+    const durum = await iadeDurumu(db, [...new Set([...kayitlar.map(r => r.erp_package_id), ...bagsiz.map(r => r.id)])]);
+    for (const [orderNo, evs] of siparisler) {
+      const R = evs.reduce((t, e) => t - (Number(e.tutar) || 0), 0);
+      // Rapor satırı hiçbir gönderilmiş pakete bağlı değilse (aktarılmamış/eski sipariş) eskisi gibi dokunulmaz.
+      const bagli = kayitlar.filter(r => String(r.data.order_no) === orderNo).map(r => r.erp_package_id);
+      if (!bagli.length) continue;
+      const ids = [...new Set([...bagli, ...bagsiz.filter(r => String(r.order_no) === orderNo).map(r => r.id)])];
+      const paketler = [], bilinmeyen = [];
+      for (const pid of ids) {
+        const sales = durum.get(pid) || [], rapor = raporPaketi(kayitlar.filter(r => r.erp_package_id === pid));
+        if (!sales.length) continue;
+        const pk = new Set(kayitlar.filter(r => r.erp_package_id === pid).map(r => String(r.data.package_id)));
+        // Rapor brütü (iade onu aynalar); rapor satırı yoksa defterdeki brüt. Tutarı bilinmeyen paket
+        // adaylıktan sessizce düşürülmez: iade onun olabilir, o zaman başka pakete tahsis edilmez.
+        const defterBrut = [...new Map(sales.map(s => [s.line_id, s.line_gross])).values()];
+        const brut = rapor ? rapor.brut : defterBrut.some(g => g == null) ? null : defterBrut.reduce((a, b) => a + b, 0);
+        if (brut == null) { if (sales.some(s => s.kalan_milli > 0)) bilinmeyen.push({id: pid, pk}); continue; }
+        paketler.push({id: pid, sales, brut, iade: !!rapor?.iade, deger: paketDegeri(sales, brut), pk});
       }
-      skipped.push({order_no: x.order_no, reason: 'Kısmi iade (' + (iade / 100).toFixed(2) + ' TL); hangi satırın iade edildiği raporda yok, elle girilmeli.'}); continue;
+      if (!paketler.length && !bilinmeyen.length) { skipped.push({order_no: orderNo, reason: 'Pakette satış kaydı yok.'}); continue; }
+      // Olayların hepsi paket numarası taşıyorsa her paket yalnız kendi olaylarıyla eşleşir.
+      const paketli = evs.every(e => e.pk != null && e.pk !== '' && paketler.some(p => p.pk.has(String(e.pk))));
+      if (!paketli && bilinmeyen.length) { skipped.push({order_no: orderNo, reason: 'Siparişin bir paketinde rapor satış tutarı yok; iade (' + tlYaz(Math.round(R)) + ') hangi pakete ait belirlenemiyor, elle girilmeli.'}); continue; }
+      const gruplar = paketli
+        ? paketler.map(p => ({adaylar: [p], R: evs.filter(e => p.pk.has(String(e.pk))).reduce((t, e) => t - (Number(e.tutar) || 0), 0)})).filter(g => g.R > 0)
+        : [{adaylar: paketler, R}];
+      for (const g of gruplar) {
+        const U = g.R - g.adaylar.reduce((t, p) => t + p.deger.tuketilen, 0);
+        if (U <= IADE_TOLERANS) continue;       // olayın tamamı girilmiş iadelerle karşılanmış
+        const adaylar = g.adaylar.filter(p => p.deger.kalan > IADE_TOLERANS);
+        if (!adaylar.length) { skipped.push({order_no: orderNo, reason: 'İade (' + tlYaz(Math.round(U)) + ') için iade edilecek satış kalmadı.'}); continue; }
+        let planlar = iadeAciklamalari(U, adaylar);
+        const kanit = adaylar.filter(p => p.iade);
+        if (planlar.length !== 1 && kanit.length && kanit.length < adaylar.length) { const k = iadeAciklamalari(U, kanit); if (k.length === 1) planlar = k; }
+        if (planlar.length !== 1) {
+          skipped.push({order_no: orderNo, reason: planlar.length
+            ? 'İade (' + tlYaz(Math.round(U)) + ') siparişin ' + adaylar.length + ' paketinden hangisine ait, raporda yazmıyor; elle girilmeli.'
+            : 'Kısmi iade (' + tlYaz(Math.round(U)) + '); hangi satırın iade edildiği raporda yok, elle girilmeli.'});
+          continue;
+        }
+        for (const x of planlar[0]) out.push({order_no: orderNo, erp_package_id: x.p.id, refund_cents: Math.round(x.tutar), lines: x.lines,
+          ...(x.k ? {reason: 'Pazaryeri raporunda kısmi iade: ' + orderNo + ', ' + x.adet + ' adetten ' + x.k + '.'} : {})});
+      }
     }
-    out.push({order_no: x.order_no, erp_package_id: x.erp_package_id, refund_cents: iade,
-      lines: sales.map(r => ({sale_id: r.sale_id, sku: r.sku, quantity: r.quantity_milli / 1000, revenue_cents: r.revenue_cents, occurred_on: r.occurred_on}))});
   }
 
   // TESLİM EDİLEMEYEN PAKET. Kargo teslim edemez, mal geri döner; pazaryeri siparişi YENİ bir
@@ -875,15 +988,12 @@ export async function pendingReturns(db, storeId) {
     " GROUP BY r.erp_package_id").bind(store.id).all()).results;
   for (const x of failed) {
     if (out.some(o => o.erp_package_id === x.erp_package_id)) continue;
-    const sales = (await db.prepare(
-      'SELECT c.sale_id,s.revenue_cents,s.quantity_milli,s.occurred_on,p.sku,' +
-      '(SELECT COUNT(*) FROM ec_sale_entries r WHERE r.parent_id=s.id) iade_var' +
-      ' FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id' +
-      " JOIN ec_sale_entries s ON s.id=c.sale_id JOIN ec_products p ON p.id=s.product_id" +
-      " WHERE l.package_id=? AND s.kind='sale' ORDER BY c.id").bind(x.erp_package_id).all()).results;
-    if (!sales.length || sales.some(r => r.iade_var)) continue;
+    // Satışın henüz iade edilmemiş kısmı döner. Teknik ters kayıt (DUZELTME-CIFT) ya da önceki kısmi
+    // iade paketi bütünüyle kilitlemez; tamamı dönmüşse yazılacak bir şey kalmaz.
+    const sales = ((await iadeDurumu(db, [x.erp_package_id])).get(x.erp_package_id) || []).filter(s => s.kalan_milli > 0);
+    if (!sales.length) continue;
     out.push({order_no: x.order_no, erp_package_id: x.erp_package_id, reason: 'Paket ' + x.pk + ' teslim edilemedi; sipariş başka paketle teslim edildi.',
-      lines: sales.map(r => ({sale_id: r.sale_id, sku: r.sku, quantity: r.quantity_milli / 1000, revenue_cents: r.revenue_cents, occurred_on: r.occurred_on}))});
+      tur: 'teslim-edilemedi', lines: sales.map(s => iadeSatiri(s, s.kalan_milli))});
   }
 
   // TESLİM EDİLEMEDİ + PAZARYERİ SATIŞI İPTAL ETTİ. Yeniden gönderim olmasa da kanıt açıktır:
@@ -909,18 +1019,121 @@ export async function pendingReturns(db, storeId) {
     const baskaTeslim = await db.prepare("SELECT 1 FROM ec_order_packages WHERE order_no=? AND channel=? AND status='delivered' AND id!=? LIMIT 1")
       .bind(x.order_no, store.provider, x.erp_package_id).first();
     if (baskaTeslim) continue;
-    const sales = (await db.prepare(
-      'SELECT c.sale_id,s.revenue_cents,s.quantity_milli,s.occurred_on,p.sku,' +
-      '(SELECT COUNT(*) FROM ec_sale_entries r WHERE r.parent_id=s.id) iade_var' +
-      ' FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id' +
-      " JOIN ec_sale_entries s ON s.id=c.sale_id JOIN ec_products p ON p.id=s.product_id" +
-      " WHERE l.package_id=? AND s.kind='sale' ORDER BY c.id").bind(x.erp_package_id).all()).results;
-    if (!sales.length || sales.some(r => r.iade_var)) continue;
+    // Satışın henüz iade edilmemiş kısmı döner. Teknik ters kayıt (DUZELTME-CIFT) ya da önceki kısmi
+    // iade paketi bütünüyle kilitlemez; tamamı dönmüşse yazılacak bir şey kalmaz.
+    const sales = ((await iadeDurumu(db, [x.erp_package_id])).get(x.erp_package_id) || []).filter(s => s.kalan_milli > 0);
+    if (!sales.length) continue;
     out.push({order_no: x.order_no, erp_package_id: x.erp_package_id, reason: 'Paket ' + x.pk + ' teslim edilemedi; pazaryeri satışı iptal etti (son ekstrede satış 0).',
-      lines: sales.map(r => ({sale_id: r.sale_id, sku: r.sku, quantity: r.quantity_milli / 1000, revenue_cents: r.revenue_cents, occurred_on: r.occurred_on}))});
+      tur: 'teslim-edilemedi', lines: sales.map(s => iadeSatiri(s, s.kalan_milli))});
   }
   return {store, pending: out, skipped,
     notice: 'Bu liste yazmaz. İade kaydı, mevcut satış iadesi ucundan girilir; mal stoğa döner, kargo ve hizmet bedeli gider olarak kalır.'};
+}
+
+/**
+ * Dosyanın sıradaki partisini işler. Sınıflandırma (okuma) ile yazma arasında başka bir dosya
+ * (ekran ya da zamanlanmış bakım) aynı kaydı değiştirebilir. D1'de etkileşimli işlem olmadığı için
+ * yazma partisinin BAŞINA bir doğrulama konur: okunan her kaydın sürümü, gözlem zamanı ve bağlantısı
+ * hâlâ aynı mı? Değilse parti bütünüyle geri alınır ({stale:true}) ve çağıran güncel kayıtla yeniden
+ * sınıflandırır. Kaybedilen yazma sürüm, sonuç veya teslim yan etkisi bırakmaz.
+ */
+async function applyStep(db, f) {
+  if (f.status === 'receiving') fail('Dosya henüz tamamen alınmadı.', 409);
+  if (f.status === 'applied') return {done: true, applied_row: f.applied_row, counts: parse(f.counts_json, {})};
+  const profile = await loadProfile(db, f);
+  const lastRow = (await db.prepare('SELECT MAX(row_no) m FROM ec_report_rows WHERE file_id=?').bind(f.id).first()).m || 0;
+  const chunkRows = (await db.prepare('SELECT row_no FROM ec_report_rows WHERE file_id=? AND row_no>? ORDER BY row_no LIMIT ?').bind(f.id, f.applied_row, APPLY_BATCH).all()).results;
+  const toRow = chunkRows.length ? chunkRows.at(-1).row_no : lastRow;
+  // Bu parti dışındaki satırlar okunmaz: iş yükü dosya boyutuyla değil parti boyutuyla artar.
+  // Dosya genelini ilgilendiren ikiz/tekrar bilgisi mühürleme sırasında hesaplanmıştır.
+  const seal = parse(f.twin_keys_json, {twins: [], duplicates: {}});
+  const twinKeys = new Set(seal.twins || []), duplicateKeys = seal.duplicates || {};
+  const batch = normalizeRows(profile, parse(f.headers_json, []), await fileRows(db, f.id, f.applied_row, toRow), {date1904: !!f.date1904});
+  if (batch.unknownTypes.length) fail('Tanımlanmamış işlem türleri var (' + batch.unknownTypes.slice(0, 5).join(', ') + '). Önce eşleştirmede karşılığını seçin.', 409);
+  for (const r of batch.records) {
+    const k = r.kind + '|' + r.key;
+    if (twinKeys.has(k) && !r.issues.some(i => i.code === 'ambiguous_twin'))
+      r.issues.push({code: 'ambiguous_twin', field: null, detail: 'Aynı bilgilere sahip başka satır var ve kimlikleri yok; ayrı işlemler olabilir.'});
+    if (duplicateKeys[k] !== undefined && duplicateKeys[k] !== r.row)
+      r.issues.push({code: 'duplicate_in_file', field: null, detail: 'Aynı kimlik dosyada ' + duplicateKeys[k] + '. satırda da var.'});
+  }
+  const part = await classify(db, f, profile, batch.records);
+  const counts = parse(f.counts_json, {new: 0, updated: 0, same: 0, older: 0, review: 0});
+  const stmts = [db.prepare('INSERT INTO ec_report_apply_steps(file_id,from_row,to_row) VALUES(?,?,?)').bind(f.id, f.applied_row, toRow)];
+  // R01: sınıflandırmanın dayandığı durum değiştiyse (başka dosya yazdı, gözlem ilerledi, bağlantı
+  // kuruldu) tetik bütün partiyi geri alır. Yeni kayıtların tekilliğini UNIQUE anahtar korur.
+  const okunan = part.filter(r => r.prior).map(r => ({id: r.prior.id, v: r.prior.version, t: r.prior.source_time ?? null, e: r.prior.erp_package_id ?? null}));
+  if (okunan.length) stmts.push(db.prepare("INSERT INTO ec_report_write_guard(code) SELECT 'rapor-kaydi' FROM json_each(?) j LEFT JOIN ec_report_records r ON r.id=json_extract(j.value,'$.id')" +
+    " WHERE r.id IS NULL OR r.version IS NOT json_extract(j.value,'$.v') OR r.source_time IS NOT json_extract(j.value,'$.t') OR r.erp_package_id IS NOT json_extract(j.value,'$.e') LIMIT 1").bind(JSON.stringify(okunan)));
+  for (const r of part) {
+    counts[r.outcome] = (counts[r.outcome] || 0) + 1;
+    // Kac KESINTI kaydi geldi? Finans dosyasi yuklemek tek basina kar rakamlarini
+    // degistirmez; kesintilerin satis kayitlarina aktarilmasi ayri bir adimdir.
+    // Kullaniciya bu adimi hatirlatabilmek icin sayilir.
+    if (r.kind === 'finance_event' && ['new', 'updated'].includes(r.outcome))
+      counts.fee_events = (counts.fee_events || 0) + 1;
+    stmts.push(db.prepare('INSERT INTO ec_report_outcomes(file_id,row_no,record_key,outcome) VALUES(?,?,?,?)').bind(f.id, r.row, r.kind + '|' + r.key, r.outcome));
+    if (r.outcome === 'new') {
+      const recId = id(), erp = r.kind === 'order_line' ? await erpMatch(db, f.provider, r.data) : {id: null};
+      r.erpId = erp.id;
+      const comps = r.kind === 'order_line' ? await componentsFor(db, f.provider, r.data) : null;
+      stmts.push(db.prepare('INSERT INTO ec_report_records(id,store_id,kind,record_key,key_source,data_json,source_time,data_time,file_id,row_no,erp_package_id,components_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
+        .bind(recId, f.store_id, r.kind, r.key, r.keySource, JSON.stringify(r.data), f.snapshot_at, f.snapshot_at, f.id, r.row, erp.id, comps ? JSON.stringify(comps) : null));
+      stmts.push(db.prepare("INSERT INTO ec_report_record_versions(id,record_id,version,file_id,row_no,outcome,data_json,source_time) VALUES(?,?,1,?,?,'new',?,?)").bind(id(), recId, f.id, r.row, JSON.stringify(r.data), f.snapshot_at));
+      if (erp.ambiguous) stmts.push(review(db, f, r, 'erp_ambiguous', 'ERP\'de bu siparişe uyan birden fazla paket var; bağlantı kurulmadı.'));
+      if (erp.storeAmbiguous) stmts.push(review(db, f, r, 'store_ambiguous', 'Bu pazaryerinde birden çok mağaza tanımlı; siparişin hangi mağazaya ait olduğu ERP kaydından anlaşılmadığı için bağlanmadı.'));
+    } else if (r.outcome === 'updated') {
+      const v = r.prior.version + 1;
+      stmts.push(db.prepare('UPDATE ec_report_records SET data_json=?,source_time=?,data_time=?,file_id=?,row_no=?,version=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND version=?')
+        .bind(JSON.stringify(r.merged), f.snapshot_at, f.snapshot_at, f.id, r.row, v, r.prior.id, r.prior.version));
+      stmts.push(db.prepare("INSERT INTO ec_report_record_versions(id,record_id,version,file_id,row_no,outcome,data_json,source_time) VALUES(?,?,?,?,?,'updated',?,?)").bind(id(), r.prior.id, v, f.id, r.row, JSON.stringify(r.merged), f.snapshot_at));
+    } else if (r.outcome === 'same' && r.advanceObservation) {
+      // İçerik değişmedi ama kayıt daha yeni bir raporda yeniden görüldü: güncellik sınırı ilerler,
+      // böylece sonradan yüklenen ESKİ rapor bu kaydı geri alamaz. Veri sürümü artmaz.
+      stmts.push(db.prepare('UPDATE ec_report_records SET source_time=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND (source_time IS NULL OR source_time<?)')
+        .bind(f.snapshot_at, r.prior.id, f.snapshot_at));
+    } else if (r.outcome === 'review') {
+      stmts.push(review(db, f, r, r.reason, r.detail));
+    }
+  }
+  // RAPORDAN TESLİM ONAYI. Kâr yalnız teslim edilmiş pakette hesaplanır ve teslim durumu
+  // ERP paketinde durur. Rapor teslim tarihini getirdiği hâlde paket 'shipped' kalırsa paket
+  // sessizce kârın dışında kalır — kullanıcıya elle işaretletmek yerine tarih RAPORDAN alınır.
+  // Tarih uydurulmaz: yalnızca raporda yazan gün yazılır. Yalnız 'shipped' → 'delivered'
+  // yönü işlenir; başka durumdaki paket WHERE ile elenir, durum makinesi zorlanmaz.
+  // DIKKAT: yalnizca DEGISEN kayitlara bakmak yetmez. Teslim tarihi daha onceki bir yuklemede
+  // geldiyse kayit 'same' sayilir; paket o zaman da bugun de 'shipped' kalir ve karin disinda
+  // kalmaya devam eder. Bu yuzden partideki BUTUN siparis satirlari taranir.
+  const teslimTarihleri = new Map();
+  for (const r of part) {
+    if (r.kind !== 'order_line' || r.outcome === 'review') continue;
+    const d = r.merged || r.data;
+    const gun = String(d?.delivered_date || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(gun)) continue;
+    const pkg = r.prior?.erp_package_id || r.erpId;
+    if (!pkg) continue;
+    if (!teslimTarihleri.has(pkg) || teslimTarihleri.get(pkg) < gun) teslimTarihleri.set(pkg, gun);
+  }
+  // Yalniz GERCEKTEN kargoda duranlar yazilir: aksi halde her yuklemede ayni pakete tekrar
+  // tekrar islem kaydi dusulurdu. Tek sorgu, kimlik uzerinden.
+  const kargodakiler = teslimTarihleri.size
+    ? new Set((await db.prepare("SELECT id FROM order_packages WHERE status='shipped' AND id IN (SELECT value FROM json_each(?))")
+      .bind(JSON.stringify([...teslimTarihleri.keys()])).all()).results.map(r => r.id))
+    : new Set();
+  for (const [pkg, gun] of teslimTarihleri) {
+    if (!kargodakiler.has(pkg)) continue;
+    stmts.push(db.prepare("UPDATE order_packages SET status='delivered',delivered_on=? WHERE id=? AND status='shipped'").bind(gun, pkg));
+    stmts.push(db.prepare('INSERT INTO ec_activity(id,description) VALUES(?,?)').bind(id(),
+      'Teslim onayı rapordan alındı: paket ' + pkg + ' → ' + gun + ' (' + f.filename + ')'));
+  }
+  if (kargodakiler.size) counts.delivered = (counts.delivered || 0) + kargodakiler.size;
+  const done = toRow >= lastRow;
+  stmts.push(db.prepare('UPDATE ec_report_files SET applied_row=?,status=?,counts_json=? WHERE id=? AND applied_row=?').bind(toRow, done ? 'applied' : 'applying', JSON.stringify(counts), f.id, f.applied_row));
+  // Aynı parti başka yerde işlendiyse (apply_steps anahtarı) ya da aynı kayıt başka dosyadan az önce
+  // eklendiyse (UNIQUE) ya da okunan kayıt değiştiyse (REPORT_STALE_WRITE): hiçbir şey yazılmadı.
+  try { await db.batch(stmts); }
+  catch (e) { if (/REPORT_STALE_WRITE|UNIQUE|PRIMARY KEY/.test(e.message)) return {stale: true}; throw e; }
+  return {done, applied_row: toRow, row_count: f.row_count, counts};
 }
 
 /* ---------------- uçlar ---------------- */
@@ -933,7 +1146,10 @@ export async function reportInboxApi(request, env, path, readBody) {
   if (sub === '' && method === 'GET') {
     const [stores, files, profiles, reviews] = await Promise.all([
       db.prepare('SELECT * FROM ec_report_stores ORDER BY provider,name').all(),
-      db.prepare('SELECT f.id,f.store_id,f.kind,f.filename,f.size_bytes,f.snapshot_at,f.row_count,f.status,f.applied_row,f.counts_json,f.warnings_json,f.created_at,p.sample_verified,s.name store_name,s.provider FROM ec_report_files f JOIN ec_report_stores s ON s.id=f.store_id LEFT JOIN ec_report_profiles p ON p.id=f.profile_id ORDER BY f.created_at DESC LIMIT 100').all(),
+      // Otomatik bakımın bu dosyadaki denemeleri (R24): kaç kez hata verdi, neden, ne zaman yeniden denenecek.
+      db.prepare('SELECT f.id,f.store_id,f.kind,f.filename,f.size_bytes,f.snapshot_at,f.row_count,f.status,f.applied_row,f.counts_json,f.warnings_json,f.created_at,p.sample_verified,s.name store_name,s.provider,' +
+        'COALESCE(a.attempts,0) attempts,a.last_error,a.last_attempt_at,a.next_attempt_at FROM ec_report_files f JOIN ec_report_stores s ON s.id=f.store_id LEFT JOIN ec_report_profiles p ON p.id=f.profile_id' +
+        ' LEFT JOIN ec_report_file_attempts a ON a.file_id=f.id ORDER BY f.created_at DESC LIMIT 100').all(),
       db.prepare('SELECT id,provider,kind,version,sample_verified,created_at FROM ec_report_profiles WHERE active=1 ORDER BY provider,kind').all(),
       db.prepare("SELECT COUNT(*) n FROM ec_report_reviews WHERE status='open'").first()
     ]);
@@ -1131,95 +1347,13 @@ export async function reportInboxApi(request, env, path, readBody) {
         notice: 'Önizleme hiçbir şey yazmaz. İşlem stok, sevkiyat, satış veya fatura oluşturmaz.'};
     }
     if (action === 'apply' && method === 'POST') {
-      if (f.status === 'receiving') fail('Dosya henüz tamamen alınmadı.', 409);
-      if (f.status === 'applied') return {done: true, applied_row: f.applied_row, counts: parse(f.counts_json, {})};
-      const profile = await loadProfile(db, f);
-      const lastRow = (await db.prepare('SELECT MAX(row_no) m FROM ec_report_rows WHERE file_id=?').bind(f.id).first()).m || 0;
-      const chunkRows = (await db.prepare('SELECT row_no FROM ec_report_rows WHERE file_id=? AND row_no>? ORDER BY row_no LIMIT ?').bind(f.id, f.applied_row, APPLY_BATCH).all()).results;
-      const toRow = chunkRows.length ? chunkRows.at(-1).row_no : lastRow;
-      // Bu parti dışındaki satırlar okunmaz: iş yükü dosya boyutuyla değil parti boyutuyla artar.
-      // Dosya genelini ilgilendiren ikiz/tekrar bilgisi mühürleme sırasında hesaplanmıştır.
-      const seal = parse(f.twin_keys_json, {twins: [], duplicates: {}});
-      const twinKeys = new Set(seal.twins || []), duplicateKeys = seal.duplicates || {};
-      const batch = normalizeRows(profile, parse(f.headers_json, []), await fileRows(db, f.id, f.applied_row, toRow), {date1904: !!f.date1904});
-      if (batch.unknownTypes.length) fail('Tanımlanmamış işlem türleri var (' + batch.unknownTypes.slice(0, 5).join(', ') + '). Önce eşleştirmede karşılığını seçin.', 409);
-      for (const r of batch.records) {
-        const k = r.kind + '|' + r.key;
-        if (twinKeys.has(k) && !r.issues.some(i => i.code === 'ambiguous_twin'))
-          r.issues.push({code: 'ambiguous_twin', field: null, detail: 'Aynı bilgilere sahip başka satır var ve kimlikleri yok; ayrı işlemler olabilir.'});
-        if (duplicateKeys[k] !== undefined && duplicateKeys[k] !== r.row)
-          r.issues.push({code: 'duplicate_in_file', field: null, detail: 'Aynı kimlik dosyada ' + duplicateKeys[k] + '. satırda da var.'});
+      // Yarışta kaybeden parti yazılmadan geri alınır; dosya yeniden okunup güncel kayıtlarla
+      // sınıflandırılır. Aynı partiyi başkası bitirdiyse sıradaki partiye (ya da "bitti"ye) geçilir.
+      for (let deneme = 1, g = f; ; deneme++, g = await loadFile(db, f.id)) {
+        const r = await applyStep(db, g);
+        if (!r.stale) return r;
+        if (deneme >= 4) fail('Kayıtlar bu sırada başka bir işlemle değişti. Birazdan yeniden deneyin.', 409);
       }
-      const part = await classify(db, f, profile, batch.records);
-      const counts = parse(f.counts_json, {new: 0, updated: 0, same: 0, older: 0, review: 0});
-      const stmts = [db.prepare('INSERT INTO ec_report_apply_steps(file_id,from_row,to_row) VALUES(?,?,?)').bind(f.id, f.applied_row, toRow)];
-      for (const r of part) {
-        counts[r.outcome] = (counts[r.outcome] || 0) + 1;
-        // Kac KESINTI kaydi geldi? Finans dosyasi yuklemek tek basina kar rakamlarini
-        // degistirmez; kesintilerin satis kayitlarina aktarilmasi ayri bir adimdir.
-        // Kullaniciya bu adimi hatirlatabilmek icin sayilir.
-        if (r.kind === 'finance_event' && ['new', 'updated'].includes(r.outcome))
-          counts.fee_events = (counts.fee_events || 0) + 1;
-        stmts.push(db.prepare('INSERT INTO ec_report_outcomes(file_id,row_no,record_key,outcome) VALUES(?,?,?,?)').bind(f.id, r.row, r.kind + '|' + r.key, r.outcome));
-        if (r.outcome === 'new') {
-          const recId = id(), erp = r.kind === 'order_line' ? await erpMatch(db, f.provider, r.data) : {id: null};
-          r.erpId = erp.id;
-          const comps = r.kind === 'order_line' ? await componentsFor(db, f.provider, r.data) : null;
-          stmts.push(db.prepare('INSERT INTO ec_report_records(id,store_id,kind,record_key,key_source,data_json,source_time,data_time,file_id,row_no,erp_package_id,components_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
-            .bind(recId, f.store_id, r.kind, r.key, r.keySource, JSON.stringify(r.data), f.snapshot_at, f.snapshot_at, f.id, r.row, erp.id, comps ? JSON.stringify(comps) : null));
-          stmts.push(db.prepare("INSERT INTO ec_report_record_versions(id,record_id,version,file_id,row_no,outcome,data_json,source_time) VALUES(?,?,1,?,?,'new',?,?)").bind(id(), recId, f.id, r.row, JSON.stringify(r.data), f.snapshot_at));
-          if (erp.ambiguous) stmts.push(review(db, f, r, 'erp_ambiguous', 'ERP\'de bu siparişe uyan birden fazla paket var; bağlantı kurulmadı.'));
-          if (erp.storeAmbiguous) stmts.push(review(db, f, r, 'store_ambiguous', 'Bu pazaryerinde birden çok mağaza tanımlı; siparişin hangi mağazaya ait olduğu ERP kaydından anlaşılmadığı için bağlanmadı.'));
-        } else if (r.outcome === 'updated') {
-          const v = r.prior.version + 1;
-          stmts.push(db.prepare('UPDATE ec_report_records SET data_json=?,source_time=?,data_time=?,file_id=?,row_no=?,version=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND version=?')
-            .bind(JSON.stringify(r.merged), f.snapshot_at, f.snapshot_at, f.id, r.row, v, r.prior.id, r.prior.version));
-          stmts.push(db.prepare("INSERT INTO ec_report_record_versions(id,record_id,version,file_id,row_no,outcome,data_json,source_time) VALUES(?,?,?,?,?,'updated',?,?)").bind(id(), r.prior.id, v, f.id, r.row, JSON.stringify(r.merged), f.snapshot_at));
-        } else if (r.outcome === 'same' && r.advanceObservation) {
-          // İçerik değişmedi ama kayıt daha yeni bir raporda yeniden görüldü: güncellik sınırı ilerler,
-          // böylece sonradan yüklenen ESKİ rapor bu kaydı geri alamaz. Veri sürümü artmaz.
-          stmts.push(db.prepare('UPDATE ec_report_records SET source_time=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND (source_time IS NULL OR source_time<?)')
-            .bind(f.snapshot_at, r.prior.id, f.snapshot_at));
-        } else if (r.outcome === 'review') {
-          stmts.push(review(db, f, r, r.reason, r.detail));
-        }
-      }
-      // RAPORDAN TESLİM ONAYI. Kâr yalnız teslim edilmiş pakette hesaplanır ve teslim durumu
-      // ERP paketinde durur. Rapor teslim tarihini getirdiği hâlde paket 'shipped' kalırsa paket
-      // sessizce kârın dışında kalır — kullanıcıya elle işaretletmek yerine tarih RAPORDAN alınır.
-      // Tarih uydurulmaz: yalnızca raporda yazan gün yazılır. Yalnız 'shipped' → 'delivered'
-      // yönü işlenir; başka durumdaki paket WHERE ile elenir, durum makinesi zorlanmaz.
-      // DIKKAT: yalnizca DEGISEN kayitlara bakmak yetmez. Teslim tarihi daha onceki bir yuklemede
-      // geldiyse kayit 'same' sayilir; paket o zaman da bugun de 'shipped' kalir ve karin disinda
-      // kalmaya devam eder. Bu yuzden partideki BUTUN siparis satirlari taranir.
-      const teslimTarihleri = new Map();
-      for (const r of part) {
-        if (r.kind !== 'order_line' || r.outcome === 'review') continue;
-        const d = r.merged || r.data;
-        const gun = String(d?.delivered_date || '').slice(0, 10);
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(gun)) continue;
-        const pkg = r.prior?.erp_package_id || r.erpId;
-        if (!pkg) continue;
-        if (!teslimTarihleri.has(pkg) || teslimTarihleri.get(pkg) < gun) teslimTarihleri.set(pkg, gun);
-      }
-      // Yalniz GERCEKTEN kargoda duranlar yazilir: aksi halde her yuklemede ayni pakete tekrar
-      // tekrar islem kaydi dusulurdu. Tek sorgu, kimlik uzerinden.
-      const kargodakiler = teslimTarihleri.size
-        ? new Set((await db.prepare("SELECT id FROM order_packages WHERE status='shipped' AND id IN (SELECT value FROM json_each(?))")
-          .bind(JSON.stringify([...teslimTarihleri.keys()])).all()).results.map(r => r.id))
-        : new Set();
-      for (const [pkg, gun] of teslimTarihleri) {
-        if (!kargodakiler.has(pkg)) continue;
-        stmts.push(db.prepare("UPDATE order_packages SET status='delivered',delivered_on=? WHERE id=? AND status='shipped'").bind(gun, pkg));
-        stmts.push(db.prepare('INSERT INTO ec_activity(id,description) VALUES(?,?)').bind(id(),
-          'Teslim onayı rapordan alındı: paket ' + pkg + ' → ' + gun + ' (' + f.filename + ')'));
-      }
-      if (kargodakiler.size) counts.delivered = (counts.delivered || 0) + kargodakiler.size;
-      const done = toRow >= lastRow;
-      stmts.push(db.prepare('UPDATE ec_report_files SET applied_row=?,status=?,counts_json=? WHERE id=? AND applied_row=?').bind(toRow, done ? 'applied' : 'applying', JSON.stringify(counts), f.id, f.applied_row));
-      try { await db.batch(stmts); }
-      catch (e) { if (/UNIQUE|PRIMARY KEY/.test(e.message)) fail('Bu parti başka bir sekmede işleniyor ya da az önce işlendi. Sayfayı yenileyin.', 409); throw e; }
-      return {done, applied_row: toRow, row_count: f.row_count, counts};
     }
   }
 
@@ -1239,6 +1373,8 @@ export async function reportInboxApi(request, env, path, readBody) {
       const current = await db.prepare('SELECT * FROM ec_report_records WHERE store_id=? AND kind=? AND record_key=?').bind(r.store_id, kind, recordKey).first();
       if (current && !['ambiguous_twin', 'duplicate_in_file'].includes(r.reason)) {
         const merged = {...parse(current.data_json, {}), ...incoming}, v = current.version + 1;
+        // Karar okunan sürüme verildi: arada kayıt değiştiyse hiçbir şey yazılmaz (sahte sürüm yok).
+        stmts.push(db.prepare("INSERT INTO ec_report_write_guard(code) SELECT 'inceleme' FROM ec_report_records WHERE id=? AND (version IS NOT ? OR source_time IS NOT ?)").bind(current.id, current.version, current.source_time ?? null));
         stmts.push(db.prepare('UPDATE ec_report_records SET data_json=?,source_time=?,file_id=?,row_no=?,version=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND version=?').bind(JSON.stringify(merged), r.snapshot_at, r.file_id, r.row_no, v, current.id, current.version));
         stmts.push(db.prepare("INSERT INTO ec_report_record_versions(id,record_id,version,file_id,row_no,outcome,data_json,source_time) VALUES(?,?,?,?,?,'accepted',?,?)").bind(id(), current.id, v, r.file_id, r.row_no, JSON.stringify(merged), r.snapshot_at));
       } else {
@@ -1248,7 +1384,8 @@ export async function reportInboxApi(request, env, path, readBody) {
         stmts.push(db.prepare("INSERT INTO ec_report_record_versions(id,record_id,version,file_id,row_no,outcome,data_json,source_time) VALUES(?,?,1,?,?,'accepted',?,?)").bind(id(), recId, r.file_id, r.row_no, JSON.stringify(incoming), r.snapshot_at));
       }
     }
-    await db.batch(stmts);
+    try { await db.batch(stmts); }
+    catch (e) { if (/REPORT_STALE_WRITE/.test(e.message)) fail('Kayıt bu sırada yeni bir raporla değişti. İncelemeyi yenileyip tekrar karar verin.', 409); throw e; }
     return {ok: true};
   }
 

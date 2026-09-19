@@ -78,8 +78,8 @@ export function mountReports(root, namespace = 'ec') {
     const nereye = {map: 'dosya seçimine', check: 'sütun eşleştirmesine', server: 'kontrol ekranına'}[state.draft.step];
     return `<button type="button" class="secondary" data-rb-act="back">← Geri (${nereye})</button>`;
   };
-  const tabs = () => `<div class="rb-tabs" role="tablist">${[['upload', 'Dosya yükle'], ['files', 'Yüklenen dosyalar'], ['reviews', 'İnceleme' + (state.data?.open_reviews ? ' (' + state.data.open_reviews + ')' : '')], ['orders', 'Sipariş sonuçları']]
-    .map(([k, t]) => `<button type="button" role="tab" data-rb-tab="${k}" aria-selected="${state.tab === k}" class="${state.tab === k ? 'active' : ''}">${esc(t)}</button>`).join('')}</div>`;
+  const tabs = () => `<div class="rb-tabs" role="group" aria-label="Rapor ekranları">${[['upload', 'Dosya yükle'], ['files', 'Yüklenen dosyalar'], ['reviews', 'İnceleme' + (state.data?.open_reviews ? ' (' + state.data.open_reviews + ')' : '')], ['orders', 'Sipariş sonuçları']]
+    .map(([k, t]) => `<button type="button" data-rb-tab="${k}" aria-pressed="${state.tab === k}" class="${state.tab === k ? 'active' : ''}">${esc(t)}</button>`).join('')}</div>`;
   const status = () => `${state.error ? `<p class="rb-alert error" role="alert">${esc(state.error)}</p>` : ''}${state.message ? `<p class="rb-alert ok" role="status">${esc(state.message)}</p>` : ''}`;
   const storeName = id => { const m = (state.data?.stores || []).find(s => s.id === id); return m ? PROVIDERS[m.provider] + ' · ' + m.name : ''; };
   const storeOptions = (selected, blank = true) => (blank ? '<option value="">Mağaza seçin…</option>' : '') + (state.data?.stores || []).map(s => `<option value="${esc(s.id)}" ${s.id === selected ? 'selected' : ''}>${esc(PROVIDERS[s.provider])} · ${esc(s.name)} (${esc(s.code)})</option>`).join('');
@@ -87,12 +87,7 @@ export function mountReports(root, namespace = 'ec') {
   function uploadView() {
     const d = state.draft;
     const noStore = !(state.data?.stores || []).length;
-    const head = `<section class="v2-card rb-intro"><h2>Rapor Kutusu</h2>
-      <p>Trendyol ve Hepsiburada panelinden indirdiğin sipariş ve finans raporlarını buraya bırak. Aynı kayıt ikinci kez sayılmaz.</p>
-      <details class="rb-help"><summary>Bu ekran ne yapar, ne yapmaz?</summary>
-        <ul class="rb-facts"><li><strong>Stok, sevkiyat ve fatura oluşturmaz.</strong> Panelde zaten olan siparişe yalnızca bağlanır.</li>
-        <li>Pazaryeri bağlantısı kullanılmaz; yalnızca senin yüklediğin dosya okunur.</li>
-        <li>Günlük otomatik indirme yardımcısı: <em>henüz yok</em>.</li></ul></details></section>`
+    const head = `<section class="rb-intro"><div><strong>Dosyayı seç, türünü sistem tanısın.</strong><p>Sipariş, hakediş ve kesinti raporlarını aynı yerden yükle. Mağazayı seçebilir veya dosyadan tanınmasını bekleyebilirsin.</p></div><details class="rb-help"><summary>Yüklemeden sonra ne olur?</summary><ul class="rb-facts"><li>Dosyanın türü ve kayıtlı eşleştirmeler kontrol edilir.</li><li>Tanınan kayıtlar işlenir; ürün veya tutar belirsizse incelemeye ayrılır.</li><li>Sonucu yüklenen dosyalardan takip et. Eksik eşleştirmeler tamamlanmadan bütün kayıtlar işlenmiş sayılmaz.</li></ul></details></section>`
       + (noStore ? `<section class="v2-card"><h3>Önce mağazanı ekle</h3><p class="rb-muted">Rapor yükleyebilmek için dosyanın hangi mağazaya ait olduğunu bilmemiz gerekiyor.</p>
         <form data-rb-form="store" class="rb-grid"><label>Pazaryeri<select name="provider">${Object.entries(PROVIDERS).map(([k, t]) => `<option value="${k}">${esc(t)}</option>`).join('')}</select></label>
         <label>Mağaza kodu / satıcı no<input name="code" required maxlength="80"></label><label>Görünen ad<input name="name" required maxlength="120"></label>
@@ -110,7 +105,7 @@ export function mountReports(root, namespace = 'ec') {
 
   function pickForm() {
     const d = state.draft || {};
-    return `<section class="v2-card"><h3>1 · Dosyayı seç</h3>
+    return `<section class="v2-card rb-upload-card"><h2>Raporunu yükle</h2>
       <div class="rb-grid">
         <label>Mağaza <small class="muted">· dosyadan kendiliğinden tanınır</small><select data-rb="store">${storeOptions(d.store_id).replace("Mağaza seçin…","Dosyadan tanı")}</select></label>
         <label>Rapor ne zaman indirildi?<input type="datetime-local" data-rb="snapshot" value="${esc(d.snapshot_at || localNow())}" required></label>
@@ -120,8 +115,8 @@ export function mountReports(root, namespace = 'ec') {
         <label>Mağaza kodu / satıcı no<input name="code" required maxlength="80"></label>
         <label>Görünen ad<input name="name" required maxlength="120"></label>
         <button class="secondary" type="submit">Mağazayı ekle</button></form></details>
-      <label class="rb-drop" data-rb-drop><input type="file" accept=".xlsx,.csv" data-rb="file" multiple aria-label="Excel ya da CSV rapor dosyasını seç">
-        <strong>Rapor dosyalarını buraya sürükle — sipariş ve finans raporunu birlikte seçebilirsin</strong><span>ya da tıklayıp seç · en çok ${LIMITS.fileBytes / 1024 / 1024} MB</span></label>
+      <label class="rb-drop" data-rb-drop><span class="rb-upload-icon" aria-hidden="true">↑</span><input type="file" accept=".xlsx,.csv" data-rb="file" multiple aria-label="Excel ya da CSV rapor dosyasını seç">
+        <strong>Excel veya CSV dosyalarını seç</strong><span>Buraya sürükleyebilir, birden fazla dosya seçebilirsin · dosya başına en çok ${LIMITS.fileBytes / 1024 / 1024} MB</span></label>
       <p class="rb-muted">"Rapor ne zaman indirildi" hangi bilginin daha yeni olduğunu belirler: eski tarihli bir rapor güncel durumu geri almaz.</p></section>`;
   }
 
@@ -187,7 +182,7 @@ export function mountReports(root, namespace = 'ec') {
     const files = state.data?.files || [];
     return `<section class="v2-card"><h3>Yüklenen dosyalar</h3>${files.length ? `<div class="v2-table-wrap"><table class="v2-table"><thead><tr><th>Dosya</th><th>Mağaza</th><th>İndirilme</th><th>Durum</th><th>Sonuç</th><th></th></tr></thead><tbody>
       ${files.map(f => `<tr><td>${esc(f.filename)}<small>${esc(REPORT_KINDS[f.kind])} · ${num(f.row_count)} satır${f.sample_verified ? '' : ' · <span class="rb-chip">eşleştirme doğrulanmadı</span>'}</small></td><td>${esc(PROVIDERS[f.provider])} · ${esc(f.store_name)}</td><td>${esc(f.snapshot_at.replace('T', ' '))}</td>
-        <td>${esc({receiving: 'Yükleniyor (yarım)', received: 'Alındı, işlenmedi', applying: 'Yarıda kaldı', applied: 'İşlendi'}[f.status])}${f.status === 'applying' ? `<small>${num(f.applied_row)} / ${num(f.row_count)}</small>` : ''}</td>
+        <td>${esc({receiving: 'Yükleniyor (yarım)', received: 'Alındı, işlenmedi', applying: 'Yarıda kaldı', applied: 'İşlendi'}[f.status])}${f.status === 'applying' ? `<small>${num(f.applied_row)} / ${num(f.row_count)}</small>` : ''}${f.status !== 'applied' && f.attempts ? `<small class="rb-attempt">Otomatik ${num(f.attempts)} kez denendi${f.last_error ? ' · ' + esc(String(f.last_error).slice(0, 140)) : ''}${f.next_attempt_at ? ' · yeniden: ' + esc(new Date(String(f.next_attempt_at).replace(' ', 'T') + 'Z').toLocaleString('tr-TR', {timeZone: 'Europe/Istanbul', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'})) : ''}</small>` : ''}</td>
         <td>${Object.entries(f.counts || {}).filter(([, v]) => v).map(([k, v]) => esc(OUTCOMES[k] || k) + ': ' + num(v)).join('<br>') || '—'}</td>
         <td>${['received', 'applying'].includes(f.status) ? `<button type="button" class="secondary" data-rb-act="apply" data-id="${esc(f.id)}">Devam et</button>` : f.status === 'receiving' ? '<small>Aynı dosyayı yeniden seç; kaldığı yerden sürer.</small>' : ''}</td></tr>`).join('')}
       </tbody></table></div>` : '<p class="rb-muted">Henüz dosya yok.</p>'}</section>`;
@@ -311,7 +306,7 @@ export function mountReports(root, namespace = 'ec') {
   }
 
   function render() {
-    root.innerHTML = `<div class="rb">${tabs()}${status()}${state.tab === 'upload' ? uploadView() : state.tab === 'files' ? filesView() : state.tab === 'reviews' ? reviewsView() : ordersView()}</div>${state.busy ? '<p class="rb-busy" role="status">'+esc(state.progress||'İşleniyor…')+'</p>' : ''}`;
+    root.innerHTML = `<div class="rb"><div class="page-heading"><div><span class="eyebrow">VERİ AKTARIMI</span><h1>Rapor Kutusu</h1><p>Trendyol ve Hepsiburada raporlarını yükle, işlem sonucunu takip et.</p></div></div>${tabs()}${status()}${state.tab === 'upload' ? uploadView() : state.tab === 'files' ? filesView() : state.tab === 'reviews' ? reviewsView() : ordersView()}</div>${state.busy ? '<p class="rb-busy" role="status">'+esc(state.progress||'İşleniyor…')+'</p>' : ''}`;
   }
 
   /* ---------- işlemler ---------- */

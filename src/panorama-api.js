@@ -5,30 +5,22 @@
 // Hesap kâr raporuyla BİREBİRDİR: aynı performanceReport satırları toplanır (tek formül). Dönem kartı
 // tıklanınca kâr raporu aynı aralıkla açılır ve aynı toplamı gösterir. Tutarlar KDV dahil nakittir.
 //
-// Kâr raporu 1.000 paketle sınırlı olduğu için tüm zamanlar aralığı parçalara bölünür; parça yine
-// sığmazsa ikiye bölünür. Kesinti tahmincisi bir kez kurulur.
+// Tüm zamanlar 92 günlük parçalarla okunur; her parça kararlı imleçle sayfa sayfa gelir (aynı güne
+// yığılmış binlerce paket de eksiksiz). Kesinti tahmincisi bir kez kurulur. Bir bölüm yine de
+// hesaplanamazsa yanıt BÖLÜNMEZ: hazır kartlar döner, eksik bölüm ve kapsamı açıkça işaretlenir
+// (coverage, period.partial, pending.partial); eksik toplam sıfır ya da tam gibi gösterilmez.
 //
 //   GET /api/panorama
-import {performanceReport} from './performance-api.js';
+import {tumSatirlar, ilkSonucTarihi} from './performance-api.js';
 import {kesintiTahmincisi} from './fee-history.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), {status}); };
 const DAY = 86400000;
 const shift = (d, n) => new Date(Date.parse(d) + n * DAY).toISOString().slice(0, 10);
-const gunFarki = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / DAY);
 const KANALLAR = ['trendyol', 'hepsiburada'];
 const DONEMLER = [['7g', 'Son 1 hafta', 7], ['14g', 'Son 2 hafta', 14], ['30g', 'Son 1 ay', 30], ['90g', 'Son 3 ay', 90], ['180g', 'Son 6 ay', 180], ['tum', 'Tüm zamanlar', null]];
 const nakitVar = r => r.cash_cents !== null && r.cash_cents !== undefined;
-
-async function teslimRaporlari(env, from, to, tahmin) {
-  try {
-    return [await performanceReport(env, {mode: 'delivered', from, to, tahmin, detay: true})];
-  } catch (e) {
-    if (e.status !== 409 || from === to) throw e;
-    const orta = shift(from, Math.floor(gunFarki(from, to) / 2));
-    return [...await teslimRaporlari(env, from, orta, tahmin), ...await teslimRaporlari(env, shift(orta, 1), to, tahmin)];
-  }
-}
+const hataMetni = e => (e && e.message) || 'Bu bölüm hesaplanamadı.';
 
 function ozet(rows) {
   const hesapli = rows.filter(nakitVar);
@@ -69,23 +61,25 @@ export async function panoramaApi(request, env, path) {
   if (path !== '/api/panorama' || request.method !== 'GET') return null;
   if (env.WORKSPACE !== 'ec') fail('Genel durum e-ticaret çalışma alanına aittir.', 403);
   const db = env.DB, today = new Date().toLocaleDateString('sv-SE', {timeZone: 'Europe/Istanbul'});
-  const ilk = await db.prepare(`SELECT
-      (SELECT MIN(delivered_on) FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND status='delivered' AND delivered_on<=?) teslim,
-      (SELECT MIN(occurred_on) FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND status IN ('draft','reserved','shipped') AND occurred_on<=?) bekleyen`).bind(today, today).first();
+  // İlk sonuç: ilk teslim ya da daha önce iade tarihiyle sonuçlanan (teslim edilemeyip dönen) paket.
+  // Yalnız ilk teslimden başlamak o paketleri tüm zamanlardan ve dönemlerden düşürüyordu (Codex R19).
+  const ilk = {teslim: await ilkSonucTarihi(db, today), bekleyen: (await db.prepare(`SELECT MIN(occurred_on) d FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND status IN ('draft','reserved','shipped') AND occurred_on<=?`).bind(today).first())?.d || null};
   const tahmin = await kesintiTahmincisi(db);
 
   // Teslim edilenler: tüm aralık 92 günlük parçalarla. Aynı paket iki parçada görünemez (teslim
   // tarihi tektir); çift aktarım ikizi başka parçada ayrıca teslimliyse bir kez sayılır.
-  const rows = [], gorulen = new Set();let unallocated = 0;
-  if (ilk?.teslim) {
+  const rows = [], gorulen = new Set(), eksik = [];let unallocated = 0;
+  if (ilk.teslim) {
     for (let from = ilk.teslim; from <= today; from = shift(from, 92)) {
       const to = shift(from, 91) < today ? shift(from, 91) : today;
-      for (const rapor of await teslimRaporlari(env, from, to, tahmin)) {
+      try {
+        const rapor = await tumSatirlar(env, {mode: 'delivered', from, to, tahmin, detay: true});
         unallocated = rapor.unallocated_fee_cents || 0;
         for (const r of rapor.rows) if (!gorulen.has(r.id)) { gorulen.add(r.id); rows.push(r); }
-      }
+      } catch (e) { eksik.push({from, to, error: hataMetni(e)}); }
     }
   }
+  const eksikMi = (from, to) => eksik.some(x => x.from <= to && x.to >= from);
   const idler = [...new Set(rows.flatMap(r => (r.urunler || []).map(u => u.product_id)))];
   const adlar = new Map(idler.length ? (await db.prepare('SELECT id,name FROM products WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(idler)).all()).results.map(p => [p.id, p.name]) : []);
 
@@ -95,7 +89,9 @@ export async function panoramaApi(request, env, path) {
     // Önceki eş dönem yalnız verinin başladığı günden sonraysa karşılaştırılır (yarım dönem yanıltır).
     const oncekiFrom = days ? shift(from, -days) : null;
     const onceki = days && ilk?.teslim && oncekiFrom >= ilk.teslim ? ozet(rows.filter(r => r.delivered_on >= oncekiFrom && r.delivered_on < from)) : null;
-    return {key, label, days, from, to: today, ...ozet(icinde), prev_cash_cents: onceki ? onceki.cash_cents : null, products: urunSirasi(icinde, adlar)};
+    // Eksik bölüm bu dönemle (ya da karşılaştırılan önceki dönemle) kesişiyorsa toplam tam değildir.
+    const partial = eksikMi(from, today), oncekiEksik = !!onceki && eksikMi(oncekiFrom, shift(from, -1));
+    return {key, label, days, from, to: today, ...ozet(icinde), partial, prev_cash_cents: onceki && !oncekiEksik ? onceki.cash_cents : null, products: urunSirasi(icinde, adlar)};
   });
 
   const gunluk = new Map();
@@ -108,10 +104,15 @@ export async function panoramaApi(request, env, path) {
   if (ilk?.teslim) for (let d = ilk.teslim; d <= today; d = shift(d, 1)) daily.push(gunluk.get(d) || {date: d, trendyol: 0, hepsiburada: 0, packages: 0});
 
   // Kargodaki ve hazırlanan paketler: sipariş tarihi en eski bekleyen paketten bugüne (30 günle sınırlı değil).
-  const pendingFrom = ilk?.bekleyen || today;
-  const bekleyen = await performanceReport(env, {mode: 'pending', from: pendingFrom, to: today, tahmin});
+  // 1.000'den fazla bekleyen paket (aynı güne yığılmış olsa da) sayfa sayfa okunur (Codex R21). Bölüm
+  // yine hesaplanamazsa (ör. tarife sınırı) dönem kartları korunur, kargodaki tutar BOŞ ve eksik döner.
+  const pendingFrom = ilk.bekleyen || today;
+  let pending;
+  try { pending = {from: pendingFrom, to: today, ...ozet((await tumSatirlar(env, {mode: 'pending', from: pendingFrom, to: today, tahmin})).rows), partial: false}; }
+  catch (e) { pending = {from: pendingFrom, to: today, ...ozet([]), packages: null, calculated: null, cash_cents: null, partial: true, error: hataMetni(e)}; }
 
-  return {as_of: new Date().toISOString(), today, first_delivered: ilk?.teslim || null, unallocated_fee_cents: unallocated,
-    periods, daily, pending: {from: pendingFrom, to: today, ...ozet(bekleyen.rows)},
+  return {as_of: new Date().toISOString(), today, first_delivered: ilk.teslim, unallocated_fee_cents: unallocated,
+    coverage: {complete: !eksik.length && !pending.partial, missing: eksik, pending_error: pending.error || null},
+    periods, daily, pending,
     notice: 'Cebine kalan = KDV dahil satış − KDV dahil ürün maliyeti − KDV dahil pazaryeri kesintileri − stopaj. Ortak giderler ve gelir vergisi hariç.'};
 }

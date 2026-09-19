@@ -49,8 +49,7 @@ function delta(p){
 }
 
 function periodButton(p,secili){
- const d=delta(p);
- return `<button type="button" class="pn-period${p.key===secili?' is-selected':''}" data-donem="${p.key}" aria-pressed="${p.key===secili}"><span class="pn-period-label">${esc(p.label)}</span><strong class="${p.cash_cents<0?'is-negative':''}">${p.packages?money(p.cash_cents):'—'}</strong><small>${p.packages} paket</small>${p.losses?`<span class="pn-period-loss">${p.losses} zarar · ${tamTL(p.loss_cents)}</span>`:''}${d?`<em class="pn-delta ${d.yon}" title="${esc(d.uzun)}">${esc(d.metin)}</em>`:''}</button>`;
+ return `<button type="button" class="pn-period${p.key===secili?' is-selected':''}" data-donem="${p.key}" aria-pressed="${p.key===secili}"><span class="pn-period-label">${esc(p.label)}</span><strong class="${p.cash_cents<0?'is-negative':''}">${p.packages?money(p.cash_cents):'Teslim yok'}</strong>${p.losses?`<span class="pn-period-loss">${p.losses} zarar · ${tamTL(p.loss_cents)}</span>`:''}</button>`;
 }
 
 function shareBar(p){
@@ -69,21 +68,24 @@ function detail(data,p){
  const d=delta(p),bekleyen=data.pending,b=panoramaBuckets(data.daily,p);
  const birim={day:'Günlük',week:'Haftalık',month:'Aylık'}[b.unit];
  const notlar=[];
- if(p.estimated)notlar.push(`${p.estimated} paketin kesintisi veya maliyeti geçmişten <b>tahmini</b>; ekstre ve fatura gelince kendiliğinden kesinleşir.`);
+ if(p.estimated)notlar.push(`${p.estimated} paketin kesintisi veya maliyeti geçmişten <b>tahmini</b>. Kesin tutar için fatura ve kesintilerin eşleşmesi gerekir.`);
  if(p.missing)notlar.push(`<a href="${rapor(p,{result:'missing'})}">${p.missing} paket hesaba girmedi →</a>`);
+ // Bir bölüm hesaplanamadıysa (sunucu coverage/partial) toplam tam gibi sunulmaz.
+ if(p.partial)notlar.push(`<b>Eksik kapsam:</b> ${(data.coverage?.missing||[]).map(m=>esc(gunAd(m.from))+' – '+esc(gunAd(m.to))).join(', ')||'bir bölüm'} hesaplanamadı; bu dönemin toplamı eksik.`);
  if(data.unallocated_fee_cents)notlar.push(`Satışlara dağıtılmamış ${money(data.unallocated_fee_cents)} kesinti faturası var. <a href="#reconciliation">Eşleştir →</a>`);
- notlar.push(`Vergi beyanı için KDV hariç katkı: ${money(p.profit_ex_vat_cents)}. Ortak giderler ve gelir vergisi hariçtir.`);
+ const hesapNotu=`KDV hariç katkı: ${money(p.profit_ex_vat_cents)}. Ortak işletme giderleri ve gelir/kurumlar vergisi bu hesaba dahil değildir.`;
  const enBuyuk=Math.max(1,...[...p.products.top,...p.products.bottom].map(u=>Math.abs(u.cash_cents)));
- const pendingHtml=!bekleyen.packages?'<strong class="pn-pending-value">Kargoda paket yok</strong>':`<strong class="pn-pending-value ${bekleyen.cash_cents<0?'is-negative':''}">${money(bekleyen.cash_cents)}</strong><small>${bekleyen.packages} paket · tamamı tahmini${bekleyen.missing?' · '+bekleyen.missing+' paket hesaplanamadı':''}</small><div class="pn-pending-rows">${KANALLAR.filter(k=>bekleyen.channels[k].packages).map(k=>`<span><i class="pn-key ${SINIF[k]}" aria-hidden="true"></i>${KANAL[k]} <b>${money(bekleyen.channels[k].cash_cents)}</b> <small>${bekleyen.channels[k].packages} paket</small></span>`).join('')}</div>`;
- return `<div class="pn-main"><section class="pn-card pn-hero" aria-label="${esc(p.label)} cebine kalan"><div class="pn-head"><div><span class="eyebrow">TESLİM EDİLENLER · ${esc(p.label.toLocaleUpperCase('tr-TR'))}</span><h2>Cebine kalan</h2></div><a class="text-button" href="${rapor(p)}">Paketleri gör →</a></div>`+
+ const pendingHtml=bekleyen.partial?`<strong class="pn-pending-value">Hesaplanamadı</strong><small>${esc(bekleyen.error||'Kargodaki paketler şu an hesaplanamadı.')}</small>`:!bekleyen.packages?'<strong class="pn-pending-value">Kargoda paket yok</strong>':`<strong class="pn-pending-value ${bekleyen.cash_cents<0?'is-negative':''}">${money(bekleyen.cash_cents)}</strong><small>${bekleyen.packages} paket · tamamı tahmini${bekleyen.missing?' · '+bekleyen.missing+' paket hesaplanamadı':''}</small><div class="pn-pending-rows">${KANALLAR.filter(k=>bekleyen.channels[k].packages).map(k=>`<span><i class="pn-key ${SINIF[k]}" aria-hidden="true"></i>${KANAL[k]} <b>${money(bekleyen.channels[k].cash_cents)}</b> <small>${bekleyen.channels[k].packages} paket</small></span>`).join('')}</div>`;
+ return `<div class="pn-main"><section class="pn-card pn-hero" aria-label="${esc(p.label)} cebine kalan"><div class="pn-head"><div><span class="eyebrow">TESLİM EDİLENLER · ${esc(p.label.toLocaleUpperCase('tr-TR'))}</span><h2>Cebine kalan <span class="pn-vat">KDV dahil</span></h2></div><a class="text-button" href="${rapor(p)}">Paketleri gör →</a></div>`+
   `<strong class="pn-hero-value ${p.cash_cents<0?'is-negative':''}">${p.packages?money(p.cash_cents):'Bu dönemde teslim yok'}</strong>`+
   `<p class="pn-sub">${gunAd(p.from)} – ${gunAd(p.to)} · ${p.packages} paket · ciro ${money(p.revenue_gross_cents)}${d?` · <span class="pn-delta ${d.yon}">${esc(d.metin)}</span> <span class="muted">${esc(ONCEKI[p.key]||'')} göre</span>`:''}</p>`+
+  (notlar.length?`<ul class="pn-quality" aria-label="Hesabın durumu">${notlar.map(n=>`<li>${n}</li>`).join('')}</ul>`:'')+
   (p.packages?`<div class="pn-split"><a href="${rapor(p,{result:'profit'})}"><small>Kâr bırakan ${p.gains} paket</small><strong>+${money(p.gain_cents)}</strong></a><a class="is-loss" href="${rapor(p,{result:'loss'})}"><small>Zarar eden ${p.losses} paket</small><strong class="${p.loss_cents<0?'is-negative':''}">${p.loss_cents<0?money(p.loss_cents):money(0)}</strong></a></div>`:'')+
   `<div class="pn-share">${shareBar(p)}</div>`+
   (b.buckets.length?`<div class="pn-chart-wrap"><div class="pn-chart-head"><h3>${birim} cebine kalan</h3><div class="pn-legend">${KANALLAR.map(k=>`<span><i class="pn-key ${SINIF[k]}" aria-hidden="true"></i>${KANAL[k]}</span>`).join('')}</div></div><div class="pn-chart" data-pn-chart></div><div class="pn-tip" role="status" hidden></div></div>`+
   `<details class="pn-table"><summary>Tablo olarak göster</summary><div class="table-wrap"><table data-list-tools="off"><thead><tr><th>${birim==='Günlük'?'Gün':'Dönem'}</th><th>Trendyol</th><th>Hepsiburada</th><th>Toplam</th><th>Paket</th></tr></thead><tbody>${[...b.buckets].reverse().map(x=>`<tr><td>${esc(x.label)}</td><td>${money(x.trendyol)}</td><td>${money(x.hepsiburada)}</td><td><b>${money(x.trendyol+x.hepsiburada)}</b></td><td>${x.packages}</td></tr>`).join('')}</tbody></table></div></details>`:'')+
-  `<ul class="pn-notes">${notlar.map(n=>`<li>${n}</li>`).join('')}</ul></section>`+
-  `<div class="pn-side"><a class="pn-card pn-pending" href="#performance?${new URLSearchParams({mode:'pending',from:bekleyen.from,to:bekleyen.to})}"><span class="eyebrow">HENÜZ TESLİM EDİLMEDİ</span><h2>Kargodakilerden tahminen kalacak</h2>${pendingHtml}<span class="pn-link">Paketleri gör →</span></a>`+
+  `<details class="pn-calculation-note"><summary>Bu tutar nasıl okunmalı?</summary><p>${hesapNotu}</p></details></section>`+
+  `<div class="pn-side"><a class="pn-card pn-pending" href="#performance?${new URLSearchParams({mode:'pending',from:bekleyen.from,to:bekleyen.to})}"><span class="eyebrow">HENÜZ TESLİM EDİLMEDİ</span><h2>Kargodaki tahminim</h2>${pendingHtml}<span class="pn-link">Paketleri gör →</span></a>`+
   `<section class="pn-card pn-products"><div class="pn-head"><div><span class="eyebrow">ÜRÜNLER · ${esc(p.label.toLocaleUpperCase('tr-TR'))}</span><h2>Ne kazandırdı?</h2></div><a class="text-button" href="#stock">Tümü →</a></div>${p.products.count?productList('En çok kazandıran',p.products.top,enBuyuk)+productList(p.products.bottom.some(u=>u.cash_cents<0)?'En az kazandıran / zarar ettiren':'En az kazandıran',p.products.bottom,enBuyuk):'<p class="help">Bu dönemde teslim edilen ürün yok.</p>'}</section></div></div>`;
 }
 

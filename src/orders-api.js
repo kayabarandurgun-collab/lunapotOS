@@ -2,6 +2,7 @@ import {cents,milli} from '../public/accounting-math.js';
 import {resolveMapping} from './catalog-api.js';
 import {ordersQuery,AKTARIM_ARTIGI} from './orders-query.js';
 import {assertReportLinkFresh} from './report-link-guard.js';
+import {paketSonuclari} from './performance-api.js';
 const fail=(m,s=400)=>{throw Object.assign(new Error(m),{status:s});};
 const id=()=>crypto.randomUUID();
 const text=(v,label,max=200)=>{if(typeof v!=='string'||!v.trim()||v.length>max)fail(label+' alanını kontrol edin.');return v.trim();};
@@ -149,10 +150,16 @@ export async function ordersApi(request,env,path,readBody){
   if(ozet.size)for(const r of (await statement(db,"SELECT q.id pid,(SELECT COALESCE(SUM(json_extract(r.data_json,'$.amount_cents')),0) FROM ec_report_records r JOIN ec_report_stores st ON st.id=r.store_id AND st.provider=q.channel WHERE r.kind='finance_event' AND json_extract(r.data_json,'$.type')='withholding' AND json_extract(r.data_json,'$.order_no')=q.order_no) stopaj,(SELECT COUNT(*) FROM order_packages x WHERE x.order_no=q.order_no AND x.channel=q.channel AND x.status!='cancelled') paket FROM order_packages q WHERE q.id IN (SELECT value FROM json_each(?))",[JSON.stringify([...ozet.keys()])]).all()).results){
    const o=ozet.get(r.pid);if(o&&o.nakit!==null&&o.nakit!==undefined)o.nakit-=Math.round(Math.abs(r.stopaj||0)/Math.max(1,r.paket||1));
   }
+  // TEK FORMÜL (Codex R22): teslim edilen, iade tarihiyle sonuçlanan ve çift aktarım ikizi olan paketin
+  // sonucu kâr raporunun AYNI satırından gelir: kesinti tahmini, "tahmini" işareti, stopaj payı ve eksik
+  // nedeniyle. Bilinmeyen maliyet/kesinti sıfır sayılmaz. Yukarıdaki kayıt hesabı yalnız kapsam dışında kalır.
+  // Okunamazsa liste yine açılır; nakit ikinci formülle gösterilmez, boş kalır ve nedeni yazılır.
+  let ortak;try{ortak=await paketSonuclari(env,ids);}catch(e){console.error('paket sonucu',e.message);for(const o of ozet.values())Object.assign(o,{nakit:null,tahmini:false,not:'Kâr raporundaki sonuç okunamadı; nakit gösterilmedi.'});return ozet;}
+  for(const [pid,s] of ortak){const o=ozet.get(pid)||{pid,iade:null,gelir:null};ozet.set(pid,Object.assign(o,{nakit:s.cash_cents,sonuc:s.profit_cents,tam:s.profit_cents!==null,tahmini:s.estimated,not:s.note}));}
   return ozet;
   }
   {const yer=new Map(sira.map((id,i)=>[id,i]));packages.sort((a,b)=>yer.get(a.id)-yer.get(b.id));}
-  return {packages:packages.slice(0,500).map(p=>{const ls=lines.filter(l=>l.package_id===p.id),lineIDs=new Set(ls.map(l=>l.id)),cs=components.filter(c=>lineIDs.has(c.line_id)),needs=new Map();for(const c of cs)needs.set(c.product_id,(needs.get(c.product_id)||0)+c.quantity_milli);const readiness=p.source_changed?'source_changed':ls.some(l=>cs.filter(c=>c.line_id===l.id).reduce((n,c)=>n+c.revenue_share_bps,0)!==10000)||cs.some(c=>c.stock_unit!==c.current_stock_unit)?'needs_mapping':ls.some(l=>l.net_revenue_cents===null)?'needs_amounts':p.status==='draft'&&[...needs].some(([product,q])=>(stock.get(product)||0)<q)?'needs_stock':'ready';return {...p,revenue_net_cents:ozet.get(p.id)?.gelir??null,result_cents:ozet.get(p.id)?.tam?ozet.get(p.id).sonuc:null,cash_result_cents:ozet.get(p.id)?.nakit??null,return_status:ozet.get(p.id)?.iade??null,readiness};}),lines,components,products:products.map(p=>({...p,available_milli:p.quantity_milli-p.reserved_milli})),reservations,counts,sonuc_counts:sonucSayilari,truncated:offset+packages.length<total,pagination:{page,limit,total,pages:Math.max(1,Math.ceil(total/limit)),has_more:offset+packages.length<total}};
+  return {packages:packages.slice(0,500).map(p=>{const ls=lines.filter(l=>l.package_id===p.id),lineIDs=new Set(ls.map(l=>l.id)),cs=components.filter(c=>lineIDs.has(c.line_id)),needs=new Map();for(const c of cs)needs.set(c.product_id,(needs.get(c.product_id)||0)+c.quantity_milli);const readiness=p.source_changed?'source_changed':ls.some(l=>cs.filter(c=>c.line_id===l.id).reduce((n,c)=>n+c.revenue_share_bps,0)!==10000)||cs.some(c=>c.stock_unit!==c.current_stock_unit)?'needs_mapping':ls.some(l=>l.net_revenue_cents===null)?'needs_amounts':p.status==='draft'&&[...needs].some(([product,q])=>(stock.get(product)||0)<q)?'needs_stock':'ready';return {...p,revenue_net_cents:ozet.get(p.id)?.gelir??null,result_cents:ozet.get(p.id)?.tam?ozet.get(p.id).sonuc:null,cash_result_cents:ozet.get(p.id)?.nakit??null,cash_estimated:!!ozet.get(p.id)?.tahmini,cash_note:ozet.get(p.id)?.not??null,return_status:ozet.get(p.id)?.iade??null,readiness};}),lines,components,products:products.map(p=>({...p,available_milli:p.quantity_milli-p.reserved_milli})),reservations,counts,sonuc_counts:sonucSayilari,truncated:offset+packages.length<total,pagination:{page,limit,total,pages:Math.max(1,Math.ceil(total/limit)),has_more:offset+packages.length<total}};
  }
  const previewMatch=path.match(/^\/api\/orders\/([\w-]+)\/source$/);
  if(previewMatch&&method==='GET'){

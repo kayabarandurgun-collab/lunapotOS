@@ -12,7 +12,10 @@ export function permit(user,path,method){
  let feature;
  if(!match){if(!['products','materials','recipes'].includes(head))deny();feature=head;}
  else if(head==='production'){feature=parts[1]==='material-stock'?'materialstock':parts.length===1&&!write?'production-read':'production';}
- else feature=({products:ns==='ec'?'stock':'products',stock:ns==='ec'?'stock':'accounts',sales:ns==='ec'?'sales':'accounts',documents:ns==='ec'?'invoices':'accounts',returns:ns==='ec'?'sales':'accounts',fees:ns==='ec'?'sales':'accounts',expenses:ns==='ec'?'expenses':'accounts',invoices:ns==='ec'?'invoices':'accounts',purchases:ns==='ec'?'invoices':'accounts',suppliers:ns==='ec'?'ledger':'accounts',payments:'ledger',catalog:'catalog',ledger:'ledger',statement:'ledger',offers:'offers',pricing:'pricing',reconciliation:'reconciliation',orders:'orders',reports:'orders',performance:'performance',panorama:'performance'})[head];
+ else feature=({products:ns==='ec'?'stock':'products',stock:ns==='ec'?'stock':'accounts',sales:ns==='ec'?'sales':'accounts',documents:ns==='ec'?'invoices':'accounts',returns:ns==='ec'?'sales':'accounts',fees:ns==='ec'?'sales':'accounts',expenses:ns==='ec'?'expenses':'accounts',invoices:ns==='ec'?'invoices':'accounts',purchases:ns==='ec'?'invoices':'accounts',suppliers:ns==='ec'?'ledger':'accounts',payments:'ledger',catalog:'catalog',ledger:'ledger',statement:'ledger',offers:'offers',pricing:'pricing',reconciliation:'reconciliation',orders:'orders',reports:'orders',performance:'performance',panorama:'performance',
+  // Ekranların arka plan uçları ekranın kendi yetkisiyle: Kaça satmalıyım = fiyat ekranı, ürün kârlılığı = stok ekranı.
+  // Yalnız e-ticaret alanında; üretim alanında eşleme yok (kapalı kalır).
+  'fiyat-hesap':ns==='ec'?'pricing':null,'urun-karlilik':ns==='ec'?'stock':null})[head];
  // Barkod yalnizca uretim alanindadir. Okumak icin kart gorme yetkisi yeter;
  // bagla/degistir icin depo ya da uretim yetkisi gerekir.
  // Parti ve koli etiketi uretim kayitlarina aittir; okumak icin urun gormek yeter.
@@ -36,17 +39,19 @@ export function filterInsights(x,user,ns){if(!user||user.owner||can(user,ns,'inv
 const MONEY_KEY=/(^|_)(cents|price|sale_price|unit_cost)$|_cents$/;
 // 'gross' ve 'net_revenue' TL cinsinden para alanlaridir (rapor-stok koprusu onizlemesi).
 // Arayuzde gizlemek yetmez: tutar yetkisi olmayan calisan API yanitindan da okuyamamali.
-const MONEY_NAMES=new Set(['price','sale_price','unit_cost','amount','total_cost','rate_bps','revenue_share_bps','gross','net_revenue']);
+// Kaça satmalıyım (fiyat-hesap) yanıtı Türkçe adlı para/oran alanları taşır; aynı kuralla gizlenir.
+const MONEY_NAMES=new Set(['price','sale_price','unit_cost','amount','total_cost','rate_bps','revenue_share_bps','gross','net_revenue',
+ 'fiyat','maliyet','kargo','hizmet','komisyon','stopaj','paketleme','diger','cebine','istenen','birim_maliyet_kdv_dahil','komisyon_orani','stopaj_orani']);
 export function scrubAmounts(payload,user,ns){
  if(user?.owner||can(user,ns,'amounts'))return payload;
- const seen=new WeakSet();
+ // Aynı nesne yanıtta iki kez geçebilir: ikinci geçişte ÖZGÜN nesne değil, gizlenmiş kopyası döner.
+ const seen=new WeakMap();
  const walk=value=>{
-  if(Array.isArray(value))return value.map(walk);
   if(!value||typeof value!=='object')return value;
-  if(seen.has(value))return value;
-  seen.add(value);
-  const out={};
-  for(const [key,item] of Object.entries(value))out[key]=MONEY_KEY.test(key)||MONEY_NAMES.has(key)?null:walk(item);
+  if(seen.has(value))return seen.get(value);
+  const out=Array.isArray(value)?[]:{};seen.set(value,out);
+  if(Array.isArray(value))value.forEach((item,i)=>{out[i]=walk(item);});
+  else for(const [key,item] of Object.entries(value))out[key]=MONEY_KEY.test(key)||MONEY_NAMES.has(key)?null:walk(item);
   return out;
  };
  return walk(payload);

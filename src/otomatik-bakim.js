@@ -30,11 +30,26 @@ export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sa
   const ozet = {dosya: 0, siparis: 0, teslim: 0, iade: 0, kesinti: 0, maliyet: 0, hatalar: []};
   const dene = async (ad, fn) => { try { await fn(); } catch (e) { ozet.hatalar.push(ad + ': ' + e.message); } };
 
-  // 1. Yarım kalan dosyalar.
-  const yarim = (await db.prepare("SELECT id FROM ec_report_files WHERE status NOT IN ('applied','receiving','rejected','cancelled') ORDER BY created_at LIMIT 10").all()).results;
-  for (const f of yarim) await dene('dosya', async () => {
-    for (let i = 0; i < 200 && vakitVar(); i++) { const r = await cagir(reportInboxApi, '/api/reports/files/' + f.id + '/apply', {}); if (r.done) { ozet.dosya++; break; } }
-  });
+  // 1. Yarım kalan dosyalar. Hata veren dosya silinmez ve "işlendi" sayılmaz: deneme sayısı, son hata
+  // ve bir sonraki deneme zamanı ec_report_file_attempts'e yazılır (ekranda görünür). Her tur önce hiç
+  // hata vermemiş dosyaları alır; hatalı olan bekleme süresi dolunca (15 dk, 30 dk, 1 sa … en çok 1 gün)
+  // yeniden denenir. Böylece sürekli hata veren ilk 10 dosya sağlıklı 11. dosyayı engellemez.
+  const zaman = ms => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+  const yarim = (await db.prepare(`SELECT f.id,COALESCE(a.attempts,0) attempts,a.last_error FROM ec_report_files f LEFT JOIN ec_report_file_attempts a ON a.file_id=f.id
+    WHERE f.status NOT IN ('applied','receiving','rejected','cancelled') AND (a.next_attempt_at IS NULL OR a.next_attempt_at<=?)
+    ORDER BY COALESCE(a.attempts,0),f.created_at,f.id LIMIT 10`).bind(zaman(simdi)).all()).results;
+  for (const f of yarim) {
+    try {
+      for (let i = 0; i < 200 && vakitVar(); i++) { const r = await cagir(reportInboxApi, '/api/reports/files/' + f.id + '/apply', {}); if (r.done) { ozet.dosya++; break; } }
+      if (f.last_error) await db.prepare('UPDATE ec_report_file_attempts SET last_error=NULL,next_attempt_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE file_id=?').bind(f.id).run();
+    } catch (e) {
+      ozet.hatalar.push('dosya: ' + e.message);
+      const bekle = Math.min(24 * 60, 15 * 2 ** Math.min(f.attempts, 10)) * 60000;
+      await dene('dosya kaydı', () => db.prepare(`INSERT INTO ec_report_file_attempts(file_id,attempts,last_error,last_attempt_at,next_attempt_at) VALUES(?,1,?,?,?)
+        ON CONFLICT(file_id) DO UPDATE SET attempts=attempts+1,last_error=excluded.last_error,last_attempt_at=excluded.last_attempt_at,next_attempt_at=excluded.next_attempt_at,updated_at=CURRENT_TIMESTAMP`)
+        .bind(f.id, String(e.message || 'Bilinmeyen hata').slice(0, 500), zaman(simdi), zaman(simdi + bekle)).run());
+    }
+  }
 
   // 2–3. Mağaza başına aktarım, iade, kesinti; teslim güncellemesi mağazadan bağımsız.
   const magazalar = (await db.prepare("SELECT id FROM ec_report_stores WHERE provider IN ('trendyol','hepsiburada')").all()).results;
