@@ -10,7 +10,13 @@ export async function attentionApi(request,env,path){
    COALESCE(SUM(status='draft' AND EXISTS(SELECT 1 FROM order_lines l WHERE l.package_id=order_packages.id AND (SELECT COALESCE(SUM(c.revenue_share_bps),0) FROM order_line_components c WHERE c.line_id=l.id)!=10000)),0) unmapped,
    COALESCE(SUM(status='draft' AND EXISTS(SELECT 1 FROM order_lines l WHERE l.package_id=order_packages.id AND (l.net_revenue_cents IS NULL OR l.gross_cents IS NULL OR l.vat_bps IS NULL))),0) missing_amounts,
    COALESCE(SUM(status='reserved'),0) reserved,
-   COALESCE(SUM(status='shipped' AND shipped_on<=date(?,'-7 days')),0) long_shipping FROM order_packages`,
+   COALESCE(SUM(status='shipped' AND shipped_on<=date(?,'-7 days')
+     -- İadesi tamamlanmış (dönmüş) paket yolda değildir.
+     AND NOT EXISTS(SELECT 1 FROM order_lines l JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries s ON s.id=c.sale_id
+       WHERE l.package_id=order_packages.id AND s.kind='sale' AND (SELECT COALESCE(SUM(r.quantity_milli),0) FROM sale_entries r WHERE r.parent_id=s.id AND r.kind='return')>=s.quantity_milli)
+     -- Çift aktarımın asıl kaydı: teslimi kopyasıyla gelmiştir (kâra ikiz olarak girer), yolda değildir.
+     AND NOT EXISTS(SELECT 1 FROM order_packages d JOIN order_lines l ON l.package_id=d.id JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries r ON r.parent_id=c.sale_id
+       WHERE d.channel=order_packages.channel AND d.order_no=order_packages.order_no AND d.status='delivered' AND r.kind='return' AND r.external_id LIKE 'DUZELTME-CIFT-%')),0) long_shipping FROM order_packages`,
   `SELECT COUNT(*) total,
    COALESCE(SUM(b.quantity_milli-COALESCE((SELECT SUM(r.quantity_milli) FROM order_reservations r WHERE r.product_id=p.id AND r.released_on IS NULL),0)<=p.min_stock_milli),0) low,
    COALESCE(SUM(NOT EXISTS(SELECT 1 FROM stock_movements m WHERE m.product_id=p.id)),0) no_history

@@ -722,3 +722,31 @@ test('İlk kez satılan ilanın adı TEK stok kartıyla birebir aynıysa eşleme
     assert.deepEqual(m.map(x => x.match_value), ['YENI-ILAN-1', 'YENI-ILAN-2'], 'bağlantı hatırlandı (sonraki satışta yeniden sorulmaz)');
   } finally { f.close(); }
 });
+
+// Canlıda HB 4221039448: "Teslim edilemedi", yeniden gönderim yok; pazaryeri son ekstrede satışı
+// 0'a çekti, yalnız kargo kesti. Mal satıcıya dönüyor: satış iade edilmeli (stok geri), kargo kalır.
+test('Otomatik iade: teslim edilemedi ve son ekstrede satış 0 ise (pazaryeri iptal etti) satış iade edilir', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const product = await fourPack(f);
+    const s = store(f);
+    startDate(f, DATE);
+    const o = await f.ok('/ec/orders', {channel: 'trendyol', external_id: 'TY-PKX', order_no: 'OX', occurred_on: DATE,
+      lines: [{external_id: 'TY-PKX-1', sku: '785457868', name: '4 adet 225 ml', quantity: 1, gross: 250, vat_rate: 20}]});
+    await f.ok('/ec/orders/' + o.id + '/reserve', {}); await f.ok('/ec/orders/' + o.id + '/ship', {occurred_on: DATE, reference: 'S-X'});
+    record(f, s, 'TY-1', line({package_id: 'PKX', line_id: 'LX', order_no: 'OX', quantity: 1, status: 'Teslim edilemedi', delivered_date: ''}), 1);
+    sql(f, "UPDATE ec_report_records SET erp_package_id=? WHERE id='rec-TY-1-1'", o.id);
+    const fin = (n, zaman, data) => sql(f, `INSERT INTO ec_report_records(id,store_id,kind,record_key,key_source,data_json,source_time,data_time,file_id,row_no)
+      VALUES(?,?,'finance_event',?,'composite',?,?,?,'file-TY-1',?)`, 'fx-' + n, s, 'F:X' + n, JSON.stringify({order_no: 'OX', ...data}), zaman, zaman, 200 + n);
+    assert.equal(stockOf(f, product.id), 16000);
+    // Önceki ekstre: satış var. Satış hâlâ görünürken kural işlemez.
+    fin(1, '2026-09-12T10:00', {type: 'sale', amount_cents: 25000});
+    assert.equal((await f.ok('/ec/reports/stock-link/returns-apply', {store_id: s, confirm: true})).done.length, 0, 'satış görünürken iade yok');
+    // Son ekstre: satış 0, yalnız kargo.
+    fin(2, '2026-09-19T10:00', {type: 'sale', amount_cents: 0});
+    fin(3, '2026-09-19T10:00', {type: 'cargo', amount_cents: -5279});
+    const r = await f.ok('/ec/reports/stock-link/returns-apply', {store_id: s, confirm: true});
+    assert.equal(r.done.length, 1, JSON.stringify(r));
+    assert.equal(stockOf(f, product.id), 20000, 'mal stoğa döndü');
+    assert.equal((await f.ok('/ec/reports/stock-link/returns-apply', {store_id: s, confirm: true})).done.length, 0, 'ikinci kez yazılmaz');
+  } finally { f.close(); }
+});

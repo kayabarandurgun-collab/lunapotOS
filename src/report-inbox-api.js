@@ -885,6 +885,40 @@ export async function pendingReturns(db, storeId) {
     out.push({order_no: x.order_no, erp_package_id: x.erp_package_id, reason: 'Paket ' + x.pk + ' teslim edilemedi; sipariş başka paketle teslim edildi.',
       lines: sales.map(r => ({sale_id: r.sale_id, sku: r.sku, quantity: r.quantity_milli / 1000, revenue_cents: r.revenue_cents, occurred_on: r.occurred_on}))});
   }
+
+  // TESLİM EDİLEMEDİ + PAZARYERİ SATIŞI İPTAL ETTİ. Yeniden gönderim olmasa da kanıt açıktır:
+  // pazaryerinin EN SON ekstresinde siparişin satış tutarı SIFIR (önceki ekstrede vardı) ve rapor
+  // "teslim edilemedi" diyor: para ödenmeyecek, mal müşteriye ulaşmadı, satıcıya döner. Satış iade
+  // edilir (mal stoğa döner); kesilen kargo bedeli gider olarak kalır (canlıda HB 4221039448:
+  // satış 132 → 0, yalnız 52,79 TL kargo). Satış tutarı hâlâ görünüyorsa bu kural işlemez.
+  const iptalEdilen = (await db.prepare(
+    "SELECT r.erp_package_id,json_extract(r.data_json,'$.order_no') order_no,json_extract(r.data_json,'$.package_id') pk" +
+    " FROM ec_report_records r JOIN ec_order_packages p ON p.id=r.erp_package_id" +
+    " WHERE r.store_id=? AND r.kind='order_line' AND p.status IN ('shipped','delivered')" +
+    " AND lower(json_extract(r.data_json,'$.status')) LIKE '%edilemedi%'" +
+    " GROUP BY r.erp_package_id").bind(store.id).all()).results;
+  for (const x of iptalEdilen) {
+    if (out.some(o => o.erp_package_id === x.erp_package_id)) continue;
+    const olaylar = (await db.prepare(
+      "SELECT source_time t,SUM(CASE WHEN json_extract(data_json,'$.type')='sale' THEN json_extract(data_json,'$.amount_cents') ELSE 0 END) satis" +
+      " FROM ec_report_records WHERE store_id=? AND kind='finance_event' AND json_extract(data_json,'$.order_no')=? GROUP BY source_time ORDER BY source_time")
+      .bind(store.id, x.order_no).all()).results;
+    const son = olaylar.at(-1);
+    if (!son || son.satis !== 0 || !olaylar.some(o => o.satis > 0)) continue;
+    // Siparişin başka teslim edilmiş paketi varsa satış o pakete aittir; bu kural karışmaz.
+    const baskaTeslim = await db.prepare("SELECT 1 FROM ec_order_packages WHERE order_no=? AND channel=? AND status='delivered' AND id!=? LIMIT 1")
+      .bind(x.order_no, store.provider, x.erp_package_id).first();
+    if (baskaTeslim) continue;
+    const sales = (await db.prepare(
+      'SELECT c.sale_id,s.revenue_cents,s.quantity_milli,s.occurred_on,p.sku,' +
+      '(SELECT COUNT(*) FROM ec_sale_entries r WHERE r.parent_id=s.id) iade_var' +
+      ' FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id' +
+      " JOIN ec_sale_entries s ON s.id=c.sale_id JOIN ec_products p ON p.id=s.product_id" +
+      " WHERE l.package_id=? AND s.kind='sale' ORDER BY c.id").bind(x.erp_package_id).all()).results;
+    if (!sales.length || sales.some(r => r.iade_var)) continue;
+    out.push({order_no: x.order_no, erp_package_id: x.erp_package_id, reason: 'Paket ' + x.pk + ' teslim edilemedi; pazaryeri satışı iptal etti (son ekstrede satış 0).',
+      lines: sales.map(r => ({sale_id: r.sale_id, sku: r.sku, quantity: r.quantity_milli / 1000, revenue_cents: r.revenue_cents, occurred_on: r.occurred_on}))});
+  }
   return {store, pending: out, skipped,
     notice: 'Bu liste yazmaz. İade kaydı, mevcut satış iadesi ucundan girilir; mal stoğa döner, kargo ve hizmet bedeli gider olarak kalır.'};
 }
