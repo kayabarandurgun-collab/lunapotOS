@@ -1,19 +1,35 @@
 
 // Presentation-only controls. No network calls or business record mutations.
 //
-// SADE TABLO ARAÇLARI. Önceden her tabloya arama, durum/kategori seçicileri, "Temizle", "Kart
-// görünümü", satır kutucukları, "Seçilenleri indir" ve satır sayacı ekleniyordu; sayfaların kendi
-// filtreleri de olduğu için ekranda iki ayrı filtre duruyor, tablo kalabalıklaşıyordu.
-// Artık yalnız: başlığa tıklayınca sıralama ve uzun tablolarda (15+ satır) tek bir küçük arama.
-// Kendi araçları olan tablo data-list-tools="off" ile tamamen dışarıda kalır.
+// SADE TABLO ARAÇLARI. Bütün sayfalardaki tablolara aynı üç şey eklenir:
+//  1. "Sırala" seçimi: tutar sütunlarında büyükten küçüğe / küçükten büyüğe, tarihlerde yeniden
+//     eskiye, metinde A→Z. Başlığa tıklamak da sıralar (geniş ekranda).
+//  2. 8+ satırlı tablolarda tek arama (sayfanın kendi araması varsa eklenmez).
+//  3. SIĞMAYAN TABLO SAĞA KAYMAZ: tablo kabından genişse satırlar "etiket değer" düzeninde
+//     alt alta akar (lt-stack). Kullanıcı yatay kaydırma istemiyor; ekran boyu değişince yeniden ölçülür.
+// Kendi araçları olan tablo data-list-tools="off" ile tamamen dışarıda kalır. Sunucuda sıralanan
+// sayfalı tablo data-list-sort="server" ile yalnız sığdırma ve etiket alır (sayfa kendi sıralar).
 const text=cell=>cell?.innerText?.trim()||'';
+const ilkSatir=cell=>text(cell).split('\n')[0].trim();
 const folded=value=>value.toLocaleLowerCase('tr-TR');
+const SAYI=/^[-−]?\d{1,3}(?:\.\d{3})*(?:,\d+)?$|^[-−]?\d+(?:,\d+)?$/;
 export function sortValue(value){
- const v=value.replace(/₺|TL|TRY/g,'').trim();
- const date=/^(\d{2})[./](\d{2})[./](\d{4})$/.exec(v);if(date)return date[3]+date[2]+date[1];
- if(/^-?\d+(?:\.\d{3})*(?:,\d+)?$/.test(v))return Number(v.replaceAll('.','').replace(',','.'));
+ const v=value.replace(/₺|TL|TRY/g,'').replace(/\s*(adet|kg|gr|g|lt|l|ml|m|paket|koli)\.?$/i,'').replace(/^%\s*|\s*%$/g,'').trim();
+ const date=/^(\d{2})[./](\d{2})[./](\d{4})/.exec(v);if(date)return date[3]+date[2]+date[1];
+ if(/^\d{4}-\d{2}-\d{2}/.test(v))return v.slice(0,10).replaceAll('-','');
+ if(SAYI.test(v))return Number(v.replace('−','-').replaceAll('.','').replace(',','.'));
  return folded(v);
 }
+// Sütun türü: çoğunluğu tarihse tarih, sayıysa tutar/sayı, değilse metin.
+export function columnKind(values){
+ const dolu=values.filter(Boolean);if(!dolu.length)return 'metin';
+ const tarih=dolu.filter(v=>/^(\d{2}[./]\d{2}[./]\d{4}|\d{4}-\d{2}-\d{2})/.test(v)).length;
+ if(tarih/dolu.length>=.7)return 'tarih';
+ const sayi=dolu.filter(v=>typeof sortValue(v)==='number').length;
+ if(sayi/dolu.length>=.7)return dolu.some(v=>/₺|TL/.test(v))?'tutar':'sayi';
+ return 'metin';
+}
+const SECENEK={tutar:[['desc','büyükten küçüğe'],['asc','küçükten büyüğe']],sayi:[['desc','çoktan aza'],['asc','azdan çoğa']],tarih:[['desc','yeniden eskiye'],['asc','eskiden yeniye']],metin:[['asc','A → Z']]};
 const make=(tag,content,cls)=>{const e=document.createElement(tag);if(content)e.textContent=content;if(cls)e.className=cls;return e;};
 export function enhanceLists(){
  for(const table of document.querySelectorAll('main table:not([data-list-tools]),dialog table:not([data-list-tools])')){
@@ -21,29 +37,55 @@ export function enhanceLists(){
   const rows=[...table.tBodies[0].rows],heads=[...table.tHead.rows[0].cells];
   if(heads.length<2||rows.some(r=>r.cells.length!==heads.length||[...r.cells].some(c=>c.colSpan>1||c.rowSpan>1)))continue;
   table.dataset.listTools='true';
+  const sunucu=table.dataset.listSort==='server';
   const state={column:-1,ascending:true};
   const host=table.closest('.table-wrap,.v2-table-wrap')||table;
-  // Dar ekranda kart düzeni için hücre etiketleri (CSS data-label kullanır).
-  heads.forEach((h,i)=>{const label=text(h);rows.forEach(r=>r.cells[i].dataset.label=label||'İşlem');});
-  let search=null;
-  // Sayfanın kendi araması varsa ikinci arama eklenmez.
-  const kendiArama=table.closest('main')?.querySelector('input[type=search]:not(.list-tools input),input[name=q],input[name=search]');
-  if(rows.length>=15&&!table.closest('dialog')&&!kendiArama){
-   const bar=make('div',null,'list-tools');search=make('input');search.type='search';search.placeholder='Tabloda ara…';search.setAttribute('aria-label','Bu tablodaki satırlarda ara');
-   bar.append(search);host.before(bar);search.addEventListener('input',apply);
+  // Kart düzeni için hücre etiketleri (CSS data-label kullanır).
+  heads.forEach((h,i)=>{const label=text(h).replace(/[↕▲▼]/g,'').trim();rows.forEach(r=>r.cells[i].dataset.label=label||'İşlem');});
+  const kendiArama=table.closest('main,dialog')?.querySelector('input[type=search]:not(.list-tools input),input[name=q],input[name=search]');
+  const bar=make('div',null,'list-tools');
+  let search=null,select=null;
+  if(rows.length>=8&&!table.closest('dialog')&&!kendiArama){
+   search=make('input');search.type='search';search.placeholder='Listede ara…';search.setAttribute('aria-label','Bu listedeki satırlarda ara');
+   bar.append(search);search.addEventListener('input',apply);
   }
-  heads.forEach((h,i)=>{
-   const label=text(h);
-   if(h.querySelector('button,a')||!label||/işlem/i.test(label))return;
-   const b=make('button',label,'list-sort');b.type='button';b.setAttribute('aria-label',label+' alanına göre sırala');h.textContent='';h.append(b);h.setAttribute('aria-sort','none');
-   b.addEventListener('click',()=>{state.ascending=state.column===i?!state.ascending:true;state.column=i;heads.forEach(x=>x.setAttribute('aria-sort','none'));h.setAttribute('aria-sort',state.ascending?'ascending':'descending');apply();});
-  });
+  // Sıralanabilir sütunlar: işlem ve boş başlıklar dışında hepsi; tür hücrelerden anlaşılır.
+  const sutunlar=sunucu||rows.length<3?[]:heads.map((h,i)=>({i,label:text(h).replace(/[↕▲▼]/g,'').trim(),kind:columnKind(rows.map(r=>ilkSatir(r.cells[i])))}))
+   // İşlem sütunu ve yalnız düğme taşıyan sütun sıralanmaz. /işlem/i 'İşlem' ile eşleşmez (Türkçe İ): tr-TR küçültülür.
+   .filter(s=>s.label&&!folded(s.label).includes('işlem')&&!heads[s.i].querySelector('button,a')&&!rows.every(r=>!ilkSatir(r.cells[s.i])||r.cells[s.i].querySelector('button')));
+  if(sutunlar.length){
+   const label=make('label',null,'list-sort-select');label.append(make('span','Sırala'));
+   select=make('select');select.setAttribute('aria-label','Listeyi sırala');
+   select.append(new Option('Varsayılan sıra',''));
+   // Tutar sütunları önce: en çok aranan "büyükten küçüğe".
+   const sira={tutar:0,tarih:1,sayi:2,metin:3};
+   for(const s of [...sutunlar].sort((a,b)=>sira[a.kind]-sira[b.kind]))for(const [yon,ad] of SECENEK[s.kind])select.append(new Option(s.label+': '+ad,s.i+':'+yon));
+   label.append(select);bar.append(label);
+   select.addEventListener('change',()=>{const [i,yon]=select.value.split(':');state.column=select.value?Number(i):-1;state.ascending=yon==='asc';basliklar();apply();});
+  }
+  if(bar.childElementCount)host.before(bar);
+  const basliklar=()=>heads.forEach((x,j)=>x.hasAttribute('aria-sort')&&x.setAttribute('aria-sort',j===state.column?(state.ascending?'ascending':'descending'):'none'));
+  for(const s of sutunlar){
+   const h=heads[s.i],b=make('button',s.label,'list-sort');b.type='button';b.setAttribute('aria-label',s.label+' alanına göre sırala');h.textContent='';h.append(b);h.setAttribute('aria-sort','none');
+   // İlk tıklama tutar ve tarihte büyükten küçüğe, metinde A→Z.
+   b.addEventListener('click',()=>{state.ascending=state.column===s.i?!state.ascending:s.kind==='metin';state.column=s.i;basliklar();
+    if(select){const v=s.i+':'+(state.ascending?'asc':'desc');if([...select.options].some(o=>o.value===v))select.value=v;else select.selectedIndex=0;}apply();});
+  }
   const empty=make('p','Aramaya uyan satır yok.','list-empty');empty.hidden=true;host.after(empty);
   function apply(){
    const query=search?folded(search.value.trim()):'';
-   if(state.column>=0){const i=state.column;const sorted=[...rows].sort((a,b)=>{const x=sortValue(text(a.cells[i])),y=sortValue(text(b.cells[i]));const n=typeof x==='number'&&typeof y==='number'?x-y:String(x).localeCompare(String(y),'tr',{numeric:true});return state.ascending?n:-n;});sorted.forEach(r=>table.tBodies[0].append(r));}
+   const i=state.column,sorted=i<0?rows:[...rows].sort((a,b)=>{const x=sortValue(ilkSatir(a.cells[i])),y=sortValue(ilkSatir(b.cells[i]));
+    // Boş hücre her iki yönde de sona.
+    if(x===''&&y!=='')return 1;if(y===''&&x!=='')return -1;
+    const n=typeof x==='number'&&typeof y==='number'?x-y:String(x).localeCompare(String(y),'tr',{numeric:true});return state.ascending?n:-n;});
+   sorted.forEach(r=>table.tBodies[0].append(r));
    let shown=0;for(const row of rows){const visible=!query||folded(text(row)).includes(query);row.hidden=!visible;if(visible)shown++;}
    empty.hidden=shown>0;
   }
+  // Sığdırma: doğal genişlik kabı aşıyorsa satır düzenine geç. Ölçüm sınıf kaldırılarak yapılır.
+  const kap=host===table?table.parentElement:host;
+  const sigdir=()=>{table.classList.remove('lt-stack');table.classList.toggle('lt-stack',table.scrollWidth>kap.clientWidth+4);};
+  sigdir();
+  if('ResizeObserver' in window){let son=kap.clientWidth,bekleyen=0;new ResizeObserver(()=>{if(Math.abs(kap.clientWidth-son)<6||bekleyen)return;bekleyen=requestAnimationFrame(()=>{bekleyen=0;son=kap.clientWidth;sigdir();});}).observe(kap);}
  }
 }

@@ -110,3 +110,13 @@ test('200den eski faturalar arama ve sayfalama ile bulunur; teslim ve çalışma
   await assert.rejects(()=>f.call(purchaseSearchApi,'/api/purchases?page=-1'),e=>e.status===400);
  }finally{f.close();}
 });
+test('Alış faturaları tutara göre sunucuda sıralanır; sayfalama sıralamadan sonra yapılır',async()=>{
+ const f=fixture();try{const {s,i}=await f.setup();
+  const ins=f.sqlite.prepare("INSERT INTO ec_purchase_invoices(id,supplier_id,invoice_no,invoice_date) VALUES(?,?,?,?)");for(let n=0;n<60;n++)ins.run('bos-'+n,s,'BOS-'+String(n).padStart(3,'0'),'2026-01-01');
+  // Tutarlı tek fatura en eski değil ama en büyük: büyükten küçüğe ilk sayfanın başında, küçükten büyüğe son sayfanın sonunda.
+  const buyuk=await f.call(purchaseSearchApi,'/api/purchases?sort=net_desc');assert.equal(buyuk.invoices[0].id,i);assert.ok(buyuk.invoices[0].net_cents>0);
+  const kucuk=await f.call(purchaseSearchApi,'/api/purchases?sort=net_asc&page=2');assert.equal(kucuk.invoices.at(-1).id,i);
+  const eski=await f.call(purchaseSearchApi,'/api/purchases?sort=date_asc');assert.equal(eski.invoices[0].invoice_date,'2026-01-01');
+  await assert.rejects(()=>f.call(purchaseSearchApi,'/api/purchases?sort=rastgele'),e=>e.status===400);
+ }finally{f.close();}
+});
