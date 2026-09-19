@@ -98,13 +98,14 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
  // Kapsam: tarih aralığı ya da verilen paketler. Kargodaki ikizin kopyası teslimliyse o da okunur (ikiz hesabı).
  const kapsam=paketIdleri?"(id IN (SELECT value FROM json_each(?)) OR channel||'|'||order_no IN (SELECT q.channel||'|'||q.order_no FROM order_packages q WHERE q.id IN (SELECT value FROM json_each(?)) AND q.status IN ('shipped','reserved')))":mode==='delivered'?'delivered_on BETWEEN ? AND ?':'occurred_on BETWEEN ? AND ?';
  const kapsamArg=paketIdleri?[idJson,idJson]:[from,to],sira=sayfali?' AND id>? ORDER BY id':' ORDER BY occurred_on DESC,id',siraArg=sayfali?[imlec]:[],sinir=paketIdleri?'':` LIMIT ${max+1}`;
- const db=env.DB,packages=await all(db.prepare(`SELECT *${mode==='delivered'?','+STOPAJ_SQL:''} FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND ${mode==='delivered'?"status='delivered'":"status IN ('draft','reserved','shipped')"} AND ${kapsam}${sira}${sinir}`).bind(...kapsamArg,...siraArg));
+ const db=env.DB,paketSoz=all(db.prepare(`SELECT *${mode==='delivered'?','+STOPAJ_SQL:''} FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND ${mode==='delivered'?"status='delivered'":"status IN ('draft','reserved','shipped')"} AND ${kapsam}${sira}${sinir}`).bind(...kapsamArg,...siraArg));
+ // Dönenler paketlerle AYNI ANDA okunur (birbirini beklemez; D1'de her okuma bir gidiş-dönüştür).
  // TESLİM EDİLEMEYİP DÖNEN PAKET. Satış iadeyle sıfırlanır ama gidiş-dönüş kargosu ve hizmet bedeli
  // gerçek giderdir. Paket "gönderildi" durumunda kaldığı için kâra hiç girmiyor, o gider kayboluyordu
  // (canlıda HB 4611462604: kesintinin yarısı, ~132 TL; TY 11581049903). İadesi tamamlanan gönderilmiş
  // paket İADE TARİHİYLE sonuçlanmış sayılır; çift kayıt düzeltmesi (DUZELTME-CIFT) iade sayılmaz.
  // Dönenler de aynı paket sınırına girer: eskiden LIMIT 101 sonrası sessizce düşüyordu (Codex R20).
- const donen=mode!=='delivered'?[]:await all(db.prepare(`SELECT *,${STOPAJ_SQL},${IADE_TARIHI} iade_tarihi FROM order_packages WHERE ${DONEN} AND ${paketIdleri?'id IN (SELECT value FROM json_each(?))':IADE_TARIHI+' BETWEEN ? AND ?'}${sayfali?' AND id>? ORDER BY id':''}${sinir}`).bind(...(paketIdleri?[idJson]:[from,to]),...siraArg));
+ const [packages,donen]=await Promise.all([paketSoz,mode!=='delivered'?[]:all(db.prepare(`SELECT *,${STOPAJ_SQL},${IADE_TARIHI} iade_tarihi FROM order_packages WHERE ${DONEN} AND ${paketIdleri?'id IN (SELECT value FROM json_each(?))':IADE_TARIHI+' BETWEEN ? AND ?'}${sayfali?' AND id>? ORDER BY id':''}${sinir}`).bind(...(paketIdleri?[idJson]:[from,to]),...siraArg))]);
  let sonraki_imlec=null;
  if(sayfali){
   const hepsi=[...packages,...donen.map(d=>({...d,status:'delivered',delivered_on:d.iade_tarihi,teslim_edilemedi:true}))].sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);
@@ -125,7 +126,10 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
   for(let i=packages.length-1;i>=0;i--)if(iadeli.has(packages[i].id))packages.splice(i,1);
  }
  const ids=JSON.stringify(packages.map(p=>p.id));
- const [lines,components,sales,inputs=[],shippingRates=[],commissionRates=[]]=(await db.batch([
+ const [feeVatRows,lines,components,sales,inputs=[],shippingRates=[],commissionRates=[]]=(await db.batch([
+  // Kesinti KDV orani UYDURULMAZ: pazaryerinin finans rapor profilinde beyan edilmisse oradan gelir.
+  // Beyan yoksa o kanalin nakit sonucu bos birakilir ve sebebi yazilir.
+  db.prepare("SELECT provider,json_extract(options_json,'$.fee_vat_bps') bps FROM ec_report_profiles WHERE kind='finance' AND json_extract(options_json,'$.fee_amounts_include_vat')=1 AND json_extract(options_json,'$.fee_vat_bps') IS NOT NULL"),
   db.prepare('SELECT * FROM order_lines WHERE package_id IN (SELECT value FROM json_each(?))').bind(ids),
   db.prepare('SELECT c.*,l.package_id,(SELECT pp.vat_bps FROM price_profiles pp WHERE pp.product_id=c.product_id) urun_kdv,COALESCE((SELECT NULLIF(pp.replacement_cost_cents,0) FROM price_profiles pp WHERE pp.product_id=c.product_id),(SELECT CAST(ROUND(pl.net_cents*1000.0/pl.quantity_milli) AS INTEGER) FROM purchase_lines pl JOIN purchase_invoices pi ON pi.id=pl.invoice_id WHERE pl.product_id=c.product_id AND pi.status=\'posted\' AND pl.line_type=\'product\' AND pl.quantity_milli>0 ORDER BY pi.invoice_date DESC,pi.created_at DESC LIMIT 1)) son_alis,b.quantity_milli stock_quantity_milli,b.value_cents,p.stock_unit current_stock_unit,s.cost_cents sale_cost_cents FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN stock_balances b ON b.product_id=c.product_id JOIN products p ON p.id=c.product_id LEFT JOIN sale_entries s ON s.id=c.sale_id WHERE l.package_id IN (SELECT value FROM json_each(?))').bind(ids),
   db.prepare(SALES_SQL).bind(ids),
@@ -134,9 +138,6 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
   db.prepare('SELECT * FROM commission_rates WHERE archived_at IS NULL LIMIT 1001')]:[])
  ])).map(r=>r.results);
  if(shippingRates.length>1000||commissionRates.length>1000)fail('Tarife sayısı sınırı aşıldı. Eski tarifeleri arşivleyin.',409);
- // Kesinti KDV orani UYDURULMAZ: pazaryerinin finans rapor profilinde beyan edilmisse oradan gelir.
- // Beyan yoksa o kanalin nakit sonucu bos birakilir ve sebebi yazilir.
- const feeVatRows=await all(db.prepare("SELECT provider,json_extract(options_json,'$.fee_vat_bps') bps FROM ec_report_profiles WHERE kind='finance' AND json_extract(options_json,'$.fee_amounts_include_vat')=1 AND json_extract(options_json,'$.fee_vat_bps') IS NOT NULL"));
  const feeVat=new Map();
  for(const r of feeVatRows){if(feeVat.has(r.provider)&&feeVat.get(r.provider)!==r.bps)feeVat.set(r.provider,null);else if(!feeVat.has(r.provider))feeVat.set(r.provider,r.bps);}
  const group=items=>{const m=new Map();for(const r of items){const list=m.get(r.package_id)||[];list.push(r);m.set(r.package_id,list);}return m;};
@@ -187,27 +188,32 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
  // yazılmamış teslim, gerçek teslimlerin ortancasıyla hesaplanır. Elle girilmiş ölçü/tarife önceliklidir.
  // Tahminci yalnız GEREKİRSE kurulur (bütün teslimleri okur): kargodaki paket ya da kesintisi eksik teslim.
  const tahminGerekli=mode==='pending'?packages.length>0:[...saleMap.values()].some(l=>l.some(s=>s.kind==='sale'&&(s.shipping_cents===null||s.commission_cents===null||s.other_cents===null)));
- const tahmin=hazirTahmin||(tahminGerekli?await (tahminAl||(()=>kesintiTahmincisi(db)))():()=>null);
+ // Tahminci, rapor satır sayıları ve ürün adları birbirinden bağımsızdır: AYNI ANDA okunur.
+ const tahminSoz=hazirTahmin?Promise.resolve(hazirTahmin):tahminGerekli?(tahminAl||(()=>kesintiTahmincisi(db)))():Promise.resolve(()=>null);
  // DEFTER PAKETIN TAMAMINI TUTUYOR MU? Pazaryeri raporu pakette 2 satir gorurken defterde
  // 1 satir varsa, o paketin BUTUN kesintileri eksik ciroya yuklenir ve karli siparis zararli
  // gorunur. Sessizce yanlis rakam vermektense kar HESAPLANMAZ, sebebi yazilir.
  // Olcut satir SAYISIdir: tutar farki cogu zaman indirimdir (rapor liste fiyatini, defter
  // indirimli fiyati tutar) ve gercek bir eksiklik degildir.
- const raporSatir=new Map();
+ const raporSatir=new Map(),urunIdleri=[...new Set([...partMap.values()].flat().map(c=>c.product_id))];
+ const raporSoz=mode==='delivered'&&ids!=='[]'?all(db.prepare("SELECT erp_package_id pid,json_extract(data_json,'$.package_id') rpk,COUNT(*) n,MAX(source_time) t FROM ec_report_records WHERE kind='order_line' AND erp_package_id IN (SELECT value FROM json_each(?)) GROUP BY 1,2").bind(ids)):Promise.resolve([]);
+ const adSoz=urunIdleri.length?all(db.prepare('SELECT id,name FROM products WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(urunIdleri))):Promise.resolve([]);
+ // Beklenmeden önce hata verirse işlenmemiş ret sayılmasın; hata aşağıda await edilince yine yükselir.
+ raporSoz.catch(()=>{});adSoz.catch(()=>{});
+ const tahmin=await tahminSoz;
  if(mode==='delivered'&&ids!=='[]'){
   // YENİDEN NUMARALANAN PAKET: pazaryeri aynı siparişe yeni paket numarası verirse (canlıda HB
   // 4731515470: 5517911182 → 5518837752, aynı ürün ve adet) iki numaranın satırları da aynı
   // deftere bağlıdır. Eski numara sayılırsa "raporda 2 satır, defterde 1" denip kâr hesaplanmazdı.
   // Pakete bağlı rapor satırlarından yalnız EN SON görülen paket numarasınınkiler sayılır.
-  for(const r of await all(db.prepare("SELECT erp_package_id pid,json_extract(data_json,'$.package_id') rpk,COUNT(*) n,MAX(source_time) t FROM ec_report_records WHERE kind='order_line' AND erp_package_id IN (SELECT value FROM json_each(?)) GROUP BY 1,2").bind(ids))){
+  for(const r of await raporSoz){
    const prev=raporSatir.get(r.pid);
    if(!prev||String(r.t)>String(prev.t))raporSatir.set(r.pid,{n:r.n,t:r.t});
   }
   for(const [k,v] of raporSatir)raporSatir.set(k,v.n);
  }
  // Satırda ürün adı gösterilir (stok kartı adı, pazaryeri ilan adı değil): "2 × Torf 20 L".
- const urunIdleri=[...new Set([...partMap.values()].flat().map(c=>c.product_id))];
- const urunAdi=new Map(urunIdleri.length?(await all(db.prepare('SELECT id,name FROM products WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(urunIdleri)))).map(u=>[u.id,u.name]):[]);
+ const urunAdi=new Map((await adSoz).map(u=>[u.id,u.name]));
  const urunOzet=parts=>{const m=new Map();for(const c of parts)m.set(c.product_id,(m.get(c.product_id)||0)+c.quantity_milli);
   return [...m].map(([id,q])=>(q===1000?'':(q/1000).toLocaleString('tr-TR')+' × ')+(urunAdi.get(id)||'Ürün')).join(', ');};
  const rows=packages.map(p=>{
