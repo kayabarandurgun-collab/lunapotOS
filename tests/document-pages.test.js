@@ -123,3 +123,21 @@ test('Bildirilen özgün sayfa aralığı bölümün sayfa sayısıyla tutmalı'
     assert.equal(r.status, 400, 'çelişkili aralık reddedildi');
   } finally { f.close(); }
 });
+
+// Fatura penceresi özgün belgeyi açabilsin: ayrıntıda hangi belge ve kaçıncı sayfa olduğu gelir.
+test('Fatura ayrıntısı bağlı özgün belgeyi ve sayfasını söyler; belgesiz faturada boş', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const supplier = (await f.ok('/ec/suppliers', {name: 'Sentetik Tedarik', tax_id: '9340990552'})).id;
+    const first = await invoice(f, supplier, 'SNT-1'), second = await invoice(f, supplier, 'SNT-2');
+    const doc = await storeDoc(f, '/ec/invoices/documents', {kind: 'pdf', filename: 'tum-zamanlar.pdf',
+      sha256: await sha256Hex(bytes), size_bytes: bytes.length, chunk_count: 1, page_count: 3});
+    await f.ok('/ec/invoices/documents/' + doc + '/pages', {pages: [{page_no: 2, invoice_id: first}]});
+    const detay = await f.ok('/ec/invoices/' + first);
+    assert.deepEqual({id: detay.document.id, page_no: detay.document.page_no, chunk_count: detay.document.chunk_count, page_count: detay.document.page_count},
+      {id: doc, page_no: 2, chunk_count: 1, page_count: 3});
+    assert.equal((await f.ok('/ec/invoices/' + second)).document, null, 'belgesi olmayan faturada düğme çıkmaz');
+    // Parça yetkili kullanıcıya verilir (pencere bunu okur).
+    const parca = await f.ok('/ec/invoices/documents/' + doc + '/part?index=0');
+    assert.equal(parca.data, b64);
+  } finally { f.close(); }
+});
