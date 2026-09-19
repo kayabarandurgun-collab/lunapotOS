@@ -18,6 +18,10 @@ import {ordersApi} from './orders-api.js';
 import {reportLinkFingerprint} from './report-link-guard.js';
 import {pendingReturns} from './report-inbox-api.js';
 import {accountingApi} from './accounting.js';
+import {catalogApi} from './catalog-api.js';
+
+// İlan adı ile stok kartı adı karşılaştırması: büyük/küçük harf, boşluk, noktalama ve ı/i farkı yok sayılır.
+export const adAnahtari = s => String(s || '').toLocaleLowerCase('tr-TR').replace(/ı/g, 'i').replace(/[^a-z0-9çğöşü]+/g, '');
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), {status}); };
 
@@ -437,6 +441,31 @@ export async function reportStockLinkApi(request, env, path, readBody) {
           if (linked.outcome === 'match') { results.push({...out, done: 'bağlandı', order_package: linked.package_id}); continue; }
           if (!linked.applied) { results.push({...out, skipped: true, reason: linked.reason || (linked.issues || []).join(' ') || linked.outcome}); continue; }
           id = linked.package_id; occurred = linked.occurred_on; steps.push('sipariş açıldı');
+        }
+        // İLK KEZ SATILAN İLAN. Eşleşmesi olmayan satırın ilan adı TEK bir stok kartının adıyla
+        // birebir aynıysa (harf/boşluk/ı-i farkı hariç) bağlantı kendiliğinden kurulur ve hatırlanır:
+        // kullanıcının aynı adı bir daha eşlemesi gerekmez. Ad benzerliği TAHMİN edilmez; birebir değilse
+        // ya da birden çok kart uyuyorsa satır eşleşmesiz kalır, sebebi söylenir.
+        if (cur?.status !== 'reserved') {
+          const bos = (await db.prepare(`SELECT l.id,l.sku,l.name FROM ec_order_lines l WHERE l.package_id=?
+            AND NOT EXISTS(SELECT 1 FROM ec_order_line_components c WHERE c.line_id=l.id)`).bind(id).all()).results;
+          if (bos.length) {
+            const kanal = (await db.prepare('SELECT channel FROM ec_order_packages WHERE id=?').bind(id).first())?.channel;
+            const kartlar = (await db.prepare(`SELECT p.id,p.name,p.brand,p.stock_unit,(SELECT pp.vat_bps FROM ec_price_profiles pp WHERE pp.product_id=p.id) vat
+              FROM ec_products p`).all()).results;
+            // Kart adı markayla başlıyorsa ilan markasız da yazılmış olabilir ("Yaprak Temizleyici 500 ml").
+            const adlari = k => { const tam = adAnahtari(k.name), marka = adAnahtari(k.brand);
+              return marka && tam.startsWith(marka) && tam.length > marka.length ? [tam, tam.slice(marka.length)] : [tam]; };
+            const esle = [];
+            for (const l of bos) {
+              const aday = kartlar.filter(k => k.stock_unit === 'adet' && adlari(k).includes(adAnahtari(l.name)));
+              if (aday.length !== 1 || !l.sku || !['trendyol', 'hepsiburada'].includes(kanal)) continue;
+              const m = await call(catalogApi, '/api/catalog/mappings', {source: kanal, match_by: 'code', external_code: l.sku, external_name: l.name,
+                components: [{product_id: aday[0].id, quantity_milli: 1000, revenue_share_bps: 10000}]});
+              esle.push({id: l.id, mapping_id: m.id, ...(aday[0].vat === null || aday[0].vat === undefined ? {} : {vat_rate: aday[0].vat / 100})});
+            }
+            if (esle.length) { await call(ordersApi, '/api/orders/' + id + '/map', {lines: esle}); steps.push('ilan adı stok kartıyla aynı: eşleştirildi'); }
+          }
         }
         // KDV hariç tutar: pazaryeri sipariş raporu KDV oranı vermez. Satırın eşleştiği stok
         // ürünlerinin fiyat profilinde TEK ve tanımlı bir oran varsa o oranla tamamlanır (ürüne

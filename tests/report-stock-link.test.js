@@ -695,3 +695,30 @@ test('Otomatik iade: tek satırlı pakette kısmi iade birim fiyatın katıysa o
     assert.equal(stockOf(f, product.id), 16000, '2 ilandan 1 ilan (4 şişe) stoğa döndü');
   } finally { f.close(); }
 });
+
+// Canlıda HB 4374116499: ilk kez satılan "Tropikal Yaprak Temizleyici 500 ml" ilanı eşleşmesiz kaldı
+// ve sipariş taslakta bekledi. İlan adı stok kartıyla birebir aynı: kullanıcıya iş çıkmamalı.
+test('İlk kez satılan ilanın adı TEK stok kartıyla birebir aynıysa eşleme kendiliğinden kurulur ve hatırlanır', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const s = store(f);
+    startDate(f, DATE);
+    const kart = await f.ok('/ec/products', {name: 'Tropikal Yaprak Temizleyici 500 ml', sku: 'TR-TEM-500', stock_unit: 'adet', min_stock: 0, brand: 'Tropikal'});
+    await f.ok('/ec/stock', {product_id: kart.id, quantity: 10, unit_cost: 20, kind: 'opening', reference: 'ACILIS', occurred_on: DATE, notes: 'Test açılışı'});
+    // Benzer ama AYNI OLMAYAN kart: ad benzerliği tahmin edilmez.
+    await f.ok('/ec/products', {name: 'Tropikal Yaprak Temizleyici 250 ml', sku: 'TR-TEM-250', stock_unit: 'adet', min_stock: 0, brand: 'Tropikal'});
+    record(f, s, 'TY-1', line({package_id: 'PK1', line_id: 'L1', order_no: 'O1', barcode: 'YENI-ILAN-1', product_name: 'TROPİKAL yaprak  temizleyici 500 ML', quantity: 1, status: 'Kargolandı', delivered_date: ''}), 1);
+    // Marka yazılmadan açılmış ilan ("ı" ile): kartın markasız adıyla birebir.
+    record(f, s, 'TY-1', line({package_id: 'PK2', line_id: 'L2', order_no: 'O2', barcode: 'YENI-ILAN-2', product_name: 'Yaprak Temızleyıcı 500 ml', quantity: 1, status: 'Kargolandı', delivered_date: ''}), 2);
+    // Adı hiçbir kartla birebir değil: eşleşmesiz kalır.
+    record(f, s, 'TY-1', line({package_id: 'PK3', line_id: 'L3', order_no: 'O3', barcode: 'YENI-ILAN-3', product_name: 'Yaprak Temizleyici Sprey 3 Adet', quantity: 1, status: 'Kargolandı', delivered_date: ''}), 3);
+
+    const r = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
+    const by = Object.fromEntries(r.results.map(x => [x.package_id, x]));
+    assert.match(by.PK1.done, /eşleştirildi.*stok ayrıldı, gönderildi/);
+    assert.match(by.PK2.done, /eşleştirildi.*gönderildi/);
+    assert.ok(by.PK3.skipped && /taslak/.test(by.PK3.reason), 'birebir olmayan ad eşlenmedi');
+    assert.equal(stockOf(f, kart.id), 8000, 'iki ilan birer adet düştü');
+    const m = f.sqlite.prepare("SELECT match_value,external_name FROM ec_catalog_mappings WHERE source='trendyol' AND active=1 ORDER BY match_value").all();
+    assert.deepEqual(m.map(x => x.match_value), ['YENI-ILAN-1', 'YENI-ILAN-2'], 'bağlantı hatırlandı (sonraki satışta yeniden sorulmaz)');
+  } finally { f.close(); }
+});
