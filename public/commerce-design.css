@@ -168,6 +168,10 @@ body.commerce .fh-kart { border-radius:10px; }
  body.commerce .fh-form { grid-template-columns:1fr; }
  body.commerce .fh-urun,body.commerce .fh-kanal { grid-column:auto; }
  body.commerce .pn-hero-value { font-size:34px; }
+ /* Günlük tablo telefonda yana kaymadan sığar: 5 sütun, sıkı boşluk, başlık alt satıra geçebilir. */
+ body.commerce .pn-table table { width:100%; font-size:11px; letter-spacing:-.2px; }
+ body.commerce .pn-table td,body.commerce .pn-table th { padding:5px 3px; }
+ body.commerce .pn-table th { white-space:normal; }
 }
 @media print {
  body.commerce .workspace main { padding:0; }
