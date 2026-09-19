@@ -111,6 +111,9 @@ export async function ordersApi(request,env,path,readBody){
   // urun KDV'si fiyat profilinden, kesinti KDV'si pazaryeri finans profilinin beyanindan.
   // Listede gosterilen rakam NAKIT olmali; kar raporuyla ayni sayiyi vermeli (bkz. nakitOzeti).
   async function nakitOzeti(ids){
+  // Kâr raporunun ortak sonucu (en ağır okuma) aşağıdaki kayıt hesabıyla AYNI ANDA başlar; sırayla
+  // beklemek listeyi saniyelerce yavaşlatıyordu. Hata aşağıda, sonuç kullanılırken ele alınır.
+  const ortakSoz=paketSonuclari(env,ids).then(v=>({v}),e=>({e}));
   const feeVat=new Map();
   for(const r of (await db.prepare("SELECT provider,json_extract(options_json,'$.fee_vat_bps') bps FROM ec_report_profiles WHERE kind='finance' AND json_extract(options_json,'$.fee_amounts_include_vat')=1 AND json_extract(options_json,'$.fee_vat_bps') IS NOT NULL").all()).results){
    if(feeVat.has(r.provider)&&feeVat.get(r.provider)!==r.bps)feeVat.set(r.provider,null);else if(!feeVat.has(r.provider))feeVat.set(r.provider,r.bps);
@@ -154,7 +157,7 @@ export async function ordersApi(request,env,path,readBody){
   // sonucu kâr raporunun AYNI satırından gelir: kesinti tahmini, "tahmini" işareti, stopaj payı ve eksik
   // nedeniyle. Bilinmeyen maliyet/kesinti sıfır sayılmaz. Yukarıdaki kayıt hesabı yalnız kapsam dışında kalır.
   // Okunamazsa liste yine açılır; nakit ikinci formülle gösterilmez, boş kalır ve nedeni yazılır.
-  let ortak;try{ortak=await paketSonuclari(env,ids);}catch(e){console.error('paket sonucu',e.message);for(const o of ozet.values())Object.assign(o,{nakit:null,tahmini:false,not:'Kâr raporundaki sonuç okunamadı; nakit gösterilmedi.'});return ozet;}
+  let ortak;try{const s=await ortakSoz;if(s.e)throw s.e;ortak=s.v;}catch(e){console.error('paket sonucu',e.message);for(const o of ozet.values())Object.assign(o,{nakit:null,tahmini:false,not:'Kâr raporundaki sonuç okunamadı; nakit gösterilmedi.'});return ozet;}
   for(const [pid,s] of ortak){const o=ozet.get(pid)||{pid,iade:null,gelir:null};ozet.set(pid,Object.assign(o,{nakit:s.cash_cents,sonuc:s.profit_cents,tam:s.profit_cents!==null,tahmini:s.estimated,not:s.note}));}
   return ozet;
   }
