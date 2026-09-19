@@ -111,9 +111,14 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
   for(const r of await all(db.prepare("SELECT erp_package_id pid,COUNT(*) n FROM ec_report_records WHERE kind='order_line' AND erp_package_id IN (SELECT value FROM json_each(?)) GROUP BY erp_package_id").bind(ids)))
    raporSatir.set(r.pid,r.n);
  }
+ // Satırda ürün adı gösterilir (stok kartı adı, pazaryeri ilan adı değil): "2 × Torf 20 L".
+ const urunIdleri=[...new Set([...partMap.values()].flat().map(c=>c.product_id))];
+ const urunAdi=new Map(urunIdleri.length?(await all(db.prepare('SELECT id,name FROM products WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(urunIdleri)))).map(u=>[u.id,u.name]):[]);
+ const urunOzet=parts=>{const m=new Map();for(const c of parts)m.set(c.product_id,(m.get(c.product_id)||0)+c.quantity_milli);
+  return [...m].map(([id,q])=>(q===1000?'':(q/1000).toLocaleString('tr-TR')+' × ')+(urunAdi.get(id)||'Ürün')).join(', ');};
  const rows=packages.map(p=>{
   const packageLines=lineMap.get(p.id)||[],parts=partMap.get(p.id)||[];let entries=saleMap.get(p.id)||[];
-  const row={twin_of:p.twin_of||null,id:p.id,channel:p.channel,order_no:p.order_no,external_id:p.external_id,status:p.status,occurred_on:p.occurred_on,delivered_on:p.delivered_on,profit_cents:null,cash_cents:null,cash_note:null,missing:[],revenue_net_cents:null,cost_net_cents:null,shipping_cents:null,commission_cents:null,other_cents:null};
+  const row={twin_of:p.twin_of||null,id:p.id,channel:p.channel,order_no:p.order_no,external_id:p.external_id,status:p.status,occurred_on:p.occurred_on,delivered_on:p.delivered_on,urun:urunOzet(parts),profit_cents:null,cash_cents:null,cash_note:null,missing:[],revenue_net_cents:null,cost_net_cents:null,shipping_cents:null,commission_cents:null,other_cents:null};
   if(p.source_changed){row.missing.push('Kaynak sipariş değişti; farkı inceleyin.');return row;}
   if(mode==='delivered'){
    const profit=packageProfit(p,packageLines,parts,entries),total=profit.totals;
