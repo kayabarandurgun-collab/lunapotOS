@@ -1,0 +1,28 @@
+{
+  "checks": [
+    "Dönem seçimi adreste korunuyor",
+    "Yenilemede seçili dönem korunuyor",
+    "Marka grupları görünür",
+    "Stok ayrıntıları açılıyor",
+    "Marka filtresi yalnız seçileni gösteriyor",
+    "Stok tablosu altı temel sütundan oluşuyor",
+    "Stok tablosu yatay taşmıyor",
+    "Stok hareketleri penceresi açılıyor",
+    "Sipariş penceresi ürün adını gösteriyor",
+    "Pencere kapanınca sipariş filtresi korunuyor",
+    "Telefon sipariş penceresi taşmıyor",
+    "Telefon menüsü açılıyor",
+    "Escape menüyü kapatıp odağı geri veriyor",
+    "Rapor sekmeleri çalışıyor",
+    "Dosya seçici klavyeyle erişilebilir",
+    "Hesaplanırken yüklenme durumu görünür",
+    "Geç gelen eski hata yeni sonucu ezmiyor",
+    "Ürün temizlenince önceki hesap siliniyor",
+    "Devam eden istek boş ürüne sonuç getirmiyor",
+    "bank sayfasının tek ana başlığı var",
+    "documents sayfasının tek ana başlığı var",
+    "Tarayıcıda JavaScript hatası yok",
+    "250 ms bekleme içinde eski istek sonucu görünmüyor (87 ms)"
+  ],
+  "errors": []
+}

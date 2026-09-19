@@ -1,0 +1,110 @@
+---
+session: lunapot-panel
+date: 2026-09-19
+status: partial
+outcome: PARTIAL_PLUS
+---
+
+goal: TY/HB sipariş kontrolünde çıkan bütün farkları kapatmak, sipariş/kâr/stok ekranlarını kullanılabilir yapmak, "hesaplanmadı" kalmasın, tahminler geçmişten öğrensin
+now: "1) Ana sayfayı (Genel durum, #overview) baştan tasarla: dönem kârları (1h/2h/1a/3a/6a/tüm zamanlar) + kargodaki tahmin + grafikler. 2) KRK2026000000763 (Torf 10 L, 5 × 110) ve 80 L faturalarını PDF ile karşılaştır: OKUMA HATASIYSA yalnız o satırı düzelt; gerçek zamsa DOKUNMA. Maliyet kilitlenmez (kullanıcı kararı)."
+test: npm test   # 531/531 geçiyor (19 Eylül 02:06). Yayın öncesi MUTLAKA: npm test > out; grep -q "^ℹ fail 0" out && git push
+
+kullanici:
+  - dil: "Kısa, sade Türkçe. 3-5 satır. Uzun yazıyı okumuyor. Sert konuşabiliyor (küfür), sakin kal, işi yap."
+  - beklenti: "Hiçbir şey elle olmasın; sistem geçmişten öğrensin. 'Hesaplanmadı', 'bilgi bekliyor', 'tahmin edilemedi' görmek istemiyor → tahminle hesapla ve 'tahmini' diye işaretle."
+  - kdv: "HER tutar KDV dahil. KDV hariç yalnız küçük 'vergi beyanı için' satırı. Bütün ürünlerde KDV %20 şartı var (HB'nin raporda %10 yazması hata)."
+  - dogrulama: "Canlıda kendin tıkla/doğrula, sonra 'hazır' de. Önceki oturumlar 'yaptım' deyip yapmamış; sipariş sayfası için çok sinirlendi."
+  - kontrol_yontemi: "Defterine sipariş no'nun SON 4 hanesi → kâr yazıp fotoğraf atıyor (TY ve HB ekstresine göre). El yazısında rakam karışabilir (4503↔4505, 6220↔6280, 7018↔7618, 0,76↔2,76): 'yok' demeden önce tarih+tutar ile eşleştir."
+  - maliyet_listesi: "Defterinin sağ sayfasında maliyet listesi var (KDV hariç): 2,5 L ort 45, 5 L 55, 10 L 100, 20 L 170, 40 L 300, 80 L 550, kat 38, 4 genel 30 ... Kendi kontrolünde bunlarla hesaplıyor."
+  - maliyet_kurali: "KESİN KARAR (19 Eylül, son mesaj): Ürün maliyeti TEK FİYATA KİLİTLENMEZ. Zamanla zam gelmiş olabilir; ESKİ satış ESKİ alış maliyetini alır. Yani mevcut tarih bazlı FIFO (fifo-cost.js) doğru yöntem, korunacak. Bütün ürünlerde KDV %20."
+  - dosya_tarama: "Sormadan İndirilenler klasörünü tarama."
+  - istek_bekleyen: "Ana sayfa: son 1 hafta / 2 hafta / 1 ay / 3 ay / 6 ay / tüm zamanlar kârı (teslim edilenler), teslim edilmemişlerin (kargodaki) tahmini kârı, grafikler; 'güzel, güçlü frontend ve backend'. Genel UI güçlendirme."
+
+ortam:
+  repo: C:/Users/baran/Desktop/site/lunapot-panel   # Documents/Codex/... kopyası ESKİ, kullanma
+  canli: https://muhasebe.lunapot.com  (push main → Cloudflare Workers Builds; 1-3 dk)
+  yayin: "public/sw.js 1. satır CACHE adını artır (son: lunapot-shell-v90-magaza-tani), testler 0 fail ise push, curl /sw.js ile yeni adı bekle. Tarayıcı panelinde doğrulamadan önce: navigator.serviceWorker.getRegistrations()→update(), caches.keys()→delete, reload."
+  gecis: "npm run db:remote KOD PUSH'TAN ÖNCE (izin sistemi bazen engeller; kullanıcı 'canlıya al' deyince çalıştı). Son geçiş 0048_fifo_cost.sql (uygulandı). Wrangler SQL ayrıştırıcısı tetikte CASE…END bozar → iif()."
+  d1_okuma: "scratchpad sor.mjs: node sor.mjs dosya.sql (wrangler'ı process.execPath ile çağırır; npx/shell tırnak sorunu yok). 7403 yetki hatası geçici → tekrar dene."
+  canli_api: "mcp Browser javascript_tool ile kullanıcının oturumundan fetch('/api/ec/...'). Doğrudan muhasebe yazma (ör. /accounting/sales/:id/return) izin sistemince engellendi; uygulamanın kendi otomatik uçları (/reports/stock-link/auto, returns-apply, apply-fees, /cost-fifo) çalıştırılabildi."
+  test_yardimcisi: "tests/helpers/app-fixture.js → f.ok('/ec/...', body), f.req, f.sqlite (node:sqlite, bütün migration'lar)."
+
+done_this_session:
+  - task: "Handoff'taki 7 takılı HB taslağı: taslak rapor değişince (yalnız durum) özet yenilenir, sürer; ürün/adet değiştiyse sebep yazılır (tazeleTaslakBagi). Yeniden numaralanan paket (aynı sipariş/ürün/adet, eski numara sonraki raporda yok) bir kez sayılır (eskittiMi). HB-<paketno> kaydı varsa belirsiz ikiz ona bağlanır. Kullanıcının iptal ettiği paket /auto'da tekrar denenmez. Stok ayrılmış sipariş rapor 'kargoda' deyince gönderilir; rapor iptal deyince taslak/ayrılmış iptal edilir."
+    files: [src/report-stock-link-api.js, tests/report-stock-link.test.js]
+  - task: "TS1 sayım öncesi satış: GECICI-SAYIM sonrası kalan satış kaydedilir, aynı sayım 'GECICI-SAYIM-<kod>-SAT-<paket8>' ek count hareketiyle artırılır (raf değişmez, fatura gelince closeProvisionalCounts kapatır)."
+    files: [src/report-stock-link-api.js]
+  - task: "Otomatik iade: /api/ec/reports/stock-link/returns-apply — tam iade, tek satırlı kısmi iade (iade tutarı birim fiyatın katı), teslim edilemeyip başka paketle teslim edilen sipariş (pendingReturns). Rapor Kutusu her işlemden sonra çağırır. İade kaydının kesintisi 0 (kesinti siparişin son hâlinde)."
+    files: [src/report-inbox-api.js, src/report-stock-link-api.js, public/report-inbox-ui.js]
+  - task: "Canlı veri: HB 4611462604 çift satış iade edildi (teslim edilemedi), TY 11581049903 ve 11534399836 iadeleri girildi, HB 4549634323 gönderildi, 2 HB belirsiz ikiz HB-… kayıtlarına bağlandı, 7 HB taslağı + 2 TS1 satışı işlendi."
+    files: []
+  - task: "FIFO maliyet (0048): satış maliyeti satış TARİHİNDEKİ en eski stoktan. Hareket eklenen ürün ec_cost_dirty'e düşer; worker her ec POST sonrası fifoRevalue(8 ürün) çalıştırır; fark ec_cost_revaluations (değiştirilemez) ile sale_entries.cost_cents ve stok değerine yazılır. İade kendi satışından önce işlenmez (aynı gün sıralama hatası düzeltildi). POST /api/ec/cost-fifo {all:true} hepsini yeniden hesaplar. Canlıda 72 düzeltme, toplam −655,04 TL KDV hariç."
+    files: [migrations/0048_fifo_cost.sql, src/fifo-cost.js, src/worker.js, tests/fifo-maliyet.test.js, tests/accounting.test.js]
+  - task: "Sipariş sayfası baştan: durum etiketleri (sayılı, kanala göre), Tümü/Trendyol/Hepsiburada, Hepsi/Kâr edenler/Zarar edenler (parantezde sayı, diğer filtrelere göre), başlıktan tarih/tutar/cebine kalan sıralama (sunucuda, sayfalamadan önce), satır → pencerede detay (işlem düğmeleri pencerede), durum adreste (#orders?channel=&sonuc=&sort=&page=&ac=), geri tuşu yalnız pencereyi kapatır (ecommerce.js hashchange → dispose.onHash), dar ekranda kart, İade edildi/Kısmi iade rozeti, iç aktarım artığı iptal taslakları (AKTARIM_ARTIGI) gizli."
+    files: [public/orders-ui.js, public/ecommerce.js, public/ui-polish.css, src/orders-api.js, src/orders-query.js, tests/orders-siralama.test.js, tests/nakit-sonuc.test.js]
+  - task: "Cebine kalan: satış satırın KENDİ KDV oranıyla geri çevrilir (HB bazı ilanlarda %10 yazıyor; liste, sipariş penceresi, kâr raporu). Kesintide SON GÖZLEM: aynı (sipariş, tür, sütun, paket) için yalnız en son görülen rapor kaydı sayılır, eskisi nota yazılır ('hesaplanmadı' yerine). İade edilen pakette sıfır komisyon eksik veri sayılmaz; iadeli paketin kesintisi teslim beklemeden yazılır."
+    files: [src/orders-api.js, src/order-insights-api.js, src/performance-api.js, src/report-inbox-api.js, tests/report-coarse-duplicate.test.js]
+  - task: "fee-history.js kesinti tahmincisi (ortanca): aynı içerik son 5 → aynı ürün en yakın adet 5 → aynı ürün DİĞER kanal (kargo/hizmet; komisyon bu kanal) → kanal son 30. İadeli paket örnek alınmaz. Stopaj oranı ekstreden (HB ≈ %0,8333 KDV dahil satışa, TY 0). Kullananlar: kâr raporu kargodaki tahmin (tarife yolu hizmet bedelini bilmez, geçmiş önce), teslim edilmiş ama kesintisi ekstrede olmayan paket (fees_estimated + 'Kesinti tahmini' rozeti), Kaça satmalıyım, ürün kârlılığı. Maliyet: stok ortalaması; stok ≤0 ise profil son alış, 0 ise son alış faturası. İadesi tamamlanmış paket kargodakilerden çıkar."
+    files: [src/fee-history.js, src/performance-api.js, public/performance-ui.js, tests/kesinti-tahmini.test.js]
+  - task: "Kaça satmalıyım (Satış fiyatı hesapla → ilk sekme 'Kaça satmalıyım?'): ürün, kanal, adet, fiyat, hedef → cebine kalan, başabaş, hedef fiyat, döküm. Eski tarife hesabı 'Tarifeyle hesapla' sekmesinde."
+    files: [src/fiyat-hesap-api.js, public/fiyat-hesap-ui.js, public/business-ui.js]
+  - task: "Ürünler ve stok: /api/ec/urun-karlilik → satılan adet (iade düşülmüş), ciro, toplam kâr, adet başı kâr (kâr raporu formülü, kesintisi yoksa tahmin); kart+tabloda gösterilir; Satılan/Toplam kâr/Adet başı kâr sıralaması. Filtreler seçince uygulanır, ek filtreler 'Daha fazla filtre', ipuçları katlanır."
+    files: [src/urun-karlilik-api.js, public/product-list.js, public/accounting-ui.js]
+  - task: "Genel UI: list-tools.js sadeleşti (yalnız başlıktan sıralama + 15+ satırda tek arama, sayfanın kendi araması varsa yok; kutucuk/Kart görünümü/Seçilenleri indir/Temizle/sayaç yok). Yalnız v2-stat kartlı ızgaralar küçük ve yan yana (:has). Başlık düğmeleri ve ac-filters küçüldü. Kâr raporu ve satış kayıtlarında RPT-… kodları yok. Rapor Kutusu mağazayı dosyanın sütunlarından tanır (TY/HB karışık sürüklenebilir)."
+    files: [public/list-tools.js, public/list-tools.css, public/ui-polish.css, public/performance-ui.js, public/accounting-ui.js, public/report-inbox-ui.js]
+
+state_19_eylul:
+  teslim: "TY 178/178, HB 105/105 hesaplı; son 30 gün cebine kalan 21.261,76 TL (TY 16.279,39 / HB 4.982,37). HB 4659432212 kesinti tahmini ile."
+  kargoda: "96 paket, tahmini 8.491,57 TL; tamamı tahminli (TS1 HB kargosu TY'den 502,15 TL)."
+  ty_kontrol: "26 sipariş (Temmuz): 24'ü ±1-2 kuruş; 2649 (kâğıtta 15,94, veri 4467/5559 ile birebir → −15,09) ve 3881 (24,98 → 24,08) kullanıcı yazım hatası olarak bildirildi."
+  hb_kontrol: "43 sipariş (21 Ağu–9 Eyl): 38 tutuyor (4215556069 29,57 ve 4469027298 −15,14 KDV düzeltmesiyle eşitlendi). Kalan: 5939/7353/8334 (kâğıt 27,50, sistem 15,50 — KRK…763 110 TL birim), 4357 (kâğıt 599,92, sistem 659,93 — 80 L 500 TL eski stok), 9812 (sistem 0,76; kâğıt muhtemelen 0,76)."
+  eksi_stok: "Tropikal Orkide Toprağı 3 L (−22), Orkide Besini 225 ml (−19), Yaprak Temizleyici 250 ml (−14): Tropikal alış faturaları girilmemiş; profilde son alış 0 (faturada 26/21/25 TL var)."
+
+blockers: []
+
+questions:
+  - "KRK2026000000763 (17.08, Torf 10 L 5 adet, net 550, KDV 110 → birim 110) PDF'te gerçekten böyle mi? Alış faturaları ekranında belgeyi aç (Fatura belgeleri / purchase-document), satırı karşılaştır; okuma hatasıysa satırı düzelt (FIFO kendiliğinden yeniden hesaplar; fifo-cost.js yalnız stock_movements değerini okur → düzeltme yolunun stok hareketi/ değer yazdığını doğrula, sonra POST /api/ec/cost-fifo {all:true}). Gerçek fiyatsa dokunma ve kullanıcıya 'o partide zam var' de."
+  - "80 L Cocopeat faturaları: 500 (KRK…095/172/185, Şub–Mar), 550 (KRK…529/534/566, Haz), 600 (KRK…859/874, Eyl) + KDV. Kullanıcı kuralına göre bunlar gerçek zam olabilir → FIFO doğru; 4357'de eski 500'lük stok kullanıldı. Yalnız PDF okuma hatası şüphesi varsa kontrol et."
+  - "TY 11534399836: sistem −228,13; ekstreye göre −216,13 olmalı gibi (12 TL 'ek:İndirim' iki kez düşülüyor olabilir: defter brüt 936 vs rapor 960 → indirim 24, ekstrede 12). Kontrol et."
+
+decisions:
+  - fifo: "Satış maliyeti tarih bazlı FIFO — KULLANICI ONAYLADI: maliyet kilitlenmez, eski satış eski alış maliyetini alır (zam olabilir). Yöntemi DEĞİŞTİRME, sabit fiyat listesine çevirme. Yalnız yanlış OKUNMUŞ fatura satırı düzeltilir. DİKKAT: fifo-cost.js yalnız stock_movements değerini okur; purchase_adjustments (price-adjustment) stok hareketi yazmıyorsa FIFO görmez → düzeltme yolunun hareket yazdığını doğrula ya da fifoProduct'a ekle, sonra POST /api/ec/cost-fifo {all:true}."
+  - kdv: "Satış KDV dahil = satırın kendi oranı; maliyet KDV dahil = ürün profil oranı. Kullanıcı: bütün ürünler %20. İstersen HB'den %10 gelen satırları da %20'ye çevir (KDV hariç ciro/katkı için); şu an 8 HB satırı %10 (4332820217, 4746566211, 4215556069, 4469027298, 4651839926, 4592463585, 4310938505, 4011994299). ec_order_line_lock teslimli satırı kilitler → migration ya da özel düzeltme gerekir."
+  - son_gozlem: "Aynı kesinti farklı raporlarda farklı tutarla gelirse son gözlenen (source_time) sayılır; eski test 'hesaplanmadı' bekliyordu, güncellendi."
+  - iade_kesintisi: "Müşteri iadesi (IADE-…, TESLIM-EDILEMEDI-…) kesinti taşımaz; DUZELTME-CIFT iadeleri kopya satışı sıfırladığı için kesintiyi aynalar (dokunma)."
+  - tahmin: "Eksik kesinti asla 0 sayılmaz, 'hesaplanmadı' da denmez: geçmişten tahmin + 'tahmini' işareti."
+
+findings:
+  - ekstre_son_hal: "HB/TY ekstre satırları siparişin güncel hâlini verir; bileşik anahtar tutarı içerdiği için değişen tutar yeni kayıt açar (ör. kargo 112,80→211,19; iadede komisyon →0). source_time yeniden görülünce ilerler."
+  - hb_kdv_10: "HB sipariş raporu bazı ilanlarda KDV %10 yazıyor (Torf 5 L, Yaprak Parlatıcı 750 ml...). Kullanıcı: hepsi %20."
+  - hb_kargo_gec: "HB kargo ücretini teslimden günler sonra ekstreye yazar (4659432212)."
+  - ts1_kargo: "TS1 (39 kg balya) kargosu ~420 TL KDV hariç; kanal ortalaması kullanılamaz."
+  - aktarim_artigi: "67 HB + 1 TY 'iptal' paket 14 Eylül aktarım artığı (sevk yok, satış yok, rapora bağlı değil, gerçek ikizi var). Listeden gizlendi (AKTARIM_ARTIGI, src/orders-query.js)."
+  - hb_siparis_no: "HB sipariş numaraları kronolojik değil; en eski HB 4746566211 (13.08). Kullanıcının son HB dosyası 20 Ağustos'tan başlıyor."
+  - buyuk_siparis: "TY 11590920604 = 15 adet Torf 40 L, 8 paket (normal)."
+
+worked:
+  - "Canlıda salt-okunur ölçüm → etkiyi say (ör. son gözlem kuralı yalnız 5 siparişi etkiliyor) → kodla → test → gated deploy → canlıda aynı sorguyla doğrula."
+  - "Kullanıcının kâğıt listesini tarih sırasıyla canlı API'den çekilen listeye eşleştirmek (orders?channel=…&sort=date_asc&limit=500)."
+  - "Edit/Write aracıyla dosya yazıp python ile düzenlemek; kaçış karakteri gereken yerde Edit aracı."
+  - "Tarayıcı panelinde gerçek tıklama (find → ref → left_click) + javascript ile durum okuma; mobil için resize_window preset mobile, sonra desktop'a dön."
+
+failed:
+  - "grep … && sed … && git push zinciri testler kırıkken push etti (SQL 'posted' tek tırnaklı JS metni içinde). Build düştüğü için canlı eski sürümde kaldı. ÇÖZÜM: sonuç dosyasında '^ℹ fail 0' kontrolü."
+  - "Python heredoc içinde \\' kaçışları dosyaya yazılmadı → Edit aracı kullan."
+  - "'En son dosyadaki kayıtlar' kuralı yanlıştı (değişmeyen kayıt eski dosyada kalıyor) → source_time kullan."
+  - "Aynı gün iade kendi satışından önce işlenince FIFO'da 0 değerli katman oluştu → iade ertelenir."
+  - "Otomatik iade önce kesintisiz (null) yazıldı → sipariş 'Kesinti bekliyor' göründü; artık 0 + confirmed."
+
+next:
+  - "MALİYET (kısa kontrol, zorlama YOK): KRK2026000000763 ve 80 L faturalarını PDF ile karşılaştır. Okuma hatası → yalnız o satırı düzelt, cost-fifo çalıştır, HB 5939/7353/8334/4357 yeniden karşılaştır. Gerçek fiyat → dokunma; kullanıcıya kısa açıkla (o partide birim 110 / eski stok 500)."
+  - "Profilde son alış 0 olan ürünlerin replacement_cost_cents'ini son faturadan doldur (Tropikal Orkide ürünleri)."
+  - "ANA SAYFA YENİDEN TASARIM (#overview; public/decision-overview.js + public/operations-ui.js overview + src/attention-api.js). Backend: yeni uç (ör. GET /api/ec/panorama) → teslim edilenlerin nakit kârı: son 7 gün, 14 gün, 30 gün, 90 gün, 180 gün, tüm zamanlar (TY/HB ayrı + toplam, paket sayısı, zarar eden sayısı, tahminli kesinti sayısı); kargodaki/hazırlıktaki tahmini kâr; günlük/haftalık kâr ve ciro zaman serisi (grafik için), ürün bazında en kârlı/en zararlı 5, kanal payı. performance-api'deki hesabı yeniden kullan (tek formül: kâr raporu = liste = sipariş penceresi = ana sayfa). Frontend: dönem kartları (tıklanınca kâr raporuna o aralıkla gider), çizgi/çubuk grafik (dataviz skill'ini oku; kütüphane cdn gerekiyorsa CSP script-src 'self' → inline SVG ile çiz), kargodaki tahmin kartı, bugünün iş listesi (attention) sade. Mobil kontrol et. 1000 paket sınırı (performance-api 1001) tüm zamanlarda aşılabilir → toplama sorgusu yaz, satır satır değil."
+  - "Genel UI güçlendirme devam: kalan sayfaları (Kesinti eşleştirme, Teklif, Genel giderler, Bağlantılar, Şirket ve yedek, Banka) ekran görüntüsüyle gez; boş/sıfır kartları gizle, uzun açıklamaları katla."
+  - "TY 11534399836 indirim çift sayımını kontrol et (report-inbox-api applyReportFees indirim kuralı)."
+  - "İsteğe bağlı: 8 HB %10 satırını %20'ye çevir (KDV hariç ciro düzelir; nakit zaten doğru)."
+  - "Oturum sonunda yeni devir notu yaz."
+
+files:
+  created: [migrations/0048_fifo_cost.sql, src/fifo-cost.js, src/fee-history.js, src/fiyat-hesap-api.js, src/urun-karlilik-api.js, public/fiyat-hesap-ui.js, tests/fifo-maliyet.test.js, tests/kesinti-tahmini.test.js, tests/orders-siralama.test.js]
+  modified: [src/report-stock-link-api.js, src/report-inbox-api.js, src/orders-api.js, src/orders-query.js, src/order-insights-api.js, src/performance-api.js, src/settings-api.js, src/worker.js, public/orders-ui.js, public/ecommerce.js, public/performance-ui.js, public/business-ui.js, public/accounting-ui.js, public/product-list.js, public/report-inbox-ui.js, public/list-tools.js, public/list-tools.css, public/ui-polish.css, public/sw.js, tests/report-stock-link.test.js, tests/nakit-sonuc.test.js, tests/report-coarse-duplicate.test.js, tests/accounting.test.js]

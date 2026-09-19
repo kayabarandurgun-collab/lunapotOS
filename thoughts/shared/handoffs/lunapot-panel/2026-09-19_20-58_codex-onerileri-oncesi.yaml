@@ -1,0 +1,86 @@
+---
+session: lunapot-panel
+date: 2026-09-19
+status: partial
+outcome: PARTIAL_PLUS
+---
+
+goal: "Ana sayfa/kâr raporu yenilendi, bütün listeler sığar+sıralanır, alış faturası ve rapor akışı sensiz otomatik, kâr pazaryeri hakedişiyle denetlendi, sunucuda 15 dk'lık otomatik bakım, Codex için sistem raporu yazıldı."
+now: "Kullanıcı Codex'in önerilerini yapıştıracak. Önce docs/CODEX-SORUN-COZUM-RAPORU-2026-09-19.md (25 bulgu: 13 P1, 12 P2) ve docs/TASARIM-RAPORU-2026-09-19.md oku; çalışma ağacındaki COMMIT EDİLMEMİŞ Codex UI değişikliklerini (12 public dosya + public/commerce-design.css, sw.js v107-commerce-design) incele, npm test çalıştır; bulguları doğrula, sırayla testli düzelt; yayını kullanıcıya sorarak yap."
+test: "npm test   # 552/552 (HEAD d44924e). Yayın: npm test > out; grep -q '^ℹ fail 0' out && git push origin main"
+
+kullanici:
+  - "Kısa, sade Türkçe (3-5 satır). Sağa kaydırma istemez. Her rakamı TY/HB ekstresiyle karşılaştırır (sipariş no son 4 hane). 'Ne sana ne bana ihtiyaç duysun' — yükledikten sonra hiç iş yapmak istemiyor."
+  - "Commit/push için kullanıcı kuralı onay ister; bu oturumda açık istekleri (düzelt, çöz, canlıya al) push izni sayıldı. Veri yazan işlemlerde (fatura kaydet vb.) sor."
+  - "Sipariş sayfasını (#orders) iyi buluyor; sormadan değiştirme."
+
+ortam:
+  repo: "C:/Users/baran/Desktop/site/lunapot-panel (main, HEAD d44924e). Documents/Codex/... kopyası ESKİ."
+  canli: "https://muhasebe.lunapot.com — son yayın CACHE lunapot-shell-v106-otomatik-bakim. Cron */15 yayında (wrangler.jsonc triggers)."
+  d1_okuma: "scratchpad sor.mjs: node sor.mjs x.sql (C:/Users/baran/AppData/Local/Temp/claude/C--Users-baran-Desktop-site-lunapot-panel/<oturum>/scratchpad; yeni oturumda kopyala: eski yol .../58498b83-bad3-4d37-bc41-8f43942074e7/scratchpad/sor.mjs). Belge PARÇALARINI yerel dosyaya indirmek izin sisteminde engelli; tarayıcıda (javascript_tool, /api/ec/invoices/documents/:id/part) okumak serbest."
+  tarayici: "Browser pane tab-2 kullanıcının oturumu. UI doğrulamasını ÖNDEKİ sekmede yap (arka sekmede rAF durur, list-tools çalışmaz)."
+  store_ids: "TY-LUNAPOT 70a0b77e-9afd-423f-8007-cbb2059f424e · HB-LUNAPOT 9fd53014-d18b-4519-bd5c-344cd0bb55dc · Tropikal supplier f28216a2-ec04-4982-97c2-8a642370910a"
+
+done_this_session:
+  - task: "Genel durum (#overview) baştan: GET /api/panorama (performanceReport satırlarını toplar; 92 günlük parçalar), 6 dönem kartı + zarar sayısı/tutarı (telefonda da), kâr bırakan/zarar eden kutuları, yığılmış SVG grafik, TY/HB payı, kargodaki tahmin (en eski bekleyenden), ürün sıralaması. Canlıda dönemler kâr raporuyla kuruşu kuruşuna aynı."
+    files: [src/panorama-api.js, src/performance-api.js, public/panorama-ui.js, public/operations-ui.js, public/ui-polish.css, tests/panorama.test.js]
+  - task: "Kâr raporu paket dökümü tablo yerine satır listesi (son 4 hane kalın, ürün adı row.urun, sıralama). Bütün tablolar list-tools.js: sığmayan tablo 'etiket değer' satırına döner, Sırala seçimi (tutar büyükten küçüğe, eksik hücre sona), 8+ satırda arama. Alış faturaları sunucuda sıralanır (/api/purchases?sort=)."
+    files: [public/performance-ui.js, public/list-tools.js, public/list-tools.css, public/accounting-ui.js, src/purchase-search-api.js, tests/list-tools.test.js]
+  - task: "İndirim çift sayımı (kısmi iade) düzeltildi (TY 11534399836 −228,13→−216,13)."
+    files: [src/report-inbox-api.js, tests/report-fee-bridge.test.js]
+  - task: "Alış belgeleri: 9 belge/37 fatura PDF ile birebir doğrulandı (KRK…763 10 L 110 TL gerçek zam). ASDAFF s5→TRP2026000001080 bağlandı. Fatura penceresi 'Özgün faturayı aç (sayfa N)'. pdf-read /ObjStm açıyor, bozuk metni metin saymıyor."
+    files: [public/pdf-read.js, public/original-document.js, src/accounting.js, tests/pdf-nesne-akisi.test.js, tests/document-pages.test.js]
+  - task: "Alış otomasyonu: eşleme kuralı public/purchase-match.js (sunucu autocomplete ile ortak), GET /api/invoices/match-history, tek dosya da otomatik (state.auto=true), satır toplamı belgeyle tutmazsa durur. TRP2026000001102 işlendi → Tropikal eksi stoklar kapandı."
+    files: [public/purchase-match.js, public/purchase-document-ui.js, src/purchase-autopost-api.js, tests/alis-otomatik-tamamla.test.js]
+  - task: "Rapor aktarımı: ilk kez satılan ilan adı TEK stok kartıyla (markasız adı da) birebir aynıysa katalog bağlantısı kendiliğinden kurulur (HB 4374116499 çözüldü)."
+    files: [src/report-stock-link-api.js, tests/report-stock-link.test.js]
+  - task: "Kâr düzeltmeleri: yeniden numaralanan paketin eski numarası 'eksik satır' sayılmaz (HB 4731515470); teslim edilemeyip iadesi tamamlanan paket iade tarihiyle sonuçlanır, kesintisi zarar olarak girer (HB 4611462604, TY 11581049903); otomatik iade kuralı: teslim edilemedi + son ekstrede satış 0 (HB 4221039448); 7+ gün kargo uyarısından iadeli ve DUZELTME-CIFT asıl kayıtları çıkarıldı."
+    files: [src/performance-api.js, src/report-inbox-api.js, src/attention-api.js, public/performance-ui.js, tests/nakit-sonuc.test.js]
+  - task: "Otomatik bakım (cron */15): yarım rapor dosyaları, /stock-link/auto, sync-deliveries, returns-apply, apply-fees, FIFO; son 10 dk rapor yüklendiyse atlar; ec_activity'ye özet."
+    files: [src/otomatik-bakim.js, src/worker.js, wrangler.jsonc, tests/otomatik-bakim.test.js]
+  - task: "Codex için sistem raporu (mimari, veri modeli, akışlar, kurallar, denetim sonuçları, riskler)."
+    files: [docs/SISTEM-RAPORU-2026-09-19.md]
+
+state_19_eylul_aksam:
+  kar: "Tüm zamanlar 356 paket 24.762,46 TL (TY 242/18.315,25 · HB 114/6.447,21); son 1 ay 302 pk 23.381,02; zarar 88 (83 normal satış, hepsi kargo yüzünden); hesaplanmayan 0; kargoda 124 pk tahmini 8.942,10."
+  denetim: "Hakediş mutabakatı TY 222/226, HB 106/110 (1 TL içinde); maliyet birimleri alış faturalarıyla tutarlı; tahmin geri sınaması ort. ±14,44 TL/paket, %5,5 temkinli."
+  fiyat: "TY Torf 20 L 403–433 TL'den zararda (kargo 150,72); başabaş ~452, +50 TL için ~513. Kullanıcıya başabaş altı ürün listesi teklif edildi, cevap bekliyor."
+
+blockers: []
+
+questions:
+  - "Cron canlıda gerçekten çalışıyor mu? (ec_activity 'Otomatik bakım' yalnız iş olunca yazıyor) — iş gerektiren bir durumda ya da Cloudflare panelinde doğrula."
+  - "Codex'in commit edilmemiş UI değişiklikleri (git diff: 12 dosya, 43+/40-; public/commerce-design.css yeni; sw.js v107) kullanıcının onayıyla mı yapıldı, yayınlanacak mı?"
+
+decisions:
+  - tek_formul: "Ana sayfa/kâr raporu/ürün kârlılığı hep performanceReport satırlarından; ayrı SQL toplamı yazılmaz."
+  - fifo: "Maliyet tarih bazlı FIFO; tek fiyata kilitlenmez; zamlar gerçek."
+  - otomasyon: "Emin olunamayan yerde (çeşit adetleri, birebir uymayan ilan adı) sistem sorar; diğer her şey otomatik."
+  - teslim_edilemedi: "İadesi tamamlanan gönderilmiş paket iade tarihiyle 'delivered' sayılır (teslim_edilemedi=true), satış 0, kesinti zarar."
+
+findings:
+  - hb_kesinti: "HB kesintiyi SİPARİŞ başına keser; sistem paketlere böler. Çok paketli HB siparişinde bölüşüm Codex raporunda da incelenmeli."
+  - rapor_net: "Rapor Kutusu orderSummary reported_net_cents paket başı (çok paketli siparişte her pakete ayrı); karşılaştırırken sipariş başına toplama yapma."
+  - ikizler: "6 TY paketi (11556011142, 11561070094, 11590299167 ×2) DUZELTME-CIFT asıl kaydı olarak kalıcı 'shipped'; kâra ikiz olarak doğru giriyor."
+  - list_tools: "enhanceLists ui-shell'in rAF zamanlamasıyla çalışır; arka plan sekmesinde işlemez."
+
+worked:
+  - "Canlı API'den salt okuma denetim (hakediş mutabakatı, maliyet, tahmin geri sınaması) → kök neden → test → düzelt → gated push → canlıda aynı sorguyla doğrula."
+  - "UI'yı yayından önce yerel önizleme: scratchpad gen.mjs (fixture→JSON) + serve.mjs (public + üretim CSP). Canlıda denemek için CSSStyleSheet + JS'yi geçici enjekte etmek (tab-3)."
+  - "Kaçış karakterli düzenlemeleri Edit aracıyla yapmak."
+
+failed:
+  - "Python/node heredoc düzenlemelerinde ters bölüler düştü (\\b, \\w, \\d) → Edit aracı kullan."
+  - "Uzun javascript_tool betikleri 45 sn'de zaman aşımına uğradı (işlem yine de yapılmış olabilir) → adımları böl, sonra D1'den doğrula."
+  - "wrangler ile belge parçalarını yerel dosyaya indirmek izin sisteminde engellendi."
+
+next:
+  - "Kullanıcının yapıştıracağı Codex önerilerini docs/CODEX-SORUN-COZUM-RAPORU-2026-09-19.md ile karşılaştır; her P1 bulguyu kodda doğrula (grep değil, oku), gerçekse test yaz → düzelt."
+  - "Codex UI değişikliklerini (git diff, public/commerce-design.css, docs/TASARIM-RAPORU-2026-09-19.md, docs/tasarim-inceleme-2026-09-19/) gözden geçir; npm test; kullanıcıya sorup yayına al (sw.js CACHE v107 zaten artırılmış)."
+  - "Başabaş altı fiyatlı ürün/kanal listesi (Kaça satmalıyım ile) — kullanıcı isterse."
+  - "Cron'un çalıştığını doğrula."
+
+files:
+  created: [src/panorama-api.js, public/panorama-ui.js, public/original-document.js, public/purchase-match.js, src/otomatik-bakim.js, docs/SISTEM-RAPORU-2026-09-19.md, tests/panorama.test.js, tests/list-tools.test.js, tests/pdf-nesne-akisi.test.js, tests/otomatik-bakim.test.js]
+  modified: [src/performance-api.js, src/report-inbox-api.js, src/report-stock-link-api.js, src/purchase-autopost-api.js, src/purchase-search-api.js, src/attention-api.js, src/accounting.js, src/worker.js, src/permission-policy.js, wrangler.jsonc, public/performance-ui.js, public/list-tools.js, public/list-tools.css, public/pdf-read.js, public/purchase-document-ui.js, public/accounting-ui.js, public/operations-ui.js, public/ui-polish.css, public/sw.js]
+  codex_uncommitted: [public/accounting-ui.js, public/bank-ui.js, public/ecommerce.html, public/fiyat-hesap-ui.js, public/operations-ui.js, public/orders-ui.js, public/panorama-ui.js, public/product-list.js, public/report-inbox-ui.js, public/sales-document-ui.js, public/sw.js, public/ui-shell.js, public/commerce-design.css, docs/CODEX-SORUN-COZUM-RAPORU-2026-09-19.md, docs/TASARIM-RAPORU-2026-09-19.md, docs/tasarim-inceleme-2026-09-19/]

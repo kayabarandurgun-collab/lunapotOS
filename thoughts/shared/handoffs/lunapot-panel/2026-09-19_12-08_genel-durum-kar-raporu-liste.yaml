@@ -1,0 +1,58 @@
+---
+session: lunapot-panel
+date: 2026-09-19
+status: partial
+outcome: SUCCEEDED
+---
+
+goal: Ana sayfayı (Genel durum) dönem kârları + grafiklerle baştan kurmak; kâr raporunu sağa kaydırmadan okunur yapmak; bekleyen maliyet/indirim farklarını kapatmak
+now: "Açık iş yok (son yayın v100). TRP2026000001102 işlendi: Tropikal eksi stoklar kapandı. Alış faturası artık kendiliğinden eşlenip işleniyor (tek dosya dahil)."
+test: npm test   # 546/546 (19 Eylül, son yayın v100). Yayın: npm test > out; grep -q "^ℹ fail 0" out && git push
+
+kullanici:
+  - "Kısa Türkçe, 3-5 satır. Canlıda kendin doğrula. Yatay kaydırma istemiyor (kâr raporu için açıkça şikâyet etti)."
+  - "Commit/push için kurallar onay istiyor; bu oturumda 'Evet, canlıya al' dedi, sonra 'ne kazandırdı taşmış bak', 'kâr raporunu adam et' dedi → düzeltmeler yayınlandı."
+
+ortam:
+  repo: C:/Users/baran/Desktop/site/lunapot-panel
+  canli: https://muhasebe.lunapot.com (son CACHE lunapot-shell-v100-alis-otomatik-esleme)
+  d1_okuma: "scratchpad sor.mjs (node sor.mjs x.sql). Küçük salt-okuma sorguları geçiyor; alış belgesinin (PDF) parçalarını yerel dosyaya indirme izin sisteminde ENGELLENDİ ('Production Reads')."
+  onizleme: "Canlıya çıkmadan UI denemesi: scratchpad gen.mjs (test düzeneğinde ~320 paket üretir → panorama.json, performance.json) + serve.mjs (public/ + üretim CSP'si). rapor.html / onizleme.html."
+
+done_this_session:
+  - task: "GET /api/ec/panorama (src/panorama-api.js): 7/14/30/90/180 gün + tüm zamanlar teslim edilenlerin cebine kalanı, kanal ayrımı, zarar/tahmini/eksik sayısı, önceki eş dönem, günlük seri, dönem başına en çok/en az kazandıran 5 ürün, kargodaki tahmin (en eski bekleyen paketten; 30 günle sınırlı değil). performanceApi → performanceReport(env,{mode,from,to,max,tahmin,detay}) olarak ayrıldı; tüm zamanlar 92 günlük parçalarla (409'da ikiye bölünür). Canlıda 6 dönemin hepsi kâr raporunun aynı aralığıyla kuruşu kuruşuna aynı; yanıt ~2 sn."
+    files: [src/panorama-api.js, src/performance-api.js, src/worker.js, src/permission-policy.js, tests/panorama.test.js]
+  - task: "Genel durum ön yüzü (public/panorama-ui.js): 6 dönem kartı (seçilince aşağısı değişir, #overview?donem= adreste), hero sayı, TY/HB payı, yığılmış sütun grafiği (satır içi SVG, CSP uyumlu; fare/dokunma/ok tuşu ile değer, tablo görünümü), kargodaki tahmin kartı, ürün sıralaması, hızlı geçiş (Kaça satmalıyım, kritik stok, Rapor Kutusu). Renkler dataviz doğrulayıcısından geçti: TY #2a78d6, HB #eb6834. Önceki dönem yüzdesi %200'ü aşarsa fark tutar yazılır."
+    files: [public/panorama-ui.js, public/operations-ui.js, public/ui-polish.css, public/sw.js]
+  - task: "Kâr raporu paket dökümü: 9 sütunlu 1.700 px tablo yerine satır listesi (sipariş no son 4 hane kalın, stok kartı adıyla ürün özeti row.urun, teslim tarihi, satış/maliyet/kesinti tek satır, sağda cebine kalan; ayrıntı <details> ile). Sıralama: yeni/eski/en çok/en az (sort= adreste). Canlıda 283 satır, yatay kaydırma yok."
+    files: [public/performance-ui.js, src/performance-api.js, public/ui-polish.css]
+  - task: "İndirim çift sayımı (kısmi iade): report-inbox-api applyReportFees indirim kuralı fark kalan adede oranlanarak da karşılaştırılır. TY 11534399836 yeniden aktarıldı: nakit −228,13 → −216,13 (raporun net hakedişiyle aynı). Canlıda etkilenen başka sipariş yok (11587333488 tam iade, indirimi zaten 0)."
+    files: [src/report-inbox-api.js, tests/report-fee-bridge.test.js]
+
+  - task: "Bütün listeler (13:00 sonrası): list-tools.js sığmayan tabloyu 'etiket değer' satır düzenine çevirir (lt-stack, ResizeObserver ile yeniden ölçer); her tabloya 'Sırala' seçimi (tutar büyükten küçüğe/küçükten büyüğe, tarih yeniden eskiye, metin A→Z; eksik/boş hücre hep sona), 8+ satırda arama. Alış faturaları sunucuda sıralanır (/api/purchases?sort=date_asc|net_desc|net_asc; tablo data-list-sort=server). Canlıda 375 ve 951 px'te bütün sayfalar sığıyor; 'yana kaydır' ipucu görünmüyor. Sipariş sayfasına dokunulmadı (kullanıcı iyi buluyor)."
+    files: [public/list-tools.js, public/list-tools.css, public/accounting-ui.js, src/purchase-search-api.js, tests/list-tools.test.js, tests/purchase-returns.test.js]
+
+  - task: "Alış belgesi denetimi: saklı 9 belgenin (Karakuş 21, Seçkin 3, Tropikal 6, ASDAFF 5, tekler) bütün faturaları tarayıcıda güncel pdf-read ile okunup sistem kayıtlarıyla (adet, net, KDV, toplam; Tropikal bölünmüş satırlar ürün koduna göre toplanarak) karşılaştırıldı: hepsi birebir. 'text_layer 0' işaretleri 12 Eylül'deki eski okuyucudan kalma (işlevsel etkisi yok). ASDAFF.pdf s5 → TRP2026000001080 bağlandı (tek eksik bağ). TRP1080 tekil yüklemesi 'receiving' yarım kaldı (zararsız artık)."
+    files: []
+  - task: "Fatura penceresi 'Özgün faturayı aç (sayfa N)': /invoices/:id ayrıntısına document {id, filename, chunk_count, page_count, page_no}; public/original-document.js parçaları alır, çok faturalı belgeden pdf-lib ile yalnız o sayfayı ayırır (useObjectStreams:false), yeni sekmede açar. Tarayıcı panelinde açılır pencere görünmüyor; üretilen PDF'in tek sayfalık 763 olduğu JS ile doğrulandı."
+    files: [src/accounting.js, public/original-document.js, public/accounting-ui.js, tests/document-pages.test.js]
+  - task: "pdf-read.js: sıkıştırılmış nesne akışı (/ObjStm) açılır (yazı tipi/ToUnicode/sayfa sözlükleri), kontrol karakteri ağırlıklı çıktı textLayer=false. Önceden nesne akışlı PDF'te anlamsız metin 'okundu' sayılıyordu. tests/pdf-nesne-akisi.test.js pdf-lib+fontkit ile gerçek Türkçe fatura üretir."
+    files: [public/pdf-read.js, tests/pdf-nesne-akisi.test.js]
+
+  - task: "TRP2026000001102 (18.09, Tropikal, 6.294 TL) kullanıcı yükledi; satırlar PDF ile birebir, eşleme geçmişe göre yapıldı, sistem muhasebeleştirip stoğa aldı. Eksi stoklar kapandı: Yaprak Temizleyici 250 −14→26, Orkide Besini 225 −19→41, Orkide Toprağı 3L −22→53; 45 açık maliyetli satış kapandı, FIFO kuyruğu boş."
+    files: []
+  - task: "Alış otomasyonu: eşleme kuralı public/purchase-match.js'e taşındı (sunucu autocomplete + ekran ortak). GET /api/invoices/match-history?supplier_id= ekranın geçmişi. Kod hep tek karta gittiyse (gerçek kod + yeni ölçü yoksa) bağlanır; çok çeşitte belgedeki çeşit adı seçer, yoksa aile (adet sorulur). Tek dosya yüklemesi de otomatik (state.auto=true); satır net/KDV toplamı belgeyle tutmazsa durur. Ekrandaki 'taslak, borç yazılmaz' yazısı düzeltildi (autocomplete muhasebeleştiriyor)."
+    files: [public/purchase-match.js, public/purchase-document-ui.js, src/purchase-autopost-api.js, tests/alis-otomatik-tamamla.test.js]
+
+findings:
+  - krk763: "ÇÖZÜLDÜ (PDF okundu: 110,00 TL birim, toplam 5.101,20 → gerçek zam). KRK2026000000763 (17.08): 20 L 20×170, 10 L 5×110 (net 550), Kaktüs 2×38, Orkide 2,5 L 5×45; fatura net 4.251,00 + KDV 850,20 = 5.101,20. Diğer satırlar kullanıcının defter listesiyle birebir; yalnız 10 L listede 100. Belge taranmış PDF (text_layer 0), karakuş-tüm zamanlar.pdf sayfa 6. Ölçüt: PDF alt toplamı 5.101,20 → 110 gerçek; 5.041,20 → okuma hatası."
+  - cocopeat80: "80 L faturaları 500 (Şub–Mar) / 550 (Haz) / 600 (Eyl): kademeli zam deseni, okuma hatası şüphesi yok → dokunulmadı (FIFO doğru)."
+  - fatura_penceresi: "Alış faturası 'İncele' penceresinde özgün belgeyi açma düğmesi yok; /invoices/documents/:id/part uç noktası var ama arayüzde bağlı değil. Kullanıcı faturayı kendi PDF'inden kontrol etmeli ya da önizleme düğmesi eklenmeli."
+
+decisions:
+  - "Ana sayfa rakamı = kâr raporu rakamı: panorama yalnız performanceReport satırlarını toplar; ayrı SQL toplama formülü YAZILMADI (ikiz, tahmin, stopaj kuralları çoğalmasın)."
+  - "decision-overview.js artık ana sayfada kullanılmıyor (testleri duruyor); ileride temizlenebilir."
+
+next:
+  - "UI doğrulaması tarayıcı panelinde ÖNDEKİ sekmede yapılmalı (arka sekmede requestAnimationFrame durur, tablo aracı çalışmaz)."
+  - "Profilde son alış 0 olan Tropikal ürünler: alış faturaları girilince kendiliğinden düzelir; girilmediyse kullanıcıya sor."
