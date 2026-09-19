@@ -41,6 +41,10 @@ function ozet(rows) {
     cash_cents: hesapli.reduce((t, r) => t + r.cash_cents, 0),
     revenue_gross_cents: hesapli.reduce((t, r) => t + (r.revenue_gross_cents || 0), 0),
     losses: hesapli.filter(r => r.cash_cents < 0).length,
+    // Zarar edenlerin toplamı (eksi) ve kâr bırakanların toplamı: ikisinin toplamı cash_cents'tir.
+    loss_cents: hesapli.reduce((t, r) => t + Math.min(0, r.cash_cents), 0),
+    gain_cents: hesapli.reduce((t, r) => t + Math.max(0, r.cash_cents), 0),
+    gains: hesapli.filter(r => r.cash_cents > 0).length,
     // KDV hariç katkı yalnız vergi beyanı için küçük satırda gösterilir.
     profit_ex_vat_cents: rows.reduce((t, r) => t + (r.profit_cents ?? 0), 0),
     estimated: rows.filter(r => r.fees_estimated || r.cost_note || r.assumptions_source).length,

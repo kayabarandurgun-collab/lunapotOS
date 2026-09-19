@@ -50,6 +50,10 @@ test('Ana sayfa dönem kârları kâr raporunun aynı aralıktaki toplamına eş
       const r = await f.ok(`/ec/performance?from=${x.from}&to=${x.to}`);
       const toplam = r.rows.reduce((t, row) => t + (row.cash_cents ?? 0), 0);
       assert.equal(x.cash_cents, toplam, x.label + ' toplamı kâr raporuyla aynı');
+      // Zarar edenlerin tutarı (eksi) + kâr bırakanlarınki = dönem toplamı.
+      assert.equal(x.loss_cents, r.rows.filter(row => row.cash_cents < 0).reduce((t, row) => t + row.cash_cents, 0), x.label + ' zarar tutarı');
+      assert.equal(x.gain_cents + x.loss_cents, x.cash_cents);
+      assert.equal(x.gains + x.losses, r.rows.filter(row => row.cash_cents !== 0).length);
       for (const k of ['trendyol', 'hepsiburada'])
         assert.equal(x.channels[k].cash_cents, r.channels.find(c => c.channel === k).calculated_cash_cents ?? 0, x.label + ' ' + k);
       // Ürün katkıları paket toplamını bozmaz.

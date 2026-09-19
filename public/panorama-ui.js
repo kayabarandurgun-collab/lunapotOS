@@ -6,6 +6,8 @@ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const TL=new Intl.NumberFormat('tr-TR',{style:'currency',currency:'TRY'});
 const money=v=>TL.format((v||0)/100);
 const kisa=v=>{const a=Math.abs(v/100);return (v<0?'−':'')+(a<1000?Math.round(a).toLocaleString('tr-TR'):new Intl.NumberFormat('tr-TR',{notation:'compact',maximumFractionDigits:a<10000?1:0}).format(a))+' ₺';};
+// Kuruşsuz tam TL: kartta "2,7 B" kısaltması okunmuyor.
+const tamTL=v=>(v<0?'−':'')+Math.round(Math.abs(v)/100).toLocaleString('tr-TR')+' ₺';
 const sayi=v=>new Intl.NumberFormat('tr-TR',{maximumFractionDigits:3}).format(v/1000);
 const AY=['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
 const gunAd=d=>+d.slice(8)+' '+AY[+d.slice(5,7)-1];
@@ -48,7 +50,7 @@ function delta(p){
 
 function periodButton(p,secili){
  const d=delta(p);
- return `<button type="button" class="pn-period${p.key===secili?' is-selected':''}" data-donem="${p.key}" aria-pressed="${p.key===secili}"><span class="pn-period-label">${esc(p.label)}</span><strong class="${p.cash_cents<0?'is-negative':''}">${p.packages?money(p.cash_cents):'—'}</strong><small>${p.packages} paket${p.losses?' · '+p.losses+' zarar':''}</small>${d?`<em class="pn-delta ${d.yon}" title="${esc(d.uzun)}">${esc(d.metin)}</em>`:''}</button>`;
+ return `<button type="button" class="pn-period${p.key===secili?' is-selected':''}" data-donem="${p.key}" aria-pressed="${p.key===secili}"><span class="pn-period-label">${esc(p.label)}</span><strong class="${p.cash_cents<0?'is-negative':''}">${p.packages?money(p.cash_cents):'—'}</strong><small>${p.packages} paket${p.losses?' · '+p.losses+' zarar ('+tamTL(p.loss_cents)+')':''}</small>${d?`<em class="pn-delta ${d.yon}" title="${esc(d.uzun)}">${esc(d.metin)}</em>`:''}</button>`;
 }
 
 function shareBar(p){
@@ -75,7 +77,8 @@ function detail(data,p){
  const pendingHtml=!bekleyen.packages?'<strong class="pn-pending-value">Kargoda paket yok</strong>':`<strong class="pn-pending-value ${bekleyen.cash_cents<0?'is-negative':''}">${money(bekleyen.cash_cents)}</strong><small>${bekleyen.packages} paket · tamamı tahmini${bekleyen.missing?' · '+bekleyen.missing+' paket hesaplanamadı':''}</small><div class="pn-pending-rows">${KANALLAR.filter(k=>bekleyen.channels[k].packages).map(k=>`<span><i class="pn-key ${SINIF[k]}" aria-hidden="true"></i>${KANAL[k]} <b>${money(bekleyen.channels[k].cash_cents)}</b> <small>${bekleyen.channels[k].packages} paket</small></span>`).join('')}</div>`;
  return `<div class="pn-main"><section class="pn-card pn-hero" aria-label="${esc(p.label)} cebine kalan"><div class="pn-head"><div><span class="eyebrow">TESLİM EDİLENLER · ${esc(p.label.toLocaleUpperCase('tr-TR'))}</span><h2>Cebine kalan</h2></div><a class="text-button" href="${rapor(p)}">Paketleri gör →</a></div>`+
   `<strong class="pn-hero-value ${p.cash_cents<0?'is-negative':''}">${p.packages?money(p.cash_cents):'Bu dönemde teslim yok'}</strong>`+
-  `<p class="pn-sub">${gunAd(p.from)} – ${gunAd(p.to)} · ${p.packages} paket · ciro ${money(p.revenue_gross_cents)}${p.losses?` · <a href="${rapor(p,{result:'loss'})}">${p.losses} zarar eden paket</a>`:''}${d?` · <span class="pn-delta ${d.yon}">${esc(d.metin)}</span> <span class="muted">${esc(ONCEKI[p.key]||'')} göre</span>`:''}</p>`+
+  `<p class="pn-sub">${gunAd(p.from)} – ${gunAd(p.to)} · ${p.packages} paket · ciro ${money(p.revenue_gross_cents)}${d?` · <span class="pn-delta ${d.yon}">${esc(d.metin)}</span> <span class="muted">${esc(ONCEKI[p.key]||'')} göre</span>`:''}</p>`+
+  (p.packages?`<div class="pn-split"><a href="${rapor(p,{result:'profit'})}"><small>Kâr bırakan ${p.gains} paket</small><strong>+${money(p.gain_cents)}</strong></a><a class="is-loss" href="${rapor(p,{result:'loss'})}"><small>Zarar eden ${p.losses} paket</small><strong class="${p.loss_cents<0?'is-negative':''}">${p.loss_cents<0?money(p.loss_cents):money(0)}</strong></a></div>`:'')+
   `<div class="pn-share">${shareBar(p)}</div>`+
   (b.buckets.length?`<div class="pn-chart-wrap"><div class="pn-chart-head"><h3>${birim} cebine kalan</h3><div class="pn-legend">${KANALLAR.map(k=>`<span><i class="pn-key ${SINIF[k]}" aria-hidden="true"></i>${KANAL[k]}</span>`).join('')}</div></div><div class="pn-chart" data-pn-chart></div><div class="pn-tip" role="status" hidden></div></div>`+
   `<details class="pn-table"><summary>Tablo olarak göster</summary><div class="table-wrap"><table data-list-tools="off"><thead><tr><th>${birim==='Günlük'?'Gün':'Dönem'}</th><th>Trendyol</th><th>Hepsiburada</th><th>Toplam</th><th>Paket</th></tr></thead><tbody>${[...b.buckets].reverse().map(x=>`<tr><td>${esc(x.label)}</td><td>${money(x.trendyol)}</td><td>${money(x.hepsiburada)}</td><td><b>${money(x.trendyol+x.hepsiburada)}</b></td><td>${x.packages}</td></tr>`).join('')}</tbody></table></div></details>`:'')+

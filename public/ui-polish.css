@@ -344,6 +344,13 @@ main th{font-weight:600}
 .pn-hero-value{display:block;font-size:40px;font-weight:600;letter-spacing:-1px;line-height:1.1;margin:12px 0 6px;overflow-wrap:anywhere}
 .pn-sub{margin:0 0 14px;font-size:13px;color:var(--muted);line-height:1.6}
 .pn-sub a{color:var(--pn-neg)}
+.pn-split{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 14px}
+.pn-split a{display:grid;gap:2px;padding:9px 12px;border:1px solid var(--line);border-radius:12px;color:inherit}
+.pn-split a:hover{border-color:var(--brand-border);background:var(--brand-soft)}
+.pn-split small{font-size:11.5px;color:var(--muted)}
+.pn-split strong{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.pn-split a.is-loss{background:#fdf4f3;border-color:#f1d6d3}
+.pn-split a.is-loss:hover{background:#fbeceb}
 .pn-share-bar{display:flex;gap:2px;height:8px;border-radius:4px;overflow:hidden;margin-bottom:10px;background:var(--pn-grid)}
 .pn-share-bar span{flex:1 1 0;min-width:2px}
 .pn-share-rows{display:grid;grid-template-columns:1fr 1fr;gap:8px}
