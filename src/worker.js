@@ -14,6 +14,7 @@ import {fifoRevalue,fifoApi} from './fifo-cost.js';
 import {fiyatHesapApi} from './fiyat-hesap-api.js';
 import {urunKarlilikApi} from './urun-karlilik-api.js';
 import {panoramaApi} from './panorama-api.js';
+import {otomatikBakim} from './otomatik-bakim.js';
 // Stok hareketi yazan her e-ticaret isteğinden sonra, hareketi değişen ürünlerin satış maliyeti
 // satış tarihine göre (ilk giren ilk çıkar) düzeltilir. Hata isteği bozmaz; ürün kirli kalır, sonraki istekte denenir.
 async function maliyetiTazele(env,request){
@@ -177,7 +178,10 @@ async function api(request,env,path){
  try{await db.batch(statements);}catch(error){if(/UNIQUE constraint/.test(error.message))fail('Aynı ad/kod veya ürüne ait reçete zaten var.',409);throw error;}
  return json({id:recordId},id?200:201);
 }
-export default {async fetch(request,env) {
+export default {
+ // Zamanlanmış otomatik bakım (wrangler triggers.crons): yarım kalan rapor işleri, iade, kesinti, maliyet.
+ async scheduled(event,env,ctx){ctx.waitUntil(otomatikBakim(env).then(r=>console.log('bakım',JSON.stringify(r))).catch(e=>console.error('bakım',e.message)));},
+ async fetch(request,env) {
  let response;
  try {const path=new URL(request.url).pathname;
   // Musteri magazasi henuz satisa acilmadi. Dosyalar yayin paketinde bulunsa da canli

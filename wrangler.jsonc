@@ -5,6 +5,9 @@
   "main": "src/worker.js",
   "compatibility_date": "2026-09-08",
   "workers_dev": true,
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  },
   "preview_urls": false,
   "routes": [
     {
