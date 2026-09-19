@@ -12,6 +12,14 @@ export async function performanceApi(request,env,path){
  const from=day(url.searchParams.get('from')||new Date(Date.parse(today)-30*86400000).toISOString().slice(0,10)),to=day(url.searchParams.get('to')||today);
  if(from>to)fail('Başlangıç tarihi bitişten sonra olamaz.');
  const mode=url.searchParams.get('mode')||'delivered';if(!['delivered','pending'].includes(mode))fail('Rapor türü geçersiz.');
+ return performanceReport(env,{mode,from,to});
+}
+// Kâr raporu, sipariş listesi ve ana sayfa (panorama-api.js) AYNI hesabı kullanır: tek formül.
+//  max:    aralıktaki paket sınırı (aşılırsa 409; panorama aralığı bölerek çağırır)
+//  tahmin: önceden kurulmuş kesinti tahmincisi (bölünmüş çağrılarda bir kez kurulur)
+//  detay:  teslim edilen satıra ürün bazında nakit katkı (row.urunler) eklenir
+export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirTahmin=null,detay=false}){
+ const today=new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Istanbul'});
  // Stopaj pazaryeri hakedisinden DUSULUR (nakit azalir) ama gider degildir: mahsup edilebilir.
 // Bu yuzden nakit sonuctan dusulur, KDV haric katkida yer almaz. Kaynagi rapor kaydidir; uydurulmaz.
  // Stopaj SIPARIS duzeyinde bildirilir. Bolunmus siparisin her paketine tamami yazilirsa
@@ -20,8 +28,8 @@ export async function performanceApi(request,env,path){
  const stopajSql="(SELECT COALESCE(SUM(json_extract(r.data_json,'$.amount_cents')),0) FROM ec_report_records r JOIN ec_report_stores st ON st.id=r.store_id AND st.provider=order_packages.channel WHERE r.kind='finance_event' AND json_extract(r.data_json,'$.type')='withholding' AND json_extract(r.data_json,'$.order_no')=order_packages.order_no) stopaj_cents,(SELECT COUNT(*) FROM order_packages q WHERE q.order_no=order_packages.order_no AND q.channel=order_packages.channel AND q.status!='cancelled') stopaj_paket";
  // Satışın stokta olmadan satılıp henüz alışla kapanmamış (açık) kısmı ve tahmin olup olmadığı.
  const SALES_SQL='SELECT s.*,l.package_id,l.vat_bps satir_kdv,pp.vat_bps,(SELECT o.open_milli-o.settled_milli FROM open_costs o WHERE o.sale_id=s.id) open_milli,(SELECT iif(o.estimate_cents IS NULL,1,0) FROM open_costs o WHERE o.sale_id=s.id) no_estimate FROM sale_entries s JOIN order_line_components c ON (s.id=c.sale_id OR s.parent_id=c.sale_id) JOIN order_lines l ON l.id=c.line_id LEFT JOIN price_profiles pp ON pp.product_id=s.product_id WHERE l.package_id IN (SELECT value FROM json_each(?))';
- const db=env.DB,packages=await all(db.prepare(`SELECT *,${stopajSql} FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND ${mode==='delivered'?"status='delivered' AND delivered_on BETWEEN ? AND ?":"status IN ('draft','reserved','shipped') AND occurred_on BETWEEN ? AND ?"} ORDER BY occurred_on DESC,id LIMIT 1001`).bind(from,to));
- if(packages.length>1000)fail('Bu aralıkta 1.000’den fazla paket var. Eksiksiz toplam için tarih aralığını daraltın.',409);
+ const db=env.DB,packages=await all(db.prepare(`SELECT *,${stopajSql} FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND ${mode==='delivered'?"status='delivered' AND delivered_on BETWEEN ? AND ?":"status IN ('draft','reserved','shipped') AND occurred_on BETWEEN ? AND ?"} ORDER BY occurred_on DESC,id LIMIT ${max+1}`).bind(from,to));
+ if(packages.length>max)fail('Bu aralıkta '+max.toLocaleString('tr-TR')+'’den fazla paket var. Eksiksiz toplam için tarih aralığını daraltın.',409);
  // Çift aktarımın asıl kaydı "gönderildi" durumunda kalır ama teslimi kopyasıyla gelmiştir ve
  // teslim edilenlerin kârında ikiz olarak sayılır. Kargodakilerde ikinci kez görünmez.
  if(mode==='pending'&&packages.length){
@@ -92,7 +100,7 @@ export async function performanceApi(request,env,path){
  const templateMap=new Map(templates.map(t=>[t.template_key,t]));
  // GEÇMİŞTEN KESİNTİ TAHMİNİ (bkz. fee-history.js): kargodaki paket ve kesintisi ekstreye henüz
  // yazılmamış teslim, gerçek teslimlerin ortancasıyla hesaplanır. Elle girilmiş ölçü/tarife önceliklidir.
- const tahmin=await kesintiTahmincisi(db);
+ const tahmin=hazirTahmin||await kesintiTahmincisi(db);
  // DEFTER PAKETIN TAMAMINI TUTUYOR MU? Pazaryeri raporu pakette 2 satir gorurken defterde
  // 1 satir varsa, o paketin BUTUN kesintileri eksik ciroya yuklenir ve karli siparis zararli
  // gorunur. Sessizce yanlis rakam vermektense kar HESAPLANMAZ, sebebi yazilir.
@@ -167,6 +175,21 @@ export async function performanceApi(request,env,path){
     row.shipping_gross_cents=entries.reduce((t,e)=>t+incl(e.shipping_cents??0,fv),0);
     row.commission_gross_cents=entries.reduce((t,e)=>t+incl(e.commission_cents??0,fv),0);
     row.other_gross_cents=entries.reduce((t,e)=>t+incl(e.other_cents??0,fv),0);
+    // Ürün bazında katkı: aynı satır formülü; stopaj ürünlere KDV dahil satış oranında dağılır,
+    // yuvarlama artığı son ürüne yazılır. Toplamı her zaman paketin cash_cents'ine eşittir.
+    if(detay){
+     const m=new Map();
+     for(const e of entries){
+      const u=m.get(e.product_id)||{product_id:e.product_id,qty_milli:0,revenue_gross_cents:0,cash_cents:0};
+      const brut=incl(e.revenue_cents,e.satir_kdv??e.vat_bps);
+      u.qty_milli+=e.kind==='return'?-e.quantity_milli:e.quantity_milli;u.revenue_gross_cents+=brut;
+      u.cash_cents+=brut-incl(e.cost_cents,e.vat_bps)-incl(e.commission_cents??0,fv)-incl(e.shipping_cents??0,fv)-incl(e.other_cents??0,fv);
+      m.set(e.product_id,u);
+     }
+     const urunler=[...m.values()],pay=urunler.reduce((t,u)=>t+Math.max(0,u.revenue_gross_cents),0);let kalan=stopaj;
+     urunler.forEach((u,i)=>{const d=i===urunler.length-1?kalan:Math.round(stopaj*Math.max(0,u.revenue_gross_cents)/(pay||1));u.cash_cents-=d;kalan-=d;});
+     row.urunler=urunler;
+    }
    }
   }else{
    const direct=inputMap.get(p.id),template=templateMap.get(parcelTemplateKey(p,packageLines,parts));

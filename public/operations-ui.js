@@ -1,5 +1,5 @@
 import {renderIntegrationGuide} from './integration-guide.js';
-import {renderDecisionOverview} from './decision-overview.js';
+import {mountPanorama} from './panorama-ui.js';
 import {pullSourcePages} from './sync-pages.js';
 import {renderAttention} from './attention-ui.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -22,16 +22,23 @@ export function mountOperations(root,namespace,view){
  async function load(){
   root.innerHTML='<p class="loading">Çalışma alanı hazırlanıyor…</p>';
   if(view==='overview'){
-   const [ac,connections,settings,attention,performance,pending]=await Promise.all([api(''),api('/connections'),api('/settings'),api('/attention'),api('/performance'),api('/performance?mode=pending').catch(()=>null)]);
+   // Dönem kârları (tüm zamanlar dahil) en ağır sorgudur: ilk istekle birlikte başlar, sayfanın geri
+   // kalanı onu beklemeden çizilir; bölüm yer tutucusu sabit yükseklikte kalır (sayfa zıplamaz).
+   const panorama=api('/panorama');panorama.catch(()=>{});
+   const [ac,connections,settings,attention]=await Promise.all([api(''),api('/connections'),api('/settings'),api('/attention')]);
    if(abort.signal.aborted)return;
+   const low=ac.stock.filter(p=>p.quantity_milli-(p.reserved_milli||0)<=p.min_stock_milli);
    const configured=connections.providers.filter(p=>p.configured).length,available=ac.stock.filter(p=>p.quantity_milli-(p.reserved_milli||0)>0).length;
    // Sirket tanimli ve urun kartlari varsa kurulum bitmis sayilir; rehber kapali acilir ama kaybolmaz.
    const setupSteps=[!!settings.settings.tax_id,ac.stock.length>0,available>0,configured>0].filter(Boolean).length,setupDone=!!settings.settings.tax_id&&ac.stock.length>0;
-   root.innerHTML=heading('Bugün işin nasıl gidiyor?','E-ticaret çalışma alanı · Son 30 günün satışları ve güncel stok durumu')+'<div id="op-error" class="notice" hidden></div>'+renderDecisionOverview(performance,ac.stock,pending)+renderAttention(attention,connections,settings.settings,ac.pending_fee_cents)+(setupDone?'':'<div class="dashboard-grid"><details class="card setup-guide" open><summary class="card-heading"><h2>İşe başlamak için</h2><span class="pill">'+setupSteps+'/4 başlangıç adımı</span></summary>'+
+   root.innerHTML=heading('Bugün işin nasıl gidiyor?','Teslim edilen paketlerden cebine kalan · KDV dahil · Kâr raporuyla aynı hesap')+'<div id="op-error" class="notice" hidden></div><section class="panorama" data-panorama aria-busy="true"><p class="loading">Dönem kârları hesaplanıyor…</p></section>'+renderAttention(attention,connections,settings.settings,ac.pending_fee_cents)+'<section class="pn-quick" aria-label="Hızlı geçiş"><a class="pn-card" href="#pricing"><span class="pn-quick-icon" aria-hidden="true">₺</span><div><strong>Kaça satmalıyım?</strong><small>Ürün, kanal ve adede göre cebine kalanı ve başabaş fiyatı hesapla</small></div></a><a class="pn-card" href="#stock?filter=low"><span class="pn-quick-icon" aria-hidden="true">▤</span><div><strong>'+low.length+' kritik / tükenen ürün</strong><small>'+(low.length?esc(low.slice(0,2).map(p=>p.name).join(', '))+(low.length>2?' ve '+(low.length-2)+' ürün daha':''):ac.stock.length+' ürün kartı · '+available+' üründe satılabilir stok')+'</small></div></a><a class="pn-card" href="#reports"><span class="pn-quick-icon" aria-hidden="true">⇪</span><div><strong>Rapor Kutusu</strong><small>Trendyol / Hepsiburada dosyasını bırak; sipariş, kesinti ve iade kendiliğinden işlenir</small></div></a></section>'+(setupDone?'':'<div class="dashboard-grid"><details class="card setup-guide" open><summary class="card-heading"><h2>İşe başlamak için</h2><span class="pill">'+setupSteps+'/4 başlangıç adımı</span></summary>'+
    link('#settings','Şirketini tanımla',settings.settings.tax_id?'Alış faturalarının alıcısı doğrulanıyor.':'Unvan ve vergi numarası faturaların doğru alana gelmesini sağlar.')+
    link('#stock','Ürünlerini ve açılış stoğunu ekle',ac.stock.length+' ürün · '+available+' üründe kullanılabilir stok var.')+
    link('#pricing','Maliyet ve tarifelerini belirle','Paket ölçüsü, kargo ve komisyonla satıştan önce kârını gör.')+
    link('#integrations','Satış kanallarını bağla',configured+' bağlantıda erişim bilgisi tanımlı.')+'</details></div>')+'<div class="notice subtle">Bu alanın carileri, stokları ve raporları Lunapot üretim panelinden ayrıdır. Rakamlar yalnızca kaydedilmiş işlemleri içerir; henüz bağlanmamış mağaza satışları dahil değildir.</div>';
+   const bolum=$('[data-panorama]');
+   try{const data=await panorama;if(!abort.signal.aborted)mountPanorama(bolum,data,{signal:abort.signal});}
+   catch(e){if(e.name!=='AbortError'&&!abort.signal.aborted){bolum.removeAttribute('aria-busy');bolum.innerHTML='<div class="notice">Dönem kârları alınamadı: '+esc(e.message)+' <a href="#performance">Kâr raporunu aç →</a></div>';}}
   }else if(view==='settings'){
    state=await api('/settings');if(abort.signal.aborted)return;
    root.innerHTML=heading('Şirket ve yedek','Bu bilgiler yalnızca '+(namespace==='ec'?'E-Ticaret':'Lunapot')+' çalışma alanına aittir.')+'<div id="op-error" class="notice" hidden></div><div class="v2-grid cols-2"><section class="card"><div class="card-heading"><h2>Faturaların doğru adresi</h2></div><form data-op-form="settings" class="form-body">'+field('Ticari unvan','legal_name',state.settings.legal_name,'text','maxlength="200" required')+field('VKN / TCKN','tax_id',state.settings.tax_id,'text','pattern="[0-9]{10,11}" required inputmode="numeric"')+field('Stok başlangıç tarihi','inventory_start_date',state.settings.inventory_start_date||'','date','max="'+new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Istanbul'})+'"')+'<p class="help">Bu tarihten <b>önceki</b> pazaryeri siparişleri bugünkü stoktan otomatik düşülmez; raporda kalır ve ayrıca incelenir. Tarihi tahmin etme; gerçek sayım gününü yaz. Boş bırakırsan geçmiş siparişler stoğa hiç uygulanmaz. Açılış miktarlarını <a href="#stock">Ürünler ve stok</a> ekranındaki “Stok / sayım gir” ile kaydet.</p>'+'<p class="help">İki işletme aynı şirkete aitse aynı vergi numarası kullanılabilir. Defterler yine ayrı kalır; aynı fatura ikinci kez işlenmez.</p>'
