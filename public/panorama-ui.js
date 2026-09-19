@@ -40,7 +40,9 @@ export function niceTicks(min,max,count=4){
 function delta(p){
  if(p.prev_cash_cents===null||p.prev_cash_cents===undefined)return null;
  const fark=p.cash_cents-p.prev_cash_cents,yon=fark>0?'up':fark<0?'down':'flat',ok=fark>0?'▲':fark<0?'▼':'■';
- const metin=p.prev_cash_cents>0?'%'+Math.abs(Math.round(fark*100/p.prev_cash_cents)).toLocaleString('tr-TR'):kisa(Math.abs(fark));
+ // Önceki dönem çok küçükse (veri yeni başlamış) yüzde yanıltır (%1.842 gibi): fark tutar olarak yazılır.
+ const oran=p.prev_cash_cents>0?Math.round(fark*100/p.prev_cash_cents):null;
+ const metin=oran!==null&&Math.abs(oran)<=200?'%'+Math.abs(oran).toLocaleString('tr-TR'):kisa(Math.abs(fark));
  return {yon,metin:ok+' '+metin,uzun:(ONCEKI[p.key]||'önceki döneme')+' göre '+(fark>=0?'+':'−')+money(Math.abs(fark))+' (önceki: '+money(p.prev_cash_cents)+')'};
 }
 
