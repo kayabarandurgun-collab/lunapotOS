@@ -1,3 +1,4 @@
+import {prepareWorkflow} from './product-list.js';
 // Rapor Kutusu — pazaryeri Excel raporlarını yükleme sihirbazı (e-ticaret).
 // Dosya tarayıcıda okunur; sunucuya ham dosya (denetim) ve kaynak satırlar küçük partilerle gider.
 // Aktarım stok, sevkiyat, satış kaydı veya fatura OLUŞTURMAZ.
@@ -87,7 +88,7 @@ export function mountReports(root, namespace = 'ec') {
   function uploadView() {
     const d = state.draft;
     const noStore = !(state.data?.stores || []).length;
-    const head = `<section class="rb-intro"><div><strong>Dosyayı seç, türünü sistem tanısın.</strong><p>Sipariş, hakediş ve kesinti raporlarını aynı yerden yükle. Mağazayı seçebilir veya dosyadan tanınmasını bekleyebilirsin.</p></div><details class="rb-help"><summary>Yüklemeden sonra ne olur?</summary><ul class="rb-facts"><li>Dosyanın türü ve kayıtlı eşleştirmeler kontrol edilir.</li><li>Tanınan kayıtlar işlenir; ürün veya tutar belirsizse incelemeye ayrılır.</li><li>Sonucu yüklenen dosyalardan takip et. Eksik eşleştirmeler tamamlanmadan bütün kayıtlar işlenmiş sayılmaz.</li></ul></details></section>`
+    const head = `<ol class="workflow-steps" aria-label="Rapor yükleme adımları">${[['pick','Dosya'],['map','Eşleştirme'],['check','Kontrol'],['server','İşleme']].map(([key,label],i)=>`<li ${(!d&&key==='pick')||d?.step===key?'aria-current="step"':''}><span>${i+1}</span>${label}</li>`).join('')}</ol><section class="rb-intro"><div><strong>Dosyayı seç, türünü sistem tanısın.</strong><p>Sipariş, hakediş ve kesinti raporlarını aynı yerden yükle. Mağazayı seçebilir veya dosyadan tanınmasını bekleyebilirsin.</p></div><details class="rb-help"><summary>Yüklemeden sonra ne olur?</summary><ul class="rb-facts"><li>Dosyanın türü ve kayıtlı eşleştirmeler kontrol edilir.</li><li>Tanınan kayıtlar işlenir; ürün veya tutar belirsizse incelemeye ayrılır.</li><li>Sonucu yüklenen dosyalardan takip et. Eksik eşleştirmeler tamamlanmadan bütün kayıtlar işlenmiş sayılmaz.</li></ul></details></section>`
       + (noStore ? `<section class="v2-card"><h3>Önce mağazanı ekle</h3><p class="rb-muted">Rapor yükleyebilmek için dosyanın hangi mağazaya ait olduğunu bilmemiz gerekiyor.</p>
         <form data-rb-form="store" class="rb-grid"><label>Pazaryeri<select name="provider">${Object.entries(PROVIDERS).map(([k, t]) => `<option value="${k}">${esc(t)}</option>`).join('')}</select></label>
         <label>Mağaza kodu / satıcı no<input name="code" required maxlength="80"></label><label>Görünen ad<input name="name" required maxlength="120"></label>
@@ -129,7 +130,7 @@ export function mountReports(root, namespace = 'ec') {
       <p class="rb-muted">Her alan için dosyadaki sütunu seç. <span class="rb-chip">öneri</span> işaretli olanlar başlık adından tahmin edildi; kontrol et. Onayladığın eşleştirme kaydedilir, aynı başlıklı dosyada tekrar sorulmaz.</p>
       <form data-rb-form="map"><div class="v2-table-wrap"><table class="v2-table"><thead><tr><th>Alan</th><th>Dosyadaki sütun</th><th>Örnek değer</th></tr></thead><tbody>
       ${fields.map(f => { const h = d.mapping[f.key], i = d.table.headers.indexOf(h); const sample = i >= 0 ? d.table.rows.slice(0, 3).map(r => r.cells[i]?.v).filter(v => v !== null && v !== undefined).join(' · ') : '';
-        return `<tr><td>${esc(f.label)}${f.required ? ' <span class="rb-req">zorunlu</span>' : ''}${d.suggested[f.key] && d.suggested[f.key] === h ? ' <span class="rb-chip">öneri</span>' : ''}</td><td><select name="${f.key}">${option(f.key)}</select></td><td class="rb-sample">${esc(sample.slice(0, 80))}</td></tr>`; }).join('')}
+        return `<tr><td>${esc(f.label)}${f.required ? ' <span class="rb-req">zorunlu</span>' : ''}${d.suggested[f.key] && d.suggested[f.key] === h ? ' <span class="rb-chip">öneri</span>' : ''}</td><td><label class="workflow-cell-label">${esc(f.label)}<select name="${f.key}">${option(f.key)}</select></label></td><td class="rb-sample">${esc(sample.slice(0, 80))}</td></tr>`; }).join('')}
       </tbody></table></div>
       ${d.kind === 'finance' ? `<fieldset class="rb-grid"><legend>Tutarların anlamı (senin raporuna göre)</legend>
         <label class="rb-check"><input type="checkbox" name="undated" ${d.options.undated ? 'checked' : ''}> Bu raporda işlem tarihi yok (tarih uydurmadan, tarihsiz sakla)</label>
@@ -203,7 +204,7 @@ export function mountReports(root, namespace = 'ec') {
     const kv = (o, degisen = []) => o ? `<dl class="rb-kv small">${Object.entries(o)
       .filter(([k]) => !['source_field'].includes(k))
       .sort((x, y) => (degisen.includes(y[0]) ? 1 : 0) - (degisen.includes(x[0]) ? 1 : 0))
-      .map(([k, v]) => `<div${degisen.includes(k) ? ' class="rb-degisti"' : ''}><dt>${esc(ALAN[k] || k)}</dt><dd>${esc(String(v).slice(0, 60))}</dd></div>`).join('')}</dl>` : '<p class="rb-muted">Önceki kayıt yok.</p>';
+      .map(([k, v]) => `<div${degisen.includes(k) ? ' class="rb-degisti"' : ''}><dt>${esc(ALAN[k] || k)}</dt><dd>${esc(String(v))}</dd></div>`).join('')}</dl>` : '<p class="rb-muted">Önceki kayıt yok.</p>';
     return `<section class="v2-card"><h3>İnceleme bekleyenler</h3><p class="rb-muted">Otomatik karar verilemeyen kayıtlar. "Kabul et" gelen bilgiyi yeni sürüm olarak alır; kimliksiz ikizlerde ayrı kayıt açar (iadeler birleştirilmez). "Reddet" mevcut bilgiyi korur.</p>
       ${list.length ? list.map(r => `<article class="rb-review"><header><strong>${esc(REASONS[r.reason] || r.reason)}</strong><span>${esc(PROVIDERS[r.provider])} · ${esc(r.store_name)} · ${esc(r.filename)} · satır ${r.row_no}</span></header><p>${esc(r.detail)}</p>
         ${(() => { const d = degisenler(r); return d.length
@@ -308,7 +309,11 @@ export function mountReports(root, namespace = 'ec') {
   }
 
   function render() {
-    root.innerHTML = `<div class="rb"><div class="page-heading"><div><span class="eyebrow">VERİ AKTARIMI</span><h1>Rapor Kutusu</h1><p>Trendyol ve Hepsiburada raporlarını yükle, işlem sonucunu takip et.</p></div></div>${tabs()}${status()}${state.tab === 'upload' ? uploadView() : state.tab === 'files' ? filesView() : state.tab === 'reviews' ? reviewsView() : ordersView()}</div>${state.busy ? '<p class="rb-busy" role="status">'+esc(state.progress||'İşleniyor…')+'</p>' : ''}`;
+    if(signal.aborted)return;
+    prepareWorkflow(root);
+    root.innerHTML = `<div class="rb workflow-page"><div class="page-heading"><div><span class="eyebrow">VERİ AKTARIMI</span><h1>Rapor Kutusu</h1><p>Trendyol ve Hepsiburada raporlarını yükle, işlem sonucunu takip et.</p></div></div>${tabs()}${status()}${state.tab === 'upload' ? uploadView() : state.tab === 'files' ? filesView() : state.tab === 'reviews' ? reviewsView() : ordersView()}</div>${state.busy ? '<p class="rb-busy" role="status">'+esc(state.progress||'İşleniyor…')+'</p>' : ''}`;
+    root.setAttribute('aria-busy',String(state.busy));
+    if(state.busy)for(const control of root.querySelectorAll('button,input,select,textarea'))control.disabled=true;
   }
 
   /* ---------- işlemler ---------- */
@@ -498,8 +503,8 @@ export function mountReports(root, namespace = 'ec') {
     const row = state.orders.results.find(r => r.group === group), open = row.fee_events.filter(e => !e.invoice_line_id);
     const {lines} = await api('/evidence-candidates');
     const dialog = document.createElement('dialog');
-    dialog.className = 'v2-dialog';
-    dialog.innerHTML = `<form method="dialog" data-rb-form="evidence"><div class="dialog-heading"><h2>Fatura bağla · ${esc(row.order_no)}</h2></div><div class="form-body">
+    dialog.className = 'v2-dialog workflow-dialog';prepareWorkflow(dialog);
+    dialog.innerHTML = `<form method="dialog" data-rb-form="evidence"><div class="dialog-heading"><h2>Fatura bağla · ${esc(row.order_no)}</h2><button type="submit" value="cancel" formnovalidate class="icon-button" aria-label="Pencereyi kapat">×</button></div><div class="form-body">
       <p class="rb-muted">Fatura, rapordaki gidere <b>kanıt</b> olarak bağlanır; ikinci gider oluşturulmaz. Kesinti eşleştirmesinde satışa dağıtılmış fatura satırı burada görünmez.</p>
       <label>Gider<select name="record">${open.map(e => `<option value="${esc(e.id)}">${esc(e.label)} · ${money(e.amount_cents)}</option>`).join('')}</select></label>
       <label>Fatura satırı<select name="line">${lines.length ? lines.map(l => `<option value="${esc(l.id)}">${esc(l.supplier)} · ${esc(l.invoice_no)} · ${esc(l.description)} · ${money(l.net_cents + l.tax_cents)}</option>`).join('') : '<option value="">Uygun fatura satırı yok</option>'}</select></label></div>
@@ -639,5 +644,5 @@ export function mountReports(root, namespace = 'ec') {
 
   state.draft = {step: 'pick', kind: 'orders', snapshot_at: localNow()};
   run(async () => { await load(); if (state.data.stores.length === 1) state.draft.store_id = state.data.stores[0].id; });
-  return () => controller.abort();
+  return () => {root.removeAttribute('aria-busy');controller.abort();};
 }

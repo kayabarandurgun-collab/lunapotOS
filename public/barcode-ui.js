@@ -23,13 +23,17 @@ const act = (label, action, id = '', secondary = true) => `<button type="button"
 export function mountBarcodes(root, namespace = 'lp') {
   if (namespace !== 'lp') throw new Error('Barkod yönetimi yalnızca üretim çalışma alanındadır.');
   const controller = new AbortController();
+  root.classList.add('production-view');
   const gate = createScanGate(1500);
   const state = {
     tab: 'scan', result: null, list: [], cards: {materials: [], products: []},
     tally: new Map(), error: '', busy: false, disposed: false, camera: null,
-    labelSize: 'medium', labelCopies: 1, loaded: false
+    labelSize: 'medium', labelCopies: 1, loaded: false, query: ''
   };
   const $ = selector => root.querySelector(selector);
+  function labelTables(){for(const table of root.querySelectorAll('table')){const headers=[...table.querySelectorAll('thead th')].map(h=>h.textContent);for(const row of table.querySelectorAll('tbody tr'))[...row.cells].forEach((cell,i)=>cell.dataset.label=headers[i]||'İşlem');}}
+  function openDialog(){const dialog=$('dialog');dialog.classList.add('production-dialog');const heading=dialog.querySelector('h2');heading.id='bc-dialog-title';dialog.setAttribute('aria-labelledby',heading.id);dialog.addEventListener('cancel',e=>{if(state.busy)e.preventDefault();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();}
+
 
   async function api(path, body, method) {
     const response = await fetch(`/api/${namespace}${path}`, {
@@ -80,7 +84,7 @@ export function mountBarcodes(root, namespace = 'lp') {
     const link = r.link;
     const stok = r.stock && r.stock.quantity_milli !== null
       ? `<div class="v2-summary-line"><span>Depodaki miktar</span><strong>${esc(qty(r.stock.quantity_milli))} ${esc(link.unit)}</strong></div>
-         <div class="v2-summary-line"><span>Stok değeri</span><strong>${esc(money(r.stock.value_cents))}</strong></div>`
+         <div class="v2-summary-line"><span>Stok değeri · KDV hariç</span><strong>${esc(money(r.stock.value_cents))}</strong></div>`
       : '<p class="help">Bu bir ürün kartı; hammadde deposu miktarı taşımaz.</p>';
     return `<div class="v2-card-body">
       ${r.active ? badge('Bağlantı açık', 'success') : badge('Bağlantı kapalı', 'warning')} ${badge(sinif, r.classification.gs1 ? 'neutral' : 'warning')}
@@ -98,7 +102,7 @@ export function mountBarcodes(root, namespace = 'lp') {
     const cameraSupported = typeof window !== 'undefined' && 'BarcodeDetector' in window;
     return `<form class="v2-toolbar" data-bc-form="scan">
         <label>Barkod<input name="code" autocomplete="off" autofocus placeholder="Okuyucuyu tutun veya elle yazın" maxlength="48" inputmode="text"></label>
-        <button class="primary" type="submit">Ara</button>
+        <button class="secondary" type="submit">Kartı bul →</button>
         ${cameraSupported
           ? act(state.camera ? 'Kamerayı kapat' : 'Kamerayı aç', 'camera')
           : '<span class="muted">Bu tarayıcı kamera ile barkod okumayı desteklemiyor; okuyucu veya elle giriş kullanın.</span>'}
@@ -109,18 +113,18 @@ export function mountBarcodes(root, namespace = 'lp') {
 
   function countPanel() {
     const rows = [...state.tally.values()].map(entry => {
-      const fark = countDifference({system_milli: entry.system_milli ?? 0, counted_milli: entry.counted_milli});
-      const tip = fark.status === 'match' ? 'success' : fark.status === 'uncounted' ? 'neutral' : 'warning';
+      const fark = entry.system_milli===null||entry.system_milli===undefined?{status:'unknown',wording:'Stok bilgisi yok',difference_milli:null}:countDifference({system_milli: entry.system_milli, counted_milli: entry.counted_milli});
+      const tip = fark.status === 'match' ? 'success' : ['uncounted','unknown'].includes(fark.status) ? 'neutral' : 'warning';
       return `<tr>
         <td><strong>${esc(entry.link.card_name)}</strong><small>${esc(entry.link.code)} · ${entry.scans} okutma</small></td>
         <td>${esc(qty(entry.system_milli))} ${esc(entry.link.unit)}</td>
         <td>${esc(qty(entry.counted_milli))} ${esc(entry.link.unit)}</td>
         <td>${badge(fark.wording, tip)}<small>${fark.difference_milli === null ? '' : esc(qty(fark.difference_milli)) + ' ' + esc(entry.link.unit)}</small></td>
-        <td>${entry.link.target_kind === 'material' && fark.status !== 'match'
-          ? act('Farkı düzelt', 'fix', entry.link.material_id, false)
+        <td>${entry.link.target_kind === 'material' && !['match','unknown'].includes(fark.status)
+          ? act('Farkı düzelt', 'fix', entry.link.material_id)
           : '—'}</td></tr>`;
     }).join('');
-    return `<div class="notice subtle">Sayımda okutmak stoğu değiştirmez. Önce farkları görürsünüz; düzeltmeyi ayrıca ve gerekçesiyle siz kaydedersiniz. <strong>Sayılmayan kartlar sıfırlanmaz.</strong></div>
+    return `<div class="production-context"><span>${state.tally.size} kart sayımda</span><span>Sayılmayan kartlar sıfırlanmaz; düzeltme ayrıca kaydedilir.</span></div>
       ${scanPanel()}
       ${card('Sayım listesi', state.tally.size
         ? `<div class="table-wrap"><table class="v2-table"><thead><tr><th>Kart</th><th>Sistemde</th><th>Sayılan</th><th>Fark</th><th>İşlem</th></tr></thead><tbody>${rows}</tbody></table></div>`
@@ -129,30 +133,32 @@ export function mountBarcodes(root, namespace = 'lp') {
   }
 
   function listPanel() {
-    const rows = state.list.map(b => `<tr>
+    const visible=state.list.filter(b=>[b.code,b.card_name,b.sku,b.brand,b.pack_wording].join(' ').toLocaleLowerCase('tr-TR').includes(state.query.toLocaleLowerCase('tr-TR')));
+    const rows = visible.map(b => `<tr>
       <td><strong>${esc(b.code)}</strong><small>${esc(BARCODE_KINDS[b.source === 'internal' ? 'internal' : b.source === 'gs1' ? 'ean13' : 'other'])}${b.source === 'gs1' ? '' : ' · GS1 değil'}</small></td>
       <td>${esc(b.card_name)}<small>${b.target_kind === 'material' ? 'Hammadde' : 'Ürün'}${b.sku ? ' · ' + esc(b.sku) : ''}</small></td>
       <td>${esc(b.brand || '—')}</td>
       <td>${esc(b.pack_wording)}<small>${esc(b.pack_label || '')}</small></td>
       <td>${b.active ? badge('Açık', 'success') : badge('Kapalı')}</td>
       <td>${act('Düzenle', 'edit', b.id)}${act('Etiket', 'label', b.id)}</td></tr>`).join('');
-    return card('Tanımlı barkodlar', state.list.length
+    return card('Tanımlı barkodlar', `<div class="production-context"><span>Kart adına göre ilk 500 bağlantı</span><span>Arama bu listede; toplu baskı aramadan bağımsız açık bağlantıları kapsar.</span></div><div class="toolbar"><label class="production-search">Barkodlarda ara<input type="search" data-bc-search value="${esc(state.query)}" placeholder="Barkod, kart adı veya marka"></label><span class="muted">${visible.length} bağlantı</span></div>`+(visible.length
       ? `<div class="table-wrap"><table class="v2-table"><thead><tr><th>Barkod</th><th>Kart</th><th>Marka</th><th>Ambalaj</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>${rows}</tbody></table></div>`
-      : '<div class="v2-empty"><h3>Henüz barkod tanımlı değil.</h3><p>Bir kutuyu okutup “var olan bir karta bağla” diyerek başlayabilirsiniz.</p></div>',
-      `${act('Barkod bağla', 'link-new', '', false)}${state.list.length ? act('Seçili boyutta hepsini bas', 'label-all') : ''}`);
+      : `<div class="v2-empty"><h3>${state.list.length?'Barkod bulunamadı.':'Henüz barkod tanımlı değil.'}</h3><p>${state.list.length?'Kart adı veya barkodla tekrar ara.':'Barkodu var olan bir hammadde ya da ürün kartına bağlayarak başla.'}</p></div>`),
+      state.list.length ? act('Açık barkodları toplu bas', 'label-all') : '');
   }
 
   function render() {
     if (state.disposed) return;
     const tabs = [['scan', 'Okut ve bul'], ['count', 'Sayım'], ['list', 'Tanımlı barkodlar']];
     root.innerHTML = `<div class="v2-page">
-      <div class="page-heading"><div><span class="eyebrow">LUNAPOT ÇALIŞMA ALANI</span><h1>Barkod</h1>
-      <p>Kutuyu okut, kartı bul, ne kadar var gör. Okutmak stoğu değiştirmez; miktar değiştiren işlemleri ayrıca onaylarsın.</p></div></div>
+      <div class="page-heading"><div><span class="eyebrow">ÜRETİM / BARKOD VE SAYIM</span><h1>Barkod çalışma alanı</h1>
+      <p>Kartı bul, stoğu kontrol et veya etiket hazırla. Okutmak stok değiştirmez.</p></div>${act('+ Barkod bağla','link-new','',false)}</div>
       <div class="notice" data-bc-error role="alert" ${state.error ? '' : 'hidden'}>${esc(state.error)}</div>
       <nav class="v2-tabs" aria-label="Barkod ekranı">${tabs.map(([key, label]) => `<button type="button" data-bc="tab" data-id="${key}" class="${state.tab === key ? 'active' : ''}" aria-current="${state.tab === key ? 'page' : 'false'}">${label}</button>`).join('')}</nav>
-      <section data-bc-body>${state.tab === 'scan' ? scanPanel() : state.tab === 'count' ? countPanel() : state.loaded ? listPanel() : '<div class="loading">Barkodlar yükleniyor…</div>'}</section></div>`;
+      <section data-bc-body>${state.tab === 'scan' ? scanPanel() : state.tab === 'count' ? countPanel() : state.loaded ? listPanel() : '<div class="loading" role="status">Barkodlar yükleniyor…</div>'}</section></div>`;
+    labelTables();
     const input = $('[data-bc-form="scan"] input[name=code]');
-    input?.focus();
+    input?.focus({preventScroll:true});
     if (state.camera) attachCamera();
   }
 
@@ -164,10 +170,11 @@ export function mountBarcodes(root, namespace = 'lp') {
 
   async function run(work) {
     if (state.busy) return;
-    state.busy = true; showError('');
+    state.busy = true; showError('');root.setAttribute('aria-busy','true');
+    const buttons=[...root.querySelectorAll('button[type=submit]')].filter(b=>!b.disabled);buttons.forEach(b=>b.disabled=true);
     try { await work(); }
     catch (error) { if (error.name !== 'AbortError' && !state.disposed) showError(error.message); }
-    finally { state.busy = false; }
+    finally { state.busy = false;root.removeAttribute('aria-busy');buttons.forEach(b=>b.disabled=false); }
   }
 
   // Kamera: destek yoksa ekran çalışmaya devam eder, düğme hiç görünmez.
@@ -205,13 +212,13 @@ export function mountBarcodes(root, namespace = 'lp') {
     const products = state.cards.products.map(p => `<option value="product:${esc(p.id)}">${esc(p.name)} · ${esc(p.sku)}</option>`).join('');
     root.insertAdjacentHTML('beforeend', `<dialog data-bc-dialog><form class="v2-form" data-bc-form="link">
       <div class="dialog-heading"><h2>Barkodu karta bağla</h2><button type="button" class="icon-button" data-bc="close" aria-label="Kapat">×</button></div>
-      <div class="form-body">
+      <div class="form-body"><fieldset class="production-fieldset"><legend>1 · Barkod kaynağı</legend>
         <label>Barkod<input name="code" value="${esc(code)}" maxlength="48" autocomplete="off" placeholder="Kutunun üzerindeki kod"></label>
         <label>…ya da barkodun fotoğrafını yükle<input type="file" name="barcode_image" accept="image/*" data-bc-image></label>
         <p class="help" data-bc-image-note>Fotoğraftaki barkod okunup yukarıdaki kutuya yazılır. <strong>Görsel saklanmaz</strong>: barkodu numarasından kendimiz çizeriz, böylece etiket her zaman net ve okunabilir basılır.</p>
         <label><input type="checkbox" name="generate_internal"> Ürünün barkodu yok, iç kullanım kodu üret</label>
         <p class="help">İç kullanım kodu “LP-” ile başlar. <strong>GS1 barkodu değildir</strong> ve işletme dışında geçerli değildir.</p>
-        <label>Kart<select name="card" required><option value="">Seçin…</option><optgroup label="Hammaddeler">${materials}</optgroup><optgroup label="Ürünler">${products}</optgroup></select></label>
+        </fieldset><fieldset class="production-fieldset"><legend>2 · Bağlı kart ve ambalaj</legend><label>Kart<select name="card" required><option value="">Seçin…</option><optgroup label="Hammaddeler">${materials}</optgroup><optgroup label="Ürünler">${products}</optgroup></select></label>
         <p class="help">Kart burada açılmaz. Yeni kart gerekiyorsa önce Hammaddeler veya Ürünler ekranından açın.</p>
         <div class="field-grid">
           <label>Marka<input name="brand" maxlength="200" placeholder="Örn. Klasmann"></label>
@@ -219,12 +226,12 @@ export function mountBarcodes(root, namespace = 'lp') {
           <label>Ambalaj açıklaması<input name="pack_label" maxlength="200" placeholder="Örn. 20 kg teneke"></label>
         </div>
         <p class="help">1 teneke okuttuğunuzda 20 kg sayılmasını istiyorsanız buraya 20 yazın. Boş bırakılırsa 1 okutma = 1 birim sayılır.</p>
-        <label>Not<textarea name="note" rows="2" maxlength="500"></textarea></label>
+        <label>Not<textarea name="note" rows="2" maxlength="500"></textarea></label></fieldset>
         <p class="error" data-bc-form-error role="alert"></p>
       </div>
       <div class="dialog-footer">${act('Vazgeç', 'close')}<button class="primary" type="submit">Bağla</button></div>
     </form></dialog>`);
-    $('dialog[data-bc-dialog]').showModal();
+    openDialog();
   }
 
   function editForm(link) {
@@ -243,14 +250,15 @@ export function mountBarcodes(root, namespace = 'lp') {
       </div>
       <div class="dialog-footer">${act('Bağlantıyı sil', 'delete', link.id)}${act('Vazgeç', 'close')}<button class="primary" type="submit">Kaydet</button></div>
     </form></dialog>`);
-    $('dialog[data-bc-dialog]').showModal();
+    openDialog();
   }
 
   function labelForm(links) {
+    if(!links.length)throw new Error('Etiket basmak için açık bir barkod bağlantısı gerekli.');
     root.insertAdjacentHTML('beforeend', `<dialog data-bc-dialog><form class="v2-form" data-bc-form="label">
       <div class="dialog-heading"><h2>Etiket bas</h2><button type="button" class="icon-button" data-bc="close" aria-label="Kapat">×</button></div>
       <div class="form-body">
-        <p class="help">${links.length} barkod için etiket hazırlanacak.</p>
+        <div class="production-form-summary"><strong>${links.length} barkod için etiket</strong><span>Boyutu ve kopya sayısını seç, yazdırmadan önce kontrol et.</span></div><details class="production-help"><summary>Etiketlenecek kartlar</summary><ul>${links.map(link=>`<li>${esc(link.card_name)} · ${esc(link.code)}</li>`).join('')}</ul></details>
         <div class="field-grid">
           <label>Etiket boyutu<select name="size">${Object.entries(LABEL_SIZES).map(([key, preset]) => `<option value="${key}" ${key === state.labelSize ? 'selected' : ''}>${esc(preset.name)}</option>`).join('')}</select></label>
           <label>Her barkoddan kaç kopya<input name="copies" type="number" min="1" max="200" value="${state.labelCopies}" required></label>
@@ -260,7 +268,7 @@ export function mountBarcodes(root, namespace = 'lp') {
       </div>
       <div class="dialog-footer">${act('Vazgeç', 'close')}<button class="primary" type="submit">Önizle ve yazdır</button></div>
     </form></dialog>`);
-    $('dialog[data-bc-dialog]').showModal();
+    openDialog();
     $('form[data-bc-form="label"]')._links = links;
   }
 
@@ -299,9 +307,11 @@ export function mountBarcodes(root, namespace = 'lp') {
     }
   }
 
+  root.addEventListener('input',e=>{if(!e.target.matches('[data-bc-search]'))return;state.query=e.target.value;const pos=e.target.selectionStart;render();const input=$('[data-bc-search]');input.focus();input.setSelectionRange(pos,pos);},{signal:controller.signal});
+
   root.addEventListener('click', event => {
     const target = event.target.closest('[data-bc]');
-    if (!target || !root.contains(target)) return;
+    if (!target || !root.contains(target)||state.busy) return;
     const action = target.dataset.bc, id = target.dataset.id;
     if (action === 'close') { closeDialog(); return; }
     if (action === 'tab') {

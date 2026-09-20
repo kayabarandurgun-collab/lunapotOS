@@ -1,7 +1,9 @@
+import {setWorkspaceUser} from './workspace-frame.js';
 import {modules,can,level,routeKey} from './permissions.js';
 let observer=null;
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function accessAllowed(user,ns,root){
+ setWorkspaceUser(user);
  observer?.disconnect();observer=null;
  if(!user||user.owner)return true;
  const route=location.hash.slice(1).split('?')[0]|| (ns==='ec'?'overview':'dashboard'),home=['overview','dashboard'].includes(route);
@@ -13,6 +15,7 @@ export function accessAllowed(user,ns,root){
   if(!user.permissions?.delete_records)document.querySelectorAll('[data-delete],[data-confirm-delete]').forEach(b=>{b.disabled=true;b.title='Kalıcı silme iznin yok.';});
   const header=document.querySelector('.workspace header');if(header&&!document.querySelector('#access-mode')){const div=document.createElement('div');div.id='access-mode';div.className='access-read-banner';div.textContent=user.name+' · '+(readonly?'Yalnızca görüntüleme yetkisi':'İşlem yapma yetkisi');header.after(div);}
   if(readonly){
+   for(const b of document.querySelectorAll('[data-rb-act=accept],[data-rb-act=reject],[data-rb-act=apply],[data-rb-act=backfill],[data-rb-act=fees-apply],[data-rb-act=remap],[data-rb-act=restart],[data-rb-act=stock-link-apply],[data-rb-act=sync-deliveries],[data-rb-act=sync-go],[data-rb-act=upload],[data-rb-act=verify],[data-rb=complete-package],[data-rb-form=map] button[type=submit],[data-rb-form=store] button[type=submit],[data-bank-act=upload],[data-bank-form=account] button[type=submit]')){b.disabled=true;b.title='Bu hesap yalnızca görüntüleyebilir.';}
    const groups={catalog:['new','edit','archive'],business:['party','account','entry','cash','allocation','reverse','profile','shipping','commission','archive'],order:['new','invoice-draft','source','map','reserve','ship','deliver','cancel'],reconcile:['allocate','reverse'],production:['new','material','reverse'],op:['configure','sync','resume-sync','backup']};
    for(const [group,actions] of Object.entries(groups))for(const action of actions)document.querySelectorAll('[data-'+group+'="'+action+'"]').forEach(b=>{b.disabled=true;b.title='Bu hesap yalnızca görüntüleyebilir.';});
    document.querySelectorAll('dialog button[type="submit"],input[type="file"]').forEach(b=>{b.disabled=true;});

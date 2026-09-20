@@ -82,7 +82,11 @@ export async function performanceApi(request,env,path){
  const from=day(url.searchParams.get('from')||new Date(Date.parse(today)-30*86400000).toISOString().slice(0,10)),to=day(url.searchParams.get('to')||today);
  if(from>to)fail('Başlangıç tarihi bitişten sonra olamaz.');
  const mode=url.searchParams.get('mode')||'delivered';if(!['delivered','pending'].includes(mode))fail('Rapor türü geçersiz.');
- return performanceReport(env,{mode,from,to});
+ // İsteğe bağlı public imleç: parametresiz eski 409 sözleşmesi aynen kalır.
+ // Boş cursor ilk sayfayı açar; sonraki_imlec bir sonraki istekte aynen geri gönderilir.
+ const cursors=url.searchParams.getAll('cursor'),imlec=cursors.length?cursors[0]:null;
+ if(cursors.length>1||imlec!==null&&(imlec.length>200||imlec!==''&&!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(imlec)))fail('Rapor imleci geçersiz.');
+ return performanceReport(env,{mode,from,to,imlec});
 }
 // Kâr raporu, sipariş listesi/penceresi (paketSonuclari), ana sayfa (panorama-api.js) ve ürün kârlılığı
 // (urun-karlilik-api.js) AYNI hesabı kullanır: tek formül, aynı paket aynı kuruş.

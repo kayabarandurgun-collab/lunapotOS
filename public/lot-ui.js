@@ -19,11 +19,15 @@ const STATUS = {open: 'Açık', closed: 'Kapalı', blocked: 'Bloke'};
 export function mountLots(root, namespace = 'lp') {
   if (namespace !== 'lp') throw new Error('Parti yönetimi yalnızca üretim çalışma alanındadır.');
   const controller = new AbortController();
+  root.classList.add('production-view');
   const state = {
     tab: 'lots', lots: [], products: [], detail: null, error: '', busy: false, disposed: false, loaded: false,
-    wizard: null, labelSize: 'carton'
+    wizard: null, labelSize: 'carton', query: '', filter: 'all'
   };
   const $ = selector => root.querySelector(selector);
+  function labelTables(){for(const table of root.querySelectorAll('table')){const headers=[...table.querySelectorAll('thead th')].map(h=>h.textContent);for(const row of table.querySelectorAll('tbody tr'))[...row.cells].forEach((cell,i)=>cell.dataset.label=headers[i]||'İşlem');}}
+  function openDialog(){const dialog=$('dialog');dialog.classList.add('production-dialog');const heading=dialog.querySelector('h2');heading.id='lot-dialog-title';dialog.setAttribute('aria-labelledby',heading.id);dialog.addEventListener('cancel',e=>{if(state.busy)e.preventDefault();});dialog.addEventListener('close',()=>dialog.remove(),{once:true});dialog.showModal();}
+
 
   async function api(path, body) {
     const response = await fetch(`/api/${namespace}${path}`, {
@@ -43,18 +47,19 @@ export function mountLots(root, namespace = 'lp') {
   }
 
   function lotsPanel() {
-    const rows = state.lots.map(lot => `<tr>
+    const visible=state.lots.filter(lot=>(state.filter==='all'||lot.status===state.filter)&&[lot.lot_code,lot.product_name,lot.product_sku].join(' ').toLocaleLowerCase('tr-TR').includes(state.query.toLocaleLowerCase('tr-TR')));
+    const rows = visible.map(lot => `<tr>
       <td><strong>${esc(lot.lot_code)}</strong><small>${esc(dayText(lot.produced_on))}${lot.job_reference ? ' · ' + esc(lot.job_reference) : ''}</small></td>
       <td>${esc(lot.product_name)}<small>${esc(lot.product_sku || '')}</small></td>
       <td>${esc(qty(lot.quantity_milli))} ${esc(lot.unit)}</td>
       <td>${lot.printed_cartons} koli<small>${esc(qty(lot.printed_quantity_milli))} ${esc(lot.unit)} etiketlendi</small></td>
       <td>${badge(STATUS[lot.status] || lot.status, lot.status === 'open' ? 'success' : lot.status === 'blocked' ? 'danger' : 'neutral')}</td>
-      <td>${act('Aç', 'open', lot.id)}${lot.status === 'open' ? act('Koli etiketi', 'wizard', lot.id, false) : ''}</td></tr>`).join('');
-    return `<div class="notice subtle">Parti kodu, ürünün belirli bir üretimini gösterir. <strong>Ürün barkodundan ayrıdır</strong> ve barkod alanına basılmaz. Parti açmak stok hareketi oluşturmaz.</div>` +
-      card('Üretim partileri', state.lots.length
+      <td>${act('Aç', 'open', lot.id)}${lot.status === 'open' ? act('Koli etiketi', 'wizard', lot.id) : ''}</td></tr>`).join('');
+    return `<div class="production-context"><span>Üretim tarihine göre son 300 parti</span><span>Özetler yüklenen partilerle sınırlıdır.</span></div><div class="production-metrics"><article><span>Açık parti</span><strong>${state.lots.filter(l=>l.status==='open').length}</strong><small>Etiket hazırlamaya açık</small></article><article><span>Bloke parti</span><strong>${state.lots.filter(l=>l.status==='blocked').length}</strong><small>İşlem öncesi kontrol et</small></article><article><span>Basılmış koli etiketi</span><strong>${state.lots.reduce((n,l)=>n+l.printed_cartons,0)}</strong><small>Listelenen partilerde · stok miktarı değil</small></article></div>`+
+      card('Üretim partileri', `<div class="toolbar"><label class="production-search">Partilerde ara<input type="search" data-lot-search value="${esc(state.query)}" placeholder="Parti kodu, ürün adı veya kodu"></label><label>Durum<select data-lot-filter><option value="all">Tüm partiler</option>${Object.entries(STATUS).map(([key,label])=>`<option value="${key}" ${state.filter===key?'selected':''}>${label}</option>`).join('')}</select></label><span class="muted">${visible.length} parti</span></div>`+(visible.length
         ? `<div class="table-wrap"><table class="v2-table"><thead><tr><th>Parti</th><th>Ürün</th><th>Üretilen</th><th>Etiketlenen</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>${rows}</tbody></table></div>`
-        : '<div class="v2-empty"><h3>Henüz parti yok.</h3><p>Bir üretimi partiye bağlamak ve koli etiketi basmak için parti açın.</p></div>',
-        act('Parti aç', 'new', '', false));
+        : `<div class="v2-empty"><h3>${state.lots.length?'Eşleşen parti yok.':'Henüz parti yok.'}</h3><p>${state.lots.length?'Aramayı veya durum filtresini değiştir.':'Üretimini bir partiye bağla, ardından koli etiketlerini hazırla.'}</p></div>`))+
+      '<details class="production-help"><summary>Parti, barkod ve stok ilişkisi</summary><p>Parti kodu belirli bir üretimi tanımlar; ürün barkodundan ayrıdır. Parti açmak veya etiket basmak stok hareketi oluşturmaz. Üretim miktarı Üretim kayıtları ekranında işlenir.</p></details>';
   }
 
   function detailPanel() {
@@ -119,20 +124,21 @@ export function mountLots(root, namespace = 'lp') {
     const next = w.step !== 'preview'
       ? `<div class="ac-actions">${act('Geri', 'back')}${issue ? '' : act('Sonraki adım', 'next', '', false)}</div>`
       : `<div class="ac-actions">${act('Geri', 'back')}</div>`;
-    return card('Koli etiketi sihirbazı', `<nav class="v2-tabs" aria-label="Sihirbaz adımları">${steps}</nav>
+    return '<div class="production-wizard">'+card('Koli etiketi · '+(index+1)+' / '+CARTON_STEPS.length, `<nav class="v2-tabs" aria-label="Sihirbaz adımları">${steps}</nav>
       <div class="v2-card-body"><p class="help">${esc(CARTON_STEPS[index].help)}</p>${body}
-      ${issue ? `<div class="notice">${esc(issue)}</div>` : ''}${next}</div>`, act('Vazgeç', 'close-wizard'));
+      ${issue ? `<div class="notice">${esc(issue)}</div>` : ''}${next}</div>`, act('Vazgeç', 'close-wizard'))+'</div>';
   }
 
   function render() {
     if (state.disposed) return;
     const tabs = [['lots', 'Partiler']];
     root.innerHTML = `<div class="v2-page">
-      <div class="page-heading"><div><span class="eyebrow">LUNAPOT ÇALIŞMA ALANI</span><h1>Parti ve koli etiketi</h1>
-      <p>Hangi üretimden hangi koli çıktı? Partiyi aç, koli etiketini bas, geriye dönük iz kalsın.</p></div></div>
+      <div class="page-heading"><div><span class="eyebrow">ÜRETİM / PAKETLEME</span><h1>Parti ve koli etiketi</h1>
+      <p>Üretimden koliye izlenebilir kayıt ve etiket.</p></div>${!state.wizard&&!state.detail?act('+ Parti aç','new','',false):''}</div>
       <div class="notice" data-lot-error role="alert" ${state.error ? '' : 'hidden'}>${esc(state.error)}</div>
       <nav class="v2-tabs" aria-label="Parti ekranı">${tabs.map(([key, label]) => `<button type="button" data-lot="tab" data-id="${key}" class="${state.tab === key ? 'active' : ''}">${label}</button>`).join('')}</nav>
-      <section data-lot-body>${state.wizard ? wizardPanel() : state.detail ? detailPanel() : state.loaded ? lotsPanel() : '<div class="loading">Partiler yükleniyor…</div>'}</section></div>`;
+      <section data-lot-body>${state.wizard ? wizardPanel() : state.detail ? detailPanel() : state.loaded ? lotsPanel() : '<div class="loading" role="status">Partiler yükleniyor…</div>'}</section></div>`;
+    labelTables();
   }
 
   function showError(message) {
@@ -143,10 +149,11 @@ export function mountLots(root, namespace = 'lp') {
 
   async function run(work) {
     if (state.busy) return;
-    state.busy = true; showError('');
+    state.busy = true; showError('');root.setAttribute('aria-busy','true');
+    const buttons=[...root.querySelectorAll('button[type=submit]')].filter(b=>!b.disabled);buttons.forEach(b=>b.disabled=true);
     try { await work(); }
     catch (error) { if (error.name !== 'AbortError' && !state.disposed) showError(error.message); }
-    finally { state.busy = false; }
+    finally { state.busy = false;root.removeAttribute('aria-busy');buttons.forEach(b=>b.disabled=false); }
   }
 
   const closeDialog = () => { const node = $('dialog[data-lot-dialog]'); node?.close(); node?.remove(); };
@@ -154,7 +161,7 @@ export function mountLots(root, namespace = 'lp') {
   function newLotForm() {
     root.insertAdjacentHTML('beforeend', `<dialog data-lot-dialog><form class="v2-form" data-lot-form="new">
       <div class="dialog-heading"><h2>Parti aç</h2><button type="button" class="icon-button" data-lot="close" aria-label="Kapat">×</button></div>
-      <div class="form-body">
+      <div class="form-body"><fieldset class="production-fieldset"><legend>Üretim bilgileri</legend>
         <label>Ürün<select name="product_id" required><option value="">Seçin…</option>${state.products.map(p => `<option value="${esc(p.id)}">${esc(p.name)} · ${esc(p.sku)}</option>`).join('')}</select></label>
         <div class="field-grid">
           <label>Üretim tarihi<input name="produced_on" type="date" value="${today()}" required></label>
@@ -162,14 +169,14 @@ export function mountLots(root, namespace = 'lp') {
           <label>Üretilen miktar<input name="quantity" type="number" min="0.001" step="0.001" required></label>
           <label>Koli içi adet · isteğe bağlı<input name="pack_size" type="number" min="0.001" step="0.001"></label>
         </div>
-        <label>Parti kodu · boş bırakırsan sistem üretir<input name="lot_code" maxlength="40" placeholder="Örn. VARDIYA-A-01"></label>
+        </fieldset><fieldset class="production-fieldset"><legend>Parti kimliği</legend><label>Parti kodu · boş bırakırsan sistem üretir<input name="lot_code" maxlength="40" placeholder="Örn. VARDIYA-A-01"></label>
         <label>Not<textarea name="note" rows="2" maxlength="500"></textarea></label>
-        <p class="help">Parti kodu ürün barkodu değildir. Parti açmak stok hareketi oluşturmaz; üretim miktarı ve maliyeti Üretim kayıtları ekranından yürür.</p>
+        </fieldset><p class="help">Parti kodu ürün barkodu değildir. Parti açmak stok hareketi oluşturmaz; üretim miktarı ve maliyeti Üretim kayıtları ekranından yürür.</p>
         <p class="error" data-lot-form-error role="alert"></p>
       </div>
       <div class="dialog-footer">${act('Vazgeç', 'close')}<button class="primary" type="submit">Partiyi aç</button></div>
     </form></dialog>`);
-    $('dialog[data-lot-dialog]').showModal();
+    openDialog();
   }
 
   function statusForm(lot) {
@@ -183,7 +190,7 @@ export function mountLots(root, namespace = 'lp') {
       </div>
       <div class="dialog-footer">${act('Vazgeç', 'close')}<button class="primary" type="submit">Kaydet</button></div>
     </form></dialog>`);
-    $('dialog[data-lot-dialog]').showModal();
+    openDialog();
   }
 
   async function printLabels(cartons, lot) {
@@ -191,9 +198,12 @@ export function mountLots(root, namespace = 'lp') {
     printDocument(labelPrintHtml(cartonLabels(cartons, {lot}), {size: state.labelSize}), {title: 'Koli etiketleri'});
   }
 
+  root.addEventListener('input',e=>{if(!e.target.matches('[data-lot-search]'))return;state.query=e.target.value;const pos=e.target.selectionStart;render();const input=$('[data-lot-search]');input.focus();input.setSelectionRange(pos,pos);},{signal:controller.signal});
+  root.addEventListener('change',e=>{if(!e.target.matches('[data-lot-filter]'))return;state.filter=e.target.value;render();$('[data-lot-filter]').focus();},{signal:controller.signal});
+
   root.addEventListener('click', event => {
     const target = event.target.closest('[data-lot]');
-    if (!target || !root.contains(target)) return;
+    if (!target || !root.contains(target)||state.busy) return;
     const action = target.dataset.lot, id = target.dataset.id;
     if (action === 'close') { closeDialog(); return; }
     if (action === 'close-detail') { state.detail = null; render(); return; }

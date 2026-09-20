@@ -1,3 +1,4 @@
+import {prepareWorkflow} from './product-list.js';
 // Fatura belgeleri ekranı: SATIŞ faturası arşivi + ALIŞ belgelerinde sayfa → fatura bağlantısı.
 //
 // Neden bu ekran var:
@@ -221,7 +222,7 @@ export function mountSalesDocuments(root, namespace = 'ec') {
         ${state.kuyruk.length ? '<button type="button" class="secondary" data-sd-act="temizle">Listeyi temizle</button>' : ''}
         <button type="button" class="primary" data-sd-act="yukle" ${state.kuyruk.some(i => !i.durum || i.durum === 'hata') ? '' : 'disabled'}>Arşive yükle</button>
       </div>
-      <p class="rb-muted">Yükleme satış, gelir veya stok kaydı oluşturmaz. Sunucu dosyanın SHA-256 özetini kendisi doğrular.</p>
+      <p class="rb-muted">Yükleme satış, gelir veya stok kaydı oluşturmaz. Yüklenen belgenin bütünlüğü kontrol edilir.</p>
     </section>
 
     <section class="v2-card"><h3>2 · Arşivdeki satış belgeleri <small class="rb-muted">${num(docs.length)} belge</small></h3>
@@ -311,16 +312,19 @@ export function mountSalesDocuments(root, namespace = 'ec') {
   }
 
   function render() {
-    root.innerHTML = `<div class="rb">
-      <section class="page-heading"><div><h1>Fatura belgeleri</h1>
-        <p>Özgün fatura dosyalarının arşivi. Bu ekran <strong>satış, gelir, borç veya stok kaydı oluşturmaz</strong>;
-          belgeyi saklar ve hangi sayfanın hangi faturaya ait olduğunu kaydeder.</p></div></section>
+    if(signal.aborted)return;
+    prepareWorkflow(root);
+    root.innerHTML = `<div class="rb workflow-page">
+      <section class="page-heading"><div><span class="eyebrow">E-ticaret / Belge arşivi</span><h1>Fatura belgeleri</h1>
+        <p>Belgeleri arşivle, fatura sayfalarını doğru kayda bağla. Arşivleme muhasebe veya stok hareketi oluşturmaz.</p></div></section>
       ${tabs()}
       ${state.error ? `<p class="rb-alert warn" role="alert">${esc(state.error)}</p>` : ''}
       ${state.message ? `<p class="rb-alert ok" role="status">${esc(state.message)}</p>` : ''}
       ${state.sales === null ? '<p class="rb-busy" role="status">Yükleniyor…</p>'
-        : state.tab === 'sales' ? satisGorunumu() : alisGorunumu()}
+        : state.tab === 'sales' ? satisGorunumu() : alisGorunumu() + alisBaglantiGovdesi()}
       ${state.busy ? '<p class="rb-busy" role="status">İşleniyor…</p>' : ''}</div>`;
+    root.setAttribute('aria-busy',String(state.busy));
+    if(state.busy)for(const control of root.querySelectorAll('button,input,select,textarea'))control.disabled=true;
   }
 
   /* ---------------- olaylar ---------------- */
@@ -389,5 +393,5 @@ export function mountSalesDocuments(root, namespace = 'ec') {
 
   render();
   run(load);
-  return () => controller.abort();
+  return () => {root.removeAttribute('aria-busy');controller.abort();};
 }

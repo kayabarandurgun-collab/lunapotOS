@@ -9,17 +9,17 @@ const eksi = v => v ? -v : v;
 export function mountFiyatHesap(root, products) {
   const abort = new AbortController();
   const state = {kanal: 'trendyol', seq: 0};
-  root.innerHTML = `<section class="v2-card fh-card">
-    <div class="v2-card-head"><div><h2>Kaça satmalıyım?</h2><p>Son alış maliyeti ve benzer teslimlerin kesintileriyle satış fiyatını tahmin et. Tüm tutarlar KDV dahil.</p></div></div>
-    <form class="fh-form" data-fh>
+  root.innerHTML = `<section class="v2-card fh-card fh-workbench">
+    <div class="v2-card-head"><div><span class="eyebrow">SATIŞTAN ÖNCE HESAPLA</span><h2>Fiyatını bilerek belirle.</h2><p>Son alış maliyeti ve benzer teslimlerin kesintileriyle satış fiyatını tahmin et. Tüm tutarlar KDV dahil.</p></div></div>
+    <div class="fh-workbench-body"><form class="fh-form" data-fh><div class="fh-step"><span>01</span><div><h3>Satış senaryon</h3><p>Ürününü seç, paketi ve hedefini belirle.</p></div></div>
       <label class="fh-urun">Ürün<select name="product_id" required><option value="">Ürün seçin…</option>${products.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select></label>
       <div class="fh-kanal"><span>Kanal</span><div class="ol-seg" role="group" aria-label="Kanal">${[['trendyol', 'Trendyol'], ['hepsiburada', 'Hepsiburada']].map(([v, l]) => `<button type="button" data-fh-kanal="${v}" aria-pressed="${v === state.kanal}">${l}</button>`).join('')}</div></div>
       <label>Paketteki adet<input name="qty" type="number" min="1" max="100" step="1" value="1" inputmode="numeric"></label>
       <label>Satış fiyatı · KDV dahil (TL)<input name="price" inputmode="decimal" placeholder="örn. 240" autocomplete="off"></label>
       <label>Cebine kalsın istediğin (TL)<input name="target" inputmode="decimal" placeholder="örn. 30" autocomplete="off"></label>
     </form>
-    <div class="fh-sonuc" data-fh-sonuc aria-live="polite"><div class="v2-empty"><h3>Ürünü ve kanalı seç.</h3><p>Fiyat yazarsan cebine ne kalacağını, yazmasan da zarar etmemek için en düşük fiyatı gösterir.</p></div></div>
-  </section>`;
+    <div class="fh-results-panel"><div class="fh-step"><span>02</span><div><h3>Fiyatın karşılığı</h3><p>Tahmini sonuç ve kesintilerin dökümü.</p></div></div><div class="fh-sonuc" data-fh-sonuc aria-live="polite"><div class="v2-empty"><h3>Ürünü ve kanalı seç.</h3><p>Fiyat yazarsan cebine ne kalacağını, yazmasan da zarar etmemek için en düşük fiyatı gösterir.</p></div></div>
+  </div></div></section>`;
   const form = root.querySelector('[data-fh]'), sonuc = root.querySelector('[data-fh-sonuc]');
   let zaman = null;
   async function hesapla() {

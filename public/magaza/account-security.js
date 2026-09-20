@@ -47,7 +47,7 @@
   const h=document.createElement('h2');h.id='security-title-'+(++dialogSerial);h.textContent=title;header.append(h);d.setAttribute('aria-labelledby',h.id);
   const desc=document.createElement('p');desc.id='security-desc-'+dialogSerial;desc.className='security-description';desc.textContent=descriptions[title]||'';header.append(desc);d.setAttribute('aria-describedby',desc.id);d.append(header);
   const body=document.createElement('div');body.className='security-body';body.innerHTML=html;d.append(body);
-  const close=document.createElement('button');close.type='button';close.className='security-close';close.textContent='×';close.setAttribute('aria-label','Pencereyi kapat');close.onclick=()=>d.close();d.append(close);
+  const close=document.createElement('button');close.type='button';close.className='security-close';close.textContent='×';close.setAttribute('aria-label','Pencereyi kapat');close.onclick=()=>d.close();header.append(close);
   const status=document.createElement('p');status.className='security-status';status.setAttribute('role','status');status.setAttribute('aria-atomic','true');status.hidden=true;d.append(status);
   const footer=document.createElement('footer');footer.className='security-footer';const back=document.createElement('button');back.type='button';back.className='security-back';back.textContent='Giriş ekranına dön';back.onclick=()=>d.close();footer.append(back);d.append(footer);
   d.addEventListener('close',()=>{d.remove();if(origin&&origin.isConnected)origin.focus()});document.body.append(d);d.showModal();return d;

@@ -1,3 +1,4 @@
+import {prepareWorkflow} from './product-list.js';
 // Alış belgesi çalışma alanı: PDF (ya da XML) yükle → tedarikçi/belge → satırlar → çeşit dağılımı → onay.
 //
 // Kurallar:
@@ -56,7 +57,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
   /* ---------------- görünüm ---------------- */
   const steps = () => `<ol class="pd-steps">${STEPS.map(([k, t], i) => {
     const at = STEPS.findIndex(s => s[0] === state.step);
-    return `<li class="${state.step === k ? 'active' : at > i ? 'done' : ''}"><b>${i + 1}</b>${esc(t)}</li>`;
+    return `<li ${state.step === k ? 'aria-current="step"' : ''} class="${state.step === k ? 'active' : at > i ? 'done' : ''}"><b>${i + 1}</b>${esc(t)}</li>`;
   }).join('')}</ol>`;
 
   const status = () => `${state.error ? `<p class="pd-alert error" role="alert">${esc(state.error)}</p>` : ''}` +
@@ -76,7 +77,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     return `<section class="v2-card v2-card-body">
       <h2>Alış faturası yükle</h2>
       <p class="pd-muted">Tedarikçinin gönderdiği faturanın PDF'ini buraya bırak. Belge özgün hâliyle saklanır. Okunan satırlar belgenin toplamıyla tutuyor ve ürünler geçmiş alışlardan biliniyorsa fatura kendiliğinden işlenir (borç + stok); emin olunamayan yerde durup sana sorar.</p>
-      <label class="pd-drop" data-pd-drop><input type="file" accept=".pdf,application/pdf" data-pd="file" multiple hidden>
+      <label class="pd-drop" data-pd-drop><input type="file" accept=".pdf,application/pdf" data-pd="file" multiple aria-label="Alış faturası PDF dosyalarını seç">
         <strong>PDF faturaları buraya sürükle — birden fazla seçebilirsin</strong><span>ya da tıklayıp seç · en çok ${PDF_LIMITS.fileBytes / 1024 / 1024} MB</span></label>
       <div class="pd-alt">
         <span class="pd-muted">Başka yol:</span>
@@ -147,7 +148,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
 
   function linesView() {
     return `<section class="v2-card v2-card-body"><h2>2 · Satırlar</h2>
-      <p class="pd-muted">Belgeden okunan satırlar solda görünüyor. Her satırı belgeyle karşılaştır; eksik okunan alanı kendin doldur.
+      <p class="pd-muted">Özgün belgeyi açarak her satırı karşılaştır; eksik okunan alanı kendin doldur.
         Bir satır aynı boyun birkaç çeşidini içeriyorsa (örneğin bitki besini 500 ml) ürün ailesini seç — adetleri sonraki adımda gireceksin.</p>
       <form data-pd-form="lines">${state.lines.map(lineCard).join('')}
         <div class="pd-actions"><button class="secondary pd-left" type="button" data-pd="add-line">+ Satır ekle</button>
@@ -225,7 +226,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
       }
     }
     return `<section class="v2-card v2-card-body"><h2>4 · Kontrol ve onay</h2>
-      <div class="pd-totals">${cmp('Satırların net toplamı', net, d.net)}${cmp('Satırların KDV toplamı', tax, d.tax)}${cmp('Genel toplam', net + tax, d.gross)}</div>
+      <div class="pd-totals">${cmp('Genel toplam · KDV dahil', net + tax, d.gross)}${cmp('Satırların net toplamı · KDV hariç', net, d.net)}${cmp('Satırların KDV toplamı', tax, d.tax)}</div>
       <p class="pd-muted">Belgedeki toplam okunamadıysa karşılaştırma yapılamaz; tutarları belgeden kendin doğrula. Belge düzeyi iskonto veya farklı vergi yapısı varsa satırlar elle düzeltilmelidir.</p>
       ${problems.length ? `<p class="pd-alert warn">Kesinleştirmeden önce: <br>${problems.map(esc).join('<br>')}</p>` : '<p class="pd-alert ok">Eksik görünmüyor.</p>'}
       <p class="pd-alert info">Kaydet dediğinde fatura oluşur. Bütün satırlar stok kartına bağlıysa sistem kendiliğinden <b>muhasebeleştirir</b> (cari borç) ve fatura tarihiyle <b>stoğa alır</b>. Çeşit dağılımı olan ya da ürünü bulunamayan satır varsa taslak kalır.</p>
@@ -234,16 +235,20 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
   }
 
   function render() {
+    if(signal.aborted)return;
+    prepareWorkflow(root);
     const body = state.step === 'pick' ? pickView() : state.step === 'document' ? documentView()
       : state.step === 'summary' ? ozetView()
         : state.step === 'lines' ? linesView() : state.step === 'allocate' ? allocateView() : confirmView();
     const withPreview = state.step !== 'pick';
-    root.innerHTML = `<div class="pd">
-      <div class="pd-head"><div><h1>Alış faturası</h1><p class="pd-muted">Belgeyi yükle, oku, kontrol et, onayla.</p></div>
+    root.innerHTML = `<div class="pd workflow-page">
+      <div class="pd-head"><div><span class="eyebrow">İşlemler / Alış faturası</span><h1>Alış faturası yükle</h1><p class="pd-muted">Belgeyi yükle, oku, kontrol et, onayla.</p></div>
         <button class="secondary" type="button" data-pd="close">← Alış faturaları</button></div>
       ${state.step === 'pick' ? '' : steps()}${status()}
-      ${withPreview ? `<div class="pd-split">${preview()}<div>${body}</div></div>` : body}
+      ${withPreview ? `<div class="pd-split"><div class="pd-work">${body}</div>${preview()?`<details class="workflow-details pd-document-preview"><summary>Özgün belgeyi göster</summary>${preview()}</details>`:''}</div>` : body}
       ${state.busy ? '<p class="rb-busy" role="status">İşleniyor…</p>' : ''}</div>`;
+    root.setAttribute('aria-busy',String(state.busy));
+    if(state.busy)for(const control of root.querySelectorAll('button,input,select,textarea'))control.disabled=true;
   }
 
   /* ---------------- işlemler ---------------- */
@@ -489,9 +494,10 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     state.lines = [...form.querySelectorAll('[data-pd-line]')].map((el, i) => {
       const v = name => el.querySelector(`[name="${name}"]`)?.value ?? '';
       const prior = state.lines[i] || {};
+      const enteredNumber = name => v(name)===''?'':Number(v(name));
       return {...prior, description: v('description'), external_code: v('external_code'),
-        invoice_quantity: Number(v('invoice_quantity')), invoice_unit: v('invoice_unit'),
-        net: Number(v('net')), tax: Number(v('tax')), line_type: v('line_type'),
+        invoice_quantity: enteredNumber('invoice_quantity'), invoice_unit: v('invoice_unit'),
+        net: enteredNumber('net'), tax: enteredNumber('tax'), line_type: v('line_type'),
         expense_category: v('expense_category'), expense_treatment: v('expense_treatment'),
         product_id: v('product_id') || null, stock_quantity: Number(v('stock_quantity')) || null,
         family_id: v('family_id') || null,
@@ -658,6 +664,8 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     const b = e.target.closest('[data-pd]');
     if (!b) return;
     const a = b.dataset.pd, i = Number(b.dataset.i);
+    const lineForm=root.querySelector('[data-pd-form="lines"]');
+    if(lineForm&&['add-line','remove-line','back-document','apply-link','remember-link'].includes(a))collectLines(lineForm);
     if (a === 'close') { onClose?.({}); return; }
     if (a === 'restart') { Object.assign(state, {step: 'pick', queue: [], queueTotal: 0, queueDone: [], auto: false, message: '', error: ''}); render(); return; }
     if (a === 'restart') { state.step = 'pick'; state.docId = null; state.lines = []; render(); return; }
@@ -674,8 +682,8 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     if (a === 'add-line') { state.lines.push({description: '', invoice_quantity: 1, invoice_unit: 'adet', net: '', tax: '', line_type: 'product', expense_category: 'other', uncertain: []}); render(); return; }
     if (a === 'remove-line') { state.lines.splice(i, 1); render(); return; }
     if (a === 'add-variant') { const l = state.lines[i]; l.allocations = [...(l.allocations || []), {}]; render(); return; }
-    if (a === 'apply-link') { run(async () => { collectLines(root.querySelector('[data-pd-form="lines"]')); applyLink(i); }); return; }
-    if (a === 'remember-link') { run(async () => { collectLines(root.querySelector('[data-pd-form="lines"]')); await rememberLink(i); }); return; }
+    if (a === 'apply-link') { run(async () => { applyLink(i); }); return; }
+    if (a === 'remember-link') { run(async () => { await rememberLink(i); }); return; }
     if (a === 'save-draft') { run(saveDraft); return; }
   }, {signal});
 
@@ -709,5 +717,5 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
   }, {signal});
 
   render();
-  return () => { controller.abort(); if (state.previewUrl) URL.revokeObjectURL(state.previewUrl); };
+  return () => {root.removeAttribute('aria-busy'); controller.abort(); if (state.previewUrl) URL.revokeObjectURL(state.previewUrl); };
 }

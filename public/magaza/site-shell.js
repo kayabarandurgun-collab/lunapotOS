@@ -1,8 +1,17 @@
 /* Progressive navigation and local FAQ filtering. No account or checkout writes. */
 (()=>{'use strict';
  const nav=document.querySelector('.category-nav');
- const canonical=u=>{const p=new URL(u,location.href).pathname.replace(/\.html$/,'').replace(/\/$/,'');return p.replace(/\/index$/,'')};
+ const main=document.querySelector('main');
+ if(main){if(!main.id)main.id='main-content';main.setAttribute('tabindex','-1');const skip=document.querySelector('.skip');if(skip)skip.href='#'+main.id;else{const link=document.createElement('a');link.className='skip';link.href='#'+main.id;link.textContent='İçeriğe geç';document.body.prepend(link)}}
+ const searchInput=document.querySelector('.store-search input');if(searchInput&&!searchInput.id)searchInput.id='store-query';
+ if(searchInput&&!searchInput.labels.length){const label=document.createElement('label');label.htmlFor='store-query';label.className='store-search-label';label.textContent='Ürün ara';searchInput.before(label)}
+ // Rendered account and checkout screens retain their original handlers.
+ const flow=document.querySelector('#flow-app');
+ if(flow){const sync=()=>{flow.querySelectorAll('.checkout-steps li').forEach(item=>{if(item.classList.contains('active'))item.setAttribute('aria-current','step');else item.removeAttribute('aria-current')})};new MutationObserver(sync).observe(flow,{childList:true,subtree:true});sync()}
+
+ const canonical=u=>{const p=new URL(u,location.href).pathname.replace(/\.html$/,'').replace(/\/$/,'');return p.replace(/\/(index|home|shop)$/,'')};
  if(nav){
+  nav.querySelectorAll('a[href]').forEach(a=>{if(canonical(a.href)===canonical(location.href))a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});
   const menu=document.createElement('details');menu.className='mobile-site-menu';
   const summary=document.createElement('summary');summary.innerHTML='<span class="mobile-menu-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>Menü</span><span class="mobile-menu-current"></span><span class="mobile-menu-arrow" aria-hidden="true">+</span>';summary.setAttribute('aria-controls','mobile-site-links');
   const links=document.createElement('nav');links.className='mobile-menu-links';links.id='mobile-site-links';links.setAttribute('aria-label','Mobil ana menü');

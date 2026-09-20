@@ -40,7 +40,7 @@ const MONEY_KEY=/(^|_)(cents|price|sale_price|unit_cost)$|_cents$/;
 // 'gross' ve 'net_revenue' TL cinsinden para alanlaridir (rapor-stok koprusu onizlemesi).
 // Arayuzde gizlemek yetmez: tutar yetkisi olmayan calisan API yanitindan da okuyamamali.
 // Kaça satmalıyım (fiyat-hesap) yanıtı Türkçe adlı para/oran alanları taşır; aynı kuralla gizlenir.
-const MONEY_NAMES=new Set(['price','sale_price','unit_cost','amount','total_cost','rate_bps','revenue_share_bps','gross','net_revenue',
+const MONEY_NAMES=new Set(['price','sale_price','unit_cost','amount','total_cost','rate_bps','revenue_share_bps','margin_bps','gross','net_revenue',
  'fiyat','maliyet','kargo','hizmet','komisyon','stopaj','paketleme','diger','cebine','istenen','birim_maliyet_kdv_dahil','komisyon_orani','stopaj_orani',
  // Güvenlik incelemesi: bu alanlar *_cents kalıbına uymuyordu ve tutar yetkisi olmayan personele sızıyordu
  // (rapor–defter farkı, kesinti dağıtımı toplamları, pazaryeri paket brütü ve indirimleri).
@@ -54,7 +54,13 @@ export function scrubAmounts(payload,user,ns){
   if(seen.has(value))return seen.get(value);
   const out=Array.isArray(value)?[]:{};seen.set(value,out);
   if(Array.isArray(value))value.forEach((item,i)=>{out[i]=walk(item);});
-  else for(const [key,item] of Object.entries(value))out[key]=MONEY_KEY.test(key)||MONEY_NAMES.has(key)?null:walk(item);
+  else {
+   // Panorama günlük satırında kanal anahtarları kuruştur; genel kanal metadata'sı değildir.
+   // Şema nesnenin kendisinden tanınır: başka bir alandaki aynı nesne takma adı da gizlenir.
+   const dailyCash=ns==='ec'&&typeof value.date==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value.date)&&Number.isSafeInteger(value.packages)
+    &&['trendyol','hepsiburada'].every(k=>Object.hasOwn(value,k)&&(typeof value[k]==='number'||value[k]===null));
+   for(const [key,item] of Object.entries(value))out[key]=MONEY_KEY.test(key)||MONEY_NAMES.has(key)||dailyCash&&(key==='trendyol'||key==='hepsiburada')?null:walk(item);
+  }
   return out;
  };
  return walk(payload);

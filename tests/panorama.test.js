@@ -37,7 +37,7 @@ test('Ana sayfa dönem kârları kâr raporunun aynı aralıktaki toplamına eş
     paket(f, 'd', 'hepsiburada', gun(-100), {urun: 'p2'});               // yalnız 6 ay ve tümü
     const p = await f.ok('/ec/panorama');
     const d = Object.fromEntries(p.periods.map(x => [x.key, x]));
-    assert.deepEqual(p.periods.map(x => x.key), ['7g', '14g', '30g', '90g', '180g', 'tum']);
+    assert.deepEqual(p.periods.map(x => x.key), ['1g', '7g', '14g', '30g', '90g', '180g', 'tum']);
     assert.equal(d['7g'].from, gun(-6), 'son 7 gün bugünü de sayar');
     assert.equal(d['7g'].packages, 2);
     assert.equal(d['14g'].packages, 3);

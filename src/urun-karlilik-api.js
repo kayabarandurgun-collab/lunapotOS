@@ -17,6 +17,7 @@
 //   GET /api/urun-karlilik
 import {tumSatirlar, ilkSonucTarihi} from './performance-api.js';
 import {kesintiTahmincisi} from './fee-history.js';
+import {analyticsRange} from './panorama-api.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), {status}); };
 const nakitVar = r => r.cash_cents !== null && r.cash_cents !== undefined;
@@ -24,14 +25,17 @@ const nakitVar = r => r.cash_cents !== null && r.cash_cents !== undefined;
 export async function urunKarlilikApi(request, env, path) {
   if (path !== '/api/urun-karlilik' || request.method !== 'GET') return null;
   if (env.WORKSPACE !== 'ec') fail('Ürün kârlılığı e-ticaret çalışma alanına aittir.', 403);
+  const range = analyticsRange(request);
   const db = env.DB, today = new Date().toLocaleDateString('sv-SE', {timeZone: 'Europe/Istanbul'});
   const tahmin = await kesintiTahmincisi(db);
-  const ilk = await ilkSonucTarihi(db, today);
+  const ilk = await ilkSonucTarihi(db, range?.to || today);
   // İlk bekleyen paketin sipariş tarihi: ana sayfanın (panorama-api) kullandığı sorgunun AYNISI.
   const kargoIlk = (await db.prepare("SELECT MIN(occurred_on) d FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND status IN ('draft','reserved','shipped') AND occurred_on<=?").bind(today).first())?.d;
-  const teslim = ilk ? (await tumSatirlar(env, {mode: 'delivered', from: ilk, to: today, tahmin, detay: true})).rows : [];
-  // Süzgeç YOK: kâr raporunun kargodaki satırlarının tamamı (gönderilen + hazırlanan) ana sayfadaki gibi sayılır.
-  const kargoda = kargoIlk ? (await tumSatirlar(env, {mode: 'pending', from: kargoIlk, to: today, tahmin, detay: true})).rows : [];
+  const from = range?.from || ilk, to = range?.to || today;
+  const teslim = from ? (await tumSatirlar(env, {mode: 'delivered', from, to, tahmin, detay: true})).rows : [];
+  // Özel aralıkta teslimler sonuç tarihiyle, bekleyenler sipariş tarihiyle süzülür; parametresiz eski kapsam korunur.
+  const pendingFrom = range?.from || kargoIlk;
+  const kargoda = pendingFrom ? (await tumSatirlar(env, {mode: 'pending', from: pendingFrom, to, tahmin, detay: true})).rows : [];
 
   const urun = new Map(), al = id => {
     if (!urun.has(id)) urun.set(id, {product_id: id, adet_milli: 0, ciro_cents: 0, kar_cents: 0, teslim_kar_cents: 0, kargoda_kar_cents: 0,
@@ -50,11 +54,12 @@ export async function urunKarlilikApi(request, env, path) {
     } else for (const u of r.urunler_eksik || []) {
       const x = al(u.product_id);
       x.adet_milli += u.qty_milli; x.paketler.add(r.id); x.eksik.add(r.id);
-      x.neden = x.neden || r.missing[0] || r.cash_note || 'Kâr hesaplanamadı.';
+      x.neden = x.neden || r.missing?.[0] || r.cash_note || 'Kâr hesaplanamadı.';
     }
   }
-  return {as_of: new Date().toISOString(), from: ilk, to: today,
-    notice: 'Teslim edilenler (iade tarihiyle sonuçlananlar dahil) kâr raporuyla aynıdır. Kargodaki tutar henüz teslim edilmemiş paketlerin tahminidir: gönderilenler ve hazırlananlar (stok ayrılmış) birlikte — ana sayfadaki "Kargodaki tahminim" ile aynı kapsam. Maliyeti veya kesintisi bilinmeyen paket sıfır sayılmaz.',
+  return {as_of: new Date().toISOString(), from, to,
+    date_basis: {delivered: 'delivered_on', pending: 'occurred_on'}, pending_from: pendingFrom || null,
+    notice: range ? 'Seçilen aralıkta teslim edilenler sonuç tarihiyle (teslim veya iade), hazırlanan ve kargodaki paketler sipariş tarihiyle süzülür. Kargodaki kâr tahminidir. Stok bakiyesi bu tarih aralığından etkilenmez.' : 'Teslim edilenler (iade tarihiyle sonuçlananlar dahil) kâr raporuyla aynıdır. Kargodaki tutar henüz teslim edilmemiş paketlerin tahminidir: gönderilenler ve hazırlananlar (stok ayrılmış) birlikte — ana sayfadaki "Kargodaki tahminim" ile aynı kapsam. Maliyeti veya kesintisi bilinmeyen paket sıfır sayılmaz.',
     rows: [...urun.values()].map(u => {
       const kar = u.eksik.size ? null : u.kar_cents;
       return {product_id: u.product_id, adet_milli: u.adet_milli, ciro_cents: u.ciro_cents, kar_cents: kar, hesaplanan_kar_cents: u.kar_cents,

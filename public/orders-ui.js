@@ -1,3 +1,4 @@
+import {prepareWorkflow} from './product-list.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=v=>v===null||v===undefined?'Eksik bilgi':new Intl.NumberFormat('tr-TR',{style:'currency',currency:'TRY'}).format(v/100);
 const qty=v=>new Intl.NumberFormat('tr-TR',{maximumFractionDigits:3}).format(v/1000);
@@ -49,7 +50,7 @@ export function mountOrders(root,namespace='ec'){
  const pricingComponent=line=>{const parts=stockComponents(line);return parts.length===1?parts[0]:!parts.length&&line.product_id?{product_id:line.product_id,quantity_milli:line.quantity_milli}:null;};
  function closeDialog(){const d=state.dialog;if(!d)return;state.dialog=null;d.close();d.remove();}
  function dialog(title,body,submit,handler){
-  closeDialog();const d=document.createElement('dialog'),titleId=ref('order-dialog'),tag=handler?'form':'div';d.setAttribute('aria-labelledby',titleId);d.innerHTML=`<${tag} class="v2-form"><div class="dialog-heading"><h2 id="${titleId}">${esc(title)}</h2><button type="button" class="icon-button" data-close aria-label="Pencereyi kapat">×</button></div><div class="form-body">${body}<p class="error" role="alert" data-form-error hidden></p></div><div class="dialog-footer"><button type="button" class="secondary" data-close>${submit?`Vazgeç`:`Kapat`}</button>${submit?`<button type="submit" class="primary">${esc(submit)}</button>`:``}</div></${tag}>`;root.append(d);state.dialog=d;
+  closeDialog();const d=document.createElement('dialog'),titleId=ref('order-dialog'),tag=handler?'form':'div';d.classList.add('workflow-dialog');prepareWorkflow(d);d.setAttribute('aria-labelledby',titleId);d.innerHTML=`<${tag} class="v2-form"><div class="dialog-heading"><h2 id="${titleId}">${esc(title)}</h2><button type="button" class="icon-button" data-close aria-label="Pencereyi kapat">×</button></div><div class="form-body">${body}<p class="error" role="alert" data-form-error hidden></p></div><div class="dialog-footer"><button type="button" class="secondary" data-close>${submit?`Vazgeç`:`Kapat`}</button>${submit?`<button type="submit" class="primary">${esc(submit)}</button>`:``}</div></${tag}>`;root.append(d);state.dialog=d;
   d.addEventListener('click',e=>{if(e.target.closest('[data-close]'))closeDialog();},{signal});
   // Pencere kapanıp yerine başka pencere AÇILMADIYSA sipariş detayı bitmiştir: adres listeye döner.
   d.addEventListener('close',()=>{if(state.dialog===d)state.dialog=null;d.remove();setTimeout(()=>{if(!state.dialog&&state.open)detayKapandi();},0);},{signal});
@@ -73,22 +74,22 @@ export function mountOrders(root,namespace='ec'){
   catch(error){if(error.name!=='AbortError'){const box=$('[data-order-list]');if(box)box.innerHTML='<p class="notice">Liste yüklenemedi. Filtreleri kontrol edip yeniden deneyin.</p>';}throw error;}
  }
  const yukle=async()=>{try{await load();}catch(err){if(err.name!=='AbortError')notify(err.message);}};
- function render(){
+ function render(){prepareWorkflow(root);
   if(signal.aborted)return;const d=state.data;if(!d){root.innerHTML='<p class="loading" role="status">Siparişler yükleniyor…</p>';return;}
   if(!state.built){
-   root.innerHTML=`<div class="page-heading ol-heading"><div><h1>Siparişler</h1><p>Satırın üstüne tıkla: sipariş pencerede açılır, liste yerinde kalır.</p></div>${btn('Yeni sipariş','new','',true)}</div><p class="error" role="alert" data-order-error hidden></p>
+   root.innerHTML=`<div class="workflow-page workflow-orders"><div class="page-heading ol-heading"><div><span class="eyebrow">E-ticaret / İşlemler</span><h1>Siparişleri yönet</h1><p>Hazırlıktan teslime, her paketin durumu ve cebine kalan tutar.</p></div>${btn('Yeni sipariş','new')}</div><p class="error" role="alert" data-order-error hidden></p>
     <div class="ol-chips" role="group" aria-label="Sipariş durumu" data-ol-chips></div>
     <section class="v2-card ol-card">
      <div class="ol-toolbar">
       <div class="ol-seg" role="group" aria-label="Kanal" data-ol-channel>${[['','Tümü'],['trendyol','Trendyol'],['hepsiburada','Hepsiburada']].map(([v,l])=>`<button type="button" data-ol-kanal="${v}">${l}</button>`).join('')}</div>
       <div class="ol-seg ol-seg-sonuc" role="group" aria-label="Kâr veya zarar" data-ol-sonuc>${[['','Hepsi'],['kar','Kâr edenler'],['zarar','Zarar edenler']].map(([v,l])=>`<button type="button" data-ol-sonuc-sec="${v}">${l} <span class="ol-say" data-ol-sonuc-say="${v||'hepsi'}"></span></button>`).join('')}</div>
-      <form class="ol-search" role="search" data-ol-search><input type="search" name="q" maxlength="200" placeholder="Sipariş, paket veya kargo no" aria-label="Sipariş ara"><button type="submit" class="secondary">Ara</button></form>
+      <form class="ol-search" role="search" data-ol-search><label>Sipariş ara<input type="search" name="q" maxlength="200" placeholder="Sipariş, paket veya kargo no" aria-label="Sipariş ara"></label><button type="submit" class="secondary">Ara</button></form>
       <label class="ol-sort"><span>Sırala</span><select data-ol-sort>${Object.entries(SORTS).map(([v,l])=>`<option value="${v}">${esc(l)}</option>`).join('')}</select></label>
      </div>
-     <details class="ol-more" data-ol-more><summary>Tarih ve takip filtreleri <span data-ol-more-count></span></summary><form class="ol-more-form" data-ol-extra><label>Başlangıç<input name="from" type="date"></label><label>Bitiş<input name="to" type="date"></label><label>Takip<select name="watch"><option value="">Hepsi</option>${Object.entries({long_shipping:'7+ gündür kargoda',source_changed:'Kaynak bilgisi değişen',unmapped:'Ürün eşleşmesi eksik',missing_amounts:'Satış tutarı eksik'}).map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label><div class="ol-more-actions"><button type="submit" class="primary">Uygula</button><button type="button" class="secondary" data-ol-temizle>Temizle</button></div></form></details>
-     <div data-order-list></div>
+     <details class="ol-more" data-ol-more><summary>Tarih ve takip filtreleri <span data-ol-more-count></span></summary><form class="ol-more-form" data-ol-extra><label>Başlangıç<input name="from" type="date"></label><label>Bitiş<input name="to" type="date"></label><label>Takip<select name="watch"><option value="">Hepsi</option>${Object.entries({long_shipping:'7+ gündür kargoda',source_changed:'Kaynak bilgisi değişen',unmapped:'Ürün eşleşmesi eksik',missing_amounts:'Satış tutarı eksik'}).map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select></label><div class="ol-more-actions"><button type="submit" class="secondary">Uygula</button><button type="button" class="secondary" data-ol-temizle>Temizle</button></div></form></details>
+     <p class="workflow-scope">Tutar ve cebine kalan KDV dahil. Tarih filtresi sipariş tarihine uygulanır; tahmini ve eksik sonuçlar satırda belirtilir.</p><div data-order-list></div>
      <div class="ol-pager" data-ol-pager></div>
-    </section>`;
+    </section></div>`;
    state.built=true;
   }
   const count=k=>d.counts.find(x=>x.status===k)?.count||0,toplam=CHIPS.slice(1).reduce((t,[k])=>t+count(k),0);
@@ -105,7 +106,7 @@ export function mountOrders(root,namespace='ec'){
   const pg=d.pagination||{page:1,pages:1,total:0,limit:50},bas=pg.total?(pg.page-1)*pg.limit+1:0,son=Math.min(pg.total,pg.page*pg.limit);
   $('[data-ol-pager]').innerHTML=`<span>${pg.total?`${bas}–${son} / ${pg.total} sipariş`:'Sipariş yok'}</span><div class="ac-actions"><button type="button" class="secondary" data-order="previous" ${state.page<=1?'disabled':''}>← Önceki</button><span class="ol-page">Sayfa ${pg.page} / ${pg.pages}</span><button type="button" class="secondary" data-order="next" ${!pg.has_more?'disabled':''}>Sonraki →</button></div>`;
  }
- function renderList(){const box=$('[data-order-list]');if(!box)return;const packages=state.data.packages;
+ function renderList(){prepareWorkflow(root);const box=$('[data-order-list]');if(!box)return;const packages=state.data.packages;
   // Satırda önce SATILAN ÜRÜN (eşleşen stok kartı, yoksa ilan adı); tutar ve cebine kalan KDV dahil.
   const icerik=p=>{const ls=(state.data.lines||[]).filter(l=>l.package_id===p.id);if(!ls.length)return '';
    const toplam=new Map();
@@ -121,7 +122,7 @@ export function mountOrders(root,namespace='ec'){
    // Tutar kâr raporunun aynı satırından; tahminse "tahmini" yazılır, yoksa kısa neden (tamamı üzerine gelince).
    const cebine=p.status==='cancelled'?'<span class="muted">—</span>':p.cash_result_cents!==null&&p.cash_result_cents!==undefined?`<span class="${p.cash_result_cents<0?'ol-neg':'ol-pos'}">${money(p.cash_result_cents)}</span>${p.cash_estimated?`<small class="muted" title="${esc(p.cash_note||'')}">tahmini</small>`:''}`:`<small class="muted"${p.cash_note?` title="${esc(p.cash_note)}"`:''}>${p.cash_note?esc(p.cash_note.split(/[;:.]/)[0]):p.result_cents!==null&&p.result_cents!==undefined?'KDV oranı yok':'Kesinti bekliyor'}</small>`;
    const b=brut(p);
-   return `<tr data-ol-row="${esc(p.id)}" tabindex="0" aria-label="${esc((icerik(p)||'Sipariş')+' · '+(p.order_no||''))}"><td class="ol-c-urun"><span class="ol-urun" title="${esc(icerik(p)||'')}">${esc(icerik(p)||'Ürün eşleşmedi')}</span><small>${esc(p.order_no||'—')}<span class="ol-m"> · ${esc(KANAL_KISA[p.channel]||p.channel)} · ${esc(tarih(p.occurred_on))}</span></small></td><td class="ol-c-kanal"><span class="ol-kanal ol-kanal-${esc(p.channel)}" title="${esc(channels[p.channel]||p.channel)}">${esc(KANAL_KISA[p.channel]||p.channel)}</span></td><td class="ol-c-tarih">${esc(tarih(p.occurred_on))}</td><td class="ol-c-durum">${badge(p)}${iadeRozeti(p.return_status)}${bilgi}</td><td class="ol-c-tutar">${b!==null?money(b):'—'}</td><td class="ol-c-cep">${cebine}</td></tr>`;}).join('')}</tbody></table></div>`;
+   return `<tr data-ol-row="${esc(p.id)}" tabindex="0" aria-label="${esc((icerik(p)||'Sipariş')+' · '+(p.order_no||''))}"><td class="ol-c-urun"><span class="ol-urun" title="${esc(icerik(p)||'')}">${esc(icerik(p)||'Ürün eşleşmedi')}</span><small>${esc(p.order_no||'—')}<span class="ol-m"> · ${esc(KANAL_KISA[p.channel]||p.channel)} · ${esc(tarih(p.occurred_on))}</span></small></td><td class="ol-c-kanal"><span class="ol-kanal ol-kanal-${esc(p.channel)}" title="${esc(channels[p.channel]||p.channel)}">${esc(KANAL_KISA[p.channel]||p.channel)}</span></td><td class="ol-c-tarih">${esc(tarih(p.occurred_on))}</td><td class="ol-c-durum">${badge(p)}${iadeRozeti(p.return_status)}${bilgi}</td><td class="ol-c-tutar" data-label="Tutar · KDV dahil">${b!==null?money(b):'—'}</td><td class="ol-c-cep" data-label="Cebine kalan">${cebine}</td></tr>`;}).join('')}</tbody></table></div>`;
  }
  // Sipariş penceresinin üstündeki işlem düğmeleri: yalnız o durumda yapılabilecek adımlar.
  function detayIslemleri(p){
@@ -144,7 +145,7 @@ export function mountOrders(root,namespace='ec'){
  async function openInsights(id){
   const p=findPkg(id)||{id};
   const sequence=++state.insightSequence,d=dialog('Sipariş '+(p.order_no||p.external_id||''),'<p class="loading" role="status">Satış, stok ve fatura bilgileri bir araya getiriliyor…</p>',null,null);d.classList.add('order-insights');
-  try{const insight=await api('/orders/'+id+'/insights');if(signal.aborted||sequence!==state.insightSequence||!d.isConnected)return;state.insights=insight;const h=d.querySelector('.dialog-heading h2');if(h)h.textContent='Sipariş '+(insight.package?.order_no||insight.package?.external_id||'');d.querySelector('.form-body').innerHTML=insightsBody(insight);}
+  try{const insight=await api('/orders/'+id+'/insights');if(signal.aborted||sequence!==state.insightSequence||!d.isConnected)return;state.insights=insight;const h=d.querySelector('.dialog-heading h2');if(h)h.textContent='Sipariş '+(insight.package?.order_no||insight.package?.external_id||'');d.querySelector('.form-body').innerHTML=insightsBody(insight);prepareWorkflow(d);}
   catch(error){if(error.name!=='AbortError'&&d.isConnected)d.querySelector('.form-body').innerHTML=`<div class="v2-empty"><h3>Sipariş özeti yüklenemedi.</h3><p>${esc(error.message)}</p>${btn('Yeniden dene','insights',id,true)}</div>`;}
  }
  // Durum cizgisi: iptal normal teslim akisinda gizlenmez, ayri gosterilir.

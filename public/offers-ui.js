@@ -1,3 +1,4 @@
+import {prepareWorkflow} from './product-list.js';
 // Teklif, proforma ve sözleşme ekranı.
 // Belgeler tarayıcıda, sunucudan yetkiyle gelen veriden üretilir; ayrı bir indirme ucu yoktur.
 // Bu ekran dışarıya e-posta veya mesaj GÖNDERMEZ; yalnızca indirilebilir belge hazırlar.
@@ -109,12 +110,12 @@ export function mountOffers(root, namespace) {
 
   function lineEditorRows(lines) {
     return lines.map((line, index) => `<tr>
-      <td><input name="description" value="${esc(line.description)}" maxlength="300" placeholder="Ürün veya hizmet" required></td>
-      <td><input name="unit" value="${esc(line.unit)}" maxlength="20" size="6"></td>
-      <td><input name="quantity" value="${esc(line.quantity)}" type="number" step="0.001" min="0.001" required></td>
-      <td><input name="unit_price" value="${esc(line.unit_price)}" type="number" step="0.01" min="0" required></td>
-      <td><input name="discount" value="${esc(line.discount)}" type="number" step="0.01" min="0" max="100"></td>
-      <td><input name="vat" value="${esc(line.vat)}" type="number" step="0.01" min="0" max="100"></td>
+      <td><label class="workflow-cell-label">Ürün veya hizmet<input name="description" value="${esc(line.description)}" maxlength="300" placeholder="Ürün veya hizmet" required></label></td>
+      <td><label class="workflow-cell-label">Birim<input name="unit" value="${esc(line.unit)}" maxlength="20" size="6"></label></td>
+      <td><label class="workflow-cell-label">Miktar<input name="quantity" value="${esc(line.quantity)}" type="number" step="0.001" min="0.001" required></label></td>
+      <td><label class="workflow-cell-label">Birim fiyat · KDV hariç (TL)<input name="unit_price" value="${esc(line.unit_price)}" type="number" step="0.01" min="0" required></label></td>
+      <td><label class="workflow-cell-label">İskonto (%)<input name="discount" value="${esc(line.discount)}" type="number" step="0.01" min="0" max="100"></label></td>
+      <td><label class="workflow-cell-label">KDV (%)<input name="vat" value="${esc(line.vat)}" type="number" step="0.01" min="0" max="100"></label></td>
       <td>${lines.length > 1 ? act('Sil', 'line-remove', String(index)) : '—'}</td></tr>`).join('');
   }
 
@@ -125,7 +126,7 @@ export function mountOffers(root, namespace) {
     let preview = '';
     try {
       const totals = offerTotals(toLines(e.lines));
-      preview = `<div class="v2-grid cols-3">${stat('KDV hariç toplam', money(totals.net_cents), '')}${stat('KDV', money(totals.vat_cents), '')}${stat('Genel toplam', money(totals.total_cents), 'Belgeye yazılacak tutar')}</div>`;
+      preview = `<div class="v2-grid cols-3">${stat('Genel toplam · KDV dahil', money(totals.total_cents), 'Belgeye yazılacak tutar')}${stat('KDV hariç toplam', money(totals.net_cents), '')}${stat('KDV', money(totals.vat_cents), '')}</div>`;
     } catch (problem) {
       preview = `<div class="notice subtle">Toplam henüz hesaplanamıyor: ${esc(problem.message)}</div>`;
     }
@@ -138,13 +139,13 @@ export function mountOffers(root, namespace) {
           ${isContract ? '' : `<label>Geçerlilik tarihi<input name="valid_until" type="date" value="${esc(e.valid_until)}" required></label>`}
         </div>
         <label>Belge başlığı<input name="title" value="${esc(e.title)}" maxlength="200" required placeholder="Örn. Bahar sezonu saksı teklifi"></label>
-        <div class="table-wrap"><table class="v2-table"><thead><tr><th>Açıklama</th><th>Birim</th><th>Miktar</th><th>Birim fiyat (TL)</th><th>İskonto %</th><th>KDV %</th><th></th></tr></thead><tbody data-offer-lines>${lineEditorRows(e.lines)}</tbody></table></div>
+        <div class="table-wrap"><table class="v2-table"><thead><tr><th>Açıklama</th><th>Birim</th><th>Miktar</th><th>Birim fiyat · KDV hariç (TL)</th><th>İskonto %</th><th>KDV %</th><th></th></tr></thead><tbody data-offer-lines>${lineEditorRows(e.lines)}</tbody></table></div>
         <div class="ac-actions">${act('Satır ekle', 'line-add')}</div>
         ${preview}
         <label>Koşullar<textarea name="terms" rows="4" maxlength="4000" placeholder="Teslim süresi, ödeme koşulu, geçerlilik…">${esc(e.terms)}</textarea></label>
         <p class="help">Bu belge stok düşmez, cari hesaba borç/alacak yazmaz ve resmî fatura değildir. Kaydetmek kimseye mesaj göndermez.</p>
         <p class="error" data-offer-form-error role="alert"></p>
-        <div class="ac-actions">${act('Vazgeç', 'editor-close')}<button class="primary" type="submit">${e.id ? 'Taslağı güncelle' : 'Taslak olarak kaydet'}</button></div>
+        <div class="ac-actions workflow-form-actions">${act('Vazgeç', 'editor-close')}<button class="primary" type="submit">${e.id ? 'Taslağı güncelle' : 'Taslak olarak kaydet'}</button></div>
       </form>`);
   }
 
@@ -188,9 +189,10 @@ export function mountOffers(root, namespace) {
   }
 
   function render() {
+    prepareWorkflow(root);
     if (state.disposed) return;
     const filters = [['', 'Tümü'], ...Object.entries(OFFER_KINDS)];
-    root.innerHTML = `<div class="v2-page">
+    root.innerHTML = `<div class="v2-page workflow-page">
       <div class="page-heading"><div><span class="eyebrow">${namespace === 'ec' ? 'E-TİCARET' : 'LUNAPOT'} ÇALIŞMA ALANI</span>
       <h1>Teklif ve belgeler</h1><p>Teklif, proforma ve sözleşmeyi hazırla, sürümünü koru, müşteriye PDF veya Word olarak ver. Bu belgeler stok ve cari hesabı değiştirmez.</p></div>
       <div class="ac-actions">${act('Yeni teklif', 'new', 'quote', false)}${act('Yeni proforma', 'new', 'proforma')}${act('Yeni sözleşme', 'new', 'contract')}</div></div>

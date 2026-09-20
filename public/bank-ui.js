@@ -1,3 +1,4 @@
+import {prepareWorkflow} from './product-list.js';
 // Banka ekstresi ekranı. Dosya tarayıcıda okunur, sütunlar eşleştirilir, satırlar partiler
 // hâlinde sunucuya gider. Aktarım STOK, SATIŞ, FATURA veya CARİ KAYDI OLUŞTURMAZ.
 import {readTable, sha256Hex} from './xlsx-read.js';
@@ -36,8 +37,8 @@ export function mountBank(root, namespace = 'ec') {
 
   function hesapKarti() {
     const a = state.data?.accounts || [];
-    return `<section class="v2-card"><h3>Hesaplar</h3>
-      ${a.length ? `<div class="v2-table-wrap"><table class="v2-table"><thead><tr><th>Hesap</th><th>Tür</th><th class="rb-num">Hareket</th><th class="rb-num">Net</th><th>Son işlem</th></tr></thead><tbody>
+    return `<section class="v2-card"><h3>Hesaplar ve ekstre toplamları</h3><p class="help">Net tutar, yüklenen ekstre hareketlerinin toplamıdır; bankadaki güncel bakiye değildir.</p>
+      ${a.length ? `<div class="v2-table-wrap"><table class="v2-table"><thead><tr><th>Hesap</th><th>Tür</th><th class="rb-num">Hareket</th><th class="rb-num">Ekstre net toplamı</th><th>Son işlem</th></tr></thead><tbody>
         ${a.map(x => `<tr><td><strong>${esc(x.name)}</strong></td><td>${x.kind === 'bank' ? 'Banka' : 'Kasa'}</td>
           <td class="rb-num">${num(x.line_count)}</td><td class="rb-num">${money(x.net_cents)}</td><td>${esc(x.last_date || '—')}</td></tr>`).join('')}
         </tbody></table></div>`
@@ -51,7 +52,7 @@ export function mountBank(root, namespace = 'ec') {
   function yuklemeKarti() {
     const d = state.draft;
     if (!state.data?.accounts?.length) return '';
-    if (!d) return `<section class="v2-card"><h3>Ekstre yükle</h3>
+    if (!d) return `<section class="v2-card"><span class="eyebrow">1 / 3 · Dosya seçimi</span><h3>Ekstre yükle</h3>
       <p class="rb-muted">Bankadan indirdiğin ekstreyi (Excel veya CSV) seç. Dosya tarayıcında okunur.
         Aynı dosyayı veya aynı hareketi ikinci kez yüklersen sistem tekrar işlemez.</p>
       <div class="rb-grid">
@@ -66,7 +67,7 @@ export function mountBank(root, namespace = 'ec') {
     const d = state.draft;
     const secenek = alan => `<select data-bank-map="${alan.key}"><option value="">— yok —</option>` +
       d.headers.map(h => `<option value="${esc(h)}" ${d.mapping[alan.key] === h ? 'selected' : ''}>${esc(h)}</option>`).join('') + '</select>';
-    return `<section class="v2-card"><h3>Sütunları eşleştir · ${esc(d.filename)}</h3>
+    return `<section class="v2-card"><span class="eyebrow">2 / 3 · Alan eşleştirme</span><h3>Sütunları eşleştir · ${esc(d.filename)}</h3>
       <p class="rb-muted">${num(d.rows.length)} satır okundu. Tutar tek sütundaysa <b>Tutar</b>'ı seç;
         banka <b>Borç</b> ve <b>Alacak</b> diye ayırmışsa o ikisini seç — sistem farkı alır.</p>
       <div class="rb-grid">${FIELDS.bank.map(alan => `<label>${esc(alan.label)}${alan.required ? ' *' : ''}${secenek(alan)}</label>`).join('')}</div>
@@ -76,7 +77,7 @@ export function mountBank(root, namespace = 'ec') {
 
   function onizlemeKarti() {
     const d = state.draft, p = d.preview;
-    return `<section class="v2-card"><h3>Önizleme · ${esc(d.filename)}</h3>
+    return `<section class="v2-card"><span class="eyebrow">3 / 3 · Kontrol ve aktarım</span><h3>Önizleme · ${esc(d.filename)}</h3>
       <dl class="rb-kv">
         <div><dt>Okunan satır</dt><dd>${num(p.ok.length + p.hatali.length)}</dd></div>
         <div><dt>Aktarılacak</dt><dd><strong>${num(p.ok.length)}</strong></dd></div>
@@ -118,18 +119,22 @@ export function mountBank(root, namespace = 'ec') {
         ${l.lines.map(x => `<tr><td>${esc(x.occurred_on)}</td><td>${esc(x.description)}</td><td>${esc(x.counterparty)}</td>
           <td class="rb-num ${x.amount_cents < 0 ? 'rb-warn' : ''}">${money(x.amount_cents)}</td>
           <td class="rb-num">${money(x.balance_cents)}</td><td>${esc(x.reference)}</td></tr>`).join('')}
-        </tbody></table></div><p class="rb-muted">${num(l.total)} hareket · sayfa ${l.page}</p>`
+        </tbody></table></div><div class="rb-actions workflow-pagination"><span class="rb-muted">${num(l.total)} hareket · sayfa ${l.page} / ${Math.max(1,Math.ceil(l.total/l.page_size))}</span><button type="button" class="secondary" data-bank-act="previous" ${l.page<=1?'disabled':''}>← Önceki</button><button type="button" class="secondary" data-bank-act="next" ${l.page*l.page_size>=l.total?'disabled':''}>Sonraki →</button></div>`
         : '<p class="rb-muted">Bu aramaya uyan hareket yok.</p>') : '<p class="rb-muted">Hesap seçin.</p>'}</section>`;
   }
 
   function render() {
-    root.innerHTML = '<div class="rb">' +
-      `<section class="page-heading"><div><h1>Banka ekstresi</h1>
+    if(signal.aborted)return;
+    prepareWorkflow(root);
+    root.innerHTML = '<div class="rb workflow-page">' +
+      `<section class="page-heading"><div><span class="eyebrow">E-ticaret / Banka</span><h1>Banka hareketlerini doğrula</h1>
         <p>Paranın gerçekten yattığını buradan doğrularız. ${esc(state.data?.notice || '')}</p></div></section>` +
       (state.error ? `<p class="rb-alert error" role="alert">${esc(state.error)}</p>` : '') +
       (state.message ? `<p class="rb-alert ok" role="status">${esc(state.message)}</p>` : '') +
-      hesapKarti() + yuklemeKarti() + dosyaKarti() + satirKarti() +
+      (state.data?.accounts?.length ? yuklemeKarti() + satirKarti() + '<details class="workflow-details"><summary>Hesapları yönet · '+state.data.accounts.length+' hesap</summary>'+hesapKarti()+'</details>' : hesapKarti()) + '<details class="workflow-details"><summary>Yüklenen ekstreler · '+(state.data?.files?.length||0)+' dosya</summary>'+dosyaKarti()+'</details>' +
       '</div>' + (state.busy ? `<p class="rb-busy" role="status">${esc(state.progress || 'İşleniyor…')}</p>` : '');
+    root.setAttribute('aria-busy',String(state.busy));
+    if(state.busy)for(const control of root.querySelectorAll('button,input,select,textarea'))control.disabled=true;
   }
 
   /* ---------- okuma ve aktarma ---------- */
@@ -194,7 +199,7 @@ export function mountBank(root, namespace = 'ec') {
   /* ---------- olaylar ---------- */
   root.addEventListener('change', e => {
     const t = e.target.dataset.bank;
-    if (t === 'account') { state.account = e.target.value; render(); return; }
+    if (t === 'account') { state.account = e.target.value; state.page = 1; run(loadLines); return; }
     if (t === 'lines-account') { state.account = e.target.value; state.page = 1; run(loadLines); return; }
     if (t === 'file' && e.target.files?.[0]) { const f = e.target.files[0]; run(() => dosyaAl(f)); return; }
     const alan = e.target.dataset.bankMap;
@@ -202,7 +207,8 @@ export function mountBank(root, namespace = 'ec') {
   });
   root.addEventListener('click', e => {
     const b = e.target.closest('[data-bank-act]'); if (!b) return;
-    const a = b.dataset.bankAct;
+    const a = b.dataset.bankAct;if(state.busy||b.disabled)return;
+    if(a==='previous'||a==='next'){state.page=Math.max(1,state.page+(a==='next'?1:-1));run(loadLines);return;}
     if (a === 'cancel') { state.draft = null; render(); }
     if (a === 'back') { state.draft.step = 'map'; render(); }
     if (a === 'preview') run(async () => { onizle(); });
@@ -212,10 +218,10 @@ export function mountBank(root, namespace = 'ec') {
     e.preventDefault();
     const form = e.target, kind = form.dataset.bankForm;
     const x = Object.fromEntries(new FormData(form));
-    if (kind === 'account') run(async () => { const h = await api('/accounts', {name: x.name, kind: x.kind}); await load(); state.account = h.id; say('Hesap eklendi.'); });
+    if (kind === 'account') run(async () => { const h = await api('/accounts', {name: x.name, kind: x.kind}); await load(); state.account = h.id; await loadLines(); say('Hesap eklendi.'); });
     if (kind === 'search') { state.query = x.q || ''; state.page = 1; run(loadLines); }
   });
 
   run(async () => { await load(); });
-  return () => controller.abort();
+  return () => {root.removeAttribute('aria-busy');controller.abort();};
 }

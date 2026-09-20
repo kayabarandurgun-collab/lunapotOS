@@ -1,0 +1,243 @@
+/* Production workspace. Shell, sidebar and workspace navigation belong to workspace-design.css. */
+body.workspace-redesign :is(.production-view,.production-dialog){--production-line:#dce3da;--production-muted:#65756b;--production-soft:#e8eee4;color:#20342f;font-size:14px;line-height:1.55}
+body.workspace-redesign :is(.production-view,.production-dialog) *{box-sizing:border-box}
+body.workspace-redesign .production-view :is(h1,h2,h3,p,strong,a,small,span),body.workspace-redesign .production-dialog :is(h2,h3,p,strong,small,legend){overflow-wrap:anywhere}
+body.workspace-redesign .production-view .page-heading{align-items:flex-start;gap:20px;margin-bottom:24px}
+body.workspace-redesign .production-view .page-heading h1{font-size:clamp(28px,2.4vw,34px);line-height:1.2;font-weight:600;letter-spacing:-.8px;margin:6px 0 10px}
+body.workspace-redesign .production-view .page-heading p{font-size:14px;max-width:680px;color:var(--production-muted)}
+body.workspace-redesign :is(.production-view,.production-dialog) :is(h2,h3){font-weight:600;letter-spacing:-.2px}
+body.workspace-redesign :is(.production-view,.production-dialog) h2{font-size:18px}
+body.workspace-redesign :is(.production-view,.production-dialog) h3{font-size:15px}
+body.workspace-redesign :is(.production-view,.production-dialog) .eyebrow{font-size:11px;font-weight:500;letter-spacing:.8px;color:var(--production-muted)}
+body.workspace-redesign :is(.production-view,.production-dialog) :is(.help,.muted,small){color:var(--production-muted)}
+body.workspace-redesign :is(.production-view,.production-dialog) .help{font-size:12px;line-height:1.65}
+body.workspace-redesign :is(.production-view,.production-dialog) :is(.card,.v2-card){background:#fff;border:1px solid var(--production-line);border-radius:14px;box-shadow:0 2px 5px #20342f04;min-width:0;overflow:visible}
+body.workspace-redesign :is(.production-view,.production-dialog) :is(.card-heading,.v2-card-head){gap:12px;padding:20px;border-bottom:1px solid var(--production-line);flex-wrap:wrap}
+body.workspace-redesign :is(.production-view,.production-dialog) :is(.card-heading,.v2-card-head) h2{margin:0}
+body.workspace-redesign :is(.production-view,.production-dialog) :is(.card-heading,.v2-card-head) p{margin:6px 0 0}
+body.workspace-redesign :is(.production-view,.production-dialog) :is(.primary,.secondary,.text-button,.icon-button){font-size:13px;font-weight:500;min-height:40px;max-width:100%;white-space:normal}
+body.workspace-redesign :is(.production-view,.production-dialog) .primary{background:#315c45;border:1px solid #315c45;color:white;border-radius:10px;box-shadow:none;text-decoration:none;display:inline-flex;justify-content:center;align-items:center;padding:11px 16px}
+body.workspace-redesign :is(.production-view,.production-dialog) .primary:hover{background:#274d39}
+body.workspace-redesign :is(.production-view,.production-dialog) .secondary{background:white;border:1px solid #ccd7c9;color:#315c45;border-radius:10px;box-shadow:none}
+body.workspace-redesign :is(.production-view,.production-dialog) .secondary:hover{background:#f0f4ed}
+body.workspace-redesign :is(.production-view,.production-dialog) .text-button{color:#315c45;box-shadow:none}
+body.workspace-redesign :is(.production-view,.production-dialog) .danger{color:#a04436}
+body.workspace-redesign :is(.production-view,.production-dialog) :is(button,a,input,select,textarea,summary):focus-visible{outline:3px solid #8aa487;outline-offset:3px;box-shadow:none}
+body.workspace-redesign :is(.production-view,.production-dialog) :is(button,input,select):disabled{opacity:.55;cursor:not-allowed}
+body.workspace-redesign :is(.production-view,.production-dialog) :is(.pill,.v2-badge){background:#e8eee4;color:#315c45;border:1px solid #dce5d6;border-radius:6px;font-size:11px;font-weight:500;line-height:1.5;padding:4px 8px;white-space:normal}
+body.workspace-redesign :is(.production-view,.production-dialog) :is(.pill.neutral,.v2-badge.neutral){background:#f3f5f0;color:#647168;border-color:#e1e5df}
+body.workspace-redesign :is(.production-view,.production-dialog) :is(.v2-badge.warning,.needs-attention){background:#fbf5e5;border-color:#edddb1;color:#765c27}
+body.workspace-redesign :is(.production-view,.production-dialog) .v2-badge.danger{background:#fbefea;border-color:#e8cbc2;color:#963e2f}
+body.workspace-redesign .production-context{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 20px;font-size:12px;color:var(--production-muted);margin:0 0 20px;line-height:1.6}
+body.workspace-redesign .production-context>span:first-child{font-weight:500;color:#315c45}
+body.workspace-redesign :is(.card,.v2-card)>.production-context{padding:13px 20px;margin:0;border-bottom:1px solid var(--production-line);background:#f7f8f4;border-radius:inherit}
+body.workspace-redesign .production-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:0 0 22px}
+body.workspace-redesign .production-metrics>:is(article,a){min-width:0;display:flex;flex-direction:column;align-items:flex-start;padding:19px 20px;background:#fff;border:1px solid var(--production-line);border-radius:12px;color:#20342f;text-decoration:none}
+body.workspace-redesign .production-metrics>a:hover{border-color:#8aa487;background:#fafcf8}
+body.workspace-redesign .production-metrics span{font-size:12px;color:var(--production-muted)}
+body.workspace-redesign .production-metrics strong{font-size:clamp(25px,2.3vw,32px);line-height:1.2;font-weight:600;letter-spacing:-.7px;margin:12px 0 8px;font-variant-numeric:tabular-nums}
+body.workspace-redesign .production-metrics small{font-size:11px}
+body.workspace-redesign .production-metrics>.needs-attention{background:#fbf5e5;border-color:#edddb1}
+body.workspace-redesign .production-readiness{margin-bottom:20px}
+body.workspace-redesign .production-shortcuts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:22px 0}
+body.workspace-redesign .production-shortcuts>a{display:flex;flex-direction:column;gap:7px;min-width:0;padding:19px 20px;border:1px solid #d4dfce;border-radius:12px;background:#e8eee4;color:#20342f;text-decoration:none}
+body.workspace-redesign .production-shortcuts>a:hover{border-color:#8ba080;background:#e1eadb}
+body.workspace-redesign .production-shortcuts span{font-size:11px;color:#536d50}
+body.workspace-redesign .production-shortcuts strong{font-size:16px;font-weight:600}
+body.workspace-redesign .production-shortcuts small{font-size:12px}
+body.workspace-redesign .production-dashboard-grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(260px,1fr);gap:20px}
+body.workspace-redesign .production-activity{margin-top:22px}
+body.workspace-redesign .production-activity .activity-row{display:grid;grid-template-columns:8px minmax(0,1fr) auto;align-items:start;padding:15px 20px}
+body.workspace-redesign .production-activity time{font-size:11px}
+body.workspace-redesign .production-view .step{margin:0 20px;gap:12px}
+body.workspace-redesign .production-view .step>div{min-width:0}
+body.workspace-redesign .production-help{padding:16px 18px;margin:16px 0;background:#f5f6f2;border:1px solid var(--production-line);border-radius:10px;font-size:12px;color:var(--production-muted)}
+body.workspace-redesign :is(.card,.v2-card)>.production-help{margin:16px 20px}
+body.workspace-redesign .production-help summary{cursor:pointer;color:#315c45;font-size:12px;font-weight:500;min-height:24px;line-height:1.7}
+body.workspace-redesign .production-help p{margin:10px 0 0;line-height:1.7}
+body.workspace-redesign :is(.production-view,.production-dialog) .toolbar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px 18px;padding:16px 20px;border-bottom:1px solid var(--production-line)}
+body.workspace-redesign :is(.production-view,.production-dialog) .toolbar>label{min-width:0;margin:0;flex:0 1 180px}
+body.workspace-redesign :is(.production-view,.production-dialog) .toolbar>.production-search{flex:1 1 260px;max-width:500px}
+body.workspace-redesign :is(.production-view,.production-dialog) .toolbar>.muted{font-size:12px;margin:auto 0 12px auto}
+body.workspace-redesign :is(.production-view,.production-dialog) .toolbar :is(input,select){margin:6px 0 0}
+body.workspace-redesign .production-list-tools{margin-bottom:20px}
+body.workspace-redesign .production-list-tools .toolbar{border-bottom:0}
+body.workspace-redesign :is(.production-view,.production-dialog) :is(.table-wrap,.v2-table-wrap){overflow:visible;min-width:0;max-width:100%}
+body.workspace-redesign :is(.production-view,.production-dialog) table{width:100%;min-width:0;table-layout:fixed;white-space:normal;font-variant-numeric:tabular-nums}
+body.workspace-redesign :is(.production-view,.production-dialog) :is(th,td){min-width:0;width:auto;max-width:none;text-align:left;white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;padding:14px 16px;vertical-align:top;font-size:13px;border-color:#e6ebe2}
+body.workspace-redesign :is(.production-view,.production-dialog) th{font-size:11px;font-weight:500;line-height:1.5;background:#f6f8f3;color:#647464}
+body.workspace-redesign :is(.production-view,.production-dialog) th:first-child{border-top-left-radius:10px}
+body.workspace-redesign :is(.production-view,.production-dialog) th:last-child{border-top-right-radius:10px}
+body.workspace-redesign :is(.production-view,.production-dialog) td strong{font-weight:600;font-size:13px}
+body.workspace-redesign :is(.production-view,.production-dialog) td small{display:block;font-size:11px;margin-top:4px;white-space:normal}
+body.workspace-redesign :is(.production-view,.production-dialog) td :is(button,a){white-space:normal;overflow-wrap:anywhere}
+body.workspace-redesign :is(.production-view,.production-dialog) td .secondary{padding:7px 10px;margin:0 4px 5px 0}
+body.workspace-redesign .production-row-actions{display:flex;flex-wrap:wrap;gap:4px 10px}
+body.workspace-redesign .production-view .recipe-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:18px}
+body.workspace-redesign .production-view .recipe-card{padding:22px}
+body.workspace-redesign .production-view .recipe-top{margin:0 0 20px;gap:12px}
+body.workspace-redesign .production-view .recipe-card h2{font-size:19px;line-height:1.45;margin:0}
+body.workspace-redesign .production-view .recipe-card p{margin:8px 0 20px}
+body.workspace-redesign .production-view .recipe-price{display:flex;flex-wrap:wrap;gap:14px;padding:17px 0;border-color:var(--production-line)}
+body.workspace-redesign .production-view .recipe-price small{display:block;font-size:11px;margin-top:5px}
+body.workspace-redesign .production-view .recipe-price strong{font-size:24px;font-weight:600}
+body.workspace-redesign .production-view .recipe-actions{padding-top:10px;flex-wrap:wrap}
+body.workspace-redesign .production-view .calculator-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}
+body.workspace-redesign .production-view .calculator-input{padding:24px}
+body.workspace-redesign .production-view .calculation{background:#e8eee4;border-color:#d1decb;padding:26px}
+body.workspace-redesign .production-view .big-price{font-size:clamp(30px,3vw,42px);font-weight:600;letter-spacing:-1px;margin:18px 0 10px;line-height:1.15}
+body.workspace-redesign .production-view .result-row{gap:18px;border-color:#d1dbcb}
+body.workspace-redesign .production-view .result-row small{display:block;font-size:11px}
+body.workspace-redesign .production-view .order-summary{background:#f7f9f4;border:1px solid #d5dfd0;border-radius:10px;padding:18px}
+body.workspace-redesign .production-view .order-summary>div{flex-wrap:wrap;font-size:13px}
+body.workspace-redesign :is(.production-view,.production-dialog) :is(label,legend){font-size:12px;font-weight:500;color:#42594b;min-width:0}
+body.workspace-redesign :is(.production-view,.production-dialog) :is(input,select,textarea){min-width:0;max-width:100%;font-family:inherit;font-size:14px;border:1px solid #ced9ca;border-radius:8px;min-height:44px;background:#fff;color:#20342f;box-shadow:none;margin:7px 0 16px;padding:10px 12px}
+body.workspace-redesign :is(.production-view,.production-dialog) input:is([type=checkbox],[type=radio]){width:18px;min-width:18px;height:18px;min-height:18px;display:inline-block;margin:0 8px 0 0;accent-color:#315c45;vertical-align:middle}
+body.workspace-redesign :is(.production-view,.production-dialog) label:has(>input[type=hidden]){display:none}
+body.workspace-redesign :is(.production-view,.production-dialog) :is(.field-grid,.v2-form-grid){grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px;min-width:0}
+body.workspace-redesign :is(.production-view,.production-dialog) :is(.notice,.notice.subtle){font-size:13px;border-radius:10px;line-height:1.65;box-shadow:none}
+body.workspace-redesign :is(.production-view,.production-dialog) .notice{background:#fcf5e2;border-color:#eadbb2;color:#735b2d}
+body.workspace-redesign :is(.production-view,.production-dialog) .notice.subtle{background:#f0f4ed;border-color:#dce4d6;color:#566b50}
+body.workspace-redesign :is(.production-view,.production-dialog) .error{color:#a03d32}
+body.workspace-redesign :is(.production-view,.production-dialog) :is(.empty,.v2-empty){min-height:0;padding:42px 22px;text-align:center}
+body.workspace-redesign .production-view .empty-icon{background:#e8eee4;font-size:23px;width:40px;height:40px}
+body.workspace-redesign :is(.production-view,.production-dialog) :is(.empty,.v2-empty) p{max-width:440px;margin:10px auto 18px;color:var(--production-muted);font-size:13px}
+body.workspace-redesign .production-dialog{width:min(800px,calc(100vw - 40px));max-width:800px;max-height:92dvh;padding:0;background:#fff;border:1px solid #d4ded0;border-radius:16px;box-shadow:0 22px 80px #20342f26;overflow:hidden}
+body.workspace-redesign .production-dialog::backdrop{background:#20342f78;backdrop-filter:blur(2px)}
+body.workspace-redesign .production-dialog>form{display:flex;flex-direction:column;max-height:92dvh;margin:0;min-width:0;padding:0;gap:0}
+body.workspace-redesign .production-dialog :is(.dialog-heading,.studio-heading){position:relative;top:auto;display:flex;align-items:flex-start;gap:16px;flex-shrink:0;background:#fff;border-bottom:1px solid var(--production-line);padding:20px 24px;min-width:0}
+body.workspace-redesign .production-dialog :is(.dialog-heading,.studio-heading) h2{margin:0;font-size:20px;line-height:1.4}
+body.workspace-redesign .production-dialog :is(.dialog-heading,.studio-heading) button{flex-shrink:0;min-width:40px}
+body.workspace-redesign .production-dialog :is(.form-body,.studio-scroll){flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:24px;max-height:none}
+body.workspace-redesign .production-dialog :is(.dialog-footer,.studio-footer){position:relative;bottom:auto;flex-shrink:0;background:#fff;border-top:1px solid var(--production-line);padding:16px 24px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+body.workspace-redesign .production-fieldset{min-width:0;margin:0 0 22px;padding:16px 18px 4px;border:1px solid var(--production-line);border-radius:10px;background:#fff}
+body.workspace-redesign .production-fieldset legend{padding:0 8px;font-size:12px;color:#315c45}
+body.workspace-redesign .production-form-summary{background:#e8eee4;border:1px solid #d7e2d1;border-radius:10px;padding:16px 18px;margin-bottom:20px;display:flex;flex-direction:column;gap:6px}
+body.workspace-redesign .production-form-summary span{font-size:12px;color:#5e7357}
+body.workspace-redesign .production-plan{padding:18px;margin:0 0 22px;background:#f5f7f2;border:1px solid #dce4d6;border-radius:10px;min-width:0}
+body.workspace-redesign .production-plan h3{margin:0}
+body.workspace-redesign .production-plan .plan-short{background:#fcf5e2}
+body.workspace-redesign [data-production-material]{padding:12px 0;border-bottom:1px solid #e5eae0}
+body.workspace-redesign [data-production-material]>label{margin:0}
+body.workspace-redesign [data-production-material] input{margin-bottom:6px}
+body.workspace-redesign [data-production-material] .help{margin:0 0 10px}
+body.workspace-redesign .production-view .v2-tabs{display:flex;flex-wrap:wrap;gap:6px;padding:6px;overflow:visible;border:1px solid var(--production-line);border-radius:10px;background:#eef2e9;margin:0 0 20px}
+body.workspace-redesign .production-view .v2-tabs>button{min-width:0;min-height:40px;padding:8px 13px;background:transparent;color:#586d50;border:1px solid transparent;border-radius:7px;white-space:normal;font-size:12px;box-shadow:none}
+body.workspace-redesign .production-view .v2-tabs>button.active{color:#20342f;background:#fff;border-color:#dce3d5;box-shadow:0 1px 3px #20342f09}
+body.workspace-redesign .production-view .v2-summary-line{display:flex;gap:16px;flex-wrap:wrap;padding:12px 0;border-color:var(--production-line);font-size:13px}
+body.workspace-redesign .production-view .v2-summary-line strong{font-weight:600;min-width:0;white-space:normal}
+body.workspace-redesign .production-view .v2-card-body{padding:22px}
+body.workspace-redesign .production-view .ac-actions{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0}
+body.workspace-redesign .production-wizard{max-width:900px;margin:0 auto}
+body.workspace-redesign .production-wizard .v2-tabs{margin:18px 20px 0}
+body.workspace-redesign .production-wizard .v2-tabs>button{flex:1 1 120px;text-align:left}
+body.workspace-redesign .production-view [data-bc-form=scan]{background:#fff;border:1px solid var(--production-line);border-radius:12px;padding:20px;display:flex;align-items:flex-end;flex-wrap:wrap;gap:12px;margin:0 0 20px}
+body.workspace-redesign .production-view [data-bc-form=scan]>label{flex:1 1 280px;min-width:0;margin:0}
+body.workspace-redesign .production-view [data-bc-form=scan] input{margin-bottom:0}
+body.workspace-redesign .production-view [data-bc-form=scan]>.muted{flex-basis:100%;font-size:12px}
+body.workspace-redesign .production-view .bc-camera{max-width:100%;margin:16px 0}
+body.workspace-redesign .production-view .bc-camera video{display:block;width:100%;max-height:340px;object-fit:contain;border-radius:12px;background:#20342f}
+body.workspace-redesign .production-dialog.recipe-studio{width:min(1160px,calc(100vw - 40px))!important;max-width:1160px!important;background:#f5f6f2}
+body.workspace-redesign .production-dialog .studio-heading p{display:block;font-size:12px;margin:8px 0 0;color:var(--production-muted)}
+body.workspace-redesign .production-dialog .studio-basics{grid-template-columns:2fr 1fr 1fr;gap:16px;min-width:0}
+body.workspace-redesign .production-dialog .studio-workbench{grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:20px}
+body.workspace-redesign .production-dialog :is(.studio-library,.studio-selected){min-width:0;background:#fff;border-color:var(--production-line);border-radius:12px;overflow:visible}
+body.workspace-redesign .production-dialog :is(.studio-library-list,.studio-selected-list){height:360px;overscroll-behavior:contain;overflow:auto;padding:8px 12px 16px}
+body.workspace-redesign .production-dialog .studio-section-title{padding:16px;gap:10px;flex-wrap:wrap}
+body.workspace-redesign .production-dialog .studio-section-title h3{font-size:15px}
+body.workspace-redesign .production-dialog .studio-section-title>span{font-size:11px;color:var(--production-muted)}
+body.workspace-redesign .production-dialog .studio-material{gap:10px;padding:12px 9px;min-width:0}
+body.workspace-redesign .production-dialog .studio-material>span:last-child{min-width:0}
+body.workspace-redesign .production-dialog .studio-material-icon{display:none}
+body.workspace-redesign .production-dialog :is(.studio-material,.studio-ingredient-head) strong{font-size:13px;line-height:1.55}
+body.workspace-redesign .production-dialog :is(.studio-material,.studio-ingredient-head) small{font-size:11px;line-height:1.7}
+body.workspace-redesign .production-dialog .studio-material.is-selected{background:#e8eee4;border-color:#d1dfc9}
+body.workspace-redesign .production-dialog .studio-search{font-size:12px}
+body.workspace-redesign .production-dialog .studio-ingredient{padding:14px;border-color:var(--production-line)}
+body.workspace-redesign .production-dialog .studio-ingredient-head{gap:12px;align-items:flex-start}
+body.workspace-redesign .production-dialog .studio-ingredient-head>div{min-width:0}
+body.workspace-redesign .production-dialog .studio-ingredient-head>button{flex-shrink:0}
+body.workspace-redesign .production-dialog .studio-ingredient-fields{grid-template-columns:minmax(0,1fr) 90px minmax(0,1fr);gap:12px;min-width:0}
+body.workspace-redesign .production-dialog .studio-ingredient-fields label{font-size:12px}
+body.workspace-redesign .production-dialog .studio-line-value strong{font-size:16px}
+body.workspace-redesign .production-dialog .studio-extras{background:#fff;border:1px solid var(--production-line);border-radius:12px;padding:18px}
+body.workspace-redesign .production-dialog .studio-extras summary{font-weight:500;color:#315c45}
+body.workspace-redesign .production-dialog .studio-footer>div{min-width:0;flex:1}
+body.workspace-redesign .production-dialog .studio-footer span{font-size:12px}
+body.workspace-redesign .production-dialog .studio-footer small{font-size:11px;max-width:460px}
+body.workspace-redesign .production-dialog .studio-footer strong{font-size:27px;font-weight:600}
+@media(max-width:1100px){
+ body.workspace-redesign .production-dashboard-grid{grid-template-columns:minmax(0,1fr)}
+ body.workspace-redesign .production-view .calculator-grid{grid-template-columns:minmax(0,1fr)}
+ body.workspace-redesign :is(.production-view,.production-dialog) :is(th,td){padding:12px 10px}
+}
+@media(max-width:760px){
+ body.workspace-redesign .production-view .page-heading{flex-direction:column;gap:14px}
+ body.workspace-redesign .production-view .page-heading>.primary{width:100%;font-size:14px;min-height:44px}
+ body.workspace-redesign .production-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+ body.workspace-redesign .production-metrics>:last-child:nth-child(odd){grid-column:1/-1}
+ body.workspace-redesign .production-metrics>:is(article,a){padding:16px}
+ body.workspace-redesign .production-metrics strong{font-size:28px}
+ body.workspace-redesign .production-shortcuts{grid-template-columns:minmax(0,1fr);gap:10px}
+ body.workspace-redesign .production-shortcuts>a{padding:16px}
+ body.workspace-redesign :is(.production-view,.production-dialog) :is(.toolbar,.card-heading,.v2-card-head){padding:16px}
+ body.workspace-redesign :is(.production-view,.production-dialog) .toolbar>.production-search{flex-basis:100%;max-width:none}
+ body.workspace-redesign :is(.production-view,.production-dialog) .toolbar>label{flex:1 1 180px}
+ body.workspace-redesign :is(.production-view,.production-dialog) :is(table,thead,tbody,tr,td){min-width:0;max-width:100%;width:100%}
+ body.workspace-redesign :is(.production-view,.production-dialog) table{display:block;table-layout:auto}
+ body.workspace-redesign :is(.production-view,.production-dialog) thead{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+ body.workspace-redesign :is(.production-view,.production-dialog) tbody{display:block;padding:0 16px}
+ body.workspace-redesign :is(.production-view,.production-dialog) tr{display:block;padding:16px 0;border:0;border-bottom:1px solid var(--production-line);background:transparent}
+ body.workspace-redesign :is(.production-view,.production-dialog) tr:last-child{border-bottom:0}
+ body.workspace-redesign :is(.production-view,.production-dialog) td{position:relative;display:block;padding:8px 0 8px 40%;border:0;min-height:34px;white-space:normal;text-align:left;overflow:visible;font-size:13px}
+ body.workspace-redesign :is(.production-view,.production-dialog) td::before{content:attr(data-label);position:absolute;left:0;top:9px;width:35%;font-size:11px;color:var(--production-muted);font-weight:400;line-height:1.6;overflow-wrap:anywhere}
+ body.workspace-redesign :is(.production-view,.production-dialog) td:first-child{padding:0 0 12px;font-weight:600;font-size:14px}
+ body.workspace-redesign :is(.production-view,.production-dialog) td:first-child::before{display:none}
+ body.workspace-redesign :is(.production-view,.production-dialog) td small{font-weight:400}
+ body.workspace-redesign :is(.production-view,.production-dialog) td :is(button,a){max-width:100%;min-height:40px}
+ body.workspace-redesign .production-view .recipe-card{padding:20px}
+ body.workspace-redesign .production-view :is(.calculator-input,.calculation){padding:20px}
+ body.workspace-redesign .production-view .v2-card-body{padding:16px}
+ body.workspace-redesign .production-dialog{width:100vw;max-width:100vw;height:100dvh;max-height:100dvh;inset:0;margin:0;border:0;border-radius:0}
+ body.workspace-redesign .production-dialog.recipe-studio{width:100vw!important;max-width:100vw!important}
+ body.workspace-redesign .production-dialog>form{height:100%;max-height:100dvh}
+ body.workspace-redesign .production-dialog :is(.form-body,.studio-scroll){padding:18px 16px}
+ body.workspace-redesign .production-dialog :is(.dialog-heading,.studio-heading){padding:16px;gap:10px}
+ body.workspace-redesign .production-dialog :is(.dialog-heading,.studio-heading) h2{font-size:19px}
+ body.workspace-redesign .production-dialog :is(.dialog-footer,.studio-footer){padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px))}
+ body.workspace-redesign .production-dialog .dialog-footer>button{flex:1;min-height:44px}
+ body.workspace-redesign .production-fieldset{padding:14px 12px 0;margin-bottom:18px}
+ body.workspace-redesign .production-plan{padding:14px 12px}
+ body.workspace-redesign .production-plan tbody{padding:0}
+ body.workspace-redesign .production-dialog .studio-workbench{grid-template-columns:minmax(0,1fr);gap:16px}
+ body.workspace-redesign .production-dialog .studio-basics{grid-template-columns:repeat(2,minmax(0,1fr));gap:0 12px}
+ body.workspace-redesign .production-dialog .studio-basics>label:first-child{grid-column:1/-1}
+ body.workspace-redesign .production-dialog .studio-library-list{height:auto;max-height:280px}
+ body.workspace-redesign .production-dialog .studio-selected-list{height:auto;max-height:none}
+ body.workspace-redesign .production-dialog .studio-ingredient-fields{grid-template-columns:repeat(2,minmax(0,1fr))}
+ body.workspace-redesign .production-dialog .studio-line-value{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;gap:12px;text-align:left}
+ body.workspace-redesign .production-dialog .studio-line-value strong{margin:0}
+ body.workspace-redesign .production-dialog .studio-footer{display:flex;flex-direction:column;align-items:stretch;gap:8px}
+ body.workspace-redesign .production-dialog .studio-footer>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 12px;align-items:center}
+ body.workspace-redesign .production-dialog .studio-footer small{grid-column:1/-1;max-width:none}
+ body.workspace-redesign .production-dialog .studio-footer strong{font-size:23px;margin:0}
+ body.workspace-redesign .production-dialog .studio-footer>button{width:100%;min-height:44px}
+ body.workspace-redesign .production-activity .activity-row{grid-template-columns:8px minmax(0,1fr);padding:14px 16px;gap:6px 12px}
+ body.workspace-redesign .production-activity time{grid-column:2;margin:0}
+ body.workspace-redesign .production-view .v2-tabs>button{flex:1 1 100px}
+ body.workspace-redesign .production-view [data-bc-form=scan]{padding:16px}
+ body.workspace-redesign .production-view [data-bc-form=scan]>button{flex:1}
+}
+@media(max-width:440px){
+ body.workspace-redesign :is(.production-view,.production-dialog) :is(.field-grid,.v2-form-grid){grid-template-columns:minmax(0,1fr)}
+ body.workspace-redesign :is(.production-view,.production-dialog) :is(input,select,textarea){font-size:16px}
+ body.workspace-redesign .production-view .page-heading h1{font-size:28px}
+ body.workspace-redesign .production-dialog .studio-basics{grid-template-columns:minmax(0,1fr)}
+ body.workspace-redesign .production-dialog .studio-heading .eyebrow{display:none}
+ body.workspace-redesign .production-dialog .studio-footer small{font-size:10px;line-height:1.4}
+ body.workspace-redesign .production-wizard .v2-tabs{margin:12px}
+}
+@media print{
+ body.workspace-redesign .production-view :is(.toolbar,.production-shortcuts,.production-help){display:none}
+ body.workspace-redesign .production-view :is(.card,.v2-card){box-shadow:none}
+}

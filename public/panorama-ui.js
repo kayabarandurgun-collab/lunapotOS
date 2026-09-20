@@ -1,26 +1,28 @@
+import {parseDateRange,dateRangeLink,dateRangeLabel,dateFilterMarkup,bindDateFilter} from './date-range.js';
 // GENEL DURUM (ana sayfa). Teslim edilenlerin cebine kalanı altı dönemde yan yana; seçili dönemin
 // günlük/haftalık grafiği, Trendyol–Hepsiburada payı, kargodakilerin tahmini ve ürün sıralaması.
 // Veri: GET /api/ec/panorama (kâr raporuyla aynı hesap). Grafik satır içi SVG'dir: CSP dış betik ve
 // satır içi stile izin vermez; renkler ui-polish.css sınıflarından gelir. Etiketler textContent ile yazılır.
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const TL=new Intl.NumberFormat('tr-TR',{style:'currency',currency:'TRY'});
-const money=v=>TL.format((v||0)/100);
+const money=v=>v==null||!Number.isFinite(v)?'Bilgi eksik':TL.format(v/100);
 const kisa=v=>{const a=Math.abs(v/100);return (v<0?'−':'')+(a<1000?Math.round(a).toLocaleString('tr-TR'):new Intl.NumberFormat('tr-TR',{notation:'compact',maximumFractionDigits:a<10000?1:0}).format(a))+' ₺';};
-// Kuruşsuz tam TL: kartta "2,7 B" kısaltması okunmuyor.
-const tamTL=v=>(v<0?'−':'')+Math.round(Math.abs(v)/100).toLocaleString('tr-TR')+' ₺';
 const sayi=v=>new Intl.NumberFormat('tr-TR',{maximumFractionDigits:3}).format(v/1000);
 const AY=['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
 const gunAd=d=>+d.slice(8)+' '+AY[+d.slice(5,7)-1];
 const KANAL={trendyol:'Trendyol',hepsiburada:'Hepsiburada'},KANALLAR=['trendyol','hepsiburada'],SINIF={trendyol:'pn-ty',hepsiburada:'pn-hb'};
-const ONCEKI={'7g':'önceki 7 güne','14g':'önceki 14 güne','30g':'önceki 30 güne','90g':'önceki 90 güne','180g':'önceki 180 güne'};
-const rapor=(p,ek={})=>'#performance?'+new URLSearchParams({...ek,from:p.from,to:p.to});
+const ONCEKI={'1g':'düne','7g':'önceki 7 güne','14g':'önceki 14 güne','30g':'önceki 30 güne','90g':'önceki 90 güne','180g':'önceki 180 güne'};
+const scope=p=>({preset:p.key||'custom',from:p.from,to:p.to,error:null});
+const rapor=(p,ek={})=>dateRangeLink('#performance',scope(p),ek);
+const bucketTotal=b=>Number.isFinite(b.trendyol)&&Number.isFinite(b.hepsiburada)?b.trendyol+b.hepsiburada:null;
 const svgEl=(tag,attrs={})=>{const e=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,v);return e;};
 
 // Grafik kovaları: 31 güne kadar günlük; 400 güne kadar bugünden geriye 7 günlük; sonrası takvim ayı.
 export function panoramaBuckets(daily,period){
  const gunler=daily.filter(g=>g.date>=period.from&&g.date<=period.to);
+ const sum=(part,key)=>part.every(g=>Number.isFinite(g[key]))?part.reduce((t,g)=>t+g[key],0):null;
  const topla=(part,label)=>({from:part[0].date,to:part.at(-1).date,label,days:part.length,
-  trendyol:part.reduce((t,g)=>t+g.trendyol,0),hepsiburada:part.reduce((t,g)=>t+g.hepsiburada,0),packages:part.reduce((t,g)=>t+g.packages,0)});
+  trendyol:sum(part,'trendyol'),hepsiburada:sum(part,'hepsiburada'),packages:part.reduce((t,g)=>t+g.packages,0)});
  if(gunler.length<=31)return {unit:'day',buckets:gunler.map(g=>topla([g],gunAd(g.date)))};
  if(gunler.length<=400){
   const out=[];for(let son=gunler.length-1;son>=0;son-=7){const part=gunler.slice(Math.max(0,son-6),son+1);out.unshift(topla(part,part.length>1?gunAd(part[0].date)+'–'+gunAd(part.at(-1).date):gunAd(part[0].date)));}
@@ -40,7 +42,7 @@ export function niceTicks(min,max,count=4){
 }
 
 function delta(p){
- if(p.prev_cash_cents===null||p.prev_cash_cents===undefined)return null;
+ if(p.partial||p.missing||p.cash_cents==null||p.prev_cash_cents==null)return null;
  const fark=p.cash_cents-p.prev_cash_cents,yon=fark>0?'up':fark<0?'down':'flat',ok=fark>0?'▲':fark<0?'▼':'■';
  // Önceki dönem çok küçükse (veri yeni başlamış) yüzde yanıltır (%1.842 gibi): fark tutar olarak yazılır.
  const oran=p.prev_cash_cents>0?Math.round(fark*100/p.prev_cash_cents):null;
@@ -48,47 +50,58 @@ function delta(p){
  return {yon,metin:ok+' '+metin,uzun:(ONCEKI[p.key]||'önceki döneme')+' göre '+(fark>=0?'+':'−')+money(Math.abs(fark))+' (önceki: '+money(p.prev_cash_cents)+')'};
 }
 
-function periodButton(p,secili){
- return `<button type="button" class="pn-period${p.key===secili?' is-selected':''}" data-donem="${p.key}" aria-pressed="${p.key===secili}"><span class="pn-period-label">${esc(p.label)}</span><strong class="${p.cash_cents<0?'is-negative':''}">${p.packages?money(p.cash_cents):'Teslim yok'}</strong>${p.losses?`<span class="pn-period-loss">${p.losses} zarar · ${tamTL(p.loss_cents)}</span>`:''}</button>`;
+function periodButton(p,selected){
+ return `<a class="pn-period${p.key===selected?' is-selected':''}" href="${esc(dateRangeLink('#overview',scope(p)))}" ${p.key===selected?'aria-current="true"':''}><span class="pn-period-label">${esc(p.label)}</span><strong>${p.packages?money(p.calculated===0?null:p.cash_cents):p.partial?'Hesap eksik':'Teslim yok'}</strong><small>Ciro ${money(p.revenue_gross_cents)}</small><span class="pn-period-loss">${p.losses??'—'} zarar · ${money(p.loss_cents)}</span>${p.partial||p.missing?'<small>Eksik kapsam</small>':p.estimated?'<small>Tahmini tutar içerir</small>':''}</a>`;
 }
-
 function shareBar(p){
- const pay=KANALLAR.map(k=>({k,v:Math.max(0,p.channels[k].cash_cents)})),toplam=pay.reduce((t,x)=>t+x.v,0);
- const bar=toplam>0?`<div class="pn-share-bar" aria-hidden="true">${pay.filter(x=>x.v>0).map(x=>`<span class="${SINIF[x.k]}" data-pay="${Math.round(x.v*1000/toplam)}"></span>`).join('')}</div>`:'';
- return `${bar}<div class="pn-share-rows">${KANALLAR.map(k=>{const c=p.channels[k],oran=toplam>0&&c.cash_cents>0?Math.round(c.cash_cents*100/toplam):null;
-  return `<a href="${rapor(p,{channel:k})}"><i class="pn-key ${SINIF[k]}" aria-hidden="true"></i><span>${KANAL[k]}</span><strong class="${c.cash_cents<0?'is-negative':''}">${c.packages?money(c.cash_cents):'Paket yok'}</strong><small>${c.packages} paket${oran!==null?' · %'+oran:''}</small></a>`;}).join('')}</div>`;
+ const channels=p.channels||{},total=KANALLAR.reduce((sum,k)=>sum+Math.max(0,channels[k]?.cash_cents||0),0);
+ return `<div class="pn-share-rows">${KANALLAR.map(k=>{const c=channels[k];
+  if(!c)return `<div class="ins-empty">${KANAL[k]} · Bilgi alınamadı</div>`;
+  return `<a href="${esc(rapor(p,{channel:k}))}"><span class="ins-channel-name"><i class="pn-key ${SINIF[k]}" aria-hidden="true"></i>${KANAL[k]}</span><strong class="${c.cash_cents<0?'is-negative':''}">${c.packages===0?(p.partial?'Kapsam eksik':'Paket yok'):money(c.calculated===0?null:c.cash_cents)}</strong><small>${c.packages??'—'} paket · ${c.calculated??'—'} hesaplandı</small>${c.revenue_gross_cents!=null?`<small>Ciro ${money(c.revenue_gross_cents)}</small>`:''}<div class="pn-product-meter" aria-hidden="true"><span class="${SINIF[k]}" data-pay="${total?Math.round(Math.max(0,c.cash_cents||0)*1000/total):0}"></span></div></a>`;}).join('')}</div><p class="help">Çubuklar pozitif nakit toplamındaki payı gösterir. Zarar tutarları ayrıca görünür.</p>`;
 }
-
-function productList(title,list,enBuyuk,bos){
- if(!list.length)return bos?`<div class="pn-products-group"><h3>${title}</h3><p class="help">${bos}</p></div>`:'';
- return `<div class="pn-products-group"><h3>${title}</h3><ol>${list.map(u=>`<li><div class="pn-product-line"><span class="pn-product-name" title="${esc(u.name)}">${esc(u.name)}</span><strong class="${u.cash_cents<0?'is-negative':''}">${money(u.cash_cents)}</strong></div><div class="pn-product-meter" aria-hidden="true"><span class="${u.cash_cents<0?'neg':'pos'}" data-pay="${Math.max(12,Math.round(Math.abs(u.cash_cents)*1000/(enBuyuk||1)))}"></span></div><small>${sayi(u.qty_milli)} adet · adet başı ${money(u.per_unit_cents)}${u.cash_cents<0?' · zarar':''}</small></li>`).join('')}</ol></div>`;
+function productList(title,list,metric='cash_cents'){
+ if(!list?.length)return `<div class="pn-products-group"><h3>${title}</h3><p class="ins-empty">Bu kapsamda hesaplanabilen ürün yok.</p></div>`;
+ const max=Math.max(1,...list.map(u=>Math.abs(u[metric]||0)));
+ return `<div class="pn-products-group"><h3>${title}</h3><ol>${list.map(u=>`<li><div class="pn-product-line"><span class="pn-product-name">${esc(u.name)}</span><strong class="${u[metric]<0?'is-negative':''}">${money(u[metric])}</strong></div><div class="pn-product-meter" aria-hidden="true"><span class="${u[metric]<0?'neg':'pos'}" data-pay="${Math.round(Math.abs(u[metric]||0)*1000/max)}"></span></div><small>${u.qty_milli==null?'Adet bilinmiyor':sayi(u.qty_milli)+' adet'} · ${metric==='cash_cents'?'Ciro '+money(u.revenue_gross_cents):'Cebine kalan '+money(u.cash_cents)}${u.per_unit_cents!=null?' · adet başı kalan '+money(u.per_unit_cents):''}${u.revenue_missing?' · ciro eksik: '+u.revenue_missing+' katkı hesaplanamadı, görünen ciro alt toplamdır':''}</small></li>`).join('')}</ol></div>`;
 }
-
-function detail(data,p){
- const d=delta(p),bekleyen=data.pending,b=panoramaBuckets(data.daily,p);
- const birim={day:'Günlük',week:'Haftalık',month:'Aylık'}[b.unit];
- const notlar=[];
- if(p.estimated)notlar.push(`${p.estimated} paketin kesintisi veya maliyeti geçmişten <b>tahmini</b>. Kesin tutar için fatura ve kesintilerin eşleşmesi gerekir.`);
- if(p.missing)notlar.push(`<a href="${rapor(p,{result:'missing'})}">${p.missing} paket hesaba girmedi →</a>`);
- // Bir bölüm hesaplanamadıysa (sunucu coverage/partial) toplam tam gibi sunulmaz.
- if(p.partial)notlar.push(`<b>Eksik kapsam:</b> ${(data.coverage?.missing||[]).map(m=>esc(gunAd(m.from))+' – '+esc(gunAd(m.to))).join(', ')||'bir bölüm'} hesaplanamadı; bu dönemin toplamı eksik.`);
- if(data.unallocated_fee_cents)notlar.push(`Satışlara dağıtılmamış ${money(data.unallocated_fee_cents)} kesinti faturası var. <a href="#reconciliation">Eşleştir →</a>`);
- const hesapNotu=`KDV hariç katkı: ${money(p.profit_ex_vat_cents)}. Ortak işletme giderleri ve gelir/kurumlar vergisi bu hesaba dahil değildir.`;
- const enBuyuk=Math.max(1,...[...p.products.top,...p.products.bottom].map(u=>Math.abs(u.cash_cents)));
- const pendingHtml=bekleyen.partial?`<strong class="pn-pending-value">Hesaplanamadı</strong><small>${esc(bekleyen.error||'Kargodaki paketler şu an hesaplanamadı.')}</small>`:!bekleyen.packages?'<strong class="pn-pending-value">Kargoda paket yok</strong>':`<strong class="pn-pending-value ${bekleyen.cash_cents<0?'is-negative':''}">${money(bekleyen.cash_cents)}</strong><small>${bekleyen.packages} paket · kargoda + hazırlanan · tamamı tahmini${bekleyen.missing?' · '+bekleyen.missing+' paket hesaplanamadı':''}</small><div class="pn-pending-rows">${KANALLAR.filter(k=>bekleyen.channels[k].packages).map(k=>`<span><i class="pn-key ${SINIF[k]}" aria-hidden="true"></i>${KANAL[k]} <b>${money(bekleyen.channels[k].cash_cents)}</b> <small>${bekleyen.channels[k].packages} paket</small></span>`).join('')}</div>`+
-  // Adet uyumu zayıfsa (fee-history 'uzak'/'yok') tutar aynı kalır, ama kaç pakette dayanak olmadığı söylenir.
-  (bekleyen.kaba_tahmin?`<small>${bekleyen.kaba_tahmin} pakette benzer adette teslim geçmişi yok; tahmin kaba.</small>`:'');
- return `<div class="pn-main"><section class="pn-card pn-hero" aria-label="${esc(p.label)} cebine kalan"><div class="pn-head"><div><span class="eyebrow">TESLİM EDİLENLER · ${esc(p.label.toLocaleUpperCase('tr-TR'))}</span><h2>Cebine kalan <span class="pn-vat">KDV dahil</span></h2></div><a class="text-button" href="${rapor(p)}">Paketleri gör →</a></div>`+
-  `<strong class="pn-hero-value ${p.cash_cents<0?'is-negative':''}">${p.packages?money(p.cash_cents):'Bu dönemde teslim yok'}</strong>`+
-  `<p class="pn-sub">${gunAd(p.from)} – ${gunAd(p.to)} · ${p.packages} paket · ciro ${money(p.revenue_gross_cents)}${d?` · <span class="pn-delta ${d.yon}">${esc(d.metin)}</span> <span class="muted">${esc(ONCEKI[p.key]||'')} göre</span>`:''}</p>`+
-  (notlar.length?`<ul class="pn-quality" aria-label="Hesabın durumu">${notlar.map(n=>`<li>${n}</li>`).join('')}</ul>`:'')+
-  (p.packages?`<div class="pn-split"><a href="${rapor(p,{result:'profit'})}"><small>Kâr bırakan ${p.gains} paket</small><strong>+${money(p.gain_cents)}</strong></a><a class="is-loss" href="${rapor(p,{result:'loss'})}"><small>Zarar eden ${p.losses} paket</small><strong class="${p.loss_cents<0?'is-negative':''}">${p.loss_cents<0?money(p.loss_cents):money(0)}</strong></a></div>`:'')+
-  `<div class="pn-share">${shareBar(p)}</div>`+
-  (b.buckets.length?`<div class="pn-chart-wrap"><div class="pn-chart-head"><h3>${birim} cebine kalan</h3><div class="pn-legend">${KANALLAR.map(k=>`<span><i class="pn-key ${SINIF[k]}" aria-hidden="true"></i>${KANAL[k]}</span>`).join('')}</div></div><div class="pn-chart" data-pn-chart></div><div class="pn-tip" role="status" hidden></div></div>`+
-  `<details class="pn-table"><summary>Tablo olarak göster</summary><div class="table-wrap"><table data-list-tools="off"><thead><tr><th>${birim==='Günlük'?'Gün':'Dönem'}</th><th>Trendyol</th><th>Hepsiburada</th><th>Toplam</th><th>Paket</th></tr></thead><tbody>${[...b.buckets].reverse().map(x=>`<tr><td>${esc(x.label)}</td><td>${money(x.trendyol)}</td><td>${money(x.hepsiburada)}</td><td><b>${money(x.trendyol+x.hepsiburada)}</b></td><td>${x.packages}</td></tr>`).join('')}</tbody></table></div></details>`:'')+
-  `<details class="pn-calculation-note"><summary>Bu tutar nasıl okunmalı?</summary><p>${hesapNotu}</p></details></section>`+
-  `<div class="pn-side"><a class="pn-card pn-pending" href="#performance?${new URLSearchParams({mode:'pending',from:bekleyen.from,to:bekleyen.to})}"><span class="eyebrow">HENÜZ TESLİM EDİLMEDİ</span><h2>Kargodaki tahminim</h2>${pendingHtml}<span class="pn-link">Paketleri gör →</span></a>`+
-  `<section class="pn-card pn-products"><div class="pn-head"><div><span class="eyebrow">ÜRÜNLER · ${esc(p.label.toLocaleUpperCase('tr-TR'))}</span><h2>Ne kazandırdı?</h2></div><a class="text-button" href="#stock">Tümü →</a></div>${p.products.count?productList('En çok kazandıran',p.products.top,enBuyuk)+productList(p.products.bottom.some(u=>u.cash_cents<0)?'En az kazandıran / zarar ettiren':'En az kazandıran',p.products.bottom,enBuyuk):'<p class="help">Bu dönemde teslim edilen ürün yok.</p>'}</section></div></div>`;
+function recordCard(title,record,metric,p){
+ if(!record)return `<article class="ins-record"><span class="eyebrow">${title}</span><strong>Henüz hesaplanamadı</strong><small>${p.partial?'Dönemin bir bölümü alınamadı.':'Seçili dönemde hesaplanabilen uygun kayıt yok.'}</small></article>`;
+ const id=record.package_id||record.id;
+ const href=id?dateRangeLink('#orders',scope(p),{package:id,donus:dateRangeLink('#overview',scope(p)).slice(1)}):rapor(p);
+ return `<a class="ins-record" href="${esc(href)}"><span class="eyebrow">${title}</span><strong class="${record[metric]<0?'is-negative':''}">${money(record[metric])}</strong><span>${esc(record.order_no||record.external_id||'Sipariş ayrıntısı')} →</span><small>${esc(KANAL[record.channel]||record.channel||'')} · ${esc(record.delivered_on||record.date||'Seçili dönem')}${record.packages>1?' · '+record.packages+' paketin toplamı; bağlantı bir paketi açar':''}${record.cash_missing||record.revenue_missing?' · eksik kapsam':''}${record.estimated?' · tahmini':''}</small></a>`;
+}
+function pendingCard(pending){
+ if(!pending)return `<section class="pn-card pn-pending"><h2>Kargoda ve hazırlıkta</h2><p class="ins-empty">Tahmin bilgisi alınamadı.</p></section>`;
+ const unknown=pending.partial||pending.calculated===0&&pending.packages>0;
+ return `<section class="pn-card pn-pending"><span class="eyebrow">GÜNCEL BEKLEYENLER · TARİH FİLTRESİNDEN BAĞIMSIZ</span><h2>Kargoda ve hazırlıkta</h2><strong class="pn-pending-value ${pending.cash_cents<0?'is-negative':''}">${unknown?'Hesap eksik':pending.packages===0?'Bekleyen paket yok':money(pending.cash_cents)}</strong><p>${pending.packages??'—'} paket · tamamı tahmini · KDV dahil</p>${pending.from&&pending.to?`<small>Sipariş tarihi: ${esc(dateRangeLabel(scope(pending)))}</small>`:''}${pending.missing?`<p class="ins-quality">${pending.missing} paket hesaplanamadı. Gösterilen tutar yalnız hesaplanabilen paketlere aittir.</p>`:''}${pending.kaba_tahmin?`<p class="ins-quality">${pending.kaba_tahmin} pakette benzer adette teslim geçmişi yok; tahmin kaba.</p>`:''}${pending.error?`<p class="error">${esc(pending.error)}</p>`:''}${pending.channels?`<details><summary>Bekleyenlerin kanal dağılımı</summary><div class="pn-pending-rows">${KANALLAR.map(k=>{const c=pending.channels[k];return c?`<span><i class="pn-key ${SINIF[k]}" aria-hidden="true"></i>${KANAL[k]} <b>${c.calculated===0&&c.packages>0?'Bilgi eksik':money(c.cash_cents)}</b><small>${c.packages??'—'} paket</small></span>`:'';}).join('')}</div></details>`:''}${pending.from&&pending.to?`<a class="text-button" href="${esc(rapor(pending,{mode:'pending'}))}">Bekleyen paketleri incele →</a>`:''}</section>`;
+}
+// Markup stays pure for fixture tests. All money comes from the shared report API.
+export function panoramaDetailMarkup(data,p){
+ const b=panoramaBuckets(data.daily||[],p),d=delta(p),inventory=data.inventory||{},products=p.products||{};
+ const incomplete=!!(p.partial||p.missing||p.revenue_missing||data.unallocated_fee_cents),quality=incomplete?'Eksik kapsam':p.estimated?'Tahmini tutar içerir':p.packages?'Hesaplandı':'Teslim yok';
+ const unit={day:'Günlük',week:'Haftalık',month:'Aylık'}[b.unit];
+ const noCalculated=p.calculated===0&&(p.packages>0||p.partial);
+ const cash=noCalculated?null:(p.calculated_cash_cents??p.cash_cents);
+ const chartAvailable=b.buckets.length>0&&!noCalculated&&b.buckets.every(x=>bucketTotal(x)!==null);
+ const emptyText=p.partial?'Dönem verisinin bir bölümü alınamadı':p.packages?'Bu aralıkta hesaplanabilen nakit sonucu yok':'Bu aralıkta teslim kaydı yok';
+ const noRevenue=p.revenue_missing>0&&p.revenue_missing>=p.packages;
+ const inventoryMissing=inventory.missing_vat_products>0||inventory.partial;
+ return `<div class="ins-scope-line"><span>${esc(dateRangeLabel(scope(p)))} · ${p.partial&&!p.calculated?'Paket sayısı alınamadı':(p.packages??'—')+' sonuçlanan paket'}</span><span class="ins-status ${incomplete?'is-incomplete':p.estimated?'is-estimated':''}">${quality}</span></div>
+  <div class="ins-kpis" aria-label="Seçili dönemin özeti">
+   <article class="ins-kpi"><span>Ciro <small>KDV dahil</small></span><strong>${money(noRevenue?null:p.revenue_gross_cents)}</strong><small>${p.revenue_missing?`${p.revenue_missing} pakette ciro eksik`:'Seçili dönemde sonuçlanan satışlar'}${p.partial?' · eksik kapsam':''}</small></article>
+   <article class="ins-kpi ins-kpi-primary"><span>Cebine kalan <small>KDV dahil</small></span><strong class="${cash<0?'is-negative':''}">${money(cash)}</strong><small>KDV hariç katkı: ${money(noCalculated?null:p.profit_ex_vat_cents)}</small>${d?`<small>${esc(d.metin)} · ${esc(d.uzun)}</small>`:''}</article>
+   <article class="ins-kpi"><span>Nakit marjı</span><strong>${p.margin_bps==null?'—':new Intl.NumberFormat('tr-TR',{style:'percent',maximumFractionDigits:1}).format(p.margin_bps/10000)}</strong><small>${p.margin_bps==null?'Ortak ciro ve nakit kapsamı hesaplanamadı.':'Ciro ve nakdi birlikte hesaplanabilen '+(p.margin_packages??'—')+' paket.'}${p.margin_missing?' '+p.margin_missing+' paket kapsam dışında.':''}</small></article>
+   <article class="ins-kpi ins-kpi-stock"><span>Depo değeri <small>Güncel stok</small></span><strong>${inventoryMissing?'Hesap eksik':money(inventory.gross_cents)}</strong><small>KDV dahil${inventory.gross_estimated?' tahmini':''}${inventoryMissing&&inventory.calculated_gross_cents!=null?' hesaplanabilen: '+money(inventory.calculated_gross_cents):''} · KDV hariç: ${money(inventory.net_cents)}</small><small>Tarih filtresinden bağımsız${inventory.missing_vat_products?' · '+inventory.missing_vat_products+' ürünün KDV oranı eksik':''}${inventory.negative_products?' · '+inventory.negative_products+' ürün eksi stokta':''}</small></article>
+  </div>
+  ${incomplete||p.estimated?`<aside class="ins-quality" aria-label="Hesap kapsamı">${p.partial?'<p>Bu dönemin bir bölümü alınamadı; toplamlar eksiktir.</p>':''}${p.missing?`<p><a href="${esc(rapor(p,{result:'missing'}))}">${p.missing} paket hesaplanamadı →</a> Gösterilen nakit toplamı hesaplanabilen ${p.calculated??'—'} pakete aittir.</p>`:''}${p.estimated?`<p>${p.estimated} paketin maliyeti veya kesintisi tahmini; belgeler eşleşince kesinleşir.</p>`:''}${data.unallocated_fee_cents?`<p>${money(data.unallocated_fee_cents)} kesinti satışlara dağıtılmadı. Dönem sonucu tamamlanmış sayılmaz. <a href="#reconciliation">Eşleştir →</a></p>`:''}</aside>`:''}
+  <div class="ins-main-grid"><section class="pn-card ins-trend"><div class="pn-head"><div><span class="eyebrow">NAKİT AKIŞININ DAĞILIMI</span><h2>${unit} cebine kalan</h2></div><a class="text-button" href="${esc(rapor(p))}">Paket dökümü →</a></div><div class="pn-legend">${KANALLAR.map(k=>`<span><i class="pn-key ${SINIF[k]}" aria-hidden="true"></i>${KANAL[k]}</span>`).join('')}</div>
+   ${b.buckets.length?`${chartAvailable?'<div class="pn-chart-wrap"><div class="pn-chart" data-pn-chart></div><div class="pn-tip" role="status" hidden></div></div>':'<p class="ins-empty">Grafik için hesap bilgisi eksik.</p>'}<details class="pn-table"><summary>Grafiğin veri tablosu</summary><div class="table-wrap"><table data-list-tools="off"><caption>${unit} cebine kalan · KDV dahil</caption><thead><tr><th>Dönem</th><th>Trendyol</th><th>Hepsiburada</th><th>Toplam</th><th>Paket</th></tr></thead><tbody>${[...b.buckets].reverse().map(x=>`<tr><td data-label="Dönem">${esc(x.label)}</td><td data-label="Trendyol">${money(noCalculated?null:x.trendyol)}</td><td data-label="Hepsiburada">${money(noCalculated?null:x.hepsiburada)}</td><td data-label="Toplam"><b>${money(noCalculated?null:bucketTotal(x))}</b></td><td data-label="Paket">${x.packages}</td></tr>`).join('')}</tbody></table></div></details>`:`<div class="ins-empty"><h3>${emptyText}</h3><p>${p.partial||p.missing?'Eksik kayıtlar sıfır olarak değerlendirilmez.':'Başka bir dönem seçerek satışlarını inceleyebilirsin.'}</p></div>`}
+   <div class="pn-split"><a href="${esc(rapor(p,{result:'profit'}))}"><small>Kâr bırakan ${p.gains??'—'} paket</small><strong>${money(noCalculated?null:p.gain_cents)}</strong></a><a class="is-loss" href="${esc(rapor(p,{result:'loss'}))}"><small>Zarar eden ${p.losses??'—'} paket</small><strong class="is-negative">${money(noCalculated?null:p.loss_cents)}</strong></a></div>
+   <details class="pn-calculation-note"><summary>Hesap kapsamı ve yöntemi</summary><p>${esc(data.notice||'KDV dahil satıştan ürün maliyeti, pazaryeri kesintileri ve stopaj düşülür. Ortak giderler ve gelir vergisi dahil değildir.')}</p><p>Grafik hesaplanabilen paketlerin nakit sonucudur; eksik paketler sıfır kâr sayılmaz. 31 güne kadar günlük, 400 güne kadar haftalık, daha uzun aralıklarda aylık gösterilir.</p></details></section>
+   <section class="pn-card ins-channels"><span class="eyebrow">SEÇİLİ DÖNEM</span><h2>Kanal dağılımı</h2>${shareBar(p)}</section></div>
+  <section class="pn-card pn-products"><div class="pn-head"><div><span class="eyebrow">ÜRÜN PERFORMANSI · KDV DAHİL</span><h2>Ürünlerin katkısı</h2></div><a class="text-button" href="${esc(dateRangeLink('#stock',scope(p)))}">Ürünleri incele →</a></div>${products.missing_packages?`<p class="ins-quality">${products.missing_packages} paketin ürün dağılımı eksik. Sıralamalar yalnız hesaplanabilen katkıları içerir.</p>`:''}<div class="ins-product-tabs" role="tablist" aria-label="Ürün sıralaması"><button type="button" role="tab" id="pn-revenue-tab" aria-controls="pn-revenue-products" aria-selected="true" data-product-view="revenue">Ciro</button><button type="button" role="tab" id="pn-profit-tab" aria-controls="pn-profit-products" aria-selected="false" tabindex="-1" data-product-view="profit">Kazanç</button></div><div id="pn-revenue-products" role="tabpanel" aria-labelledby="pn-revenue-tab" data-product-panel="revenue">${productList('En çok ciro getiren',products.revenue_top,'revenue_gross_cents')}</div><div id="pn-profit-products" role="tabpanel" aria-labelledby="pn-profit-tab" data-product-panel="profit" hidden>${productList('En çok kazandıran',products.top)}${products.bottom?.length?`<details><summary>En az kazandıran ve zarar eden ürünler</summary>${productList('Düşük katkılı ürünler',products.bottom)}</details>`:''}</div></section>
+  <section class="ins-records-section"><div class="pn-head"><div><span class="eyebrow">SEÇİLİ DÖNEM · KDV DAHİL</span><h2>Tek siparişte rekorlar</h2></div></div>${p.records?.partial||p.records?.revenue_missing_orders||p.records?.profit_missing_orders?`<p class="ins-quality">${p.records.partial?'Eksik dönem kapsamı. ':''}${p.records.revenue_missing_orders||0} sipariş ciro, ${p.records.profit_missing_orders||0} sipariş nakit bilgisi eksik olduğu için sıralamaya alınmadı.</p>`:''}<div class="ins-records">${recordCard('En yüksek ciro',p.records?.revenue,'revenue_gross_cents',p)}${recordCard('En çok cebine kalan',p.records?.profit,'cash_cents',p)}</div></section>
+  ${pendingCard(data.pending)}`;
 }
 
 // Yığılmış sütun grafiği: pozitifler sıfırdan yukarı (Trendyol altta), negatifler aşağı yığılır.
@@ -159,22 +172,25 @@ function drawChart(host,tip,buckets){
 // Oran çubukları CSP yüzünden satır içi stil yazamaz; genişlik CSSOM ile verilir (izinli).
 function oranlar(root){for(const e of root.querySelectorAll('[data-pay]')){const v=+e.dataset.pay/10;if(e.parentElement.classList.contains('pn-share-bar'))e.style.flexGrow=String(v);else e.style.width=v+'%';}}
 
-export function mountPanorama(section,data,{signal}={}){
- const secim=()=>{const k=new URLSearchParams(location.hash.split('?')[1]||'').get('donem');return data.periods.some(p=>p.key===k)?k:'30g';};
- let secili=secim(),gozlem=null;
- const ciz=()=>{
-  const p=data.periods.find(x=>x.key===secili),b=panoramaBuckets(data.daily,p).buckets;
-  section.querySelector('[data-pn-detail]').innerHTML=detail(data,p);oranlar(section);
-  const host=section.querySelector('[data-pn-chart]');
-  if(host){drawChart(host,section.querySelector('.pn-tip'),b);gozlem?.disconnect();let son=host.clientWidth;
-   gozlem=new ResizeObserver(()=>{if(Math.abs(host.clientWidth-son)<8)return;son=host.clientWidth;drawChart(host,section.querySelector('.pn-tip'),b);});gozlem.observe(host);}
- };
- section.removeAttribute('aria-busy');
- section.innerHTML=`<div class="pn-periods" role="group" aria-label="Dönem seç · teslim edilenlerden cebine kalan, KDV dahil">${data.periods.map(p=>periodButton(p,secili)).join('')}</div><div data-pn-detail></div>`;
- ciz();
- section.addEventListener('click',e=>{const b=e.target.closest('[data-donem]');if(!b||b.dataset.donem===secili)return;secili=b.dataset.donem;
-  for(const x of section.querySelectorAll('[data-donem]')){const on=x.dataset.donem===secili;x.classList.toggle('is-selected',on);x.setAttribute('aria-pressed',String(on));}
-  // Seçim adreste kalır (geri tuşu ve yenileme aynı dönemi açar); hashchange tetiklenmez, sayfa baştan kurulmaz.
-  history.replaceState(null,'','#overview?donem='+secili);ciz();},{signal});
- signal?.addEventListener('abort',()=>gozlem?.disconnect());
+export function mountPanorama(section,data,{signal,onRangeChange}={}){
+ const range=parseDateRange(location.hash,{today:data.today,firstDate:data.first_delivered||data.today});
+ let period=data.periods.find(p=>p.key===range.preset&&p.from===range.from&&p.to===range.to);
+ if(!period&&range.from&&range.to)period=data.periods.find(p=>p.from===range.from&&p.to===range.to)||data.selected_period;
+ if(!period&&range.preset==='tum')period=data.periods.find(p=>p.key==='tum');
+ if(!period)period=data.periods.find(p=>p.key==='30g')||data.periods[0];
+ if(!period){section.setAttribute('aria-busy','false');section.innerHTML='<p class="error" role="alert">Dönem verisi alınamadı.</p>';return;}
+ const rangeMismatch=range.from&&(period.from!==range.from||period.to!==range.to);
+ const selected={...scope(period),error:range.error||(rangeMismatch?'Seçilen aralık alınamadı; gösterilen kapsam '+dateRangeLabel(scope(period))+'.':null)};
+ section.setAttribute('aria-busy','false');section.classList.add('insights-panorama');
+ section.innerHTML=dateFilterMarkup(selected,{firstDate:data.first_delivered||data.today})+panoramaDetailMarkup(data,period)+`<details class="ins-period-comparison"><summary>Bütün dönemler · nakit, ciro ve zarar</summary><div class="pn-periods">${data.periods.filter(p=>p.key!=='custom').map(p=>periodButton(p,selected.preset)).join('')}</div></details>`;
+ oranlar(section);
+ const unbind=bindDateFilter(section,{signal,today:data.today,firstDate:data.first_delivered||data.today,onChange:next=>{if(onRangeChange)onRangeChange(next);else location.hash=dateRangeLink('#overview',next);}});
+ const chooseProducts=key=>{for(const button of section.querySelectorAll('[data-product-view]')){const active=button.dataset.productView===key;button.setAttribute('aria-selected',String(active));button.tabIndex=active?0:-1;}for(const panel of section.querySelectorAll('[data-product-panel]'))panel.hidden=panel.dataset.productPanel!==key;};
+ const productClick=event=>{const button=event.target.closest('[data-product-view]');if(button)chooseProducts(button.dataset.productView);};
+ const productKey=event=>{const button=event.target.closest('[data-product-view]');if(!button||!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const key=event.key==='Home'?'revenue':event.key==='End'?'profit':button.dataset.productView==='revenue'?'profit':'revenue';chooseProducts(key);section.querySelector('[data-product-view="'+key+'"]').focus();};
+ section.addEventListener('click',productClick,{signal});section.addEventListener('keydown',productKey,{signal});
+ const host=section.querySelector('[data-pn-chart]');let observer;
+ if(host){const buckets=panoramaBuckets(data.daily||[],period).buckets;drawChart(host,section.querySelector('.pn-tip'),buckets);let width=host.clientWidth;
+  if(typeof ResizeObserver!=='undefined'){observer=new ResizeObserver(()=>{if(Math.abs(host.clientWidth-width)<8)return;width=host.clientWidth;drawChart(host,section.querySelector('.pn-tip'),buckets);});observer.observe(host);}}
+ const dispose=()=>{observer?.disconnect();unbind();section.removeEventListener('click',productClick);section.removeEventListener('keydown',productKey);};signal?.addEventListener('abort',dispose,{once:true});return dispose;
 }
