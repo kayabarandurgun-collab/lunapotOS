@@ -1,3 +1,4 @@
+import {takeLoginBudget} from './login-limits.js';
 import {parsePermissions,envelope} from '../public/permissions.js';
 import {permit} from './permission-policy.js';
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
@@ -15,26 +16,34 @@ export async function currentSession(request,db){const token=request.headers.get
 export const authorize=permit;
 const field=(v,label,max=100)=>{if(typeof v!=='string'||!v.trim()||v.length>max)fail(label+' alanını kontrol edin.');return v.trim();};
 const log=(db,user,action,target)=>db.prepare('INSERT INTO access_audit(id,actor_id,actor_name,action,target_id) VALUES(?,?,?,?,?)').bind(crypto.randomUUID(),user.id,user.name,action,target);
+export async function reauthenticate(request,db,user,password){
+ // Reserve the attempt before hashing, across concurrent requests and workers.
+ await takeLoginBudget(db,'reauth-ip:'+(request.headers.get('CF-Connecting-IP')||'local'),30);
+ await takeLoginBudget(db,'reauth-account:'+user.id,10);
+ const account=await (user.owner?db.prepare('SELECT salt,password_hash FROM admin WHERE id=1'):db.prepare('SELECT salt,password_hash FROM staff_users WHERE id=? AND active=1').bind(user.id)).first();
+ const candidate=typeof password==='string'&&password.length<=200&&account?.salt?await passwordHash(password,account.salt):'';
+ if(!account?.password_hash||!equal(candidate,account.password_hash))fail('İşlem doğrulanamadı. Şifrenizi kontrol edin.',401);
+ return account;
+}
 export async function accessApi(request,env,path,readBody,user){
- // YÖNETİCİ ŞİFRESİNİ DEĞİŞTİRME. Eskiden hiçbir ekrandan değiştirilemiyordu: şifre ya da oturum çerezi
- // sızarsa 7 gün boyunca kapatmanın yolu yoktu (çalışan hesapları davet yenilenerek kapatılabiliyordu).
- // Şifre değişince yöneticinin BÜTÜN oturumları kapanır; çağıran cihaz yeni çerezle açık kalır.
- if(path==='/api/admin/password'){
-  if(!user.owner)fail('Bu işlemi yalnızca yönetici yapabilir.',403);
+ if(path==='/api/admin/password'||path==='/api/auth/password'){
+  if(path==='/api/admin/password'&&!user.owner)fail('Bu işlemi yalnızca yönetici yapabilir.',403);
   if(request.method!=='POST')fail('İşlem bulunamadı.',404);
-  const db=env.DB,x=await readBody(request),admin=await db.prepare('SELECT * FROM admin WHERE id=1').first();
-  if(!admin)fail('Önce ilk kurulum tamamlanmalı.',403);
-  const eski=typeof x.current_password==='string'&&x.current_password.length<=200?await passwordHash(x.current_password,admin.salt):'';
-  if(!equal(eski,admin.password_hash))fail('Şu anki şifre hatalı.',401);
-  const yeni=field(x.password,'Yeni şifre',200);
-  if(yeni.length<12)fail('En az 12 karakterlik bir şifre seçin.');
-  if(equal(await passwordHash(yeni,admin.salt),admin.password_hash))fail('Yeni şifre eskisinden farklı olmalı.');
-  const salt=crypto.randomUUID(),token=hex(crypto.getRandomValues(new Uint8Array(32)));
-  await db.batch([
-   db.prepare('UPDATE admin SET salt=?,password_hash=? WHERE id=1').bind(salt,await passwordHash(yeni,salt)),
-   db.prepare('DELETE FROM sessions WHERE staff_id IS NULL'),
-   db.prepare('INSERT INTO sessions(token_hash,expires_at,staff_id) VALUES(?,?,NULL)').bind(await hash(token),Math.floor(Date.now()/1000)+604800),
-   log(db,user,'Yönetici şifresi değiştirildi; açık oturumlar kapatıldı',null)]);
+  const db=env.DB,x=await readBody(request),account=await reauthenticate(request,db,user,x?.current_password);
+  const password=x.password;
+  if(typeof password!=='string'||password.length<12||password.length>200)fail('En az 12, en çok 200 karakterlik bir şifre seçin.');
+  if(equal(await passwordHash(password,account.salt),account.password_hash))fail('Yeni şifre eskisinden farklı olmalı.');
+  const salt=crypto.randomUUID(),token=hex(crypto.getRandomValues(new Uint8Array(32))),nextHash=await passwordHash(password,salt);
+  const change=user.owner?
+   db.prepare('UPDATE admin SET salt=?,password_hash=? WHERE id=1 AND password_hash=? AND salt=? RETURNING id').bind(salt,nextHash,account.password_hash,account.salt):
+   db.prepare('UPDATE staff_users SET salt=?,password_hash=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND active=1 AND password_hash=? AND salt=? RETURNING id').bind(salt,nextHash,user.id,account.password_hash,account.salt);
+  // Credential triggers revoke all previous sessions and device grants; the new session uses only the new credential version.
+  const create=user.owner?
+   db.prepare('INSERT INTO sessions(token_hash,expires_at,staff_id) SELECT ?,?,NULL FROM admin WHERE id=1 AND salt=? AND password_hash=?').bind(await hash(token),Math.floor(Date.now()/1000)+604800,salt,nextHash):
+   db.prepare('INSERT INTO sessions(token_hash,expires_at,staff_id) SELECT ?,?,id FROM staff_users WHERE id=? AND active=1 AND salt=? AND password_hash=?').bind(await hash(token),Math.floor(Date.now()/1000)+604800,user.id,salt,nextHash);
+  const result=await db.batch([change,create]);
+  if(!result[0].results.length)fail('İşlem doğrulanamadı. Yeniden giriş yapın.',401);
+  await log(db,user,(user.owner?'Yönetici':'Çalışan')+' şifresi değiştirildi; açık oturumlar ve güvenilir cihazlar kapatıldı',user.owner?null:user.id).run();
   return {ok:true,token};
  }
  if(!path.startsWith('/api/admin/users'))return null;

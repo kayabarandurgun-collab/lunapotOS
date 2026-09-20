@@ -1,0 +1,23 @@
+/* Offering details reuse the forest/paper palette and stay scoped to the three owned workflows. */
+.offering-components { margin: .65rem 0; border: 1px solid var(--line, #dce3d8); border-radius: 12px; background: var(--paper, #f7f8f2); padding: .65rem .8rem; color: var(--ink, #24392e); }
+.offering-components summary { cursor: pointer; font-size: .82rem; font-weight: 650; line-height: 1.5; }
+.offering-components summary:focus-visible { outline: 2px solid var(--green, #2f6850); outline-offset: 4px; }
+.offering-components p, .offering-components li { font-size: .8rem; line-height: 1.55; overflow-wrap: anywhere; }
+.offering-components ul { margin: .6rem 0 0; padding-inline-start: 1.2rem; }
+.offering-kind { display: flex; gap: .4rem; flex-wrap: wrap; margin: .5rem 0; }
+.offering-selection { padding: .8rem 1rem; background: var(--paper, #f7f8f2); border: 1px solid var(--line, #dce3d8); border-radius: 12px; font-size: .85rem; }
+.offering-selection ul { padding-inline-start: 1.25rem; margin: .5rem 0; }
+.offering-selection p { margin-bottom: 0; line-height: 1.55; }
+.offering-price .fh-form > [hidden], .offering-price [hidden] { display: none !important; }
+.offering-price .offering-package-inputs { grid-column: 1 / -1; display: grid; gap: .8rem; min-width: 0; margin: .5rem 0 0; padding: 1rem; border: 1px solid var(--line, #dce3d8); border-radius: 14px; }
+.offering-package-inputs legend { font-weight: 650; padding: 0 .4rem; }
+.offering-price .offering-components li { display: flex; justify-content: space-between; gap: .8rem; }
+.offering-price .fh-kart small { overflow-wrap: anywhere; }
+.workflow-orders .ol-c-urun .offering-components { max-width: 38rem; }
+.workflow-orders .ol-c-urun .ol-urun { white-space: normal; overflow-wrap: anywhere; }
+.workflow-catalog .offering-model { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+.workflow-catalog .offering-model > div { background: var(--paper, #f7f8f2); border: 1px solid var(--line, #dce3d8); border-radius: 14px; padding: 1rem; }
+.workflow-catalog .offering-model p { line-height: 1.6; margin-bottom: 0; }
+.catalog-allocation { grid-column: 1 / -1; padding: .5rem 0; }
+.catalog-allocation summary { cursor: pointer; font-size: .85rem; }
+@media (max-width: 650px) { .workflow-catalog .offering-model { grid-template-columns: 1fr; } .offering-price .offering-components li { flex-wrap: wrap; } .offering-price .fh-workbench-body > * { min-width: 0; } }

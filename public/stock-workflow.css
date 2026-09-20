@@ -1,0 +1,8 @@
+.stock-model-note { padding: .8rem 1rem; border: 1px solid var(--border, #d8e1d8); border-radius: .7rem; margin: 1rem 0; }
+.stock-model-note p { margin: .3rem 0; line-height: 1.5; }
+.stock-physical { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; margin: 1rem 0; }
+.stock-physical dt { font-size: .8rem; line-height: 1.4; }
+.stock-physical dd { margin: .4rem 0 0; font-size: 1.15rem; font-weight: 650; overflow-wrap: anywhere; }
+.stock-physical small, .stock-transit-note { display: block; font-size: .78rem; font-weight: 400; line-height: 1.4; margin-top: .3rem; }
+.stock-count-preview { display: block; padding: .8rem; border: 1px solid var(--border, #d8e1d8); border-radius: .5rem; margin: .7rem 0; line-height: 1.6; }
+@media (max-width: 480px) { .stock-physical { grid-template-columns: 1fr; } }

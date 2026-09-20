@@ -5,6 +5,7 @@ import {offersApi} from './offers-api.js';
 import {barcodeApi} from './barcode-api.js';
 import {lotApi} from './lot-api.js';
 import {loginLimitSubjects} from './login-limits.js';
+import {quickAccessApi} from './quick-access.js';
 import {filterProductionData,scrubAmounts} from './permission-policy.js';
 import {purchaseAdjustmentApi} from './purchase-adjustment-api.js';
 import {hash,hex,passwordHash,equal,currentSession,owner,authorize,accessApi,acceptInvite} from './access-api.js';
@@ -44,6 +45,7 @@ import {reportStockLinkApi} from './report-stock-link-api.js';
 import {attentionApi} from './attention-api.js';
 import {reportInboxApi} from './report-inbox-api.js';
 import {bankApi} from './bank-api.js';
+import {marketplaceReceivablesApi} from './marketplace-receivables-api.js';
 const fail = (message,status=400) => {throw Object.assign(new Error(message),{status});};
 const str=(v,name,max=200)=> {if(typeof v!=='string'||!v.trim()||v.length>max)fail(name+' alanını kontrol edin.');return v.trim();};
 const optional=(v,max=500)=>{if(v===undefined)return '';if(typeof v!=='string'||v.length>max)fail('Metin çok uzun veya geçersiz.');return v.trim();};
@@ -111,27 +113,35 @@ async function api(request,env,path){
      if(attempt.attempts>limit.max)fail('Çok fazla deneme. 15 dakika sonra tekrar deneyin.',429);
    }
    if(path==='/api/auth/accept-invite')return json(await acceptInvite(db,input));
-   const username=typeof input.username==='string'?input.username.trim().toLowerCase():'';let staff=null;
+   const username=typeof input.username==='string'?input.username.trim().toLowerCase():'';let staff=null,credential=null;
    let admin=await db.prepare('SELECT * FROM admin WHERE id=1').first();
    if(path.endsWith('/setup')) {
      if(admin)fail('İlk kurulum daha önce tamamlandı.',409);
      if(!env.SETUP_TOKEN||!equal(input.token,env.SETUP_TOKEN))fail('Kurulum anahtarı geçersiz.',403);
      const password=str(input.password,'Şifre',200); if(password.length<12)fail('En az 12 karakterlik bir şifre seçin.');
      const salt=crypto.randomUUID();
-     try{await db.prepare('INSERT INTO admin(id,salt,password_hash) VALUES(1,?,?)').bind(salt,await passwordHash(password,salt)).run();}catch{fail('İlk kurulum tamamlanmış. Giriş yapın.',409);}
+     credential={salt,password_hash:await passwordHash(password,salt)};
+     try{await db.prepare('INSERT INTO admin(id,salt,password_hash) VALUES(1,?,?)').bind(salt,credential.password_hash).run();}catch{fail('İlk kurulum tamamlanmış. Giriş yapın.',409);}
    } else {
      if(!admin)fail('Önce ilk kurulum tamamlanmalı.',403);
      if(username&&username!=='admin'&&username!=='owner')staff=await db.prepare('SELECT * FROM staff_users WHERE username=? AND active=1 AND password_hash IS NOT NULL').bind(username).first();
      const account=username&&username!=='admin'&&username!=='owner'?staff:admin;
      const candidate=typeof input.password==='string'&&input.password.length<=200?await passwordHash(input.password,account?.salt||admin.salt):'';
      if(!account||!equal(candidate,account.password_hash))fail('Kullanıcı adı veya şifre hatalı.',401);
+     credential=account;
    }
    const token=hex(crypto.getRandomValues(new Uint8Array(32)));
-   await db.batch([db.prepare('DELETE FROM sessions WHERE expires_at<?').bind(now()),db.prepare('INSERT INTO sessions(token_hash,expires_at,staff_id) VALUES(?,?,?)').bind(await hash(token),now()+604800,staff?.id||null),db.prepare('DELETE FROM login_limits WHERE key IN (?,?)').bind(limits[1].key,limits[2]?.key||'')]);
+   // Password reset/reinvite/deactivation may have happened while PBKDF was running.
+   const insert=staff?db.prepare('INSERT INTO sessions(token_hash,expires_at,staff_id) SELECT ?,?,id FROM staff_users WHERE id=? AND active=1 AND salt=? AND password_hash=? RETURNING token_hash').bind(await hash(token),now()+604800,staff.id,credential.salt,credential.password_hash):db.prepare('INSERT INTO sessions(token_hash,expires_at,staff_id) SELECT ?,?,NULL FROM admin WHERE id=1 AND salt=? AND password_hash=? RETURNING token_hash').bind(await hash(token),now()+604800,credential.salt,credential.password_hash);
+   if(!await insert.first())fail('Kullanıcı adı veya şifre hatalı.',401);
+   await db.batch([db.prepare('DELETE FROM sessions WHERE expires_at<?').bind(now()),db.prepare('DELETE FROM login_limits WHERE key IN (?,?)').bind(limits[1].key,limits[2]?.key||'')]);
    const secure=new URL(request.url).protocol==='https:'?'; Secure':'';
    return json({ok:true},200,{'Set-Cookie':`lunapot_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800${secure}`});
  }
- const current=await session(request,db);if(!current)fail('Lütfen giriş yapın.',401);authorize(current.user,path,request.method);
+ const quickResult=await quickAccessApi(request,env,path,body);if(quickResult!==null)return quickResult;
+ const current=await session(request,db);if(!current)fail('Lütfen giriş yapın.',401);
+ // Only the exact self-password route bypasses workspace permissions. Identity comes from the session.
+ if(path!=='/api/auth/password')authorize(current.user,path,request.method);
  if(path.startsWith('/api/webshop/'))return json(scrubAmounts(await webshopAdminApi(request,env,path,body,current.user),current.user,'ec'));
  const accessResult=await accessApi(request,env,path,body,current.user);
  if(accessResult!==null){
@@ -143,7 +153,7 @@ async function api(request,env,path){
  const workspace=path.match(/^\/api\/(ec|lp)(\/.*)?$/);
  if(workspace){
   const scoped={...env,DB:scopedDB(db,workspace[1]),ROOT_DB:db,WORKSPACE:workspace[1],USER:current.user},subpath=workspace[2]||'';
-  for(const handler of [fifoApi,fiyatHesapApi,urunKarlilikApi,panoramaApi,stagedImportApi,purchaseDocumentApi,purchaseAutopostApi,salesDocumentApi,reportStockLinkApi,reportInboxApi,bankApi,lotApi,barcodeApi,offersApi,partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null){await maliyetiTazele(scoped,request);return json(scrubAmounts(result,current.user,workspace[1]));}}
+  for(const handler of [fifoApi,fiyatHesapApi,urunKarlilikApi,panoramaApi,stagedImportApi,purchaseDocumentApi,purchaseAutopostApi,salesDocumentApi,reportStockLinkApi,reportInboxApi,marketplaceReceivablesApi,bankApi,lotApi,barcodeApi,offersApi,partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null){await maliyetiTazele(scoped,request);return json(scrubAmounts(result,current.user,workspace[1]));}}
   const accounting=await accountingApi(request,scoped,'/api/accounting'+subpath,body);await maliyetiTazele(scoped,request);
   return json(scrubAmounts(accounting,current.user,workspace[1]));
  }

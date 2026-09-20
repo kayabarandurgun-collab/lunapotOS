@@ -12,7 +12,8 @@ export function attentionItems(data,connections,settings,pendingFees=0){
  add(invoices.awaiting_receipt,'#invoices','Mal teslimi tamamlanmamış fatura','Borç kaydedilmiş; depoya gelen miktarı ayrıca işle.');
  add(sales.unconfirmed,'#sales','Kesintisi doğrulanmamış satış / iade','Kargo ve komisyon tamamlanmadan kâr kesinleşmez.');
  add(pendingFees>0?1:0,'#reconciliation','Satışlara dağıtılacak kesinti faturası','Kargo ve komisyon belgelerini satışlara eşleştir.');
- add(sales.losses,'#sales','Zarar gösteren satış kaydı','Satır düzeyinde sayılır; üstteki paket sayısıyla aynı değildir. İadeler ayrıca değerlendirilir.','danger');
+ // Component allocations are not independent sold offerings; profitability belongs to Satış ve kâr.
+
  add(tariffs.shipping_expiring+tariffs.commission_expiring,'#pricing','7 gün içinde bitecek tarife','Geçerlilik tarihlerini ve yeni fiyat koşullarını kontrol et.');
  add(!settings.tax_id||!settings.legal_name?1:0,'#settings','Şirket bilgilerini tamamla','Alış faturalarının doğru şirket adına geldiğini doğrulayalım.','neutral');
  add(stock.total?stock.no_history:1,'#stock',stock.total?'Stok geçmişi olmayan ürün':'İlk stok kartlarını oluştur','Açılış veya mal teslimi olmadan depodaki gerçek miktar bilinmez.','neutral');

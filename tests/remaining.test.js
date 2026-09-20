@@ -75,10 +75,10 @@ test('Kesinti düzeltmesi tüm mutabakat ve kâr uyarılarında aynı kalan bede
 });
 test('Kurtarma planı salt okunur; eski, değişmiş veya farklı veritabanı planı uygulanamaz',async()=>{
  const now=Date.parse('2026-09-09T12:00:00Z'),a='00000011-00000002-000050e1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',b='00000010-00000002-000050e1-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',calls=[];
- const run=async args=>{calls.push(args);return {bookmark:args.includes('--timestamp')?b:a};};
+ const run=async args=>{calls.push(args);if(args.includes('restore'))return {bookmark:b,previous_bookmark:a};if(args.includes('execute'))return [{success:true,results:[]}];return {bookmark:args.includes('--timestamp')?b:a};};
  const plan=await planRecovery(run,'2026-09-09T14:00:00+03:00',now);assert.equal(plan.target_time,'2026-09-09T11:00:00.000Z');assert.equal(calls.length,2);assert.ok(calls.every(x=>x.includes('info')));
  await assert.rejects(()=>applyRecovery(run,plan,'wrong',now));await assert.rejects(()=>applyRecovery(run,{...plan,database_id:'other'},b,now));await assert.rejects(()=>applyRecovery(run,plan,b,now+16*60000));await assert.rejects(()=>applyRecovery(async()=>({bookmark:b}),plan,b,now));assert.throws(()=>validateTimestamp('2026-09-01T00:00:00Z',now));assert.throws(()=>validateTimestamp('2026-09-09T12:00:00',now));
- const result=await applyRecovery(run,plan,b,now);assert.equal(result.undo_bookmark,a);assert.equal(calls.at(-1)[2],'restore');
+ const result=await applyRecovery(run,plan,b,now);assert.equal(result.undo_bookmark,a);assert.equal(result.access_revoked,true);assert.equal(calls.filter(x=>x.includes('restore')).length,1);assert.ok(calls.at(-1).includes('execute'));
 });
 
 

@@ -9,6 +9,7 @@ export function permit(user,path,method){
  const write=!['GET','HEAD'].includes(method),parts=sub.split('/').filter(Boolean),head=parts[0];
  if(!head||!match&&head==='data'){if(write)deny();return;}
  if(['settings','connections','integrations','recovery','attention'].includes(head)){if(head==='settings'&&!write&&sub==='/settings'&&can(user,ns,ns==='ec'?'invoices':'accounts'))return;deny();}
+ if(head==='marketplace-receivables'){if(ns!=='ec'||!match||sub!=='/marketplace-receivables'||method!=='GET'||!can(user,'ec','ledger')||!can(user,'ec','orders'))deny();return;}
  let feature;
  if(!match){if(!['products','materials','recipes'].includes(head))deny();feature=head;}
  else if(head==='production'){feature=parts[1]==='material-stock'?'materialstock':parts.length===1&&!write?'production-read':'production';}
@@ -21,8 +22,8 @@ export function permit(user,path,method){
  // Parti ve koli etiketi uretim kayitlarina aittir; okumak icin urun gormek yeter.
 // /api/ec/sales/documents satis KAYDI degil, satis FATURA BELGESIDIR: fatura yetkisi gerekir.
  if(head==='sales'&&parts[1]==='documents'){if(ns!=='ec'||!match)deny();if(!can(user,ns,'invoices',write))deny();return;}
- if(head==='lots'){if(ns!=='lp'||!match)deny();if(!any(user,'lp',write?['production','materialstock']:['products','production','materialstock','recipes']))deny();return;}
- if(head==='barcodes'){if(ns!=='lp'||!match)deny();if(!any(user,'lp',write?['materialstock','production']:['materials','products','materialstock','production','recipes']))deny();if(method==='DELETE'&&!user.permissions?.delete_records)deny();return;}
+ if(head==='lots'){if(ns!=='lp'||!match)deny();if(!any(user,'lp',write?['production','materialstock']:['products','production','materialstock','recipes'],write))deny();return;}
+ if(head==='barcodes'){if(ns!=='lp'||!match)deny();if(!any(user,'lp',write?['materialstock','production']:['materials','products','materialstock','production','recipes'],write))deny();if(method==='DELETE'&&!user.permissions?.delete_records)deny();return;}
  if(feature==='production-read'){if(!any(user,'lp',['production','materialstock']))deny();return;}
  if(!feature||!can(user,ns,feature,write&&sub!=='/pricing/quote'))deny();
  if(method==='DELETE'&&(!user.permissions?.delete_records||ns==='lp'&&head==='products'&&!can(user,'lp','recipes',true)))deny();

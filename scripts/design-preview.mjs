@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** Local synthetic preview. No credentials, remote D1, provider or mail bindings. */
 import {createServer} from 'node:http';
+import {createServer as createSecureServer} from 'node:https';
 import {readFile, readdir, realpath, stat} from 'node:fs/promises';
 import {dirname, extname, isAbsolute, relative, resolve, sep} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
@@ -80,6 +81,8 @@ async function seedCommerce(f, missing) {
     f.sqlite.prepare("UPDATE ec_order_packages SET status='shipped',shipped_on=? WHERE id=?").run(occurred,id);
     if (!pending) f.sqlite.prepare("UPDATE ec_order_packages SET status='delivered',delivered_on=? WHERE id=?").run(occurred,id);
   }
+  await seedSoldOfferings(f);
+  seedReportEvidence(f);
   if (missing) {
     f.sqlite.exec("UPDATE workspace_settings SET allow_negative_stock=1 WHERE workspace='ec'");
     f.sqlite.exec("UPDATE ec_order_packages SET source_changed=1 WHERE id IN ('preview-package-001','preview-package-030')");
@@ -87,6 +90,50 @@ async function seedCommerce(f, missing) {
     // A missing VAT profile and a negative snapshot exercise inventory caveats.
     // This is fixture-only data; production code and ledger rules are untouched.
     f.sqlite.prepare('UPDATE ec_stock_balances SET quantity_milli=-2000,value_cents=0 WHERE product_id=?').run(f.products[5].id);
+  }
+}
+
+
+function seedReportEvidence(f) {
+  for(const [i,channel] of ['trendyol','hepsiburada'].entries()){
+    const file='preview-finance-evidence-'+channel;
+    insert(f,'ec_report_files',{id:file,store_id:'preview-'+channel,kind:'finance',filename:'SENTETIK-HAKEDIS-'+channel+'.xlsx',size_bytes:20,sha256:String(i+7).repeat(64),snapshot_at:today()+'T10:00:00Z',headers_json:'[]',row_count:6,chunk_count:1,status:'applied',profile_id:'preview-profile-'+channel});
+    const add=(key,row_no,data)=>insert(f,'ec_report_records',{id:file+'-'+key,store_id:'preview-'+channel,kind:'finance_event',record_key:'SENTETIK-'+key,key_source:'provider',file_id:file,row_no,data_json:JSON.stringify(data)});
+    const common={order_no:'SENTETIK-BILDIRIM-1',package_id:'SENTETIK-P1',event_id:'SENTETIK-F1',event_date:channel==='trendyol'?day(-2):null,net_payout:20000};
+    add('sale',1,{...common,type:'sale',amount_cents:25000});add('commission',1,{...common,type:'commission',amount_cents:-4000});add('service',1,{...common,type:'service',amount_cents:-1000});
+    add('undated',2,{order_no:'SENTETIK-TARIHSIZ',package_id:'SENTETIK-P2',event_id:'SENTETIK-F2',event_date:null,type:'refund',amount_cents:-3000,net_payout:9000});
+    add('scope1',3,{order_no:'SENTETIK-KAPSAM-KONTROL',package_id:'SENTETIK-P3',event_id:'SENTETIK-F3',event_date:day(-1),type:'sale',amount_cents:14000,net_payout:10000});
+    add('scope2',4,{order_no:'SENTETIK-KAPSAM-KONTROL',package_id:'SENTETIK-P4',event_id:'SENTETIK-F4',event_date:day(-1),type:'sale',amount_cents:15000,net_payout:11000});
+    add('missing',5,{order_no:'SENTETIK-NET-EKSIK',event_id:'SENTETIK-F5',event_date:day(-3),type:'sale',amount_cents:10000,net_payout:null});
+    add('unreferenced',6,{event_id:'SENTETIK-F6',event_date:day(-3),type:'payout',amount_cents:15000,net_payout:15000});
+  }
+}
+
+async function seedSoldOfferings(f) {
+  const items=[['preview-soil-3','Orkide toprağı 3 litre',20],['preview-food-225','Orkide bitki besini 225 ml',21],['preview-cleaner-250','Yaprak temizleyici 250 ml',25]];
+  for(const [id,name,cost] of items){
+    insert(f,'ec_products',{id,name,sku:id,category:'Bitki bakımı',brand:'Lunapot — sentetik',stock_unit:'adet',min_stock_milli:5000,sale_price:cost*3});
+    insert(f,'ec_price_profiles',{product_id:id,vat_bps:2000,replacement_cost_cents:cost*100,packaging_cents:0,other_cents:0,withholding_bps:0,length_mm:150,width_mm:150,height_mm:200,weight_grams:500,units_per_parcel:1});
+    await f.ok('/ec/stock',{product_id:id,kind:'opening',quantity:80,unit_cost:cost,reference:'SENTETIK-'+id,occurred_on:day(-40),notes:'Sadece yerel set doğrulaması'});
+  }
+  const bundle=await f.ok('/ec/catalog/mappings',{source:'trendyol',external_code:'DEMO-ORCHID-KIT',external_name:'Orkide bakım seti · 3 ürün',components:items.map(([id],i)=>({product_id:id,quantity_milli:1000,revenue_share_bps:i===2?3334:3333}))});
+  const multi=await f.ok('/ec/catalog/mappings',{source:'trendyol',external_code:'DEMO-FOOD-4',external_name:'Orkide besini · 4lü paket',components:[{product_id:items[1][0],quantity_milli:4000,revenue_share_bps:10000}]});
+  const cases=[['set-1','delivered',bundle.id,'DEMO-ORCHID-KIT','Orkide bakım seti · 3 ürün',299],['set-2','delivered',bundle.id,'DEMO-ORCHID-KIT','Orkide bakım seti · 3 ürün',125],['set-extra','delivered',bundle.id,'DEMO-ORCHID-KIT','Orkide bakım seti · 3 ürün',310],['set-shipped','shipped',bundle.id,'DEMO-ORCHID-KIT','Orkide bakım seti · 3 ürün',299],['set-preparing','reserved',bundle.id,'DEMO-ORCHID-KIT','Orkide bakım seti · 3 ürün',299],['four','delivered',multi.id,'DEMO-FOOD-4','Orkide besini · 4lü paket',240],['four-return','returned',multi.id,'DEMO-FOOD-4','Orkide besini · 4lü paket',240]];
+  for(const [ref,state,mapping_id,sku,name,gross] of cases){
+    const lines=[{external_id:'line-'+ref,mapping_id,sku,name,quantity:1,gross,vat_rate:20}];
+    if(ref==='set-extra')lines.push({external_id:'extra-'+ref,product_id:items[1][0],sku:items[1][0],name:items[1][1],quantity:1,gross:75,vat_rate:20});
+    const pkg=await f.ok('/ec/orders',{channel:'trendyol',external_id:'SENTETIK-'+ref,order_no:'SENTETIK-'+ref,occurred_on:day(-4),lines});
+    await f.ok('/ec/orders/'+pkg.id+'/reserve',{});if(state==='reserved')continue;
+    await f.ok('/ec/orders/'+pkg.id+'/ship',{occurred_on:day(-3),reference:'SENTETIK-SEVK-'+ref});
+    const sales=f.sqlite.prepare('SELECT s.* FROM ec_sale_entries s JOIN ec_order_line_components c ON c.sale_id=s.id JOIN ec_order_lines l ON l.id=c.line_id WHERE l.package_id=?').all(pkg.id);
+    const sum=sales.reduce((t,x)=>t+x.revenue_cents,0);
+    let shipping=5000,service=1000;
+    for(const [i,sale] of sales.entries()){
+      const ship=i===sales.length-1?shipping:Math.round(5000*sale.revenue_cents/sum),other=i===sales.length-1?service:Math.round(1000*sale.revenue_cents/sum);shipping-=ship;service-=other;
+      await f.ok('/ec/sales/'+sale.id+'/fees',{commission:Math.round(sale.revenue_cents*.15)/100,shipping:ship/100,other:other/100,fees_status:'confirmed'});
+      if(state==='returned')await f.ok('/ec/sales/'+sale.id+'/return',{external_id:'SENTETIK-IADE-'+sale.id,quantity:sale.quantity_milli/1000,revenue:sale.revenue_cents/100,restock:true,commission:0,shipping:0,other:0,fees_status:'confirmed',occurred_on:day(-1),notes:'Paket teslim edilemedi; ürün depoya döndü. Yerel sentetik örnek.'});
+    }
+    if(state==='delivered')await f.ok('/ec/orders/'+pkg.id+'/deliver',{occurred_on:day(-2)});
   }
 }
 
@@ -193,9 +240,11 @@ export async function previewPages() {
   return [...new Set(pages)];
 }
 
-export async function startPreview({port=8790,scenario='populated'}={}) {
+export async function startPreview({port=8790,scenario='populated',tls=null}={}) {
   if (!SCENARIOS.includes(scenario)) throw new Error('Unknown preview scenario.');
   if (!Number.isInteger(port)||port<0||port>65535) throw new Error('Invalid port.');
+  const protocol=tls?'https':'http';
+  const serverFactory=tls?handler=>createSecureServer(tls,handler):createServer;
   // Worker provider calls use fetch. Deny even loopback egress from the worker process.
   const originalFetch=globalThis.fetch;
   const blockedFetch=async()=>{throw new Error('LOCAL_PREVIEW_NETWORK_DISABLED');};
@@ -209,13 +258,13 @@ export async function startPreview({port=8790,scenario='populated'}={}) {
   try {
     await fixture(scenario);
     let serial=Promise.resolve();
-    server=createServer((req,res)=>{
+    server=serverFactory((req,res)=>{
       const job=serial.then(()=>handle(req,res));
       serial=job.catch(()=>{});
       job.catch(error=>{console.error(error);if(!res.headersSent)res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Local preview failure',detail:error.message}));});
     });
     async function handle(req,res) {
-      const origin=`http://${HOST}:${server.address().port}`;
+      const origin=`${protocol}://${HOST}:${server.address().port}`;
       if (req.headers.host!==`${HOST}:${server.address().port}`) {res.writeHead(403);res.end('Loopback Host required.');return;}
       if (req.headers.origin&&req.headers.origin!==origin) {res.writeHead(403);res.end('Same-origin preview only.');return;}
       const url=new URL(req.url,origin);
@@ -232,7 +281,13 @@ export async function startPreview({port=8790,scenario='populated'}={}) {
         if(!SCENARIOS.includes(name)||!ROLES.includes(role)) {res.writeHead(400);res.end('Invalid scenario or role.');return;}
         const next=new URL(url.searchParams.get('next')||'/',origin);
         if(next.origin!==origin||next.pathname.startsWith('/__preview/')) {res.writeHead(400);res.end('Local application path required.');return;}
-        const f=await fixture(name),auth=role==='owner'?f.ownerCookie:role==='reader'?f.readerCookie:'';
+        const f=await fixture(name);
+        let auth=role==='owner'?f.ownerCookie:role==='reader'?f.readerCookie:'';
+        if(auth&&!(await f.req('/auth/status',undefined,auth)).data.authenticated){
+          const fresh=await f.req('/auth/login',{username:role==='reader'?'preview.reader':'',password:role==='reader'?STAFF_PASSWORD:PASSWORD},'');
+          if(fresh.status!==200||!fresh.cookie)throw new Error('Synthetic preview session could not be renewed.');
+          auth=fresh.cookie;if(role==='owner')f.ownerCookie=auth;else f.readerCookie=auth;
+        }
         const customer=['owner','customer'].includes(role)?f.customerCookie:'';
         const setCookies=[`preview_scenario=${name}; Path=/; HttpOnly; SameSite=Strict`,`preview_role=${role}; Path=/; HttpOnly; SameSite=Strict`,`${auth||'lunapot_session='}; Path=/; HttpOnly; SameSite=Strict`,`${customer||'ws_customer='}; Path=/; HttpOnly; SameSite=Strict`];
         res.writeHead(302,{'Location':next.pathname+next.search+next.hash,'Set-Cookie':setCookies,'Cache-Control':'no-store'});res.end();return;
@@ -256,7 +311,7 @@ export async function startPreview({port=8790,scenario='populated'}={}) {
       res.end(method==='HEAD'?undefined:Buffer.from(await response.arrayBuffer()));
     }
     await new Promise((yes,no)=>{server.once('error',no);server.listen(port,HOST,yes);});
-    return {server,origin:`http://${HOST}:${server.address().port}`,async close(){await new Promise(done=>server.close(done));for(const pending of fixtures.values()){try{(await pending).close();}catch{}}if(globalThis.fetch===blockedFetch)globalThis.fetch=originalFetch;}};
+    return {server,origin:`${protocol}://${HOST}:${server.address().port}`,async close(){await new Promise(done=>server.close(done));for(const pending of fixtures.values()){try{(await pending).close();}catch{}}if(globalThis.fetch===blockedFetch)globalThis.fetch=originalFetch;}};
   } catch(error) {for(const pending of fixtures.values()){try{(await pending).close();}catch{}}if(globalThis.fetch===blockedFetch)globalThis.fetch=originalFetch;throw error;}
 }
 
@@ -266,7 +321,10 @@ if (process.argv[1] && import.meta.url===pathToFileURL(resolve(process.argv[1]))
     console.log('Node 22.13+ (recommended 24). node scripts/design-preview.mjs [--port=8790] [--scenario=populated|missing|empty]\nAlways binds 127.0.0.1. Real worker, memory SQLite, synthetic sessions, no external network.');
   } else {
     const value=(key,fallback)=>args.find(a=>a.startsWith(key+'='))?.slice(key.length+1)||fallback;
-    const preview=await startPreview({port:Number(value('--port','8790')),scenario:value('--scenario','populated')});
+    const key=value('--tls-key',''),cert=value('--tls-cert','');
+    if(Boolean(key)!==Boolean(cert))throw new Error('Both local TLS key and certificate are required.');
+    const tls=key?{key:await readFile(resolve(key)),cert:await readFile(resolve(cert))}:null;
+    const preview=await startPreview({port:Number(value('--port','8790')),scenario:value('--scenario','populated'),tls});
     console.log(`LOCAL SYNTHETIC PREVIEW READY ${preview.origin}\nHealth: ${preview.origin}/__preview/health\nScenario: ${preview.origin}/__preview/start?scenario=missing\nEmpty: ${preview.origin}/__preview/start?scenario=empty\nReader: ${preview.origin}/__preview/start?role=reader\nAnonymous: ${preview.origin}/__preview/start?role=anonymous\nStop: Ctrl+C; restart resets all memory data. No live services are configured.`);
     let closing=false;
     const stop=async()=>{if(closing)return;closing=true;await preview.close();};

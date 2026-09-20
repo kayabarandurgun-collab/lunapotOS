@@ -4,7 +4,7 @@ const normalize=value=>value.toLocaleLowerCase('tr-TR').normalize('NFD').replace
 let palette=null;
 function destinations(){
  const found=new Map();
- for(const link of document.querySelectorAll('#sidebar a.nav-link,#sidebar a.workspace-home,.workspace .app-launcher-link,.launchpad a.application,.launchpad #manage-access')){
+ for(const link of document.querySelectorAll('#sidebar a.nav-link,#sidebar a.workspace-home,#sidebar a.workspace-identity,.workspace-account,.workspace .app-launcher-link,.launchpad a.application,.launchpad #manage-access')){
   if(link.closest('[hidden]')||getComputedStyle(link).display==='none'||(getComputedStyle(link).visibility==='hidden'&&!link.closest('#sidebar')))continue;
   const url=new URL(link.href,location.href);if(url.origin!==location.origin)continue;
   const copy=link.cloneNode(true);copy.querySelectorAll('svg,.nav-icon,.nav-badge,.features,.app-top,.app-open,p').forEach(n=>n.remove());

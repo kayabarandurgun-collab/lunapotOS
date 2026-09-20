@@ -80,7 +80,7 @@ test('Rapor marjı yalnız ortak kapsamda hesaplanır; bilinmeyen nakit ve ciro 
  const zero=performanceSummary([{cash_cents:0,revenue_gross_cents:0}]);assert.equal(zero.cash_cents,0);assert.equal(zero.margin_bps,null);
 });
 test('Panorama eksik tutarı, stok anlık görüntüsünü ve tüm ürün adını doğru işaretler',()=>{
- const p={key:'custom',label:'Özel',from:'2026-09-01',to:'2026-09-20',packages:1,calculated:0,missing:1,revenue_missing:1,cash_cents:0,revenue_gross_cents:null,margin_bps:null,losses:0,loss_cents:0,gains:0,gain_cents:0,products:{revenue_top:[{name:'Uzun ürün adı <script>test</script> 100 litre toprak karışımı',revenue_gross_cents:null,qty_milli:1000}],top:[]},channels:{}};
+ const p={key:'custom',label:'Özel',from:'2026-09-01',to:'2026-09-20',packages:1,calculated:0,missing:1,revenue_missing:1,cash_cents:0,revenue_gross_cents:null,margin_bps:null,losses:0,loss_cents:0,gains:0,gain_cents:0,sales:{revenue_top:[{key:'long',kind:'single',name:'Uzun ürün adı <script>test</script> 100 litre toprak karışımı',revenue_gross_cents:null,units_milli:1000}],top:[]},channels:{}};
  const html=panoramaDetailMarkup({daily:[],inventory:{net_cents:450000,gross_cents:null,missing_vat_products:1,negative_products:1,gross_estimated:true,calculated_gross_cents:10000},pending:{from:p.from,to:p.to,packages:1,calculated:0,missing:1,cash_cents:0}},p);
  assert.match(html,/Eksik kapsam/);assert.match(html,/Güncel stok/);assert.match(html,/Tarih filtresinden bağımsız/);assert.match(html,/KDV hariç/);assert.match(html,/1 ürünün KDV oranı eksik/);assert.match(html,/Uzun ürün adı &lt;script&gt;test&lt;\/script&gt; 100 litre toprak karışımı/);assert.ok(!html.includes('<script>'));assert.match(html,/Hesap eksik/);assert.match(html,/Bilgi eksik/);
 });
@@ -102,10 +102,10 @@ test('Yetki nedeniyle gizli günlük tutarlar kovada sıfıra dönüşmez ve gra
  assert.ok(!html.includes('data-pn-chart'));assert.match(html,/Grafik için hesap bilgisi eksik/);assert.match(html,/data-label="Toplam"><b>Bilgi eksik/);
 });
 test('Ürün ve rekor kapsamı açıklanır; çok paketli rekor ana panonun tarihine döner',()=>{
- const p={key:'custom',from:'2026-09-01',to:'2026-09-20',packages:3,calculated:2,cash_cents:4000,loss_cents:0,gain_cents:4000,channels:{},products:{missing_packages:1,revenue_top:[{name:'Eksik ürün',qty_milli:1000,revenue_gross_cents:4000,revenue_missing:1}],top:[]},records:{revenue_missing_orders:1,profit_missing_orders:1,revenue:{id:'x',order_no:'123',packages:2,revenue_gross_cents:4000,cash_cents:1000}}};
+ const p={key:'custom',from:'2026-09-01',to:'2026-09-20',packages:3,calculated:2,cash_cents:4000,loss_cents:0,gain_cents:4000,channels:{},sales:{missing_packages:1,revenue_top:[{key:'missing',kind:'single',name:'Eksik ürün',units_milli:1000,revenue_gross_cents:4000,revenue_missing:1}],top:[]},records:{revenue_missing_orders:1,profit_missing_orders:1,revenue:{id:'x',order_no:'123',packages:2,revenue_gross_cents:4000,cash_cents:1000}}};
  const html=panoramaDetailMarkup({daily:[],inventory:{},pending:null},p);
- assert.match(html,/ciro alt toplamdır/);assert.match(html,/1 paketin ürün dağılımı eksik/);assert.match(html,/2 paketin toplamı; bağlantı bir paketi açar/);assert.match(html,/1 sipariş ciro, 1 sipariş nakit/);assert.match(html,/donus=overview%3Fdonem%3Dcustom%26from%3D2026-09-01%26to%3D2026-09-20/);
- assert.match(html,/role="tablist"/);assert.match(html,/data-product-panel="profit" hidden/);
+ assert.match(html,/1 paketin satış biçimi dağılımı eksik/);assert.match(html,/2 paketin toplamı; bağlantı bir paketi açar/);assert.match(html,/1 sipariş ciro, 1 sipariş nakit/);assert.match(html,/donus=overview%3Fdonem%3Dcustom%26from%3D2026-09-01%26to%3D2026-09-20/);
+ assert.match(html,/role="tablist"/);assert.match(html,/data-product-panel="revenue" hidden/);
 });
 test('Hazır dönemde özel form kapalı, özel aralıkta ve hatada açıktır',()=>{
  const range=presetDateRange('7g',{today});

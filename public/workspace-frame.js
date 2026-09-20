@@ -11,12 +11,12 @@ const areas=[
 let user=null,ready=false,dialog=null,dock=null,authRevision=0;
 export function setWorkspaceUser(next){authRevision++;user=next;ready=true;document.querySelector('.workspace-identity')?.remove();enhanceWorkspaceFrame();}
 const ns=()=>document.body.classList.contains('commerce')?'ec':document.body.classList.contains('lunapot')?'lp':document.body.classList.contains('webstore-admin')?'store':document.querySelector('#access-app')?'access':'home';
-const allowed=a=>a.key==='home'||user?.owner||(a.key==='ec'?user?.ec_access&&user.ec_access!=='none':a.key==='lp'?user?.lp_access&&user.lp_access!=='none':a.key==='store'?can(user,'ec','webshop'):false);
+const allowed=a=>a.key==='home'||a.key==='access'&&!!user||user?.owner||(a.key==='ec'?user?.ec_access&&user.ec_access!=='none':a.key==='lp'?user?.lp_access&&user.lp_access!=='none':a.key==='store'?can(user,'ec','webshop'):false);
 function showAreas(button){
  if(dialog||document.querySelector('dialog[open]'))return;
  const d=document.createElement('dialog');dialog=d;d.className='workspace-switch-dialog';
  d.setAttribute('aria-labelledby','workspace-switch-title');
- d.innerHTML='<div class="dialog-heading"><div><span class="eyebrow">LUNAPOT</span><h2 id="workspace-switch-title">Çalışma alanını değiştir</h2></div><button type="button" class="icon-button" aria-label="Kapat">×</button></div><nav class="workspace-switch-list" aria-label="Çalışma alanları">'+areas.filter(allowed).map(a=>'<a href="'+a.href+'"'+(a.key===ns()?' aria-current="page"':'')+'><span class="workspace-switch-icon">'+icon(a.icon)+'</span><div><strong>'+a.title+'</strong><small>'+a.detail+'</small></div></a>').join('')+'</nav>';
+ d.innerHTML='<div class="dialog-heading"><div><span class="eyebrow">LUNAPOT</span><h2 id="workspace-switch-title">Çalışma alanını değiştir</h2></div><button type="button" class="icon-button" aria-label="Kapat">×</button></div><nav class="workspace-switch-list" aria-label="Çalışma alanları">'+areas.filter(allowed).map(a=>'<a href="'+a.href+'"'+(a.key===ns()?' aria-current="page"':'')+'><span class="workspace-switch-icon">'+icon(a.icon)+'</span><div><strong>'+(a.key==='access'&&!user?.owner?'Hesabım':a.title)+'</strong><small>'+(a.key==='access'&&!user?.owner?'Şifrem ve hızlı giriş cihazlarım':a.detail)+'</small></div></a>').join('')+'</nav>';
  d.querySelector('button').onclick=()=>d.close();
  d.addEventListener('close',()=>{d.remove();dialog=null;if(button.isConnected)button.focus();},{once:true});
  d.addEventListener('click',e=>{if(e.target===d){const r=d.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();}});
@@ -32,15 +32,15 @@ export function enhanceWorkspaceFrame(){
  }
  const sidebar=document.querySelector('#sidebar');
  if(sidebar&&ready&&!sidebar.querySelector('.workspace-identity')&&user){
-  const identity=document.createElement('div');identity.className='workspace-identity';
+  const identity=document.createElement('a');identity.className='workspace-identity';identity.href='/access#account';identity.setAttribute('aria-label','Hesabım: şifre ve hızlı giriş');
   const name=user.name||'İşletme yöneticisi';
-  identity.innerHTML='<span class="identity-avatar">'+esc(name.slice(0,2).toLocaleUpperCase('tr-TR'))+'</span><div><strong>'+esc(name)+'</strong><small>'+ (user.owner?'Yönetici hesabı':'Ekip hesabı')+'</small></div>';
+  identity.innerHTML='<span class="identity-avatar">'+esc(name.slice(0,2).toLocaleUpperCase('tr-TR'))+'</span><div><strong>'+esc(name)+'</strong><small>'+ (user.owner?'Yönetici · Hesabım':'Ekip üyesi · Hesabım')+'</small></div><span class="identity-arrow" aria-hidden="true">↗</span>';
   (sidebar.querySelector('.sidebar-foot')||sidebar).append(identity);
  }
- if(!sidebar){dock?.remove();dock=null;return;}
+ if(!sidebar){dock?.remove();dock=null;if(header&&user&&!header.querySelector('.workspace-account')){const a=document.createElement('a');a.className='workspace-account';a.href='/access#account';a.innerHTML=icon('settings')+'<span>Hesabım</span>';header.append(a);}return;}
  if(sidebar&&!sidebar.querySelector('[data-workspace-close]')){const close=document.createElement('button');close.type='button';close.className='workspace-menu-close';close.dataset.workspaceClose='';close.setAttribute('aria-label','Menüyü kapat');close.textContent='×';close.onclick=()=>{sidebar.classList.remove('open');document.querySelector('#commerce-menu,[data-action="menu"]')?.focus();};sidebar.prepend(close);}
- const workspace=ns(),keys=workspace==='ec'?['overview','orders','stock','reports']:['dashboard','production','recipes','materialstock'];
- const labels={overview:'Özet',orders:'Siparişler',stock:'Stok',reports:'Raporlar',dashboard:'Özet',production:'Üretim',recipes:'Reçeteler',materialstock:'Depo'};
+ const workspace=ns(),keys=workspace==='ec'?['overview','orders','stock','performance']:['dashboard','production','recipes','materialstock'];
+ const labels={overview:'Özet',orders:'Siparişler',stock:'Depo',performance:'Kazanç',reports:'Raporlar',dashboard:'Özet',production:'Üretim',recipes:'Reçeteler',materialstock:'Depo'};
  const links=keys.map(key=>sidebar.querySelector('a[href="#'+key+'"]')).filter(a=>a&&!a.hidden&&a.style.display!=='none');
  const current=location.hash.slice(1).split('?')[0]||(workspace==='ec'?'overview':'dashboard');
  const signature=links.map(a=>a.hash).join('|')+'|'+current;
@@ -57,7 +57,7 @@ function carryRange(event){
  if(!['overview','performance','orders','stock','sales','ledger'].includes(target))return;
  const q=new URLSearchParams(location.hash.split('?')[1]||''),from=q.get('from'),to=q.get('to');
  if(!/^\d{4}-\d{2}-\d{2}$/.test(from||'')||!/^\d{4}-\d{2}-\d{2}$/.test(to||'')||from>to)return;
- event.preventDefault();location.hash=target+'?'+new URLSearchParams({from,to});
+ const params=new URLSearchParams(a.hash.split('?')[1]||'');params.set('from',from);params.set('to',to);event.preventDefault();location.hash=target+'?'+params;
 }
 document.addEventListener('click',carryRange);
 const initialRevision=authRevision;

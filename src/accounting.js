@@ -1,4 +1,5 @@
 import {filterAccounting} from './permission-policy.js';
+import {physicalStock,stockTransitQuery} from './stock-availability.js';
 import {effectiveNet} from './purchase-adjustment-api.js';
 import {applyPurchaseMappings} from './purchase-mapping.js';
 import {cents as rawCents,milli as rawMilli} from '../public/accounting-math.js';
@@ -93,7 +94,9 @@ export async function accountingApi(request,env,path,readBody){
    db.prepare(`SELECT m.*,p.name product_name,p.stock_unit${env.WORKSPACE==='lp'?',p.inventory_kind':''} FROM stock_movements m JOIN products p ON p.id=m.product_id ORDER BY m.created_at DESC,m.rowid DESC LIMIT 200`),
    db.prepare(`SELECT COALESCE(SUM(${effectiveNet(env.WORKSPACE)}-COALESCE((SELECT SUM(a.amount_cents) FROM fee_allocations a WHERE a.invoice_line_id=l.id AND a.reversed_at IS NULL),0)),0) pending_fee_cents FROM purchase_lines l JOIN purchase_invoices i ON i.id=l.invoice_id WHERE i.status='posted' AND l.line_type='expense' AND l.expense_treatment='sales_fee'`)
   ];
-  const [stock,sales,expenses,suppliers,invoices,movements,pendingFees]=(await db.batch(queries)).map(q=>q.results);
+  if(env.WORKSPACE==='ec')queries.push(db.prepare(stockTransitQuery));
+  const [stockRows,sales,expenses,suppliers,invoices,movements,pendingFees,transitRows=[]]=(await db.batch(queries)).map(q=>q.results);
+  const stock=physicalStock(stockRows,transitRows,env.WORKSPACE);
   if(sales.length>5000||expenses.length>5000)fail('Bu aralıkta 5.000’den fazla kayıt var. Doğru toplam için tarih aralığını daraltın.');
   const adjustments=env.WORKSPACE==='ec'?(await statement(db,`SELECT id,reference,'purchase_variance' category,iif(reversal_of IS NULL,cost_cents-net_cents,net_cents-cost_cents) amount_cents,occurred_on,0 paid,reason notes FROM purchase_returns WHERE occurred_on BETWEEN ? AND ? AND cost_cents!=net_cents ORDER BY occurred_on DESC LIMIT 5001`,[from,to]).all()).results:[];
   if(adjustments.length>5000)fail('Çok fazla iade maliyet farkı var; tarih aralığını daraltın.',409);

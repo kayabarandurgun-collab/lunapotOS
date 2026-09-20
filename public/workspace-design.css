@@ -221,3 +221,27 @@ body.workspace-redesign .workspace main{width:100%;max-width:1640px;min-width:0;
 /* Small text keeps sufficient contrast on the light workspace surfaces. */
 .workspace-redesign .mobile-dock>a,.workspace-redesign .mobile-dock>button{color:#56664e}.workspace-redesign table td small,.workspace-redesign table.lt-stack td::before{color:#62705d}.workspace-redesign :is(table th,.v2-table th){color:#5f6e58}body.workspace-redesign #sidebar :is(.nav-label,.brand-sub){color:#5f705a}
 .launchpad.workspace-redesign :is(.brand-caption,.app-number,.visual-caption,.features li,.section-label>span,.quick-start small,.workspace-note p,.team-link small,footer){color:#5e6e58}
+
+/* Daily work stays visible; secondary tasks remain one clear disclosure away. */
+body.workspace-redesign #sidebar .nav-primary{padding-bottom:14px;margin-bottom:8px;border-bottom:1px solid #dce4d5}
+body.workspace-redesign #sidebar .nav-primary>.nav-label{margin:8px 10px 12px;text-transform:uppercase;font-size:9px;letter-spacing:1.05px}
+body.workspace-redesign #sidebar .nav-link{min-height:44px;gap:11px;line-height:1.4}
+body.workspace-redesign #sidebar .nav-text{min-width:0;flex:1}
+body.workspace-redesign #sidebar .nav-group{border:0;background:none;border-radius:0;margin:3px 0;padding:0;box-shadow:none}
+body.workspace-redesign #sidebar .nav-group>summary{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 11px;min-height:44px;color:#51634f;font-size:11px;font-weight:600;list-style:none;cursor:pointer;border-radius:8px}
+body.workspace-redesign #sidebar .nav-group>summary::-webkit-details-marker{display:none}
+body.workspace-redesign #sidebar .nav-group>summary:hover{background:#e4eadc}
+body.workspace-redesign #sidebar .nav-group-indicator{font-size:15px;line-height:1;transform:rotate(-90deg);transition:transform .15s}
+body.workspace-redesign #sidebar .nav-group[open]>.nav-group-indicator,body.workspace-redesign #sidebar .nav-group[open]>summary>.nav-group-indicator{transform:none}
+body.workspace-redesign #sidebar .nav-group>div{padding-bottom:10px}
+body.workspace-redesign #sidebar .nav-group .nav-link{font-size:11px}
+body.workspace-redesign #sidebar .workspace-identity{text-decoration:none;border:1px solid #d6dfcd;background:#f8faf4;border-radius:10px;padding:11px 10px;margin-top:12px;color:var(--ink);min-height:60px;gap:10px}
+body.workspace-redesign #sidebar .workspace-identity:hover{background:white;border-color:#afc1a6}
+body.workspace-redesign #sidebar .workspace-identity>div{min-width:0;flex:1}
+body.workspace-redesign #sidebar .workspace-identity strong{white-space:normal;overflow-wrap:anywhere}
+.workspace-identity .identity-arrow{color:#64785b;font-size:15px}
+.workspace-account{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;padding:8px 12px;border:1px solid #d5dfce;border-radius:9px;background:#fff;color:#315c45;text-decoration:none;font-size:12px}
+.workspace-account svg{width:17px;height:17px}
+.workspace-account:hover{background:#edf3e7}
+@media(max-width:800px){body.workspace-redesign #sidebar nav{padding-bottom:12px}body.workspace-redesign #sidebar .nav-group>summary{min-height:48px;font-size:12px}body.workspace-redesign #sidebar .nav-link{min-height:46px;font-size:13px}body.workspace-redesign #sidebar .nav-group .nav-link{font-size:12px}.workspace-account{padding:8px;min-width:40px}.workspace-account span{display:none}}
+@media(prefers-reduced-motion:reduce){body.workspace-redesign #sidebar .nav-group-indicator{transition:none}}

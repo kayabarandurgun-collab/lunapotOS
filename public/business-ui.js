@@ -1,3 +1,4 @@
+import {can} from './permissions.js';
 import {isISODate} from './date-range.js';
 import {prepareWorkflow} from './product-list.js';
 import {renderPriceDecision} from './price-decision-ui.js';
@@ -31,13 +32,14 @@ const scaled = (value, factor, name, optional = false) => {
 const divided = (value, factor) => value === null || value === undefined ? '' : value / factor;
 
 /** A separate mounted view; all reads and writes stay in the authenticated workspace. */
-export function mountBusiness(root, namespace, view) {
+export function mountBusiness(root, namespace, view, user = null) {
   if (!['ec','lp'].includes(namespace) || !['pricing','ledger'].includes(view)) throw new Error('Çalışma alanı veya ekran geçersiz.');
+  const canReceivables = namespace === 'ec' && (user?.owner || (can(user, 'ec', 'ledger') && can(user, 'ec', 'orders')));
   const incomingDates=new URLSearchParams(location.hash.split('?')[1]||'');
   const from=incomingDates.get('from')||'',to=incomingDates.get('to')||'';
   const validDates=(!from||isISODate(from))&&(!to||isISODate(to))&&(!from||!to||from<=to);
   const controller = new AbortController();
-  const state = { partyKind: '', ledgerQuery: '', ledgerFrom: validDates?from:'', ledgerTo: validDates?to:'', ledgerDue: '', ledgerPage: 1, entryPagination: null,data:null, tab:view === 'pricing' ? 'hizli' : 'parties', party:'', search:'', quote:null, quoteInput:{channel:'trendyol',desired_profit:0,max_price:10000}, disposed:false, sequence:0};
+  const state = { partyKind: '', ledgerQuery: '', ledgerFrom: validDates?from:'', ledgerTo: validDates?to:'', ledgerDue: '', ledgerPage: 1, entryPagination: null,data:null, tab:view === 'pricing' ? 'hizli' : canReceivables && incomingDates.get('tab') === 'receivables' ? 'receivables' : 'parties', party:'', search:'', quote:null, quoteInput:{channel:'trendyol',desired_profit:0,max_price:10000}, disposed:false, sequence:0};
   const $ = selector => root.querySelector(selector);
   const api = async (path = '', body) => {
     const response = await fetch(`/api/${namespace}/${view}${path}`, {signal:controller.signal, ...(body === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})});
@@ -74,14 +76,25 @@ export function mountBusiness(root, namespace, view) {
     if (state.disposed || !state.data) return;
     const title = view === 'pricing' ? 'Fiyat ve kâr planı' : 'Cari hesaplar';
     const subtitle = view === 'pricing' ? 'Satmadan önce hesabını gör. Ürün, paket ve geçerli tarifelerle fiyatını belirle.' : 'Kimden alacağın var, kime borçlusun? Belgeleri ve ödemeleri aynı hesapta takip et.';
-    const tabs = view === 'pricing' ? [['hizli','Kaça satmalıyım?'],['quote','Tarifeyle hesapla'],['profiles','Ürün ve paket'],['tariffs','Komisyon ve kargo']] : [['parties','Cariler'],['entries','Hesap hareketleri'],['cash','Kasa ve banka'],['allocations','Belge kapamaları'],['statement','Mutabakat']];
+    const tabs = view === 'pricing' ? [['hizli','Kaça satmalıyım?'],['quote','Tarifeyle hesapla'],['profiles','Ürün ve paket'],['tariffs','Komisyon ve kargo']] : [['parties','Cariler'],['entries','Hesap hareketleri'],['cash','Kasa ve banka'],['allocations','Belge kapamaları'],['statement','Mutabakat'],...(canReceivables ? [['receivables','Raporlardan hakediş']] : [])];
     root.innerHTML = `<div class="v2-page workflow-page"><div class="page-heading"><div><span class="eyebrow">${namespace === 'ec' ? 'E-TİCARET' : 'LUNAPOT'} ÇALIŞMA ALANI</span><h1>${title}</h1><p>${subtitle}</p></div>${view === 'ledger' ? `<div class="ac-actions">${button('Tahsilat / ödeme','cash')}${button('Cari ekle','party','',true)}</div>` : ''}</div><div class="notice" data-business-error role="alert" hidden></div><nav class="v2-tabs" aria-label="${title}">${tabs.map(([key,label]) => `<button type="button" data-business="tab" data-id="${key}" class="${state.tab === key ? 'active' : ''}" aria-current="${state.tab === key ? 'page' : 'false'}">${label}</button>`).join('')}</nav><section data-business-body></section></div>`;
     // Mutabakat kendi modulunde durur; sekme degisince onceki baglanti birakilir.
     if (state.statementDispose) { state.statementDispose(); state.statementDispose = null; }
     const body = $('[data-business-body]');
     if (view === 'ledger' && state.tab === 'statement') mountStatementTab(body);
+    else if (view === 'ledger' && canReceivables && state.tab === 'receivables') mountReceivablesTab(body);
     else if (view === 'pricing' && state.tab === 'hizli') mountHizliTab(body);
     else body.innerHTML = view === 'pricing' ? pricingView() : ledgerView();
+  }
+  async function mountReceivablesTab(body) {
+    body.innerHTML = '<div class="loading">Rapor bildirimleri yükleniyor…</div>';
+    try {
+      const {mountMarketplaceReceivables} = await import('./marketplace-receivables-ui.js');
+      if (state.disposed || !body.isConnected) return;
+      state.statementDispose = mountMarketplaceReceivables(body, namespace);
+    } catch (e) {
+      if (!state.disposed && body.isConnected) body.innerHTML = `<div class="v2-empty"><h3>Rapor bildirimleri yüklenemedi.</h3><p>${esc(e.message)}</p></div>`;
+    }
   }
   // Kaça satmalıyım: geçmiş teslimlerin gerçek kesintileriyle hızlı hesap (fiyat-hesap-ui.js).
   async function mountHizliTab(body) {

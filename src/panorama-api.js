@@ -1,3 +1,4 @@
+import {aggregateSales, pendingSalesSummary, salesReturnSummary} from './sales-presentation.js';
 // Genel durum: bütün ekonomik tutarlar performanceReport satırlarından gelir.
 // Stok değeri ayrı bir GÜNCEL defter bakiyesidir; tarih filtresinden etkilenmez.
 import {tumSatirlar, ilkSonucTarihi} from './performance-api.js';
@@ -29,6 +30,12 @@ export function analyticsRange(request) {
   const from = day(params.get('from')), to = day(params.get('to'));
   if (from > to) fail('Başlangıç tarihi bitişten sonra olamaz.');
   return {from, to};
+}
+
+export function analyticsChannel(request) {
+  const channel = new URL(request.url).searchParams.get('channel') || null;
+  if (channel && !KANALLAR.includes(channel)) fail('Kanal geçersiz.');
+  return channel;
 }
 
 function ozet(rows) {
@@ -124,7 +131,7 @@ async function inventorySnapshot(db, asOf) {
 export async function panoramaApi(request, env, path) {
   if (path !== '/api/panorama' || request.method !== 'GET') return null;
   if (env.WORKSPACE !== 'ec') fail('Genel durum e-ticaret çalışma alanına aittir.', 403);
-  const range = analyticsRange(request);
+  const range = analyticsRange(request), channel = analyticsChannel(request);
   const db = env.DB, today = new Date().toLocaleDateString('sv-SE', {timeZone: 'Europe/Istanbul'});
   const firstResult = await ilkSonucTarihi(db, today);
   const ilk = {teslim: firstResult,
@@ -133,7 +140,7 @@ export async function panoramaApi(request, env, path) {
   const rows = [], gorulen = new Set(), eksik = []; let unallocated = 0;
   const read = async (from, to) => {
     try {
-      const rapor = await tumSatirlar(env, {mode: 'delivered', from, to, tahmin, detay: true});
+      const rapor = await tumSatirlar(env, {mode: 'delivered', from, to, tahmin, detay: true, channel});
       unallocated = rapor.unallocated_fee_cents || 0;
       for (const r of rapor.rows) if (!gorulen.has(r.id)) { gorulen.add(r.id); rows.push(r); }
     } catch (e) { eksik.push({from, to, error: hataMetni(e)}); }
@@ -164,7 +171,7 @@ export async function panoramaApi(request, env, path) {
     return {key, label, days, from, to, ...summary, partial,
       status: partial || summary.missing || summary.revenue_missing ? 'incomplete' : summary.estimated ? 'estimated' : 'complete',
       prev_cash_cents: onceki && !oncekiEksik ? onceki.cash_cents : null,
-      products: urunSirasi(icinde, adlar), records: siparisRekorlari(icinde, partial)};
+      sales: aggregateSales(icinde), returns: partial ? {failed_count: null, returned_count: null, failed_cash_cents: null, returned_cash_cents: null} : salesReturnSummary(icinde), products: {...urunSirasi(icinde, adlar), role: 'stock_component_contribution'}, records: siparisRekorlari(icinde, partial)};
   };
   const periods = DONEMLER.map(([key, label, days]) => period(key, label, days, days ? shift(today, 1 - days) : ilk.teslim || today, today));
   const selected = range ? period('custom', 'Seçilen tarih aralığı', Math.round((Date.parse(range.to) - Date.parse(range.from)) / DAY) + 1, range.from, range.to) : null;
@@ -187,8 +194,9 @@ export async function panoramaApi(request, env, path) {
   // Mevcut pending sözleşmesi korunur: bütün güncel bekleyenler, sipariş tarihi temelinde.
   const pendingFrom = ilk.bekleyen || today;
   let pending;
-  try { pending = {from: pendingFrom, to: today, ...ozet((await tumSatirlar(env, {mode: 'pending', from: pendingFrom, to: today, tahmin})).rows), partial: false}; }
-  catch (e) { pending = {from: pendingFrom, to: today, ...ozet([]), packages: null, calculated: null, cash_cents: null,
+  try { const pendingRows = (await tumSatirlar(env, {mode: 'pending', from: pendingFrom, to: today, tahmin, channel})).rows;
+    pending = {from: pendingFrom, to: today, ...ozet(pendingRows), ...pendingSalesSummary(pendingRows), partial: false}; }
+  catch (e) { pending = {from: pendingFrom, to: today, ...ozet([]), ...pendingSalesSummary(null), packages: null, calculated: null, cash_cents: null,
     calculated_cash_cents: null, revenue_gross_cents: null, revenue_calculated: null, revenue_missing: null,
     margin_packages: null, margin_missing: null, partial: true, error: hataMetni(e)}; }
 

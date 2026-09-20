@@ -1,3 +1,5 @@
+import {pendingPackageScopeSql} from './stock-availability.js';
+import {buildSalesPresentation, pendingSalesSummary} from './sales-presentation.js';
 import {effectiveNet} from './purchase-adjustment-api.js';
 import {packageProfit} from './package-profit.js';
 import {compositionKey,estimatePackage,parcelTemplateKey,useParcelTemplate} from './order-estimate-api.js';
@@ -86,7 +88,9 @@ export async function performanceApi(request,env,path){
  // Boş cursor ilk sayfayı açar; sonraki_imlec bir sonraki istekte aynen geri gönderilir.
  const cursors=url.searchParams.getAll('cursor'),imlec=cursors.length?cursors[0]:null;
  if(cursors.length>1||imlec!==null&&(imlec.length>200||imlec!==''&&!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(imlec)))fail('Rapor imleci geçersiz.');
- return performanceReport(env,{mode,from,to,imlec});
+ const channel=url.searchParams.get('channel')||null;
+ if(channel&&!['trendyol','hepsiburada'].includes(channel))fail('Kanal geçersiz.');
+ return performanceReport(env,{mode,from,to,imlec,channel});
 }
 // Kâr raporu, sipariş listesi/penceresi (paketSonuclari), ana sayfa (panorama-api.js) ve ürün kârlılığı
 // (urun-karlilik-api.js) AYNI hesabı kullanır: tek formül, aynı paket aynı kuruş.
@@ -97,23 +101,25 @@ export async function performanceApi(request,env,path){
 //          sonraki_imlec verilir; 409 yerine sayfalama (bkz. tumSatirlar). Verilmezse sınır aşımı 409.
 //  ids:    tarih yerine bu paketler (sipariş listesi/penceresi; bkz. paketSonuclari). Yalnız teslim edilenler.
 //  tahminAl: tahminci gerekirse bir kez kurar (bölünmüş çağrılarda paylaşılır).
-export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirTahmin=null,tahminAl=null,detay=false,imlec=null,ids:paketIdleri=null}){
+export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirTahmin=null,tahminAl=null,detay=false,imlec=null,ids:paketIdleri=null,channel=null}){
+ if(channel&&!['trendyol','hepsiburada'].includes(channel))fail('Kanal geçersiz.');
+ const channelSql=channel?` AND channel='${channel}'`:'';
  const today=new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Istanbul'});
  // Satışın stokta olmadan satılıp henüz alışla kapanmamış (açık) kısmı ve tahmin olup olmadığı.
- const SALES_SQL='SELECT s.*,l.package_id,l.vat_bps satir_kdv,pp.vat_bps,(SELECT o.open_milli-o.settled_milli FROM open_costs o WHERE o.sale_id=s.id) open_milli,(SELECT iif(o.estimate_cents IS NULL,1,0) FROM open_costs o WHERE o.sale_id=s.id) no_estimate FROM sale_entries s JOIN order_line_components c ON (s.id=c.sale_id OR s.parent_id=c.sale_id) JOIN order_lines l ON l.id=c.line_id LEFT JOIN price_profiles pp ON pp.product_id=s.product_id WHERE l.package_id IN (SELECT value FROM json_each(?))';
+ const SALES_SQL='SELECT s.*,l.package_id,l.vat_bps satir_kdv,pp.vat_bps,(SELECT o.open_milli-o.settled_milli FROM open_costs o WHERE o.sale_id=s.id) open_milli,(SELECT iif(o.estimate_cents IS NULL,1,0) FROM open_costs o WHERE o.sale_id=s.id) no_estimate FROM sale_entries s JOIN order_line_components c ON (s.id=c.sale_id OR s.parent_id=c.sale_id) JOIN order_lines l ON l.id=c.line_id LEFT JOIN price_profiles pp ON pp.product_id=s.product_id WHERE l.package_id IN (SELECT value FROM json_each(?)) ORDER BY c.product_id,c.id,s.id';
  if(paketIdleri&&mode!=='delivered')fail('Paket sonucu yalnız teslim edilenler için verilir.');
  const sayfali=!paketIdleri&&imlec!==null&&imlec!==undefined,idJson=paketIdleri?JSON.stringify(paketIdleri):null;
  // Kapsam: tarih aralığı ya da verilen paketler. Kargodaki ikizin kopyası teslimliyse o da okunur (ikiz hesabı).
  const kapsam=paketIdleri?"(id IN (SELECT value FROM json_each(?)) OR channel||'|'||order_no IN (SELECT q.channel||'|'||q.order_no FROM order_packages q WHERE q.id IN (SELECT value FROM json_each(?)) AND q.status IN ('shipped','reserved')))":mode==='delivered'?'delivered_on BETWEEN ? AND ?':'occurred_on BETWEEN ? AND ?';
  const kapsamArg=paketIdleri?[idJson,idJson]:[from,to],sira=sayfali?' AND id>? ORDER BY id':' ORDER BY occurred_on DESC,id',siraArg=sayfali?[imlec]:[],sinir=paketIdleri?'':` LIMIT ${max+1}`;
- const db=env.DB,paketSoz=all(db.prepare(`SELECT *${mode==='delivered'?','+STOPAJ_SQL:''} FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND ${mode==='delivered'?"status='delivered'":"status IN ('draft','reserved','shipped')"} AND ${kapsam}${sira}${sinir}`).bind(...kapsamArg,...siraArg));
+ const db=env.DB,paketSoz=all(db.prepare(`SELECT *${mode==='delivered'?','+STOPAJ_SQL:''} FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND ${mode==='delivered'?"status='delivered'":"status IN ('draft','reserved','shipped')"} AND ${kapsam}${channelSql}${mode==='pending'?' AND '+pendingPackageScopeSql('order_packages'):''}${sira}${sinir}`).bind(...kapsamArg,...siraArg));
  // Dönenler paketlerle AYNI ANDA okunur (birbirini beklemez; D1'de her okuma bir gidiş-dönüştür).
  // TESLİM EDİLEMEYİP DÖNEN PAKET. Satış iadeyle sıfırlanır ama gidiş-dönüş kargosu ve hizmet bedeli
  // gerçek giderdir. Paket "gönderildi" durumunda kaldığı için kâra hiç girmiyor, o gider kayboluyordu
  // (canlıda HB 4611462604: kesintinin yarısı, ~132 TL; TY 11581049903). İadesi tamamlanan gönderilmiş
  // paket İADE TARİHİYLE sonuçlanmış sayılır; çift kayıt düzeltmesi (DUZELTME-CIFT) iade sayılmaz.
  // Dönenler de aynı paket sınırına girer: eskiden LIMIT 101 sonrası sessizce düşüyordu (Codex R20).
- const [packages,donen]=await Promise.all([paketSoz,mode!=='delivered'?[]:all(db.prepare(`SELECT *,${STOPAJ_SQL},${IADE_TARIHI} iade_tarihi FROM order_packages WHERE ${DONEN} AND ${paketIdleri?'id IN (SELECT value FROM json_each(?))':IADE_TARIHI+' BETWEEN ? AND ?'}${sayfali?' AND id>? ORDER BY id':''}${sinir}`).bind(...(paketIdleri?[idJson]:[from,to]),...siraArg))]);
+ const [packages,donen]=await Promise.all([paketSoz,mode!=='delivered'?[]:all(db.prepare(`SELECT *,${STOPAJ_SQL},${IADE_TARIHI} iade_tarihi FROM order_packages WHERE ${DONEN}${channelSql} AND ${paketIdleri?'id IN (SELECT value FROM json_each(?))':IADE_TARIHI+' BETWEEN ? AND ?'}${sayfali?' AND id>? ORDER BY id':''}${sinir}`).bind(...(paketIdleri?[idJson]:[from,to]),...siraArg))]);
  let sonraki_imlec=null;
  if(sayfali){
   const hepsi=[...packages,...donen.map(d=>({...d,status:'delivered',delivered_on:d.iade_tarihi,teslim_edilemedi:true}))].sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);
@@ -125,14 +131,7 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
  }
  // Çift aktarımın asıl kaydı "gönderildi" durumunda kalır ama teslimi kopyasıyla gelmiştir ve
  // teslim edilenlerin kârında ikiz olarak sayılır. Kargodakilerde ikinci kez görünmez.
- if(mode==='pending'&&packages.length){
-  const teslimli=new Set((await all(db.prepare("SELECT DISTINCT q.channel||'|'||q.order_no k FROM order_packages q JOIN order_lines l ON l.package_id=q.id JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries r ON r.parent_id=c.sale_id WHERE q.status='delivered' AND r.kind='return' AND r.external_id LIKE 'DUZELTME-CIFT-%' AND q.order_no IN (SELECT value FROM json_each(?))").bind(JSON.stringify([...new Set(packages.map(p=>p.order_no))])))).map(r=>r.k));
-  for(let i=packages.length-1;i>=0;i--)if(packages[i].status==='shipped'&&teslimli.has(packages[i].channel+'|'+packages[i].order_no))packages.splice(i,1);
-  // İADESİ TAMAMLANMIŞ paket (teslim edilemedi / müşteri iade etti) yolda değildir: satış ve iade
-  // birbirini kapatır. Kargodakiler tahminine girerse olmayan bir kâr eklenir.
-  const iadeli=new Set((await all(db.prepare("SELECT l.package_id pid,SUM(CASE WHEN s.kind='sale' THEN s.quantity_milli ELSE 0 END) satilan,(SELECT COALESCE(SUM(r.quantity_milli),0) FROM sale_entries r WHERE r.parent_id IN (SELECT c2.sale_id FROM order_line_components c2 JOIN order_lines l2 ON l2.id=c2.line_id WHERE l2.package_id=l.package_id) AND r.kind='return') iade FROM order_lines l JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries s ON s.id=c.sale_id WHERE l.package_id IN (SELECT value FROM json_each(?)) GROUP BY l.package_id").bind(JSON.stringify(packages.map(p=>p.id))))).filter(r=>r.iade>0&&r.iade>=r.satilan).map(r=>r.pid));
-  for(let i=packages.length-1;i>=0;i--)if(iadeli.has(packages[i].id))packages.splice(i,1);
- }
+ // Pending exclusions run before pagination and use the inventory agent's shared predicate.
  const ids=JSON.stringify(packages.map(p=>p.id));
  const [feeVatRows,lines,components,sales,inputs=[],shippingRates=[],commissionRates=[]]=(await db.batch([
   // Kesinti KDV orani UYDURULMAZ: pazaryerinin finans rapor profilinde beyan edilmisse oradan gelir.
@@ -224,6 +223,7 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
  const urunAdi=new Map((await adSoz).map(u=>[u.id,u.name]));
  const urunOzet=parts=>{const m=new Map();for(const c of parts)m.set(c.product_id,(m.get(c.product_id)||0)+c.quantity_milli);
   return [...m].map(([id,q])=>(q===1000?'':(q/1000).toLocaleString('tr-TR')+' × ')+(urunAdi.get(id)||'Ürün')).join(', ');};
+ const pendingLineQuotes=new Map();
  const rows=packages.map(p=>{
   const packageLines=lineMap.get(p.id)||[],parts=partMap.get(p.id)||[];let entries=saleMap.get(p.id)||[];
   const row={twin_of:p.twin_of||null,id:p.id,channel:p.channel,order_no:p.order_no,external_id:p.external_id,status:p.status,occurred_on:p.occurred_on,delivered_on:p.delivered_on,urun:urunOzet(parts),teslim_edilemedi:!!p.teslim_edilemedi,profit_cents:null,cash_cents:null,cash_note:null,missing:[],revenue_net_cents:null,cost_net_cents:null,shipping_cents:null,commission_cents:null,other_cents:null};
@@ -258,6 +258,7 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
     const satislar=entries.filter(s=>s.kind==='sale'),ciro=satislar.reduce((t,s)=>t+s.revenue_cents,0)||1;
     const pay=(tutar,s)=>Math.round(tutar*s.revenue_cents/ciro);
     entries=entries.map(s=>s.kind!=='sale'?s:{...s,shipping_cents:s.shipping_cents??pay(h.shipping,s),other_cents:s.other_cents??pay(h.other,s),commission_cents:s.commission_cents??Math.round(s.revenue_cents*h.commissionRate)});
+    saleMap.set(p.id,entries); // Presentation uses the same estimated fee entries as the authoritative package.
     const tahminli=packageProfit(p,packageLines,parts,entries);
     Object.assign(profit,{profit_cents:tahminli.estimated_profit_cents,reasons:[]});
     row.fees_estimated=true;
@@ -311,6 +312,10 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
     }
    }
   }else{
+   // The same unknown-cost rule applies to shipped estimates; a missing purchase is never free stock.
+   if(entries.some(e=>e.kind==='sale'&&e.quantity_milli>0&&((e.cost_cents===0&&!(e.open_milli>0))||(e.open_milli>0&&e.no_estimate===1)))){
+    row.missing.push('Satılan ürünün alış maliyeti bilinmiyor; sıfır sayılmadı, tahmin yapılmadı.');return row;
+   }
    const direct=inputMap.get(p.id),template=templateMap.get(parcelTemplateKey(p,packageLines,parts));
    // Sıra: elle girilmiş paket varsayımı → aynı içerikli teslim geçmişi → aynı içeriğin kayıtlı
    // ölçüleri (tarife) → aynı ürün / kanal geçmişi. Tarife hizmet bedelini bilmez; geçmiş bilir.
@@ -347,6 +352,7 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
    try{
     const stored=JSON.parse(saved.input_json),x=direct?stored:useParcelTemplate(stored,packageLines,parts),estimate=estimatePackage(p,packageLines,parts,{...x,date:p.shipped_on||today},shippingRates,commissionRates,false),q=estimate.quote;
     if(q.status!=='estimated'){row.missing=q.missing;return row;}
+    pendingLineQuotes.set(p.id,q.lines||[{...q,id:packageLines[0].id}]);
     Object.assign(row,{profit_cents:q.estimated_profit_cents,revenue_net_cents:q.revenue_net_cents,cost_net_cents:q.cost_net_cents,shipping_cents:q.shipping_net_cents,commission_cents:q.commission_net_cents,other_cents:q.packaging_net_cents+q.other_net_cents,assumptions_source:direct?'package':'identical_contents_template',assumptions_saved_at:saved.updated_at,tariff_date:p.shipped_on||today,cost_basis:estimate.cost_basis});
     // TAHMINDE DE NAKIT. Tarife hesabi zaten KDV dahil hakedisi veriyor (estimated_payout_cents:
     // satis - komisyon brut - kargo brut - stopaj). Nakit sonuc bundan malin KDV DAHIL maliyetini
@@ -374,12 +380,13 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
   else for(const c of partMap.get(row.id)||[])ekle(c.product_id,c.quantity_milli);
   row.urunler_eksik=[...m.values()];
  }
+ for(const row of rows)buildSalesPresentation(row,lineMap.get(row.id)||[],partMap.get(row.id)||[],saleMap.get(row.id)||[],{names:urunAdi,feeVat:feeVat.get(row.channel),pending:mode==='pending',componentCost:birimMaliyet,lineQuotes:pendingLineQuotes.get(row.id)||[]});
  // Paket sonucu (liste/pencere) için özet sorguları gerekmez.
  const ozetli=mode==='delivered'&&!paketIdleri;
  // TESLIM ONAYI GELMEYEN PAKETLER. Kar yalniz teslim edilmis pakette hesaplanir; kargoda
  // duran paket sessizce disarida kalirsa ekran "0 bilgi bekliyor" der ve toplam oldugundan
  // dusuk gorunur. Kac paketin bu yuzden hesaba girmedigi SOYLENIR. Tek gruplu sayim; ucuzdur.
- const bekleyen=ozetli?await all(db.prepare("SELECT channel,COUNT(*) n,MIN(occurred_on) ilk FROM order_packages q WHERE channel IN ('trendyol','hepsiburada') AND status='shipped' AND occurred_on<=? AND NOT EXISTS(SELECT 1 FROM order_packages d JOIN order_lines l ON l.package_id=d.id JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries r ON r.parent_id=c.sale_id WHERE d.channel=q.channel AND d.order_no=q.order_no AND d.status='delivered' AND r.kind='return' AND r.external_id LIKE 'DUZELTME-CIFT-%') GROUP BY channel").bind(to)):[];
+ const bekleyen=ozetli?await all(db.prepare(`SELECT channel,COUNT(*) n,MIN(occurred_on) ilk FROM order_packages q WHERE channel IN ('trendyol','hepsiburada') AND status='shipped' AND occurred_on<=? AND ${pendingPackageScopeSql('q')}${channelSql} GROUP BY channel`).bind(to)):[];
  const bekleyenMap=new Map(bekleyen.map(r=>[r.channel,r]));
  const pendingFees=ozetli?await db.prepare(`SELECT COALESCE(SUM(${effectiveNet(env.WORKSPACE)}-COALESCE((SELECT SUM(a.amount_cents) FROM fee_allocations a WHERE a.invoice_line_id=l.id AND a.reversed_at IS NULL),0)),0) cents FROM purchase_lines l JOIN purchase_invoices i ON i.id=l.invoice_id WHERE i.status='posted' AND l.line_type='expense' AND l.expense_treatment='sales_fee'`).first():{cents:0};
  const channels=['trendyol','hepsiburada'].map(channel=>{
@@ -391,5 +398,5 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
    cash_calculated:nakitli.length,cash_cents:items.length&&nakitli.length===items.length?nakitToplam:null,calculated_cash_cents:nakitli.length?nakitToplam:null,cash_losses:nakitli.filter(r=>r.cash_cents<0).length,
    awaiting_delivery:bekleyenMap.get(channel)?.n||0,awaiting_delivery_since:bekleyenMap.get(channel)?.ilk||null};
  });
- return {mode,from,to,sonraki_imlec,unallocated_fee_cents:pendingFees.cents,as_of:new Date().toISOString(),channels,rows,notice:mode==='delivered'?'Teslim tarihi seçilen aralıktaki paketlerdir. Bu paketlere sonradan işlenen iadeler de dahildir. Yalnızca kesintileri doğrulanmış satışlar kesin hesaba girer.':'Sipariş tarihi seçilen aralıktaki hazırlık ve kargodaki paketlerdir. Kayıtlı paket varsayımlarıyla her açılışta yeniden hesaplanır; teslim edilenler dahil değildir.',cost_notice:'Tutarlar NAKİTtİr: KDV dahil satıştan KDV dahil ürün maliyeti ve kesintiler düşülür. KDV hariç katkı vergi beyanı için ayrıca durur. Ortak işletme giderleri ve gelir/kurumlar vergisi dahil değildir.'};
+ return {mode,from,to,sonraki_imlec,unallocated_fee_cents:pendingFees.cents,as_of:new Date().toISOString(),channels,rows,...(mode==='pending'?pendingSalesSummary(rows):{}),notice:mode==='delivered'?'Teslim tarihi seçilen aralıktaki paketlerdir. Bu paketlere sonradan işlenen iadeler de dahildir. Yalnızca kesintileri doğrulanmış satışlar kesin hesaba girer.':'Sipariş tarihi seçilen aralıktaki hazırlık ve kargodaki paketlerdir. Kayıtlı paket varsayımlarıyla her açılışta yeniden hesaplanır; teslim edilenler dahil değildir.',cost_notice:'Tutarlar NAKİTtİr: KDV dahil satıştan KDV dahil ürün maliyeti ve kesintiler düşülür. KDV hariç katkı vergi beyanı için ayrıca durur. Ortak işletme giderleri ve gelir/kurumlar vergisi dahil değildir.'};
 }
