@@ -34,12 +34,14 @@ export function productList(products,data,state,helpers){
  const cost=p=>p.quantity_milli>0&&p.value_cents!=null?Math.round(p.value_cents*1000/p.quantity_milli):null;
  const actions=p=>(helpers.editable===false?'':'<button type="button" class="text-button" data-ac="edit-product" data-id="'+esc(p.id)+'">Düzenle</button>')+'<button type="button" class="text-button" data-ac="stock-history" data-id="'+esc(p.id)+'">Hareketler →</button>';
  // SATIŞ VE KÂR (bugüne kadar, kâr raporuyla aynı hesap): satılan adet iadeler düşülmüş; ciro ve kâr KDV dahil.
+ // Kapsam: teslim edilenler + henüz teslim edilmemişler (gönderilen ve hazırlanan); ikincisi tahminidir
+ // ve ana sayfanın "Kargodaki tahminim" kartıyla aynı paketlerdir.
  const st=p=>data.productStats?.get(p.id)||null;
  const kar=v=>v==null?'—':'<span class="'+(v<0?'ol-neg':'ol-pos')+'">'+money(v)+'</span>';
  // Bilinmeyen maliyet/kesinti sıfır sayılmaz: toplam boş kalır, kaç paketin hesaplanmadığı ve nedeni yazılır.
  const tahminNot=p=>{const x=st(p);if(!x)return '';
   return (x.eksik_paket?'<small class="error" title="'+esc(x.eksik_neden||'')+'">'+x.eksik_paket+' paket hesaplanmadı'+(x.hesaplanan_kar_cents!=null?' · hesaplanan '+money(x.hesaplanan_kar_cents):'')+'</small>':'')
-   +(x.tahmini_paket?'<small>'+x.tahmini_paket+' paket tahmini'+(x.kargoda_paket?' ('+x.kargoda_paket+' kargoda)':'')+'</small>':'');};
+   +(x.tahmini_paket?'<small>'+x.tahmini_paket+' paket tahmini'+(x.kargoda_paket?' ('+x.kargoda_paket+' paket henüz teslim edilmedi)':'')+'</small>':'');};
  const status=p=>p.quantity_milli<0?'Eksi stok':p.quantity_milli===0?'Stok yok':available(p)<=p.min_stock_milli?'Kritik stok':'Stokta';
  if(!products.length)return '<div class="card product-empty"><h2>Bu seçimde ürün bulunamadı</h2><p>Filtreleri temizleyebilir veya ürün listesini içe aktarmak için hazırlayabilirsin.</p></div>';
  // MARKA GRUPLARI. Tropikal, Gartengold, Klasmann… her marka kendi başlığı altında; başlıkta

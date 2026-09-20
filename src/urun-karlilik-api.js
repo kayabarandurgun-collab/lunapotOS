@@ -6,8 +6,10 @@
 // ürünlere dağıtılır; ana sayfa ve kâr raporuyla aynı paket aynı kuruşu verir.
 //  - Teslim edilenler (iade tarihiyle sonuçlananlar ve çift aktarım ikizi dahil): kâr raporunun kendisi.
 //    Kesintisi ekstreye yazılmamış paket geçmişten TAHMİN edilir, sayısı söylenir (tahmini_paket).
-//  - Kargodakiler (gönderilmiş, teslim bekleyen): kâr raporunun "Kargoda · Tahmin" satırları; ayrı alanda
-//    (kargoda_kar_cents) ve tahmini sayılır.
+//  - Kargodakiler (henüz teslim edilmemiş: gönderilen + hazırlanan/stok ayrılmış): kâr raporunun
+//    "Kargoda · Tahmin" satırları; ayrı alanda (kargoda_kar_cents) ve tahmini sayılır. Kapsam ana
+//    sayfanın "Kargodaki tahminim" kartıyla AYNIDIR (aynı tarih, aynı durumlar): iki ekran aynı rakamı
+//    verir. Eskiden yalnız 'shipped' sayılıyordu; hazırlanan paketler ekranlar arasında fark yaratıyordu.
 //  - Maliyeti/kesintisi bilinmeyen paket SIFIR SAYILMAZ: ürünün toplam kârı boş (null) kalır, hesaplanan
 //    kısım (hesaplanan_kar_cents), eksik paket sayısı ve kısa nedeni ayrıca verilir.
 // Birden çok ürünlü pakette kesinti ve stopaj ürünlere KDV dahil satış oranında dağılır.
@@ -25,9 +27,11 @@ export async function urunKarlilikApi(request, env, path) {
   const db = env.DB, today = new Date().toLocaleDateString('sv-SE', {timeZone: 'Europe/Istanbul'});
   const tahmin = await kesintiTahmincisi(db);
   const ilk = await ilkSonucTarihi(db, today);
-  const kargoIlk = (await db.prepare("SELECT MIN(occurred_on) d FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND status='shipped' AND occurred_on<=?").bind(today).first())?.d;
+  // İlk bekleyen paketin sipariş tarihi: ana sayfanın (panorama-api) kullandığı sorgunun AYNISI.
+  const kargoIlk = (await db.prepare("SELECT MIN(occurred_on) d FROM order_packages WHERE channel IN ('trendyol','hepsiburada') AND status IN ('draft','reserved','shipped') AND occurred_on<=?").bind(today).first())?.d;
   const teslim = ilk ? (await tumSatirlar(env, {mode: 'delivered', from: ilk, to: today, tahmin, detay: true})).rows : [];
-  const kargoda = kargoIlk ? (await tumSatirlar(env, {mode: 'pending', from: kargoIlk, to: today, tahmin, detay: true})).rows.filter(r => r.status === 'shipped') : [];
+  // Süzgeç YOK: kâr raporunun kargodaki satırlarının tamamı (gönderilen + hazırlanan) ana sayfadaki gibi sayılır.
+  const kargoda = kargoIlk ? (await tumSatirlar(env, {mode: 'pending', from: kargoIlk, to: today, tahmin, detay: true})).rows : [];
 
   const urun = new Map(), al = id => {
     if (!urun.has(id)) urun.set(id, {product_id: id, adet_milli: 0, ciro_cents: 0, kar_cents: 0, teslim_kar_cents: 0, kargoda_kar_cents: 0,
@@ -50,7 +54,7 @@ export async function urunKarlilikApi(request, env, path) {
     }
   }
   return {as_of: new Date().toISOString(), from: ilk, to: today,
-    notice: 'Teslim edilenler (iade tarihiyle sonuçlananlar dahil) kâr raporuyla aynıdır; kargodakiler tahminidir. Maliyeti veya kesintisi bilinmeyen paket sıfır sayılmaz.',
+    notice: 'Teslim edilenler (iade tarihiyle sonuçlananlar dahil) kâr raporuyla aynıdır. Kargodaki tutar henüz teslim edilmemiş paketlerin tahminidir: gönderilenler ve hazırlananlar (stok ayrılmış) birlikte — ana sayfadaki "Kargodaki tahminim" ile aynı kapsam. Maliyeti veya kesintisi bilinmeyen paket sıfır sayılmaz.',
     rows: [...urun.values()].map(u => {
       const kar = u.eksik.size ? null : u.kar_cents;
       return {product_id: u.product_id, adet_milli: u.adet_milli, ciro_cents: u.ciro_cents, kar_cents: kar, hesaplanan_kar_cents: u.kar_cents,

@@ -41,7 +41,10 @@ const MONEY_KEY=/(^|_)(cents|price|sale_price|unit_cost)$|_cents$/;
 // Arayuzde gizlemek yetmez: tutar yetkisi olmayan calisan API yanitindan da okuyamamali.
 // Kaça satmalıyım (fiyat-hesap) yanıtı Türkçe adlı para/oran alanları taşır; aynı kuralla gizlenir.
 const MONEY_NAMES=new Set(['price','sale_price','unit_cost','amount','total_cost','rate_bps','revenue_share_bps','gross','net_revenue',
- 'fiyat','maliyet','kargo','hizmet','komisyon','stopaj','paketleme','diger','cebine','istenen','birim_maliyet_kdv_dahil','komisyon_orani','stopaj_orani']);
+ 'fiyat','maliyet','kargo','hizmet','komisyon','stopaj','paketleme','diger','cebine','istenen','birim_maliyet_kdv_dahil','komisyon_orani','stopaj_orani',
+ // Güvenlik incelemesi: bu alanlar *_cents kalıbına uymuyordu ve tutar yetkisi olmayan personele sızıyordu
+ // (rapor–defter farkı, kesinti dağıtımı toplamları, pazaryeri paket brütü ve indirimleri).
+ 'report_gross','ledger_gross','missing_gross','commission','shipping','other','package_gross','package_seller_discount','package_platform_discount']);
 export function scrubAmounts(payload,user,ns){
  if(user?.owner||can(user,ns,'amounts'))return payload;
  // Aynı nesne yanıtta iki kez geçebilir: ikinci geçişte ÖZGÜN nesne değil, gizlenmiş kopyası döner.

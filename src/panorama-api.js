@@ -40,6 +40,9 @@ function ozet(rows) {
     // KDV hariç katkı yalnız vergi beyanı için küçük satırda gösterilir.
     profit_ex_vat_cents: rows.reduce((t, r) => t + (r.profit_cents ?? 0), 0),
     estimated: rows.filter(r => r.fees_estimated || r.cost_note || r.assumptions_source).length,
+    // KABA TAHMİN: kesinti tahmini benzer ADETTE teslim geçmişi bulunamadan yapılan paketler (tutar aynı,
+    // dayanağı zayıf). Kargodaki kartında kaç paket olduğu söylenir.
+    kaba_tahmin: rows.filter(r => r.tahmin_uyari).length,
     channels: kanallar
   };
 }

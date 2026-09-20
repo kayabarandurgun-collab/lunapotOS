@@ -15,7 +15,8 @@
 //
 // ADET UYUMU (her dönüşte): uyum 'ayni' (örnekler istenen adette), 'aralik' (istenen adet örneklerin
 // en az/en çok adedi arasında), 'uzak' (örneklerin hepsi daha az ya da hepsi daha çok adetli), 'yok'
-// (ürüne ait örnek yok, kanal ortancası); ornekAdet {en_az, en_cok} milli adet.
+// (ürüne ait örnek yok, kanal ortancası); ornekAdet {en_az, en_cok} milli adet. Uyum 'uzak'/'yok' ise
+// ayrıca uyari: kısa Türkçe not (kâr yolu bunu satıra taşır; TUTARI DEĞİŞTİRMEZ, belirsizliği söyler).
 // {adetSiniri: true} (fiyat önerisi): uzak adetler ortancaya karışmaz. Aynı adet varsa onlar; yoksa
 // istenen adedin iki yanındaki en yakın gözlenmiş adetlerden kargo ve hizmet adede göre orantılanır;
 // yalnız bir yanda örnek varsa o adetteki örnekler 'uzak' döner. Tek paket kargosu adetle ÇARPILMAZ.
@@ -28,6 +29,11 @@ const uyumOf = (liste, adet) => { const a = liste.map(x => x.adet), en_az = Math
   return {uyum: en_az === adet && en_cok === adet ? 'ayni' : en_az <= adet && adet <= en_cok ? 'aralik' : 'uzak', ornekAdet: {en_az, en_cok}}; };
 const kaynakNotu = o => o.uyum === 'aralik' ? adetYaz(o.ornekAdet.en_az) + ' ve ' + adetYaz(o.ornekAdet.en_cok) + ' adetlik ' + o.n + ' teslimden adede göre orantılandı'
   : adetYaz(o.ornekAdet.en_az) + ' adetlik ' + o.n + ' teslimden alındı';
+// KABA TAHMİN NOTU: örneklerin adedi istenene uymuyorsa ('uzak') ya da ürüne ait örnek hiç yoksa ('yok')
+// kısa uyarı; uyumluysa null. Tahmin yine verilir, yalnız ne kadar dayanaksız olduğu söylenir.
+const ornekAdetYaz = o => o.ornekAdet.en_az === o.ornekAdet.en_cok ? adetYaz(o.ornekAdet.en_az) : adetYaz(o.ornekAdet.en_az) + '–' + adetYaz(o.ornekAdet.en_cok);
+const kabaNot = (o, adet) => o.uyum === 'yok' ? 'Tahmin kaba: bu ürünün bu kanalda teslimi yok, kanalın ortancası kullanıldı.'
+  : o.uyum === 'uzak' ? 'Tahmin kaba: ' + adetYaz(adet) + ' adetlik pakete karşılık geçmişte yalnız ' + ornekAdetYaz(o) + ' adetlik teslim var.' : null;
 
 export async function kesintiTahmincisi(db) {
   const [pk, cp, sl, iade, stopaj] = (await db.batch([
@@ -84,7 +90,7 @@ export async function kesintiTahmincisi(db) {
 
   /**
    * parts: [{product_id, quantity_milli}] · secenek: {adetSiniri} ·
-   * dönüş: {shipping, other, commissionRate, withholdingRate, source, n, note, uyum, ornekAdet} ya da null.
+   * dönüş: {shipping, other, commissionRate, withholdingRate, source, n, note, uyum, ornekAdet, uyari} ya da null.
    */
   return function tahmin(channel, parts, {adetSiniri = false} = {}) {
     const kanal = ornekler.filter(x => x.channel === channel);
@@ -92,29 +98,29 @@ export async function kesintiTahmincisi(db) {
     const wr = stopajOrani.get(channel) || 0;
     const ayni = kanal.filter(x => x.icerik === icerik(parts)).slice(0, 5);
     const toplam = parts.reduce((t, c) => t + c.quantity_milli, 0);
-    if (ayni.length) return {...ozet(ayni, 'content'), withholdingRate: wr, uyum: 'ayni', ornekAdet: {en_az: toplam, en_cok: toplam},
+    if (ayni.length) return {...ozet(ayni, 'content'), withholdingRate: wr, uyum: 'ayni', ornekAdet: {en_az: toplam, en_cok: toplam}, uyari: null,
       note: 'Kesintiler aynı içerikli son ' + ayni.length + ' teslimin ortancasından.'};
     // Aynı ürünü tek başına taşıyan paketler; birden çok ürünlü pakette en büyük kargolu ürün esas alınır.
     const urunler = [...new Set(parts.map(c => c.product_id))];
     const adetOf = u => parts.filter(c => c.product_id === u).reduce((t, c) => t + c.quantity_milli, 0);
-    let enIyi = null;
+    let enIyi = null, enIyiAdet = toplam;
     for (const u of urunler) {
       const o = urunOrnegi(kanal.filter(x => x.tekUrun === u), adetOf(u), 'product', adetSiniri);
-      if (o && (!enIyi || o.shipping > enIyi.shipping)) enIyi = o;
+      if (o && (!enIyi || o.shipping > enIyi.shipping)) { enIyi = o; enIyiAdet = adetOf(u); }
     }
-    if (enIyi) return {...enIyi, withholdingRate: wr,
+    if (enIyi) return {...enIyi, withholdingRate: wr, uyari: kabaNot(enIyi, enIyiAdet),
       note: adetSiniri ? 'Bu içerikte teslim yok; kargo ve hizmet bedeli aynı ürünün ' + kaynakNotu(enIyi) + '.'
         : 'Bu içerikte teslim yok; aynı ürünün adedi en yakın ' + enIyi.n + ' teslimi örnek alındı.'};
-    let diger = null;
+    let diger = null, digerAdet = toplam;
     for (const u of urunler) {
       const o = urunOrnegi(ornekler.filter(x => x.channel !== channel && x.tekUrun === u), adetOf(u), 'product_other_channel', adetSiniri);
-      if (o && (!diger || o.shipping > diger.shipping)) diger = o;
+      if (o && (!diger || o.shipping > diger.shipping)) { diger = o; digerAdet = adetOf(u); }
     }
-    if (diger) return {...diger, commissionRate: ozet(kanal.slice(0, 30), 'channel').commissionRate, withholdingRate: wr,
+    if (diger) return {...diger, commissionRate: ozet(kanal.slice(0, 30), 'channel').commissionRate, withholdingRate: wr, uyari: kabaNot(diger, digerAdet),
       note: adetSiniri ? 'Bu ürünün bu kanalda teslimi yok; kargo ve hizmet bedeli diğer kanaldaki ' + kaynakNotu(diger) + ', komisyon oranı bu kanalın ortancasından.'
         : 'Bu ürünün bu kanalda teslimi yok; kargo ve hizmet bedeli diğer kanaldaki ' + diger.n + ' teslimden, komisyon oranı bu kanalın ortancasından.'};
     const son = kanal.slice(0, 30);
-    return {...ozet(son, 'channel'), withholdingRate: wr, uyum: 'yok', ornekAdet: null,
+    return {...ozet(son, 'channel'), withholdingRate: wr, uyum: 'yok', ornekAdet: null, uyari: kabaNot({uyum: 'yok'}, toplam),
       note: 'Bu ürünün bu kanalda teslimi yok; kanalın son ' + son.length + ' teslimi örnek alındı.'};
   };
 }

@@ -54,7 +54,21 @@ const json=(data,status=200,headers={})=>Response.json(data,{status,headers:{'Ca
 const activity=(db,description)=>db.prepare('INSERT INTO activity(id,description) VALUES(?,?)').bind(crypto.randomUUID(),description);
 // Rapor Kutusu dosya parçası ve satır partileri daha büyük olabilir; sınır yalnızca bu iki uçta yükselir.
 const bodyLimit=request=>/^\/api\/ec\/reports\/files\/[\w-]{1,100}\/(chunk|rows)$/.test(new URL(request.url).pathname)||/^\/api\/(ec|lp)\/invoices\/documents\/[\w-]{1,100}\/chunk$/.test(new URL(request.url).pathname)||/^\/api\/ec\/sales\/documents\/[\w-]{1,100}\/chunk$/.test(new URL(request.url).pathname)?1000000:64000;
-async function body(request){const limit=bodyLimit(request);if(Number(request.headers.get('content-length'))>limit)fail('İstek çok büyük.',413);const raw=await request.text();if(raw.length>limit)fail('İstek çok büyük.',413);try{return JSON.parse(raw);}catch{fail('Geçersiz veri.');}}
+// Gövde SINIRA KADAR okunur: Content-Length yoksa (parçalı gövde) eskiden tamamı belleğe alınıp sonra
+// bakılıyordu; giriş ucu kimlik istemeden çağrılabildiği için bu bir bellek baskısı yoluydu.
+async function body(request){const limit=bodyLimit(request);
+ if(Number(request.headers.get('content-length'))>limit)fail('İstek çok büyük.',413);
+ let raw;
+ if(request.body&&typeof request.body.getReader==='function'){
+  const reader=request.body.getReader(),parcalar=[];let boy=0;
+  for(;;){const {done,value}=await reader.read();if(done)break;boy+=value.length;
+   if(boy>limit){try{await reader.cancel();}catch{}fail('İstek çok büyük.',413);}
+   parcalar.push(value);}
+  const hepsi=new Uint8Array(boy);let yer=0;for(const p of parcalar){hepsi.set(p,yer);yer+=p.length;}
+  raw=new TextDecoder().decode(hepsi);
+ }else raw=await request.text();
+ if(raw.length>limit)fail('İstek çok büyük.',413);
+ try{return JSON.parse(raw);}catch{fail('Geçersiz veri.');}}
 const session=currentSession;
 // Tek bayt aralığı ("bytes=a-b", "bytes=a-", "bytes=-n"). Çoklu aralık desteklenmez; tam dosya döner.
 export async function videoRange(request,response){
@@ -113,13 +127,19 @@ async function api(request,env,path){
      if(!account||!equal(candidate,account.password_hash))fail('Kullanıcı adı veya şifre hatalı.',401);
    }
    const token=hex(crypto.getRandomValues(new Uint8Array(32)));
-   await db.batch([db.prepare('DELETE FROM sessions WHERE expires_at<?').bind(now()),db.prepare('INSERT INTO sessions(token_hash,expires_at,staff_id) VALUES(?,?,?)').bind(await hash(token),now()+604800,staff?.id||null),db.prepare('DELETE FROM login_limits WHERE key=?').bind(limits[1].key)]);
+   await db.batch([db.prepare('DELETE FROM sessions WHERE expires_at<?').bind(now()),db.prepare('INSERT INTO sessions(token_hash,expires_at,staff_id) VALUES(?,?,?)').bind(await hash(token),now()+604800,staff?.id||null),db.prepare('DELETE FROM login_limits WHERE key IN (?,?)').bind(limits[1].key,limits[2]?.key||'')]);
    const secure=new URL(request.url).protocol==='https:'?'; Secure':'';
    return json({ok:true},200,{'Set-Cookie':`lunapot_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800${secure}`});
  }
  const current=await session(request,db);if(!current)fail('Lütfen giriş yapın.',401);authorize(current.user,path,request.method);
  if(path.startsWith('/api/webshop/'))return json(scrubAmounts(await webshopAdminApi(request,env,path,body,current.user),current.user,'ec'));
- const accessResult=await accessApi(request,env,path,body,current.user);if(accessResult!==null)return json(accessResult);
+ const accessResult=await accessApi(request,env,path,body,current.user);
+ if(accessResult!==null){
+  // Şifre değişiminde bütün yönetici oturumları kapandı: bu cihaz yeni çerezle açık kalır.
+  if(accessResult.token){const {token,...rest}=accessResult,secure=new URL(request.url).protocol==='https:'?'; Secure':'';
+   return json(rest,200,{'Set-Cookie':`lunapot_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800${secure}`});}
+  return json(accessResult);
+ }
  const workspace=path.match(/^\/api\/(ec|lp)(\/.*)?$/);
  if(workspace){
   const scoped={...env,DB:scopedDB(db,workspace[1]),ROOT_DB:db,WORKSPACE:workspace[1],USER:current.user},subpath=workspace[2]||'';
@@ -197,6 +217,6 @@ export default {
  headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','no-referrer');headers.set('X-Frame-Options','DENY');
  headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src blob:; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
  headers.set('Permissions-Policy','camera=(), microphone=(), geolocation=()');
- if(new URL(request.url).protocol==='https:')headers.set('Strict-Transport-Security','max-age=31536000');
+ if(new URL(request.url).protocol==='https:')headers.set('Strict-Transport-Security','max-age=31536000; includeSubDomains');
  return new Response(response.body,{status:response.status,headers});
 }};

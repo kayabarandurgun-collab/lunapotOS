@@ -84,11 +84,15 @@ export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sa
     for (let i = 0; i < 30 && vakitVar(); i++) { const r = await fifoRevalue(ec.DB, 8); ozet.maliyet += r.changed; if (!r.remaining) break; }
   });
 
-  const is = ozet.dosya + ozet.siparis + ozet.teslim + ozet.iade + ozet.kesinti;
+  const is = ozet.dosya + ozet.siparis + ozet.teslim + ozet.iade + ozet.kesinti + ozet.maliyet;
   if (is || ozet.hatalar.length)
     await db.prepare('INSERT INTO ec_activity(id,description) VALUES(?,?)').bind(crypto.randomUUID(),
       'Otomatik bakım: ' + [ozet.dosya && ozet.dosya + ' rapor dosyası bitirildi', ozet.siparis && ozet.siparis + ' sipariş aktarıldı', ozet.teslim && ozet.teslim + ' teslim',
-        ozet.iade && ozet.iade + ' iade', ozet.kesinti && ozet.kesinti + ' satışa kesinti yazıldı'].filter(Boolean).join(', ')
+        ozet.iade && ozet.iade + ' iade', ozet.kesinti && ozet.kesinti + ' satışa kesinti yazıldı', ozet.maliyet && ozet.maliyet + ' maliyet düzeltmesi'].filter(Boolean).join(', ')
       + (ozet.hatalar.length ? (is ? '; ' : '') + 'sorun: ' + ozet.hatalar.join(' | ').slice(0, 400) : '')).run();
+  // İŞ YOKKEN DE İZ BIRAKILIR (en çok 6 saatte bir): ekranda hiç satır olmayınca bakımın çalışıp
+  // çalışmadığı anlaşılmıyordu. Her 15 dakikada yazmak listeyi doldururdu.
+  else await db.prepare("INSERT INTO ec_activity(id,description) SELECT ?,'Otomatik bakım çalıştı; yapılacak iş yoktu.'"
+    + " WHERE NOT EXISTS(SELECT 1 FROM ec_activity WHERE description LIKE 'Otomatik bakım%' AND created_at>datetime('now','-6 hours'))").bind(crypto.randomUUID()).run();
   return ozet;
 }

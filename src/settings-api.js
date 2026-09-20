@@ -5,7 +5,10 @@ export async function settingsApi(request,env,path,readBody){
  if(!['ec','lp'].includes(ns))fail('Çalışma alanı geçersiz.',403);
  if(path==='/api/settings'&&request.method==='GET'){
   const settings=await db.prepare('SELECT * FROM workspace_settings WHERE workspace=?').bind(ns).first();
-  return {settings,workspace:ns,storage:'Cloudflare D1',ai_enabled:false,credentials_storage_ready:!!env.CREDENTIAL_KEY};
+  // Sunucunun kendiliğinden yaptığı işler (15 dakikalık otomatik bakım dahil) ekranda görünsün:
+  // ekranda hiç iz olmayınca bakımın çalışıp çalışmadığı anlaşılmıyordu.
+  const jobs=ns==='ec'?(await env.DB.prepare('SELECT description,created_at FROM activity ORDER BY created_at DESC LIMIT 12').all()).results:[];
+  return {settings,workspace:ns,storage:'Cloudflare D1',ai_enabled:false,credentials_storage_ready:!!env.CREDENTIAL_KEY,jobs,owner:!!env.USER?.owner};
  }
  if(path==='/api/settings'&&request.method==='POST'){
   const x=await readBody(request);

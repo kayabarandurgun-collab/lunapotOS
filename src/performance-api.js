@@ -67,7 +67,8 @@ export async function paketSonuclari(env,ids){
     estimated:!!(r.fees_estimated||r.cost_estimated),twin_of:r.twin_of,
     // Pencerenin "Paran nereye gidiyor?" dökümü de aynı satırdan (KDV dahil; tahmini kesintiler dahil).
     kalemler:r.cash_cents===null||r.cash_cents===undefined?null:{revenue_gross_cents:r.revenue_gross_cents,cost_gross_cents:r.cost_gross_cents,shipping_gross_cents:r.shipping_gross_cents,commission_gross_cents:r.commission_gross_cents,other_gross_cents:r.other_gross_cents},
-    note:r.cash_cents===null||r.cash_cents===undefined?(r.missing[0]||r.cash_note||null):(r.cost_note||(r.twin_of?'Çift aktarım düzeltildi: teslim ve pazaryeri kesintileri kopyadan ('+r.twin_of+'), satış ve maliyet bu kayıttan.':null))});
+    // Kaba tahmin uyarısı (benzer adette teslim geçmişi yok) listede ve pencerede de görünür.
+    note:[r.cash_cents===null||r.cash_cents===undefined?(r.missing[0]||r.cash_note||null):(r.cost_note||(r.twin_of?'Çift aktarım düzeltildi: teslim ve pazaryeri kesintileri kopyadan ('+r.twin_of+'), satış ve maliyet bu kayıttan.':null)),r.tahmin_uyari||null].filter(Boolean).join(' ')||null});
    if(r.twin_dup_id&&iste.has(r.twin_dup_id)&&!out.has(r.twin_dup_id))out.set(r.twin_dup_id,{cash_cents:null,profit_cents:null,withholding_cents:null,estimated:false,copy_of:r.id,
     note:'Çift aktarım kopyası: bu paketin sonucu asıl kayıtta ('+r.external_id+') bir kez sayılır.'});
   }
@@ -256,6 +257,10 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
     const tahminli=packageProfit(p,packageLines,parts,entries);
     Object.assign(profit,{profit_cents:tahminli.estimated_profit_cents,reasons:[]});
     row.fees_estimated=true;
+    // ADET UYUMU (R23) kâr yoluna da taşınır: tahmin benzer ADETTE teslime dayanmıyorsa satır işaretlenir.
+    // Tutar değişmez; yalnız ne kadar kaba olduğu makine okunur alanla ve kısa notla söylenir.
+    row.tahmin_uyum=h.uyum||null;row.tahmin_ornek_adet=h.ornekAdet||null;
+    if(h.uyari)row.tahmin_uyari=h.uyari;
     row.cost_note=(row.cost_note?row.cost_note+' ':'')+'Pazaryeri kesintiyi ekstreye henüz yazmadı; '+h.note.charAt(0).toLocaleLowerCase('tr-TR')+h.note.slice(1)+' Ekstre gelince kendiliğinden kesinleşir.';
    }
    row.revenue_net_cents=total.revenue;row.cost_net_cents=total.cost;
@@ -316,8 +321,12 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
     const cost=own.length?own.reduce((t,e)=>t+e.cost_cents,0):parts.length&&parts.every(c=>birimMaliyet(c)!==null)?parts.reduce((t,c)=>t+birimMaliyet(c),0):null;
     if(revenue===null||cost===null){row.missing.push('Paketin satış tutarı veya ürün maliyeti bilinmiyor; tahmin yapılmadı.');return row;}
     const commission=Math.round(revenue*h.commissionRate);
+    // tahmin_uyum: örneklerin adedi istenen adede ne kadar uyuyor (fee-history 'ayni'/'aralik'/'uzak'/'yok').
+    // 'uzak'/'yok' ise tahmin_uyari kısa notu gelir; TUTAR DEĞİŞMEZ, belirsizlik görünür olur.
     Object.assign(row,{revenue_net_cents:revenue,cost_net_cents:cost,shipping_cents:h.shipping,commission_cents:commission,other_cents:h.other,
-     profit_cents:revenue-cost-h.shipping-commission-h.other,assumptions_source:'history',history_source:h.source,history_n:h.n,cost_note:h.note});
+     profit_cents:revenue-cost-h.shipping-commission-h.other,assumptions_source:'history',history_source:h.source,history_n:h.n,cost_note:h.note,
+     tahmin_uyum:h.uyum||null,tahmin_ornek_adet:h.ornekAdet||null});
+    if(h.uyari)row.tahmin_uyari=h.uyari;
     const oranlar=[...new Set(packageLines.map(l=>l.vat_bps))],fv=feeVat.get(p.channel);
     if(oranlar.length!==1||oranlar[0]===null||oranlar[0]===undefined)row.cash_note='Paketin satırları farklı KDV oranında; nakit sonuç hesaplanmadı.';
     else if(fv===null||fv===undefined)row.cash_note='Bu pazaryerinin kesinti KDV durumu beyan edilmedi; nakit sonuç hesaplanmadı.';

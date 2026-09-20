@@ -16,6 +16,27 @@ export const authorize=permit;
 const field=(v,label,max=100)=>{if(typeof v!=='string'||!v.trim()||v.length>max)fail(label+' alanını kontrol edin.');return v.trim();};
 const log=(db,user,action,target)=>db.prepare('INSERT INTO access_audit(id,actor_id,actor_name,action,target_id) VALUES(?,?,?,?,?)').bind(crypto.randomUUID(),user.id,user.name,action,target);
 export async function accessApi(request,env,path,readBody,user){
+ // YÖNETİCİ ŞİFRESİNİ DEĞİŞTİRME. Eskiden hiçbir ekrandan değiştirilemiyordu: şifre ya da oturum çerezi
+ // sızarsa 7 gün boyunca kapatmanın yolu yoktu (çalışan hesapları davet yenilenerek kapatılabiliyordu).
+ // Şifre değişince yöneticinin BÜTÜN oturumları kapanır; çağıran cihaz yeni çerezle açık kalır.
+ if(path==='/api/admin/password'){
+  if(!user.owner)fail('Bu işlemi yalnızca yönetici yapabilir.',403);
+  if(request.method!=='POST')fail('İşlem bulunamadı.',404);
+  const db=env.DB,x=await readBody(request),admin=await db.prepare('SELECT * FROM admin WHERE id=1').first();
+  if(!admin)fail('Önce ilk kurulum tamamlanmalı.',403);
+  const eski=typeof x.current_password==='string'&&x.current_password.length<=200?await passwordHash(x.current_password,admin.salt):'';
+  if(!equal(eski,admin.password_hash))fail('Şu anki şifre hatalı.',401);
+  const yeni=field(x.password,'Yeni şifre',200);
+  if(yeni.length<12)fail('En az 12 karakterlik bir şifre seçin.');
+  if(equal(await passwordHash(yeni,admin.salt),admin.password_hash))fail('Yeni şifre eskisinden farklı olmalı.');
+  const salt=crypto.randomUUID(),token=hex(crypto.getRandomValues(new Uint8Array(32)));
+  await db.batch([
+   db.prepare('UPDATE admin SET salt=?,password_hash=? WHERE id=1').bind(salt,await passwordHash(yeni,salt)),
+   db.prepare('DELETE FROM sessions WHERE staff_id IS NULL'),
+   db.prepare('INSERT INTO sessions(token_hash,expires_at,staff_id) VALUES(?,?,NULL)').bind(await hash(token),Math.floor(Date.now()/1000)+604800),
+   log(db,user,'Yönetici şifresi değiştirildi; açık oturumlar kapatıldı',null)]);
+  return {ok:true,token};
+ }
  if(!path.startsWith('/api/admin/users'))return null;
  if(!user.owner)fail('Çalışanları yalnızca yönetici yönetebilir.',403);
  const db=env.DB,match=path.match(/^\/api\/admin\/users(?:\/([\w-]+)(?:\/(invite))?)?$/);if(!match)fail('İşlem bulunamadı.',404);
@@ -34,7 +55,7 @@ export async function accessApi(request,env,path,readBody,user){
   return {id,invite_path:'/access#invite='+token,expires_at:expires};
  }
  if(!['none','read','write'].includes(x.ec_access)||!['none','read','write'].includes(x.lp_access)||typeof x.active!=='boolean')fail('Yetki bilgisi geçersiz.');
- await db.batch([db.prepare('UPDATE staff_users SET name=?,ec_access=?,lp_access=?,active=?,permissions_json=COALESCE(?,permissions_json),updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(field(x.name,'Ad'),x.ec_access,x.lp_access,x.active?1:0,permissions?JSON.stringify(permissions):null,id),log(db,user,'Çalışan yetkisi güncellendi; eski oturumları kapatıldı',id)]);return {id};
+ await db.batch([db.prepare('UPDATE staff_users SET name=?,ec_access=?,lp_access=?,active=?,permissions_json=COALESCE(?,permissions_json),updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(field(x.name,'Ad'),x.ec_access,x.lp_access,x.active?1:0,permissions?JSON.stringify(permissions):null,id),log(db,user,'Çalışan yetkisi güncellendi; yeni yetki ilk istekte geçerli olur',id)]);return {id};
 }
 export async function acceptInvite(db,input){
  if(typeof input.token!=='string'||!/^[a-f0-9]{64}$/.test(input.token))fail('Kurulum bağlantısı geçersiz veya süresi dolmuş.',400);

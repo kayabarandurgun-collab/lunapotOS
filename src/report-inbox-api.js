@@ -19,6 +19,7 @@
 //
 // Bu dosya stok hareketi, sevkiyat, satış kaydı veya fatura OLUŞTURMAZ; pazaryeri API'si çağırmaz.
 import {FIELDS, PROVIDERS, EVENT_TYPES, FEE_TYPES, headerSignature, normalizeRows, compareVersions, contentHash, exVat, observedEstimate, allocateCents} from '../public/report-core.js';
+import {paketSonuclari} from './performance-api.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), {status}); };
 const id = () => crypto.randomUUID();
@@ -245,7 +246,61 @@ export async function orderResults(db, storeId, {limit = 100, offset = 0, q = ''
   const orderNos = (await db.prepare("SELECT json_extract(data_json,'$.order_no') o,MAX(substr(json_extract(data_json,'$.order_date'),1,10)) d FROM ec_report_records WHERE " + where + ' GROUP BY o ORDER BY d DESC,o LIMIT ? OFFSET ?')
     .bind(store.id, ...filterArgs, limit, offset).all()).results.map(r => r.o).filter(o => o !== null && o !== undefined);
   if (!orderNos.length) return {store, results: [], total, statuses};
-  return {store, results: await packagesFor(db, store, orderNos, await preload(db, newMemo())), total, statuses};
+  return {store, results: await ortakSonuc(db, await packagesFor(db, store, orderNos, await preload(db, newMemo()))), total, statuses};
+}
+
+/**
+ * TEK EKONOMİK SONUÇ (Codex §3.1). Deftere bağlı paketin katkısı ve nakdi, kâr raporunun ve sipariş
+ * listesinin okuduğu AYNI satırdan gelir (performance-api paketSonuclari): tahmini kesinti, "tahmini"
+ * işareti, stopaj payı, çift aktarım ikizi ve eksik nedeni dahil. Aynı paket iki ekranda iki rakam
+ * gösteremez; önceden bu ekran kendi hesabını yapıyor ve raporda olmayan kesintiyi sıfır sayıyordu
+ * (teslim edilmiş pakette 64,00 TL katkı, kâr raporunda 12,90 TL).
+ * Kapsam dışı paket (deftere bağsız ya da defterde henüz sonuçlanmamış) rapor kaydının kendi hesabıyla
+ * kalır; bilinmeyen orada da sıfır sayılmaz, eksik nedeni satırda durur.
+ */
+async function ortakSonuc(db, results) {
+  const ids = [...new Set(results.map(r => r.erp_package_id).filter(Boolean))];
+  if (!ids.length) return results;
+  let ortak;
+  // Okunamazsa ekran yine açılır; ikinci bir formülle rakam gösterilmez, sebebi yazılır.
+  try { ortak = await paketSonuclari({DB: db}, ids); }
+  catch (e) {
+    console.error('paket sonucu', e.message);
+    for (const r of results) if (r.erp_package_id) Object.assign(r, {contribution_cents: null, cash_result_cents: null, result_estimated: false,
+      contribution_missing: ['Kâr raporundaki sonuç okunamadı; bu paketin sonucu gösterilmedi.', ...r.contribution_missing]});
+    return results;
+  }
+  // AYNI DEFTER PAKETİNE bağlı İKİ rapor satırı: pazaryeri aynı siparişe yeni paket numarası verdiyse
+  // (canlıda HB 4731515470: 5517911182 → 5518837752) iki numaranın satırları da aynı deftere bağlıdır.
+  // Sonuç BİR KEZ sayılır: en son görülen paket numarasına yazılır, ötekinde neden boş olduğu söylenir.
+  const sahip = new Map();
+  for (const r of results) if (r.erp_package_id && ortak.has(r.erp_package_id)) {
+    const o = sahip.get(r.erp_package_id);
+    if (!o || String(r.son_gozlem || '') > String(o.son_gozlem || '')) sahip.set(r.erp_package_id, r);
+  }
+  for (const r of results) {
+    const s = r.erp_package_id ? ortak.get(r.erp_package_id) : null;
+    if (!s) continue;
+    if (sahip.get(r.erp_package_id) !== r) {
+      Object.assign(r, {contribution_cents: null, cash_result_cents: null, result_estimated: false, result_source: 'kar-raporu', cash_basis: null,
+        contribution_missing: ['Bu paket numarası aynı siparişin yeni numarasıyla değişti; sonucu ' +
+          (sahip.get(r.erp_package_id).package_id || 'güncel satırda') + ' satırında bir kez sayıldı.', ...r.contribution_missing],
+        estimates: [], estimated_result_cents: null, estimated_cash_cents: null});
+      continue;
+    }
+    const kar = s.profit_cents ?? null, nakit = s.cash_cents ?? null;
+    Object.assign(r, {contribution_cents: kar, cash_result_cents: nakit, result_estimated: !!s.estimated, result_source: 'kar-raporu',
+      cash_basis: nakit === null ? null : 'kar-raporu'});
+    // Asıl sebep (kâr raporunun kendi nedeni) BAŞTA durur: ekranda ilk üç sebep gösterilir.
+    if (kar === null) r.contribution_missing = [s.note || 'Kâr raporunda bu paketin sonucu henüz hesaplanmadı.', ...r.contribution_missing];
+    else {
+      // Sonuç kesinleşti: rapor tarafının ayrı tahmini ikinci bir rakam olarak durmaz (tahmini kesinti
+      // zaten tutarın içinde ve satır "tahmini" işaretli).
+      Object.assign(r, {estimates: [], estimated_result_cents: null, estimated_cash_cents: null});
+      if (s.note) r.notes = [...r.notes, s.note];
+    }
+  }
+  return results;
 }
 
 /**
@@ -387,7 +442,7 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
     if (!byOrder.has(order)) byOrder.set(order, new Map());
     const packages = byOrder.get(order);
     if (!packages.has(anahtar)) packages.set(anahtar, {key: anahtar, group, order_no: order, package_id: d.package_id || null, order_date: d.order_date, status: d.status || null, erp_package_id: l.erp_package_id, lines: []});
-    packages.get(anahtar).lines.push({...d, id: l.id, components: parse(l.components_json, null)});
+    packages.get(anahtar).lines.push({...d, id: l.id, source_time: l.source_time, components: parse(l.components_json, null)});
   }
 
   const results = [];
@@ -594,6 +649,9 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
       const estimatedFees = estimates.reduce((s, e) => s + (e.value || 0), 0);
       results.push({
         ...g, delivered, delivered_on,
+        // Bu paket numarasının EN SON görüldüğü rapor: yeniden numaralanan pakette hangi satırın
+        // güncel olduğunu söyler (bkz. ortakSonuc).
+        son_gozlem: g.lines.reduce((t, l) => { const v = String(l.source_time || ''); return v > t ? v : t; }, ''),
         lines: g.lines.map(l => ({order_no: l.order_no, barcode: l.barcode, sku: l.sku, product_name: l.product_name, quantity: l.quantity, gross_cents: l.gross ?? null,
           components: l.components?.components || null})),
         reported_net_cents: reported, computed_net_cents: events.length ? computed : null,
@@ -702,7 +760,12 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
   for (const g of all) {
     // Teslim edilmemiş pakette kargo kesinleşmemiştir; deftere de yazılmaz (kâr kuralıyla aynı çizgi).
     // İade edilmiş paket de kesinleşmiştir: mal döndü, ekstre son hâlini verdi.
-    const iadeli = g.erp_package_id ? await db.prepare("SELECT 1 FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_sale_entries r ON r.parent_id=c.sale_id WHERE l.package_id=? AND r.kind='return' LIMIT 1").bind(g.erp_package_id).first() : null;
+    // YALNIZ GERÇEK İADE: DUZELTME-CIFT çift aktarım düzeltmesidir (Codex §3.9) — mal dönmedi, para
+    // iade edilmedi, pazaryeri komisyonu almaya devam etti. Teknik ters kayıt sayılırsa paket teslim
+    // beklemeden yazılır ve raporda komisyon yoksa SIFIR komisyon "kesinleşmiş" diye deftere geçerdi;
+    // kopyanın kesintileri kâr raporunda ikize taşındığı için o sıfır doğrudan kârı şişirir. Kodun
+    // geri kalanı da (IADE/DONEN, iade tahsisi, aşağıdaki iade düzeltmesi) DUZ'u iade saymaz.
+    const iadeli = g.erp_package_id ? await db.prepare("SELECT 1 FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_sale_entries r ON r.parent_id=c.sale_id WHERE l.package_id=? AND r.kind='return' AND r.external_id NOT LIKE 'DUZELTME-CIFT-%' LIMIT 1").bind(g.erp_package_id).first() : null;
     if (!g.delivered && !iadeli) { skipped.push({group: g.group, reason: 'Teslim edilmedi; kargo kesinleşmeden kesinti yazılmaz.'}); continue; }
     const want = {commission: 0, shipping: 0, other: 0}, kaynak = {commission: false, shipping: false, other: false};
     for (const f of g.fees) {
@@ -1153,7 +1216,8 @@ export async function reportInboxApi(request, env, path, readBody) {
       db.prepare('SELECT id,provider,kind,version,sample_verified,created_at FROM ec_report_profiles WHERE active=1 ORDER BY provider,kind').all(),
       db.prepare("SELECT COUNT(*) n FROM ec_report_reviews WHERE status='open'").first()
     ]);
-    return {stores: stores.results, files: files.results.map(f => ({...f, counts: parse(f.counts_json, {}), warnings: parse(f.warnings_json, [])})),
+    // Ham hata metni (SQL parçası içerebilir) yalnız yöneticiye; personel deneme sayısını ve saatini görür.
+    return {stores: stores.results, files: files.results.map(f => ({...f, counts: parse(f.counts_json, {}), warnings: parse(f.warnings_json, []), last_error: env.USER?.owner ? f.last_error : f.last_error ? 'Bir sorun oldu; yönetici ayrıntıyı görebilir.' : null})),
       profiles: profiles.results, open_reviews: reviews.n,
       notice: 'Excel aktarımı stok, sevkiyat, satış kaydı veya fatura oluşturmaz. ERP\'de bulunan siparişe yalnızca bağlanır.'};
   }
@@ -1395,7 +1459,8 @@ export async function reportInboxApi(request, env, path, readBody) {
     const x = await readBody(request);
     const store = await db.prepare('SELECT * FROM ec_report_stores WHERE id=?').bind(key(x.store_id)).first();
     if (!store) fail('Mağaza bulunamadı.', 404);
-    const cursor = typeof x.cursor === 'string' && /^[w-]{0,100}$/.test(x.cursor) ? x.cursor : '';
+    // \w: harf/rakam/alt çizgi. Eskiden [w-] yazılmıştı: gerçek imleç elenip her çağrı baştan başlıyordu.
+    const cursor = typeof x.cursor === 'string' && /^[\w-]{0,100}$/.test(x.cursor) ? x.cursor : '';
     const rows = (await db.prepare("SELECT id,data_json FROM ec_report_records WHERE store_id=? AND kind='order_line' AND components_json IS NULL AND id>? ORDER BY id LIMIT 500").bind(store.id, cursor).all()).results;
     const stmts = [];
     for (const r of rows) {

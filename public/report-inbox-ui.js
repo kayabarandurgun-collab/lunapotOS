@@ -274,7 +274,9 @@ export function mountReports(root, namespace = 'ec') {
     const pager = o ? `<div class="rb-pager"><p class="rb-muted">${num(o.total || 0)} sipariş · sayfa ${o.page || 1} / ${pages}</p>
       <div class="rb-actions"><button type="button" class="secondary" data-rb-act="page-prev" ${(o.page || 1) <= 1 ? 'disabled' : ''}>← Önceki</button>
       <button type="button" class="secondary" data-rb-act="page-next" ${(o.page || 1) >= pages ? 'disabled' : ''}>Sonraki →</button></div></div>` : '';
-    const cell = r => r.contribution_cents !== null ? `<strong class="rb-num">${money(r.contribution_cents)}</strong>` : `<span class="rb-chip warn">Hesaplanamadı</span><small>${r.contribution_missing.slice(0, 3).map(esc).join('<br>')}</small>`;
+    // Deftere bağlı paketin katkısı Kâr raporunun satırıdır; kesintisi henüz ekstreye yazılmamışsa
+    // tutar geçmişten tahmin edilir ve "tahmini" diye söylenir (tek ekonomik sonuç).
+    const cell = r => r.contribution_cents !== null ? `<strong class="rb-num">${money(r.contribution_cents)}</strong>${r.result_estimated ? ' <span class="rb-chip">tahmini</span>' : ''}` : `<span class="rb-chip warn">Hesaplanamadı</span><small>${r.contribution_missing.slice(0, 3).map(esc).join('<br>')}</small>`;
     const link = state.stockLink;
     const linkPanel = link ? `<section class="v2-card rb-link"><h3>Stoğa aktarma · paket ${esc(link.package_id)}</h3>
       ${link.outcome === 'draft' ? `<p class="rb-alert warn">Bu paket <b>taslak sipariş</b> olarak açılacak. Stok bu adımda DEĞİŞMEZ; yalnızca "Stok ayır" ve "Gönder" adımlarında bir kez düşer.</p>
@@ -292,7 +294,7 @@ export function mountReports(root, namespace = 'ec') {
     const magazaSecici = `<section class="v2-card rb-store-picker"><div class="rb-grid"><label>Mağaza<select data-rb="order-store">${storeOptions(state.storeFilter)}</select></label></div>${state.storeFilter ? `<p class="rb-muted">Aşağıdaki özet, kesinti aktarımı ve sipariş dökümü <b>${esc(storeName(state.storeFilter))}</b> içindir. Öteki mağazaya geçmek için buradan değiştir.</p>` : '<p class="rb-muted">Başlamak için bir mağaza seç.</p>'}</section>`;
     return `${magazaSecici}${summaryPanel}${transferPanel}<section class="v2-card"><h3>Sipariş sonuçları</h3>${linkPanel}
       ${state.storeFilter ? stuckUyari + gapUyari + toolbar + cards : ''}
-      <p class="rb-muted">Dört sayı ayrı tutulur: <b>pazaryerinin bildirdiği net</b>, <b>bankada doğrulanan tahsilat</b>, <b>bilinen doğrudan maliyetlerden sonraki katkı</b> (KDV hariç satış − ürün maliyeti − kesintiler; stopaj dahil edilmez) ve <b>tahmin</b>. Eksik maliyet sıfır sayılmaz.</p>
+      <p class="rb-muted">Dört sayı ayrı tutulur: <b>pazaryerinin bildirdiği net</b>, <b>bankada doğrulanan tahsilat</b>, <b>bilinen doğrudan maliyetlerden sonraki katkı</b> (KDV hariç satış − ürün maliyeti − kesintiler; stopaj dahil edilmez) ve <b>tahmin</b>. Eksik maliyet ve eksik kesinti sıfır sayılmaz. Siparişe bağlı paketin katkısı <b>Kâr raporundaki satırın aynısıdır</b>; aynı paket iki ekranda iki rakam göstermez.</p>
       ${o ? (o.results.length ? `<div class="v2-table-wrap"><table class="v2-table"><thead><tr><th>Sipariş</th><th>Ürünler</th><th>Pazaryeri neti</th><th>Banka</th><th>Katkı</th><th>Tahmin</th><th></th></tr></thead><tbody>
       ${o.results.map(r => `<tr><td><strong>${esc(r.order_no)}</strong><small>${esc(r.order_date)}${r.status ? ' · ' + esc(r.status) : ''}${r.erp_package_id ? ' · ERP\'de bağlı' : ''}</small></td>
         <td>${r.lines.map(l => `${esc(l.product_name || l.barcode || l.sku)} × ${num(l.quantity)}${l.components ? `<small>${l.components.map(c => esc(c.product_id) + ' ×' + (c.quantity_milli / 1000)).join(', ')}</small>` : '<small class="rb-warn">eşleşme yok</small>'}`).join('<br>')}</td>

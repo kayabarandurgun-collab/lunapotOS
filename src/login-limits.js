@@ -7,5 +7,7 @@ export function loginLimitSubjects(path, input, ip) {
   return [
     {subject: JSON.stringify(['ip', ip]), max: 100},
     {subject: JSON.stringify(['login', ip, action, action === 'login' ? account : '']), max: 10},
+    // IP değiştirerek aynı hesabı denemeyi de sınırla (dağıtık deneme): hesap başına 25.
+    ...(action === 'login' ? [{subject: JSON.stringify(['account', account]), max: 25}] : []),
   ];
 }
