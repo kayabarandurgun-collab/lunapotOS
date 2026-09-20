@@ -1,8 +1,8 @@
-import {parseDateRange,dateRangeQuery,dateRangeLink} from './date-range.js';
+import {parseDateRange,dateRangeQuery,dateRangeLink,dateRangeLabel,dateFilterMarkup,bindDateFilter} from './date-range.js';
 import {renderIntegrationGuide} from './integration-guide.js';
 import {mountPanorama} from './panorama-ui.js';
 import {pullSourcePages} from './sync-pages.js';
-import {renderAttention} from './attention-ui.js';
+import {attentionItems} from './attention-ui.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>n==null?'Bilgi bekleniyor':new Intl.NumberFormat('tr-TR',{style:'currency',currency:'TRY'}).format(n/100);
 const date=()=>new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Istanbul'});
@@ -14,38 +14,103 @@ const link=(href,title,desc)=>'<a class="step" href="'+href+'"><span class="step
 const heading=(title,sub)=>'<div class="page-heading"><div><span class="eyebrow">ÇALIŞMA ALANI · YÖNETİM</span><h1>'+title+'</h1><p>'+sub+'</p></div></div>';
 const table=(heads,rows)=>rows.length?'<div class="table-wrap insights-table"><table><thead><tr>'+heads.map(x=>'<th>'+x+'</th>').join('')+'</tr></thead><tbody>'+rows.map(row=>'<tr>'+row.map((x,i)=>'<td data-label="'+esc(heads[i])+'">'+x+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>':'<div class="empty"><h3>Henüz kayıt yok</h3><p>Bağlantıdan alınan kayıtlar burada görünecek.</p></div>';
 function download(data,name){const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+// Overview owns its stable work node; panorama only borrows it while displaying a period.
+// Each source settles independently. A failed read must never become a zero or an empty task list.
+function mountOverview(root,api,signal){
+ const sources={
+  summary:{path:'',label:'Stok ve kesinti bilgisi'},
+  connections:{path:'/connections',label:'Bağlantı durumu'},
+  settings:{path:'/settings',label:'Şirket bilgileri'},
+  attention:{path:'/attention',label:'Günlük iş kayıtları'}
+ };
+ const viewState={};let periodAbort,periodDispose,dateDispose,periodRevision=0,rangeKey='',disposed=false;
+ const active=()=>!disposed&&!signal.aborted;
+ const errorMessage=error=>error.message==='Failed to fetch'?'Sunucuya ulaşılamadı. Bağlantını kontrol edip yeniden dene.':error.message;
+ const range=()=>parseDateRange(location.hash);
+ root.setAttribute('aria-busy','false');
+ root.innerHTML='<div class="page-heading overview-heading"><div><span class="eyebrow">E-TİCARET · GENEL DURUM</span><h1>İşinin özeti</h1><p>Satış, kâr ve bekleyen işler. Tutarlar KDV dahil.</p></div><div class="ac-actions"><a class="secondary" data-overview-orders>Siparişleri gör</a><a class="primary" href="#reports">Rapor yükle <span aria-hidden="true">↗</span></a></div></div><section class="panorama" data-panorama aria-label="Dönem özeti"></section><section class="attention-center" aria-label="Bugünün iş listesi"></section><section class="pn-quick" aria-label="Hızlı geçiş"><a class="pn-card" href="#pricing"><span class="pn-quick-icon" aria-hidden="true">₺</span><div><strong>Kaça satmalıyım?</strong><small>Tekli ürün, çoklu paket veya set için satış fiyatını değerlendir</small></div></a><a class="pn-card" href="#stock?filter=low"><span class="pn-quick-icon" aria-hidden="true">▤</span><div data-overview-stock></div></a><a class="pn-card" href="#reports"><span class="pn-quick-icon" aria-hidden="true">⇪</span><div><strong>Rapor Kutusu</strong><small>Trendyol / Hepsiburada dosyasını bırak; sipariş, kesinti ve iade kendiliğinden işlenir</small></div></a></section><div data-overview-setup></div><div class="notice subtle">Bu alanın carileri, stokları ve raporları Lunapot üretim panelinden ayrıdır. Rakamlar yalnızca kaydedilmiş işlemleri içerir; henüz bağlanmamış mağaza satışları dahil değildir.</div>';
+ const section=root.querySelector('[data-panorama]'),dailyWork=root.querySelector('.attention-center');
+ const unavailable=(key)=>{const source=sources[key];return source.data?'':source.error?'<p class="notice" role="alert" data-overview-unavailable="'+key+'"><strong>'+source.label+' alınamadı.</strong> '+esc(source.error)+' <button type="button" class="secondary" data-overview-retry="'+key+'">'+source.label+' için yeniden dene</button></p>':'<p class="loading" role="status" data-overview-loading="'+key+'">'+source.label+' yükleniyor…</p>';};
+ function renderAux(){
+  if(!active())return;
+  const ac=sources.summary.data,connections=sources.connections.data,settings=sources.settings.data,attention=sources.attention.data;
+  const complete=Object.values(sources).every(s=>s.data),extraOpen=dailyWork.querySelector('.ins-attention-extra')?.open;
+  // The shared helper needs metadata objects. Suppress its metadata items when their source
+  // is unavailable, and explicitly list those missing checks below instead of inferring status.
+  const items=attention?attentionItems(attention,connections||{providers:[]},settings?.settings||{},ac?.pending_fee_cents??null).filter(item=>settings||item.href!=='#settings'):[];
+  const itemMarkup=item=>'<a class="attention-item '+item.tone+'" href="'+esc(item.href)+'"><span class="attention-count">'+item.count+'</span><div><strong>'+esc(item.title)+'</strong><p>'+esc(item.detail)+'</p></div><span aria-hidden="true">↗</span></a>';
+  dailyWork.innerHTML='<div class="attention-heading"><div><span class="eyebrow">ÖNCE BUNLARA BAK</span><h2>Bugünün iş listesi</h2><p>Tüm kayıtlardaki açık işler'+(attention?' · '+esc(attention.as_of):'')+' · Aynı paket birden fazla başlıkta görünebilir.</p></div><span class="v2-badge '+(complete&&!items.length?'success':'warning')+'">'+(attention?items.length+(complete?' başlık':' bilinen başlık · kapsam eksik'):sources.attention.error?'İş listesi alınamadı':'İş listesi yükleniyor')+'</span></div>'+
+   Object.keys(sources).map(unavailable).join('')+
+   (attention?'<div class="attention-grid">'+(items.length?(items.length>3?items.slice(0,2):items).map(itemMarkup).join(''):'<p class="help">'+(complete?'Kontrol edilen kayıtlarda bekleyen iş bulunmadı. Mağaza aktarımının ve fiziksel stok hareketlerinin eksiksiz olması gerekir.':'Alınabilen kayıtlarda iş bulunmadı; alınamayan kontrollerin durumu bilinmiyor.')+'</p>')+'</div>':'')+
+   (items.length>3?'<details class="ins-attention-extra" '+(extraOpen?'open':'')+'><summary>Diğer '+(items.length-2)+' kontrolü göster</summary><div class="attention-grid">'+items.slice(2).map(itemMarkup).join('')+'</div></details>':'');
+  const low=ac?.stock.filter(p=>p.quantity_milli-(p.reserved_milli||0)<=p.min_stock_milli),available=ac?.stock.filter(p=>p.quantity_milli-(p.reserved_milli||0)>0).length;
+  root.querySelector('[data-overview-stock]').innerHTML=ac?'<strong>'+low.length+' kritik / tükenen ürün</strong><small>'+(low.length?esc(low.slice(0,2).map(p=>p.name).join(', '))+(low.length>2?' ve '+(low.length-2)+' ürün daha':''):ac.stock.length+' ürün kartı · '+available+' üründe satılabilir stok')+'</small>':'<strong>Stok bilgisi '+(sources.summary.error?'alınamadı':'yükleniyor')+'</strong><small>Kritik stok sayısı ve satılabilir ürün bilgisi henüz bilinmiyor.</small>';
+  const setup=root.querySelector('[data-overview-setup]'),setupOpen=setup.querySelector('details')?.open;
+  const setupKnown=ac&&settings&&connections,setupDone=settings?.settings.tax_id&&ac?.stock.length;
+  const configured=connections?.providers.filter(p=>p.configured).length;
+  const steps=setupKnown?[!!settings.settings.tax_id,ac.stock.length>0,available>0,configured>0].filter(Boolean).length:null;
+  setup.innerHTML=setupKnown&&setupDone?'':'<div class="dashboard-grid"><details class="card setup-guide" '+(setupOpen?'open':'')+'><summary class="card-heading"><h2>İşe başlamak için</h2><span class="pill">'+(steps===null?'Kurulum durumu eksik':steps+'/4 başlangıç adımı')+'</span></summary>'+
+   link('#settings','Şirketini tanımla',settings?(settings.settings.tax_id?'Alış faturalarının alıcısı doğrulanıyor.':'Unvan ve vergi numarası faturaların doğru alana gelmesini sağlar.'):'Şirket bilgisi alınamadı; kurulum durumu bilinmiyor.')+
+   link('#stock','Ürünlerini ve açılış stoğunu ekle',ac?ac.stock.length+' ürün · '+available+' üründe kullanılabilir stok var.':'Stok bilgisi alınamadı; ürün ve stok sayısı bilinmiyor.')+
+   link('#pricing','Maliyet ve tarifelerini belirle','Paket ölçüsü, kargo ve komisyonla satıştan önce kârını gör.')+
+   link('#integrations','Satış kanallarını bağla',connections?configured+' bağlantıda erişim bilgisi tanımlı.':'Bağlantı bilgisi alınamadı; kanalların durumu bilinmiyor.')+'</details></div>';
+ }
+ async function loadAux(key){
+  const source=sources[key];if(!active()||source.loading)return;
+  source.loading=true;source.error=null;renderAux();
+  try{const data=await api(source.path);if(active())source.data=data;}
+  catch(error){if(active()&&error.name!=='AbortError')source.error=errorMessage(error);}
+  finally{source.loading=false;if(active())renderAux();}
+ }
+ const changeRange=next=>{if(active())location.hash=dateRangeLink(location.hash||'#overview',next);};
+ function periodFallback(selected,error){
+  const open=viewState.disclosures?.['ins-date-disclosure']??(selected.preset==='custom'||!!selected.error);
+  section.innerHTML='<details class="ins-date-disclosure" '+(open?'open':'')+'><summary>Tarih <span>'+esc(dateRangeLabel(selected))+'</span></summary>'+dateFilterMarkup(selected)+'</details>'+(error?'<div class="notice" role="alert"><strong>Dönem özeti alınamadı.</strong> '+esc(errorMessage(error))+' <button type="button" class="secondary" data-overview-retry="panorama">Dönem özeti için yeniden dene</button> <a href="'+esc(dateRangeLink('#performance',{...selected,error:null}))+'">Satış ve kârı aç →</a></div>':'<p class="loading" role="status">Ciro, nakit ve dönem özeti hesaplanıyor…</p>');
+  const unbind=bindDateFilter(section,{signal,onChange:changeRange});
+  dateDispose=()=>{const details=section.querySelector('.ins-date-disclosure');if(details){viewState.disclosures??={};viewState.disclosures['ins-date-disclosure']=details.open;}unbind();};
+ }
+ async function loadPeriod(force=false){
+  if(!active())return;
+  const selected=range(),query=dateRangeQuery({...selected,error:null}),key=JSON.stringify(selected);
+  if(!force&&rangeKey===key)return;rangeKey=key;
+  const revision=++periodRevision;
+  periodAbort?.abort();periodDispose?.();periodDispose=null;dateDispose?.();dateDispose=null;
+  // Detach the borrowed node before replacing panorama's markup, preserving its disclosures.
+  section.after(dailyWork);
+  periodAbort=new AbortController();
+  const requestSignal=AbortSignal.any([signal,periodAbort.signal]);
+  root.querySelector('[data-overview-orders]').href=dateRangeLink('#orders',{...selected,error:null});
+  section.setAttribute('aria-busy','true');periodFallback(selected);
+  try{
+   const data=await api('/panorama'+(query?'?'+query:''),undefined,requestSignal);
+   if(!active()||revision!==periodRevision)return;
+   dateDispose?.();dateDispose=null;
+   periodDispose=mountPanorama(section,data,{signal,dailyWork,viewState,onRangeChange:changeRange});
+  }catch(error){
+   if(!active()||revision!==periodRevision||error.name==='AbortError')return;
+   section.after(dailyWork);dateDispose?.();dateDispose=null;periodFallback(selected,error);
+  }finally{if(active()&&revision===periodRevision)section.setAttribute('aria-busy','false');}
+ }
+ const retry=event=>{const button=event.target.closest('[data-overview-retry]');if(!button||!active())return;const key=button.dataset.overviewRetry;if(key==='panorama')void loadPeriod(true);else if(sources[key])void loadAux(key);};
+ root.addEventListener('click',retry,{signal});
+ const dispose=()=>{disposed=true;periodRevision++;periodAbort?.abort();periodDispose?.();dateDispose?.();root.removeEventListener('click',retry);};
+ dispose.onHash=()=>{void loadPeriod();};
+ renderAux();void loadPeriod();for(const key of Object.keys(sources))void loadAux(key);
+ return dispose;
+}
+
 export function mountOperations(root,namespace,view){
  root.classList.add('insights-operations');
  const abort=new AbortController(),$=s=>root.querySelector(s);let state=null,busy=false,recordPage=0,recordProvider='',recordKind='',syncAbort=null,resumeSync=null;
  const api=async(path,body,requestSignal=abort.signal)=>{const r=await fetch('/api/'+namespace+path,{signal:requestSignal,headers:{'Content-Type':'application/json'},...(body===undefined?{}:{method:'POST',body:JSON.stringify(body)})});let x;try{x=await r.json();}catch{throw Error('Sunucuya ulaşılamadı.');}if(!r.ok)throw Error(x.error||'İşlem tamamlanamadı.');return x;};
+ if(view==='overview'){const stop=mountOverview(root,api,abort.signal);const dispose=()=>{abort.abort();stop();root.classList.remove('insights-operations');root.removeAttribute('aria-busy');};dispose.onHash=stop.onHash;return dispose;}
  const notice=m=>{const box=$('#op-error');if(box){box.hidden=false;box.textContent=m;}};
  const close=()=>{$('dialog')?.close();$('dialog')?.remove();};
  function dialog(title,action,body){close();root.insertAdjacentHTML('beforeend','<dialog class="ins-dialog" aria-labelledby="op-dialog-title"><form data-op-form="'+action+'"><div class="dialog-heading"><h2 id="op-dialog-title">'+title+'</h2><button class="icon-button" type="button" data-op="close" aria-label="Kapat">×</button></div><div class="form-body">'+body+'<p class="error" id="op-form-error" role="alert"></p></div><div class="dialog-footer"><button class="secondary" type="button" data-op="close">Vazgeç</button><button class="primary" type="submit">Devam et</button></div></form></dialog>');$('dialog').showModal();}
  async function load(){
   root.setAttribute('aria-busy','true');
   root.innerHTML='<p class="loading" role="status">Çalışma alanı hazırlanıyor…</p>';
-  if(view==='overview'){
-   // Dönem kârları (tüm zamanlar dahil) en ağır sorgudur: ilk istekle birlikte başlar, sayfanın geri
-   // kalanı onu beklemeden çizilir; bölüm yer tutucusu sabit yükseklikte kalır (sayfa zıplamaz).
-   const range=parseDateRange(location.hash),query=dateRangeQuery({...range,error:null});
-   const panorama=api('/panorama'+(query?'?'+query:''));panorama.catch(()=>{});
-   const [ac,connections,settings,attention]=await Promise.all([api(''),api('/connections'),api('/settings'),api('/attention')]);
-   if(abort.signal.aborted)return;
-   const low=ac.stock.filter(p=>p.quantity_milli-(p.reserved_milli||0)<=p.min_stock_milli);
-   const configured=connections.providers.filter(p=>p.configured).length,available=ac.stock.filter(p=>p.quantity_milli-(p.reserved_milli||0)>0).length;
-   // Sirket tanimli ve urun kartlari varsa kurulum bitmis sayilir; rehber kapali acilir ama kaybolmaz.
-   const setupSteps=[!!settings.settings.tax_id,ac.stock.length>0,available>0,configured>0].filter(Boolean).length,setupDone=!!settings.settings.tax_id&&ac.stock.length>0;
-   root.innerHTML='<div class="page-heading overview-heading"><div><span class="eyebrow">E-TİCARET · GENEL DURUM</span><h1>İşinin özeti</h1><p>Satış, kâr ve bekleyen işler. Tutarlar KDV dahil.</p></div><div class="ac-actions"><a class="secondary" href="'+esc(dateRangeLink('#orders',{...range,error:null}))+'">Siparişleri gör</a><a class="primary" href="#reports">Rapor yükle <span aria-hidden="true">↗</span></a></div></div>'+'<div id="op-error" class="notice" hidden></div><section class="panorama" data-panorama aria-busy="true"><p class="loading" role="status">Ciro, nakit ve dönem özeti hesaplanıyor…</p></section>'+renderAttention(attention,connections,settings.settings,ac.pending_fee_cents)+'<section class="pn-quick" aria-label="Hızlı geçiş"><a class="pn-card" href="#pricing"><span class="pn-quick-icon" aria-hidden="true">₺</span><div><strong>Kaça satmalıyım?</strong><small>Tekli ürün, çoklu paket veya set için satış fiyatını değerlendir</small></div></a><a class="pn-card" href="#stock?filter=low"><span class="pn-quick-icon" aria-hidden="true">▤</span><div><strong>'+low.length+' kritik / tükenen ürün</strong><small>'+(low.length?esc(low.slice(0,2).map(p=>p.name).join(', '))+(low.length>2?' ve '+(low.length-2)+' ürün daha':''):ac.stock.length+' ürün kartı · '+available+' üründe satılabilir stok')+'</small></div></a><a class="pn-card" href="#reports"><span class="pn-quick-icon" aria-hidden="true">⇪</span><div><strong>Rapor Kutusu</strong><small>Trendyol / Hepsiburada dosyasını bırak; sipariş, kesinti ve iade kendiliğinden işlenir</small></div></a></section>'+(setupDone?'':'<div class="dashboard-grid"><details class="card setup-guide"><summary class="card-heading"><h2>İşe başlamak için</h2><span class="pill">'+setupSteps+'/4 başlangıç adımı</span></summary>'+
-   link('#settings','Şirketini tanımla',settings.settings.tax_id?'Alış faturalarının alıcısı doğrulanıyor.':'Unvan ve vergi numarası faturaların doğru alana gelmesini sağlar.')+
-   link('#stock','Ürünlerini ve açılış stoğunu ekle',ac.stock.length+' ürün · '+available+' üründe kullanılabilir stok var.')+
-   link('#pricing','Maliyet ve tarifelerini belirle','Paket ölçüsü, kargo ve komisyonla satıştan önce kârını gör.')+
-   link('#integrations','Satış kanallarını bağla',configured+' bağlantıda erişim bilgisi tanımlı.')+'</details></div>')+'<div class="notice subtle">Bu alanın carileri, stokları ve raporları Lunapot üretim panelinden ayrıdır. Rakamlar yalnızca kaydedilmiş işlemleri içerir; henüz bağlanmamış mağaza satışları dahil değildir.</div>';
-   const items=[...root.querySelectorAll('.attention-grid .attention-item')];
-   if(items.length>3){const details=document.createElement('details'),summary=document.createElement('summary'),grid=document.createElement('div');details.className='ins-attention-extra';summary.textContent='Diğer '+(items.length-2)+' kontrolü göster';grid.className='attention-grid';grid.append(...items.slice(2));details.append(summary,grid);root.querySelector('.attention-center')?.append(details);}
-   const bolum=$('[data-panorama]');
-   try{const data=await panorama;if(!abort.signal.aborted)mountPanorama(bolum,data,{signal:abort.signal});}
-   catch(e){if(e.name!=='AbortError'&&!abort.signal.aborted){bolum.removeAttribute('aria-busy');bolum.innerHTML='<div class="notice" role="alert">Dönem özeti alınamadı: '+esc(e.message)+' <button type="button" class="secondary" data-op="retry">Yeniden dene</button> <a href="'+esc(dateRangeLink('#performance',{...range,error:null}))+'">Satış ve kârı aç →</a></div>';}}
-  }else if(view==='settings'){
+  if(view==='settings'){
    state=await api('/settings');if(abort.signal.aborted)return;
    root.innerHTML=heading('Şirket ve yedek','Bu bilgiler yalnızca '+(namespace==='ec'?'E-Ticaret':'Lunapot')+' çalışma alanına aittir.')+'<div id="op-error" class="notice" hidden></div><div class="v2-grid cols-2"><section class="card"><div class="card-heading"><h2>Faturaların doğru adresi</h2></div><form data-op-form="settings" class="form-body">'+field('Ticari unvan','legal_name',state.settings.legal_name,'text','maxlength="200" required')+field('VKN / TCKN','tax_id',state.settings.tax_id,'text','pattern="[0-9]{10,11}" required inputmode="numeric"')+field('Stok başlangıç tarihi','inventory_start_date',state.settings.inventory_start_date||'','date','max="'+new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Istanbul'})+'"')+'<p class="help">Bu tarihten <b>önceki</b> pazaryeri siparişleri bugünkü stoktan otomatik düşülmez; raporda kalır ve ayrıca incelenir. Tarihi tahmin etme; gerçek sayım gününü yaz. Boş bırakırsan geçmiş siparişler stoğa hiç uygulanmaz. Açılış miktarlarını <a href="#stock">Ürünler ve stok</a> ekranındaki “Stok / sayım gir” ile kaydet.</p>'+'<p class="help">İki işletme aynı şirkete aitse aynı vergi numarası kullanılabilir. Defterler yine ayrı kalır; aynı fatura ikinci kez işlenmez.</p>'
      // Eksi stok BEYANLA acilir. Ayar API'de vardi ama ekranda yoktu: kullanici alis faturasi

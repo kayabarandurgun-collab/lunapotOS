@@ -1,9 +1,9 @@
 /* Commerce insights. Loaded after workspace-design.css; scoped to these screens. */
 .insights-panorama,.insights-performance,.insights-operations {
- --ins-paper:#f5f6f2;--ins-ink:#20342f;--ins-muted:#637169;--ins-green:#315c45;
+ --ins-paper:#f5f6f2;--ins-ink:#20342f;--ins-muted:#596b5e;--ins-green:#315c45;
  --ins-sage:#e8eee4;--ins-line:#dce3d9;--ins-yellow:#e9c979;--ins-red:#a54134;
  --brand:#315c45;--brand-dark:#203f2e;--brand-soft:#e8eee4;--brand-border:#9fb49e;
- --ink:#20342f;--muted:#637169;--line:#dce3d9;--pn-pos:#315c45;--pn-neg:#a54134;
+ --ink:#20342f;--muted:#596b5e;--line:#dce3d9;--pn-pos:#315c45;--pn-neg:#a54134;
  --pn-grid:#e6ebe2;--pn-axis:#9aa99c;--pn-tick:#637169;
  color:var(--ins-ink);font-size:14px;line-height:1.55;min-width:0;
 }
@@ -346,3 +346,30 @@ body.workspace-redesign :is(.insights-operations,.insights-performance) .page-he
  .insights-panorama .pn-products-group .pn-product-line strong{max-width:43%;font-size:15px;text-align:right}
  .insights-panorama .pn-products-group .pn-product-name{font-size:13px}
 }
+
+/* Overview order: result, current work, analysis. Records are secondary detail. */
+.insights-panorama .ins-work-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;margin:0 0 22px;align-items:start}
+.insights-panorama .ins-work-grid.has-daily-work{grid-template-columns:minmax(0,1.45fr) minmax(0,1fr)}
+.insights-panorama .ins-work-grid>.attention-center{margin:0;padding:22px;min-width:0;border-color:var(--ins-line);border-radius:14px}
+.insights-panorama .ins-work-grid>.pn-pending{margin:0;padding:22px}
+.insights-panorama .ins-work-grid .attention-grid{grid-template-columns:minmax(0,1fr);gap:10px}
+.insights-panorama .ins-work-grid .attention-heading{margin-bottom:16px;gap:12px}
+.insights-panorama .ins-work-grid .attention-heading h2{font-size:18px;margin:6px 0}
+.insights-panorama .ins-work-grid .attention-heading p{font-size:12px;color:var(--ins-muted)}
+.insights-panorama .ins-work-grid .attention-item{padding:12px;gap:12px}
+.insights-panorama .ins-work-grid .attention-item strong{font-size:13px}
+.insights-panorama .ins-work-grid .attention-item p{font-size:12px;line-height:1.6}
+.insights-panorama .ins-records-section{padding:0 18px;border:1px solid var(--ins-line);border-radius:12px;background:#fff}
+.insights-panorama .ins-records-section>summary{padding:15px 0;font-weight:500}
+.insights-panorama .ins-records-section>summary span{font-size:12px;font-weight:400;color:var(--ins-muted);margin-left:12px}
+.insights-panorama .ins-records-section .ins-records{padding-bottom:18px}
+@media(max-width:1100px){.insights-panorama .ins-work-grid.has-daily-work{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:600px){.insights-panorama .ins-work-grid>.attention-center,.insights-panorama .ins-work-grid>.pn-pending{padding:18px}.insights-panorama .ins-records-section>summary span{display:block;margin-left:17px}}
+
+/* Independent overview sections stay compact while metadata is pending or unavailable. */
+.insights-operations [data-overview-loading]{padding:12px 14px;margin:8px 0;border:1px solid var(--ins-line);border-radius:8px;background:var(--ins-paper);font-size:12px;text-align:left;color:var(--ins-muted)}
+.insights-operations [data-overview-unavailable]{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
+.insights-operations [data-overview-unavailable]>strong{flex:1 1 100%}
+.insights-operations [data-overview-unavailable]>button{margin-top:4px;white-space:normal;text-align:left}
+.insights-operations [data-panorama][aria-busy=true]>.loading{padding:30px 18px;min-height:110px;margin:12px 0;border:1px solid var(--ins-line);border-radius:12px;background:white;color:var(--ins-muted);font-size:13px}
+@media(max-width:600px){.insights-operations [data-overview-unavailable]>button{width:100%}}

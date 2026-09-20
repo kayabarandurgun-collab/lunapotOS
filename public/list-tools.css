@@ -5,14 +5,14 @@
 
 .list-select-cell{width:40px!important;min-width:40px!important}.list-tools input[type=checkbox],.list-select-cell input,th>input[type=checkbox]{width:18px;height:18px;min-width:18px}.list-tools button:disabled{opacity:.55;cursor:not-allowed}
 .brand-group{margin:0 0 28px}.brand-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:6px 16px;margin:8px 2px 12px;padding-bottom:8px;border-bottom:2px solid var(--line,#dedbea)}.brand-head h2{margin:0;font-size:22px}.brand-head span{font-size:13px;color:var(--muted,#656170)}
-.list-tools{margin:10px 0}.list-tools input{max-width:320px;min-height:38px!important;padding:7px 11px!important}
+.list-tools{margin:10px 0}.list-tools input{max-width:320px;min-height:38px;padding:7px 11px}
 .list-sort{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:3px;font:inherit;color:inherit}.list-sort:hover{color:var(--brand)}.list-sort:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:4px}
 th[aria-sort="none"] .list-sort::after{content:"↕";opacity:.35;font-size:.9em}th[aria-sort="ascending"] .list-sort::after{content:"▲";font-size:.75em}th[aria-sort="descending"] .list-sort::after{content:"▼";font-size:.75em}
 
 /* Sırala seçimi (list-tools.js) */
 .list-tools{justify-content:flex-start}
 .list-sort-select{display:inline-flex;align-items:center;gap:7px;margin:0;font-size:12.5px;color:var(--muted,#656170)}
-.list-sort-select select{min-height:38px!important;padding:6px 10px!important;font-size:13px!important;max-width:260px;border-radius:10px}
+.list-sort-select select{min-height:38px;padding:6px 10px;font-size:13px;max-width:260px;border-radius:10px}
 /* SIĞMAYAN TABLO: satırlar "etiket değer" düzeninde akar; yatay kaydırma yok. */
 table.lt-stack{display:block;width:100%!important;min-width:0!important}
 table.lt-stack thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
@@ -34,3 +34,5 @@ table.lt-stack td .button,table.lt-stack td button,table.lt-stack td a.secondary
 }
 .card>.list-tools,.v2-card>.list-tools,section>.list-tools{padding:12px 14px 0;margin:0 0 4px}
 .list-sort-select>span{white-space:nowrap}
+
+.list-empty>p{margin:0 0 12px}.list-count{margin-left:auto;font-variant-numeric:tabular-nums}

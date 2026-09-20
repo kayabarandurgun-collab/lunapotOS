@@ -1,4 +1,5 @@
 import {can} from './permissions.js';
+import {navigationHref} from './workspace-navigation.js';
 import {icon} from './ui-icons.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const areas=[
@@ -9,9 +10,9 @@ const areas=[
  {key:'access',title:'Ekip ve erişim',detail:'Çalışanlar, yetkiler ve kurtarma',href:'/access',icon:'settings'}
 ];
 let user=null,ready=false,dialog=null,dock=null,authRevision=0;
-export function setWorkspaceUser(next){authRevision++;user=next;ready=true;document.querySelector('.workspace-identity')?.remove();enhanceWorkspaceFrame();}
+export function setWorkspaceUser(next){authRevision++;user=next;ready=true;dialog?.close();document.querySelector('.workspace-identity')?.remove();if(!user)document.querySelector('.workspace-account')?.remove();enhanceWorkspaceFrame();}
 const ns=()=>document.body.classList.contains('commerce')?'ec':document.body.classList.contains('lunapot')?'lp':document.body.classList.contains('webstore-admin')?'store':document.querySelector('#access-app')?'access':'home';
-const allowed=a=>a.key==='home'||a.key==='access'&&!!user||user?.owner||(a.key==='ec'?user?.ec_access&&user.ec_access!=='none':a.key==='lp'?user?.lp_access&&user.lp_access!=='none':a.key==='store'?can(user,'ec','webshop'):false);
+const allowed=a=>a.key==='home'||a.key==='access'&&!!user||user?.owner||(a.key==='ec'?['read','write'].includes(user?.ec_access):a.key==='lp'?['read','write'].includes(user?.lp_access):a.key==='store'?can(user,'ec','webshop'):false);
 function showAreas(button){
  if(dialog||document.querySelector('dialog[open]'))return;
  const d=document.createElement('dialog');dialog=d;d.className='workspace-switch-dialog';
@@ -32,32 +33,30 @@ export function enhanceWorkspaceFrame(){
  }
  const sidebar=document.querySelector('#sidebar');
  if(sidebar&&ready&&!sidebar.querySelector('.workspace-identity')&&user){
-  const identity=document.createElement('a');identity.className='workspace-identity';identity.href='/access#account';identity.setAttribute('aria-label','Hesabım: şifre ve hızlı giriş');
+  const identity=document.createElement('a');identity.className='workspace-identity';identity.href='/access#account';identity.dataset.navigationTitle='Hesabım';identity.setAttribute('aria-label','Hesabım: şifre ve hızlı giriş');
   const name=user.name||'İşletme yöneticisi';
-  identity.innerHTML='<span class="identity-avatar">'+esc(name.slice(0,2).toLocaleUpperCase('tr-TR'))+'</span><div><strong>'+esc(name)+'</strong><small>'+ (user.owner?'Yönetici · Hesabım':'Ekip üyesi · Hesabım')+'</small></div><span class="identity-arrow" aria-hidden="true">↗</span>';
+  identity.innerHTML='<span class="identity-avatar" aria-hidden="true">'+esc(name.slice(0,2).toLocaleUpperCase('tr-TR'))+'</span><div><strong>'+esc(name)+'</strong><small>'+ (user.owner?'Yönetici · Hesabım':'Ekip üyesi · Hesabım')+'</small></div><span class="identity-arrow" aria-hidden="true">↗</span>';
   (sidebar.querySelector('.sidebar-foot')||sidebar).append(identity);
  }
  if(!sidebar){dock?.remove();dock=null;if(header&&user&&!header.querySelector('.workspace-account')){const a=document.createElement('a');a.className='workspace-account';a.href='/access#account';a.innerHTML=icon('settings')+'<span>Hesabım</span>';header.append(a);}return;}
  if(sidebar&&!sidebar.querySelector('[data-workspace-close]')){const close=document.createElement('button');close.type='button';close.className='workspace-menu-close';close.dataset.workspaceClose='';close.setAttribute('aria-label','Menüyü kapat');close.textContent='×';close.onclick=()=>{sidebar.classList.remove('open');document.querySelector('#commerce-menu,[data-action="menu"]')?.focus();};sidebar.prepend(close);}
  const workspace=ns(),keys=workspace==='ec'?['overview','orders','stock','performance']:['dashboard','production','recipes','materialstock'];
- const labels={overview:'Özet',orders:'Siparişler',stock:'Depo',performance:'Kazanç',reports:'Raporlar',dashboard:'Özet',production:'Üretim',recipes:'Reçeteler',materialstock:'Depo'};
+ const labels={overview:'Özet',orders:'Siparişler',stock:'Depo',performance:'Satış ve kâr',reports:'Raporlar',dashboard:'Özet',production:'Üretim',recipes:'Reçeteler',materialstock:'Depo'};
  const links=keys.map(key=>sidebar.querySelector('a[href="#'+key+'"]')).filter(a=>a&&!a.hidden&&a.style.display!=='none');
  const current=location.hash.slice(1).split('?')[0]||(workspace==='ec'?'overview':'dashboard');
  const signature=links.map(a=>a.hash).join('|')+'|'+current;
  if(!dock){dock=document.createElement('nav');dock.className='mobile-dock';dock.setAttribute('aria-label','Sık kullanılan ekranlar');document.body.append(dock);}
  if(dock.dataset.signature!==signature){
   dock.dataset.signature=signature;
-  dock.innerHTML=links.map(a=>{const key=a.hash.slice(1);return '<a href="'+a.hash+'"'+(key===current?' aria-current="page"':'')+'>'+icon(key)+'<span>'+labels[key]+'</span></a>';}).join('')+'<button type="button" data-dock-menu aria-label="Tüm ekranlar">'+icon('catalog')+'<span>Menü</span></button>';
+  dock.innerHTML=links.map(a=>{const key=a.hash.slice(1),full=a.querySelector('.nav-text')?.textContent||labels[key],label=full.toLocaleLowerCase('tr-TR').includes(labels[key].toLocaleLowerCase('tr-TR'))?full:labels[key]+' · '+full;return '<a href="'+a.hash+'" aria-label="'+esc(label)+'"'+(key===current?' aria-current="page"':'')+'>'+icon(key)+'<span>'+labels[key]+'</span></a>';}).join('')+'<button type="button" data-dock-menu aria-label="Tüm ekranlar">'+icon('catalog')+'<span>Menü</span></button>';
   dock.querySelector('[data-dock-menu]').onclick=()=>document.querySelector('#commerce-menu,[data-action="menu"]')?.click();
  }
 }
 function carryRange(event){
  const a=event.target.closest('#sidebar a.nav-link,.mobile-dock a');if(!a||ns()!=='ec'||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return;
- const target=a.hash.slice(1).split('?')[0];
- if(!['overview','performance','orders','stock','sales','ledger'].includes(target))return;
- const q=new URLSearchParams(location.hash.split('?')[1]||''),from=q.get('from'),to=q.get('to');
- if(!/^\d{4}-\d{2}-\d{2}$/.test(from||'')||!/^\d{4}-\d{2}-\d{2}$/.test(to||'')||from>to)return;
- const params=new URLSearchParams(a.hash.split('?')[1]||'');params.set('from',from);params.set('to',to);event.preventDefault();location.hash=target+'?'+params;
+ const href=navigationHref(a.getAttribute('href'),location.href);
+ if(href===a.getAttribute('href'))return;
+ event.preventDefault();location.assign(href);
 }
 document.addEventListener('click',carryRange);
 const initialRevision=authRevision;

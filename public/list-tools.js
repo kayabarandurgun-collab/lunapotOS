@@ -32,15 +32,22 @@ export function columnKind(values){
 const SECENEK={tutar:[['desc','büyükten küçüğe'],['asc','küçükten büyüğe']],sayi:[['desc','çoktan aza'],['asc','azdan çoğa']],tarih:[['desc','yeniden eskiye'],['asc','eskiden yeniye']],metin:[['asc','A → Z']]};
 export const gecerli=(v,kind)=>kind==='metin'?v!=='':kind==='tarih'?/^\d{8}$/.test(v):typeof v==='number';
 const make=(tag,content,cls)=>{const e=document.createElement(tag);if(content)e.textContent=content;if(cls)e.className=cls;return e;};
+// Only connected tables own resize subscriptions. Weak metadata allows a moved
+// table to reuse its controls without retaining removed route containers.
+const activeLists=new Map(),listControllers=new WeakMap();
 export function enhanceLists(){
- for(const table of document.querySelectorAll('main table:not([data-list-tools]),dialog table:not([data-list-tools])')){
+ for(const [table,controller] of activeLists)if(!table.isConnected||!table.closest('main,dialog')||table.dataset.listTools!=='true')controller.stop();
+ for(const table of document.querySelectorAll('main table,dialog table')){
+  const existing=listControllers.get(table);
+  if(existing){if(table.dataset.listTools==='true'&&(!activeLists.has(table)||!existing.sameContainer())){existing.stop();existing.start();}continue;}
+  if(table.hasAttribute('data-list-tools'))continue;
   if(table.closest('form')||table.querySelector('input,select,textarea')||!table.tHead||table.tBodies.length!==1)continue;
   const rows=[...table.tBodies[0].rows],heads=[...table.tHead.rows[0].cells];
   if(heads.length<2||rows.some(r=>r.cells.length!==heads.length||[...r.cells].some(c=>c.colSpan>1||c.rowSpan>1)))continue;
   table.dataset.listTools='true';
   const sunucu=table.dataset.listSort==='server';
   const state={column:-1,ascending:true,kind:'metin'};
-  const host=table.closest('.table-wrap,.v2-table-wrap')||table;
+  let host=table.closest('.table-wrap,.v2-table-wrap')||table;
   // Kart düzeni için hücre etiketleri (CSS data-label kullanır).
   heads.forEach((h,i)=>{const label=text(h).replace(/[↕▲▼]/g,'').trim();rows.forEach(r=>r.cells[i].dataset.label=label||'İşlem');});
   const kendiArama=table.closest('main,dialog')?.querySelector('input[type=search]:not(.list-tools input),input[name=q],input[name=search]');
@@ -72,7 +79,12 @@ export function enhanceLists(){
    b.addEventListener('click',()=>{state.ascending=state.column===s.i?!state.ascending:s.kind==='metin';state.column=s.i;state.kind=s.kind;basliklar();
     if(select){const v=s.i+':'+(state.ascending?'asc':'desc');if([...select.options].some(o=>o.value===v))select.value=v;else select.selectedIndex=0;}apply();});
   }
-  const empty=make('p','Aramaya uyan satır yok.','list-empty');empty.hidden=true;host.after(empty);
+  const empty=make('div',null,'list-empty');empty.hidden=true;
+  const message=make('p','Aramaya uyan satır yok.'),reset=make('button','Aramayı temizle','secondary');reset.type='button';
+  reset.addEventListener('click',()=>{if(search){search.value='';apply();search.focus();}});
+  empty.append(message);if(search)empty.append(reset);host.after(empty);
+  const count=make('span',rows.length+' kayıt','list-count');count.setAttribute('role','status');count.setAttribute('aria-live','polite');
+  if(search)bar.append(count);
   function apply(){
    const query=search?folded(search.value.trim()):'';
    const i=state.column,sorted=i<0?rows:[...rows].sort((a,b)=>{const x=sortValue(ilkSatir(a.cells[i])),y=sortValue(ilkSatir(b.cells[i]));
@@ -81,12 +93,25 @@ export function enhanceLists(){
     const n=typeof x==='number'&&typeof y==='number'?x-y:String(x).localeCompare(String(y),'tr',{numeric:true});return state.ascending?n:-n;});
    sorted.forEach(r=>table.tBodies[0].append(r));
    let shown=0;for(const row of rows){const visible=!query||folded(text(row)).includes(query);row.hidden=!visible;if(visible)shown++;}
-   empty.hidden=shown>0;
+   empty.hidden=shown>0;count.textContent=query?shown+' / '+rows.length+' kayıt':rows.length+' kayıt';
   }
   // Sığdırma: doğal genişlik kabı aşıyorsa satır düzenine geç. Ölçüm sınıf kaldırılarak yapılır.
-  const kap=host===table?table.parentElement:host;
-  const sigdir=()=>{table.classList.remove('lt-stack');table.classList.toggle('lt-stack',table.scrollWidth>kap.clientWidth+4);};
-  sigdir();
-  if('ResizeObserver' in window){let son=kap.clientWidth,bekleyen=0;new ResizeObserver(()=>{if(Math.abs(kap.clientWidth-son)<6||bekleyen)return;bekleyen=requestAnimationFrame(()=>{bekleyen=0;son=kap.clientWidth;sigdir();});}).observe(kap);}
+  let kap=null,observer=null,son=0,bekleyen=0;
+  const sigdir=()=>{if(!table.isConnected||!kap?.isConnected)return;table.classList.remove('lt-stack');table.classList.toggle('lt-stack',table.scrollWidth>kap.clientWidth+4);};
+  const controller={
+   sameContainer(){const current=table.closest('.table-wrap,.v2-table-wrap')||table;return current===host&&(current===table?table.parentElement:current)===kap;},
+   start(){
+    host=table.closest('.table-wrap,.v2-table-wrap')||table;kap=host===table?table.parentElement:host;
+    if(bar.childElementCount)host.before(bar);host.after(empty);
+    activeLists.set(table,controller);son=kap.clientWidth;sigdir();
+    if('ResizeObserver' in window){observer=new ResizeObserver(()=>{
+     if(!table.isConnected){controller.stop();return;}
+     if(Math.abs(kap.clientWidth-son)<6||bekleyen)return;
+     bekleyen=requestAnimationFrame(()=>{bekleyen=0;if(!table.isConnected){controller.stop();return;}son=kap.clientWidth;sigdir();});
+    });observer.observe(kap);}
+   },
+   stop(){observer?.disconnect();observer=null;if(bekleyen)cancelAnimationFrame(bekleyen);bekleyen=0;activeLists.delete(table);bar.remove();empty.remove();}
+  };
+  listControllers.set(table,controller);controller.start();
  }
 }

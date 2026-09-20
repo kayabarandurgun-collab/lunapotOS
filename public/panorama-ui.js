@@ -50,8 +50,8 @@ function delta(p){
  return {yon,metin:ok+' '+metin,uzun:(ONCEKI[p.key]||'önceki döneme')+' göre '+(fark>=0?'+':'−')+money(Math.abs(fark))+' (önceki: '+money(p.prev_cash_cents)+')'};
 }
 
-function periodButton(p,selected){
- return `<a class="pn-period${p.key===selected?' is-selected':''}" href="${esc(dateRangeLink('#overview',scope(p)))}" ${p.key===selected?'aria-current="true"':''}><span class="pn-period-label">${esc(p.label)}</span><strong>${p.packages?money(p.calculated===0?null:p.cash_cents):p.partial?'Hesap eksik':'Teslim yok'}</strong><small>Ciro ${money(p.revenue_gross_cents)}</small><span class="pn-period-loss">${p.losses??'—'} zarar · ${money(p.loss_cents)}</span>${p.partial||p.missing?'<small>Eksik kapsam</small>':p.estimated?'<small>Tahmini tutar içerir</small>':''}</a>`;
+function periodButton(p,selected,route='#overview'){
+ return `<a class="pn-period${p.key===selected?' is-selected':''}" href="${esc(dateRangeLink(route,scope(p)))}" ${p.key===selected?'aria-current="true"':''}><span class="pn-period-label">${esc(p.label)}</span><strong>${p.packages?money(p.calculated===0?null:p.cash_cents):p.partial?'Hesap eksik':'Teslim yok'}</strong><small>Ciro ${money(p.revenue_gross_cents)}</small><span class="pn-period-loss">${p.losses??'—'} zarar · ${money(p.loss_cents)}</span>${p.partial||p.missing?'<small>Eksik kapsam</small>':p.estimated?'<small>Tahmini tutar içerir</small>':''}</a>`;
 }
 function shareBar(p){
  const channels=p.channels||{},total=KANALLAR.reduce((sum,k)=>sum+Math.max(0,channels[k]?.cash_cents||0),0);
@@ -98,7 +98,7 @@ function pendingCard(pending){
  return `<section class="pn-card pn-pending"><span class="eyebrow">GÜNCEL BEKLEYENLER · TARİH FİLTRESİNDEN BAĞIMSIZ</span><h2>Bekleyen paketler</h2><strong class="pn-pending-value ${pending.cash_cents<0?'is-negative':''}">${unknown?'Hesap eksik':pending.packages===0?'Bekleyen paket yok':money(pending.cash_cents)}</strong><p>Güncel bekleyen toplamı · tahmini · KDV dahil</p>${pendingStatusMarkup(pending)}${pending.from&&pending.to?`<small>Sipariş tarihi: ${esc(dateRangeLabel(scope(pending)))}</small>`:''}${pending.missing?`<p class="ins-quality">${pending.missing} paket hesaplanamadı. Gösterilen tutar yalnız hesaplanabilen paketlere aittir.</p>`:''}${pending.kaba_tahmin?`<p class="ins-quality">${pending.kaba_tahmin} pakette benzer adette teslim geçmişi yok; tahmin kaba.</p>`:''}${pending.error?`<p class="error">${esc(pending.error)}</p>`:''}${pending.channels?`<details><summary>Bekleyenlerin kanal dağılımı</summary><div class="pn-pending-rows">${KANALLAR.map(k=>{const c=pending.channels[k];return c?`<span><i class="pn-key ${SINIF[k]}" aria-hidden="true"></i>${KANAL[k]} <b>${c.calculated===0&&c.packages>0?'Bilgi eksik':money(c.cash_cents)}</b><small>${c.packages??'—'} paket</small></span>`:'';}).join('')}</div></details>`:''}${pending.from&&pending.to?`<a class="text-button" href="${esc(rapor(pending,{mode:'pending'}))}">Bekleyen paketleri incele →</a>`:''}</section>`;
 }
 // Markup stays pure for fixture tests. All money comes from the shared report API.
-export function panoramaDetailMarkup(data,p,{dateControls=''}={}){
+export function panoramaDetailMarkup(data,p,{dateControls='',kind=''}={}){
  const b=panoramaBuckets(data.daily||[],p),d=delta(p),inventory=data.inventory||{};
  const incomplete=!!(p.partial||p.missing||p.revenue_missing||data.unallocated_fee_cents),quality=incomplete?'Eksik kapsam':p.estimated?'Tahmini tutar içerir':p.packages?'Hesaplandı':'Teslim yok';
  const unit={day:'Günlük',week:'Haftalık',month:'Aylık'}[b.unit];
@@ -118,14 +118,14 @@ export function panoramaDetailMarkup(data,p,{dateControls=''}={}){
   ${dateControls}
   ${periodReturnsMarkup(p.returns)}
   ${incomplete||p.estimated?`<aside class="ins-quality" aria-label="Hesap kapsamı">${p.partial?'<p>Bu dönemin bir bölümü alınamadı; toplamlar eksiktir.</p>':''}${p.missing?`<p><a href="${esc(rapor(p,{result:'missing'}))}">${p.missing} paket hesaplanamadı →</a> Gösterilen nakit toplamı hesaplanabilen ${p.calculated??'—'} pakete aittir.</p>`:''}${p.estimated?`<p>${p.estimated} paketin maliyeti veya kesintisi tahmini; belgeler eşleşince kesinleşir.</p>`:''}${data.unallocated_fee_cents?`<p>${money(data.unallocated_fee_cents)} kesinti satışlara dağıtılmadı. Dönem sonucu tamamlanmış sayılmaz. <a href="#reconciliation">Eşleştir →</a></p>`:''}</aside>`:''}
+  <div class="ins-work-grid"><div data-overview-work hidden></div>${pendingCard(data.pending)}</div>
   <div class="ins-main-grid"><section class="pn-card ins-trend"><div class="pn-head"><div><span class="eyebrow">NAKİT AKIŞININ DAĞILIMI</span><h2>${unit} cebine kalan</h2></div><a class="text-button" href="${esc(rapor(p))}">Paket dökümü →</a></div><div class="pn-legend">${KANALLAR.map(k=>`<span><i class="pn-key ${SINIF[k]}" aria-hidden="true"></i>${KANAL[k]}</span>`).join('')}</div>
    ${b.buckets.length?`${chartAvailable?'<div class="pn-chart-wrap"><div class="pn-chart" data-pn-chart></div><div class="pn-tip" role="status" hidden></div></div>':'<p class="ins-empty">Grafik için hesap bilgisi eksik.</p>'}<details class="pn-table"><summary>Grafiğin veri tablosu</summary><div class="table-wrap"><table data-list-tools="off"><caption>${unit} cebine kalan · KDV dahil</caption><thead><tr><th>Dönem</th><th>Trendyol</th><th>Hepsiburada</th><th>Toplam</th><th>Paket</th></tr></thead><tbody>${[...b.buckets].reverse().map(x=>`<tr><td data-label="Dönem">${esc(x.label)}</td><td data-label="Trendyol">${money(noCalculated?null:x.trendyol)}</td><td data-label="Hepsiburada">${money(noCalculated?null:x.hepsiburada)}</td><td data-label="Toplam"><b>${money(noCalculated?null:bucketTotal(x))}</b></td><td data-label="Paket">${x.packages}</td></tr>`).join('')}</tbody></table></div></details>`:`<div class="ins-empty"><h3>${emptyText}</h3><p>${p.partial||p.missing?'Eksik kayıtlar sıfır olarak değerlendirilmez.':'Başka bir dönem seçerek satışlarını inceleyebilirsin.'}</p></div>`}
    <div class="pn-split"><a href="${esc(rapor(p,{result:'profit'}))}"><small>Kâr bırakan ${p.gains??'—'} paket</small><strong>${money(noCalculated?null:p.gain_cents)}</strong></a><a class="is-loss" href="${esc(rapor(p,{result:'loss'}))}"><small>Zarar eden ${p.losses??'—'} paket</small><strong class="is-negative">${money(noCalculated?null:p.loss_cents)}</strong></a></div>
    <details class="pn-calculation-note"><summary>Hesap kapsamı ve yöntemi</summary><p>${esc(data.notice||'KDV dahil satıştan ürün maliyeti, pazaryeri kesintileri ve stopaj düşülür. Ortak giderler ve gelir vergisi dahil değildir.')}</p><p>Grafik hesaplanabilen paketlerin nakit sonucudur; eksik paketler sıfır kâr sayılmaz. 31 güne kadar günlük, 400 güne kadar haftalık, daha uzun aralıklarda aylık gösterilir.</p></details></section>
    <section class="pn-card ins-channels"><span class="eyebrow">SEÇİLİ DÖNEM</span><h2>Kanal dağılımı</h2>${shareBar(p)}</section></div>
-  ${panoramaSalesMarkup(p)}
-  <section class="ins-records-section"><div class="pn-head"><div><span class="eyebrow">SEÇİLİ DÖNEM · KDV DAHİL</span><h2>Tek siparişte rekorlar</h2></div></div>${p.records?.partial||p.records?.revenue_missing_orders||p.records?.profit_missing_orders?`<p class="ins-quality">${p.records.partial?'Eksik dönem kapsamı. ':''}${p.records.revenue_missing_orders||0} sipariş ciro, ${p.records.profit_missing_orders||0} sipariş nakit bilgisi eksik olduğu için sıralamaya alınmadı.</p>`:''}<div class="ins-records">${recordCard('En yüksek ciro',p.records?.revenue,'revenue_gross_cents',p)}${recordCard('En çok cebine kalan',p.records?.profit,'cash_cents',p)}</div></section>
-  ${pendingCard(data.pending)}`;
+  ${panoramaSalesMarkup(p,{kind})}
+  <details class="ins-records-section"><summary>Tek siparişte rekorlar <span>Seçili dönem · KDV dahil</span></summary>${p.records?.partial||p.records?.revenue_missing_orders||p.records?.profit_missing_orders?`<p class="ins-quality">${p.records.partial?'Eksik dönem kapsamı. ':''}${p.records.revenue_missing_orders||0} sipariş ciro, ${p.records.profit_missing_orders||0} sipariş nakit bilgisi eksik olduğu için sıralamaya alınmadı.</p>`:''}<div class="ins-records">${recordCard('En yüksek ciro',p.records?.revenue,'revenue_gross_cents',p)}${recordCard('En çok cebine kalan',p.records?.profit,'cash_cents',p)}</div></details>`;
 }
 
 // Yığılmış sütun grafiği: pozitifler sıfırdan yukarı (Trendyol altta), negatifler aşağı yığılır.
@@ -196,27 +196,37 @@ function drawChart(host,tip,buckets){
 // Oran çubukları CSP yüzünden satır içi stil yazamaz; genişlik CSSOM ile verilir (izinli).
 function oranlar(root){for(const e of root.querySelectorAll('[data-pay]')){const v=+e.dataset.pay/10;if(e.parentElement.classList.contains('pn-share-bar'))e.style.flexGrow=String(v);else e.style.width=v+'%';}}
 
-export function mountPanorama(section,data,{signal,onRangeChange}={}){
+export function mountPanorama(section,data,{signal,onRangeChange,dailyWork,viewState={}}={}){
+ if(signal?.aborted)return;
  const range=parseDateRange(location.hash,{today:data.today,firstDate:data.first_delivered||data.today});
  let period=data.periods.find(p=>p.key===range.preset&&p.from===range.from&&p.to===range.to);
  if(!period&&range.from&&range.to)period=data.periods.find(p=>p.from===range.from&&p.to===range.to)||data.selected_period;
  if(!period&&range.preset==='tum')period=data.periods.find(p=>p.key==='tum');
  if(!period)period=data.periods.find(p=>p.key==='30g')||data.periods[0];
- if(!period){section.setAttribute('aria-busy','false');section.innerHTML='<p class="error" role="alert">Dönem verisi alınamadı.</p>';return;}
+ if(!period)throw Error('Dönem verisi alınamadı.');
  const rangeMismatch=range.from&&(period.from!==range.from||period.to!==range.to);
  const selected={...scope(period),error:range.error||(rangeMismatch?'Seçilen aralık alınamadı; gösterilen kapsam '+dateRangeLabel(scope(period))+'.':null)};
  section.setAttribute('aria-busy','false');section.classList.add('insights-panorama');
- section.innerHTML=panoramaDetailMarkup(data,period,{dateControls:`<details class="ins-date-disclosure" ${selected.error||selected.preset==='custom'?'open':''}><summary>Tarih <span>${esc(dateRangeLabel(selected))}</span></summary>${dateFilterMarkup(selected,{firstDate:data.first_delivered||data.today})}</details>`})+`<details class="ins-period-comparison"><summary>Bütün dönemler · nakit, ciro ve zarar</summary><div class="pn-periods">${data.periods.filter(p=>p.key!=='custom').map(p=>periodButton(p,selected.preset)).join('')}</div></details>`;
+ section.innerHTML=panoramaDetailMarkup(data,period,{kind:viewState.kind||'',dateControls:`<details class="ins-date-disclosure" ${selected.error||selected.preset==='custom'?'open':''}><summary>Tarih <span>${esc(dateRangeLabel(selected))}</span></summary>${dateFilterMarkup(selected,{firstDate:data.first_delivered||data.today})}</details>`})+`<details class="ins-period-comparison"><summary>Bütün dönemler · nakit, ciro ve zarar</summary><div class="pn-periods">${data.periods.filter(p=>p.key!=='custom').map(p=>periodButton(p,selected.preset,location.hash||'#overview')).join('')}</div></details>`;
+ if(dailyWork){section.querySelector('[data-overview-work]')?.replaceWith(dailyWork);section.querySelector('.ins-work-grid')?.classList.add('has-daily-work');}
  oranlar(section);
- const unbind=bindDateFilter(section,{signal,today:data.today,firstDate:data.first_delivered||data.today,onChange:next=>{if(onRangeChange)onRangeChange(next);else location.hash=dateRangeLink('#overview',next);}});
- const chooseProducts=key=>{for(const button of section.querySelectorAll('[data-product-view]')){const active=button.dataset.productView===key;button.setAttribute('aria-selected',String(active));button.tabIndex=active?0:-1;}for(const panel of section.querySelectorAll('[data-product-panel]'))panel.hidden=panel.dataset.productPanel!==key;};
- const kindChange=event=>{if(!event.target.matches('[data-panorama-kind]'))return;const value=event.target.value,active=section.querySelector('[data-product-view][aria-selected="true"]')?.dataset.productView||'profit';section.querySelector('[data-sales-rankings]').outerHTML=panoramaSalesMarkup(period,{kind:value});chooseProducts(active);oranlar(section);section.querySelector('[data-panorama-kind]')?.focus();};
+ const unbind=bindDateFilter(section,{signal,today:data.today,firstDate:data.first_delivered||data.today,onChange:next=>{if(onRangeChange)onRangeChange(next);else location.hash=dateRangeLink(location.hash||'#overview',next);}});
+ const chooseProducts=key=>{viewState.productView=key;for(const button of section.querySelectorAll('[data-product-view]')){const active=button.dataset.productView===key;button.setAttribute('aria-selected',String(active));button.tabIndex=active?0:-1;}for(const panel of section.querySelectorAll('[data-product-panel]'))panel.hidden=panel.dataset.productPanel!==key;};
+ const kindChange=event=>{if(!event.target.matches('[data-panorama-kind]'))return;const value=event.target.value;rememberDisclosures();viewState.kind=value;const active=section.querySelector('[data-product-view][aria-selected="true"]')?.dataset.productView||'profit';section.querySelector('[data-sales-rankings]').outerHTML=panoramaSalesMarkup(period,{kind:value});chooseProducts(active);restoreDisclosures();oranlar(section);section.querySelector('[data-panorama-kind]')?.focus();};
  section.addEventListener('change',kindChange,{signal});
  const productClick=event=>{const button=event.target.closest('[data-product-view]');if(button)chooseProducts(button.dataset.productView);};
  const productKey=event=>{const button=event.target.closest('[data-product-view]');if(!button||!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const key=event.key==='Home'?'profit':event.key==='End'?'revenue':button.dataset.productView==='revenue'?'profit':'revenue';chooseProducts(key);section.querySelector('[data-product-view="'+key+'"]').focus();};
  section.addEventListener('click',productClick,{signal});section.addEventListener('keydown',productKey,{signal});
- const host=section.querySelector('[data-pn-chart]');let observer;
+ chooseProducts(viewState.productView==='revenue'?'revenue':'profit');
+ const disclosureKey=details=>details.className||details.querySelector(':scope > summary')?.textContent;
+ const rememberDisclosures=()=>{viewState.disclosures??={};for(const details of section.querySelectorAll('details')){if(!dailyWork?.contains(details))viewState.disclosures[disclosureKey(details)]=details.open;}};
+ const restoreDisclosures=()=>{for(const details of section.querySelectorAll('details')){const key=disclosureKey(details);if(!dailyWork?.contains(details)&&Object.hasOwn(viewState.disclosures||{},key))details.open=viewState.disclosures[key];}};
+ restoreDisclosures();
+ if(selected.error)section.querySelector('.ins-date-disclosure').open=true;
+ const toggle=event=>{if(event.target.matches('details')&&!dailyWork?.contains(event.target))rememberDisclosures();};
+ section.addEventListener('toggle',toggle,{capture:true,signal});
+ const host=section.querySelector('[data-pn-chart]');let observer,disposed=false;
  if(host){const buckets=panoramaBuckets(data.daily||[],period).buckets;drawChart(host,section.querySelector('.pn-tip'),buckets);let width=host.clientWidth;
-  if(typeof ResizeObserver!=='undefined'){observer=new ResizeObserver(()=>{if(Math.abs(host.clientWidth-width)<8)return;width=host.clientWidth;drawChart(host,section.querySelector('.pn-tip'),buckets);});observer.observe(host);}}
- const dispose=()=>{observer?.disconnect();unbind();section.removeEventListener('click',productClick);section.removeEventListener('change',kindChange);section.removeEventListener('keydown',productKey);};signal?.addEventListener('abort',dispose,{once:true});return dispose;
+  if(typeof ResizeObserver!=='undefined'){observer=new ResizeObserver(()=>{if(disposed||signal?.aborted||!host.isConnected)return;if(Math.abs(host.clientWidth-width)<8)return;width=host.clientWidth;drawChart(host,section.querySelector('.pn-tip'),buckets);});observer.observe(host);}}
+ const dispose=()=>{if(disposed)return;disposed=true;rememberDisclosures();observer?.disconnect();unbind();signal?.removeEventListener('abort',dispose);section.removeEventListener('toggle',toggle,true);section.removeEventListener('click',productClick);section.removeEventListener('change',kindChange);section.removeEventListener('keydown',productKey);};signal?.addEventListener('abort',dispose,{once:true});return dispose;
 }

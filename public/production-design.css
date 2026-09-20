@@ -1,5 +1,5 @@
 /* Production workspace. Shell, sidebar and workspace navigation belong to workspace-design.css. */
-body.workspace-redesign :is(.production-view,.production-dialog){--production-line:#dce3da;--production-muted:#65756b;--production-soft:#e8eee4;color:#20342f;font-size:14px;line-height:1.55}
+body.workspace-redesign :is(.production-view,.production-dialog){--production-line:#dce3da;--production-muted:#596b5e;--production-soft:#e8eee4;color:#20342f;font-size:14px;line-height:1.55}
 body.workspace-redesign :is(.production-view,.production-dialog) *{box-sizing:border-box}
 body.workspace-redesign .production-view :is(h1,h2,h3,p,strong,a,small,span),body.workspace-redesign .production-dialog :is(h2,h3,p,strong,small,legend){overflow-wrap:anywhere}
 body.workspace-redesign .production-view .page-heading{align-items:flex-start;gap:20px;margin-bottom:24px}
