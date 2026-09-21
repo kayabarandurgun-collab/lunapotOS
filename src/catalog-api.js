@@ -39,7 +39,9 @@ export async function catalogApi(request,env,path,readBody){
  const db=env.DB;
  if(path==='/api/catalog'&&request.method==='GET'){
   const [mappings,components,products,suppliers]=await Promise.all([
-   all(db.prepare('SELECT * FROM catalog_mappings ORDER BY created_at DESC,rowid DESC LIMIT 1001')),
+   // auto_matched: bağlantıyı ilan başlığından SİSTEM kurdu. İz denetim kaydında durur (şema
+   // değişmedi); sahibi yeni sürümle düzeltince o sürüm artık otomatik sayılmaz.
+   all(db.prepare("SELECT m.*,(SELECT COUNT(*) FROM catalog_mapping_audit a WHERE a.mapping_id=m.id AND a.action='created' AND json_extract(a.snapshot_json,'$.auto')=1) auto_matched FROM catalog_mappings m ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1001")),
    all(db.prepare(joined+' WHERE c.mapping_id IN (SELECT id FROM catalog_mappings ORDER BY created_at DESC,rowid DESC LIMIT 1000)')),
    all(db.prepare('SELECT p.id,p.name,p.sku,p.category,p.stock_unit,b.quantity_milli,b.value_cents FROM products p LEFT JOIN stock_balances b ON b.product_id=p.id ORDER BY p.name')),
    all(db.prepare('SELECT id,name,tax_id FROM suppliers ORDER BY name'))
@@ -66,7 +68,9 @@ export async function catalogApi(request,env,path,readBody){
   statements.push(stmt(db,'INSERT INTO catalog_mappings(id,source,supplier_id,match_by,match_value,external_code,external_name,source_unit,version,replaces_id) VALUES(?,?,?,?,?,?,?,?,?,?)',[id,key.source,key.supplier_id,key.match_by,key.match_value,externalCode,externalName,key.source_unit,version,old?.id??null]));
   statements.push(stmt(db,"INSERT INTO catalog_mapping_components(id,mapping_id,product_id,quantity_milli,revenue_share_bps) SELECT json_extract(value,'$.id'),?,json_extract(value,'$.product_id'),json_extract(value,'$.quantity_milli'),json_extract(value,'$.revenue_share_bps') FROM json_each(?)",[id,JSON.stringify(components)]));
   statements.push(stmt(db,'UPDATE catalog_mappings SET active=1 WHERE id=?',[id]));
-  statements.push(stmt(db,'INSERT INTO catalog_mapping_audit(id,mapping_id,action,previous_id,snapshot_json) VALUES(?,?,?,?,?)',[crypto.randomUUID(),id,old?'replaced':'created',old?.id??null,JSON.stringify({...key,external_name:externalName,components,version})]));
+  // Otomatik kurulan bağlantı iz kaydında işaretlenir: ekranda "otomatik eşleşti" rozetiyle görünür
+  // ve sahibi kontrol edip değiştirebilir. Sürüm düzenlemesi (replaces_id) asla otomatik sayılmaz.
+  statements.push(stmt(db,'INSERT INTO catalog_mapping_audit(id,mapping_id,action,previous_id,snapshot_json) VALUES(?,?,?,?,?)',[crypto.randomUUID(),id,old?'replaced':'created',old?.id??null,JSON.stringify({...key,external_name:externalName,components,version,...(x.auto===true&&!old?{auto:1}:{})})]));
   await execute(db,statements);return {id,version,replaces_id:old?.id??null};
  }
  const archive=path.match(/^\/api\/catalog\/mappings\/([\w-]+)\/archive$/);

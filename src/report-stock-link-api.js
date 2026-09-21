@@ -19,9 +19,7 @@ import {reportLinkFingerprint} from './report-link-guard.js';
 import {pendingReturns} from './report-inbox-api.js';
 import {accountingApi} from './accounting.js';
 import {catalogApi} from './catalog-api.js';
-
-// İlan adı ile stok kartı adı karşılaştırması: büyük/küçük harf, boşluk, noktalama ve ı/i farkı yok sayılır.
-export const adAnahtari = s => String(s || '').toLocaleLowerCase('tr-TR').replace(/ı/g, 'i').replace(/[^a-z0-9çğöşü]+/g, '');
+import {ilanCozumle, paylar} from './ilan-eslesme.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), {status}); };
 
@@ -522,29 +520,60 @@ export async function reportStockLinkApi(request, env, path, readBody) {
           if (!linked.applied) { results.push({...out, skipped: true, reason: linked.reason || (linked.issues || []).join(' ') || linked.outcome}); continue; }
           id = linked.package_id; occurred = linked.occurred_on; steps.push('sipariş açıldı');
         }
-        // İLK KEZ SATILAN İLAN. Eşleşmesi olmayan satırın ilan adı TEK bir stok kartının adıyla
-        // birebir aynıysa (harf/boşluk/ı-i farkı hariç) bağlantı kendiliğinden kurulur ve hatırlanır:
-        // kullanıcının aynı adı bir daha eşlemesi gerekmez. Ad benzerliği TAHMİN edilmez; birebir değilse
-        // ya da birden çok kart uyuyorsa satır eşleşmesiz kalır, sebebi söylenir.
+        // İLK KEZ SATILAN İLAN. Pazaryeri raporu barkod/satıcı kodu vermeyebilir; elde yalnız ilan
+        // kodu ve pazarlama başlığı kalır. Eşleşmesi olmayan satır şu sırayla çözülür:
+        //  1. Bu ilan kodunun ETKİN bağlantısı varsa (sahibi kurmuş ya da daha önce otomatik kurulmuş)
+        //     o uygulanır; üzerine asla yazılmaz. Böylece taslakta bekleyen eski paketler de toparlanır.
+        //  2. Sahibi bu kodun bağlantısını arşivlemişse karar onundur; yenisi kurulmaz.
+        //  3. Yoksa başlık çözülür: kartın bütün ayırt edici sözcükleri başlıkta geçiyorsa kart adaydır,
+        //     aday TEK ise bağlantı kurulur ve hatırlanır. Başlık " ve / ile / + / ," ile birden çok
+        //     ürün sayıyorsa her parça ayrı ayrı çözülür ve set bağlantısı kurulur.
+        // Sıfır ya da birden çok adayda HİÇBİR ŞEY yazılmaz; sebebi ve aday adları sonuca konur.
+        const eslesmeSebebi = [];
         if (cur?.status !== 'reserved') {
           const bos = (await db.prepare(`SELECT l.id,l.sku,l.name FROM ec_order_lines l WHERE l.package_id=?
             AND NOT EXISTS(SELECT 1 FROM ec_order_line_components c WHERE c.line_id=l.id)`).bind(id).all()).results;
           if (bos.length) {
             const kanal = (await db.prepare('SELECT channel FROM ec_order_packages WHERE id=?').bind(id).first())?.channel;
-            const kartlar = (await db.prepare(`SELECT p.id,p.name,p.brand,p.stock_unit,(SELECT pp.vat_bps FROM ec_price_profiles pp WHERE pp.product_id=p.id) vat
+            // fiyat: bileşen gelir payını dağıtmak için ürünün GÜNCEL satış fiyatı (son satışın birim
+            // cirosu, yoksa kartın satış fiyatı). Bilinmiyorsa 0 kalır ve paylar eşit bölünür.
+            const kartlar = (await db.prepare(`SELECT p.id,p.name,p.brand,p.stock_unit,
+                (SELECT pp.vat_bps FROM ec_price_profiles pp WHERE pp.product_id=p.id) vat,
+                COALESCE((SELECT CAST(ROUND(s.revenue_cents*1000.0/s.quantity_milli) AS INTEGER) FROM ec_sale_entries s
+                    WHERE s.product_id=p.id AND s.kind='sale' AND s.quantity_milli>0 ORDER BY s.occurred_on DESC,s.created_at DESC LIMIT 1),
+                  CAST(ROUND(p.sale_price*100) AS INTEGER),0) fiyat
               FROM ec_products p`).all()).results;
-            // Kart adı markayla başlıyorsa ilan markasız da yazılmış olabilir ("Yaprak Temizleyici 500 ml").
-            const adlari = k => { const tam = adAnahtari(k.name), marka = adAnahtari(k.brand);
-              return marka && tam.startsWith(marka) && tam.length > marka.length ? [tam, tam.slice(marka.length)] : [tam]; };
-            const esle = [];
+            const kartMap = new Map(kartlar.map(k => [k.id, k]));
+            // KDV oranı ancak bütün bileşenlerin profilinde TEK ve tanımlı oran varsa yazılır.
+            const kdv = ids => { const o = [...new Set(ids.map(i => kartMap.get(i)?.vat))];
+              return o.length === 1 && o[0] !== null && o[0] !== undefined ? {vat_rate: o[0] / 100} : {}; };
+            const esle = [], kurulan = [];
             for (const l of bos) {
-              const aday = kartlar.filter(k => k.stock_unit === 'adet' && adlari(k).includes(adAnahtari(l.name)));
-              if (aday.length !== 1 || !l.sku || !['trendyol', 'hepsiburada'].includes(kanal)) continue;
-              const m = await call(catalogApi, '/api/catalog/mappings', {source: kanal, match_by: 'code', external_code: l.sku, external_name: l.name,
-                components: [{product_id: aday[0].id, quantity_milli: 1000, revenue_share_bps: 10000}]});
-              esle.push({id: l.id, mapping_id: m.id, ...(aday[0].vat === null || aday[0].vat === undefined ? {} : {vat_rate: aday[0].vat / 100})});
+              if (!l.sku || !['trendyol', 'hepsiburada'].includes(kanal)) continue;
+              const kayitli = await db.prepare(`SELECT id FROM ec_catalog_mappings WHERE source=? AND supplier_id='' AND match_by='code'
+                AND match_value=? AND source_unit='' AND active=1`).bind(kanal, String(l.sku)).first();
+              if (kayitli) {
+                const ids = (await db.prepare('SELECT product_id FROM ec_catalog_mapping_components WHERE mapping_id=?').bind(kayitli.id).all())
+                  .results.map(r => r.product_id);
+                esle.push({id: l.id, mapping_id: kayitli.id, ...kdv(ids)}); kurulan.push('kayıtlı');
+                continue;
+              }
+              if (await db.prepare('SELECT 1 FROM ec_catalog_mappings WHERE source=? AND match_value=? LIMIT 1').bind(kanal, String(l.sku)).first()) {
+                eslesmeSebebi.push('"' + l.name + '": bu ilanın bağlantısı arşivlenmiş; karar sizin, otomatik yeniden kurulmadı.');
+                continue;
+              }
+              const cozum = ilanCozumle(l.name, kartlar.filter(k => k.stock_unit === 'adet'));
+              if (!cozum.parts) { eslesmeSebebi.push('"' + l.name + '": ' + cozum.reason); continue; }
+              const bps = paylar(cozum.parts.map(p => (kartMap.get(p.kart.id)?.fiyat || 0) * p.adet));
+              const m = await call(catalogApi, '/api/catalog/mappings', {source: kanal, match_by: 'code', external_code: String(l.sku),
+                external_name: String(l.name).slice(0, 300), auto: true,
+                components: cozum.parts.map((p, i) => ({product_id: p.kart.id, quantity_milli: p.adet * 1000, revenue_share_bps: bps[i]}))});
+              esle.push({id: l.id, mapping_id: m.id, ...kdv(cozum.parts.map(p => p.kart.id))});
+              kurulan.push(cozum.parts.length > 1 ? 'set' : 'tekli');
             }
-            if (esle.length) { await call(ordersApi, '/api/orders/' + id + '/map', {lines: esle}); steps.push('ilan adı stok kartıyla aynı: eşleştirildi'); }
+            if (esle.length) { await call(ordersApi, '/api/orders/' + id + '/map', {lines: esle});
+              steps.push(kurulan.every(k => k === 'kayıtlı') ? 'kayıtlı ilan bağlantısıyla eşleştirildi'
+                : 'ilan başlığı stok kartlarına çözüldü: otomatik eşleştirildi'); }
           }
         }
         // KDV hariç tutar: pazaryeri sipariş raporu KDV oranı vermez. Satırın eşleştiği stok
@@ -563,7 +592,9 @@ export async function reportStockLinkApi(request, env, path, readBody) {
         // kargoya verilmiş paket için ve yalnız NİYET: artış gönderimle aynı işlemde yazılır (R05).
         if (cur?.status !== 'reserved' && GITTI.test(durum)) await sayimTelafisiHazirla(db, id, occurred || c.order_date);
         try { if (cur?.status !== 'reserved') { await call(ordersApi, '/api/orders/' + id + '/reserve', {}); steps.push('stok ayrıldı'); } }
-        catch (e) { results.push({...out, skipped: true, reason: 'Sipariş taslak kaldı: ' + e.message, order_package: id}); continue; }
+        // Taslak kalma sebebine ilan eşleşmesinin sebebi de eklenir: kullanıcı ne yapacağını görür.
+        catch (e) { results.push({...out, skipped: true, order_package: id,
+          reason: ['Sipariş taslak kaldı: ' + e.message, ...eslesmeSebebi].join(' ')}); continue; }
         if (GITTI.test(durum)) {
           const telafi = "SELECT COUNT(*) n FROM ec_report_count_offsets WHERE package_id=? AND applied_at IS NOT NULL";
           const once = (await db.prepare(telafi).bind(id).first()).n;
