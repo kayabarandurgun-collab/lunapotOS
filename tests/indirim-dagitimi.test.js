@@ -1,10 +1,14 @@
-// İNDİRİM DAĞITIMI — sipariş düzeyindeki indirim paketlere GELİRE GÖRE oranlanmaz.
+// İNDİRİM DAĞITIMI — sipariş düzeyindeki indirim paketlere nasıl bağlanır?
 //
 // Canlı kanıt (TY 11617217215): iki paket — 1.199,00 TL "Pina Small 2 Litre Ayaklı Fiberglas Saksı"
 // ve 177,00 TL orkide seti. Ekstre: sale 1.376,00 · komisyon −42,40 · kargo −92,98 · hizmet −11,98 ·
-// net hakediş 64,64 ve ayrıca type=other_fee, source_field="ek:İndirim", −1.164,00. İndirim
-// İNDİRİMLİ SATILAN SAKSIYA aittir (1376 − 42,40 − 92,98 − 11,98 − 1164 = 64,64). Gelire göre
-// oranlanınca 177 TL'lik orkide paketine 151,26 TL "diğer gider" yazıldı ve paket −48,07 TL göründü.
+// net hakediş 64,64 ve ayrıca type=other_fee, source_field="ek:İndirim", −1.164,00.
+// SATICI PANELİ indirimi satırlara KENDİSİ oranlıyor: saksı satırı "İndirim −1.011,55", orkide satırı
+// "İndirim −152,45" (satır netleri 149,96 ve 19,64; üstüne sipariş düzeyinde hizmet −11,98 ve kargo
+// −92,98 → Net Sipariş Tutarı 64,64). Yani gelire göre oranlama pazaryerinin kendi yaptığıdır;
+// orkide paketindeki zarar gerçektir (saksı paketi "hediye" gerekçesiyle iptal edilmiş, indirim
+// gerçekten cepten çıkmıştır). Kural: paket/satır başına indirim BİLİNİYORSA tam o tutar; yoksa
+// gelire göre oranlanır ve bunun bildirilmiş değil ORANLANMIŞ olduğu satırda söylenir.
 //
 // TEMSİLİ veri: gerçek pazaryeri dosyası DEĞİLDİR; tutarlar canlı kanıttan alınmıştır.
 import test from 'node:test';
@@ -34,12 +38,12 @@ const olay = (f, d) => sql(f, 'INSERT INTO ec_report_records(id,store_id,kind,re
 'C:' + [SIPARIS, d.package_id || '', d.type, d.source_field || '', d.amount_cents].join('|'),
 JSON.stringify({order_no: SIPARIS, event_date: TESLIM, net_payout: 6464, ...d}));
 
-/** Pazaryerinin SİPARİŞ kaydı: paket başına satıcı indirimi (TL) buradan bilinir. */
-function siparisKaydi(f, paket, indirimTL) {
+/** Pazaryerinin SİPARİŞ kaydı: paket ya da satır başına satıcı indirimi (TL) buradan bilinir. */
+function siparisKaydi(f, paket, yuk) {
   sql(f, "INSERT OR IGNORE INTO ec_provider_connections(provider,seller_id,encrypted_credentials) VALUES('trendyol','S1','x')");
-  sql(f, "INSERT INTO ec_provider_records(id,provider,seller_id,kind,external_id,fingerprint,payload_json,source_updated_at)" +
+  sql(f, 'INSERT INTO ec_provider_records(id,provider,seller_id,kind,external_id,fingerprint,payload_json,source_updated_at)' +
     " VALUES(?,'trendyol','S1','orders',?,?,?,'2026-09-13T10:00')", 'pr-' + (++n), paket, 'fp-' + n,
-  JSON.stringify({external_id: paket, order_no: SIPARIS, package_seller_discount: indirimTL, package_platform_discount: 0}));
+  JSON.stringify({external_id: paket, order_no: SIPARIS, package_platform_discount: 0, ...yuk}));
 }
 
 async function urun(f, {ad, sku, barkod}) {
@@ -61,7 +65,8 @@ async function deftere(f, paket) {
 const kesintiOf = (f, erp) => ({...f.sqlite.prepare('SELECT s.commission_cents,s.shipping_cents,s.other_cents,s.fees_status FROM ec_order_line_components c' +
   ' JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_sale_entries s ON s.id=c.sale_id WHERE l.package_id=?').get(erp)});
 const paket = (r, no) => r.results.find(x => x.package_id === no);
-const gider = (p, tur) => (p.fees.find(x => x.type === tur) || {}).actual_cents ?? 0;
+const giderSatiri = (p, tur) => p.fees.find(x => x.type === tur) || {};
+const gider = (p, tur) => giderSatiri(p, tur).actual_cents ?? 0;
 const metinler = p => [...(p.contribution_missing || []), ...(p.notes || [])];
 
 /** Canlı şekil: iki paket, bütün kalemler sipariş düzeyinde (paket numarası YOK). */
@@ -77,21 +82,26 @@ async function canliSekil(f, {indirim = 116400} = {}) {
   olay(f, {type: 'service', source_field: 'service', amount_cents: -1198});
   if (indirim) olay(f, {type: 'other_fee', source_field: 'ek:İndirim', amount_cents: -indirim});
 }
+// Satıcı panelindeki satır indirimleri: 1.011,55 / 152,45 (toplam 1.164,00).
+const PANEL_SAKSI = 101155, PANEL_ORKIDE = 15245;
 
-test('Sipariş düzeyli indirim gelire göre oranlanmaz: 177 TL\'lik pakete siparişin indirimi yüklenmez', async () => {
+test('Rapor paket başına indirim vermiyorsa pazaryerinin kendi yaptığı gibi gelire göre oranlanır', async () => {
   const f = appFixture(); await f.setup(); try {
     await canliSekil(f);
     const erp = await deftere(f, 'PK-ORKIDE');            // canlıdaki gibi: saksı paketi henüz defterde değil
     const orkide = paket(await f.ok('/ec/reports/orders?store_id=st'), 'PK-ORKIDE');
-    assert.equal(gider(orkide, 'other_fee'), 0, 'siparişin indirimi 177 TL\'lik pakete yazıldı: ' + JSON.stringify(orkide.fees));
-    assert.ok(metinler(orkide).some(t => /indirimi paketlere bağlanamadı/.test(t)), 'gerekçe yok: ' + JSON.stringify(metinler(orkide)));
+    // Gelire göre oranlama: 1.164,00 × 177,00 / 1.376,00 = 149,73. Satıcı panelinin kendi satır
+    // dağıtımı 152,45; taban tutarlar birebir aynı olmadığı için yuvarlama farkı kalır (2,72 TL).
+    assert.equal(gider(orkide, 'other_fee'), -14973, JSON.stringify(orkide.fees));
+    assert.ok(Math.abs(-14973 + PANEL_ORKIDE) <= 300, 'pazaryerinin kendi satır indirimiyle aynı büyüklükte olmalı');
+    assert.equal(giderSatiri(orkide, 'other_fee').discount_prorated, true, 'oranlandığı işaretlenmeli');
+    assert.ok(metinler(orkide).some(t => /gelire göre oranlandı/.test(t) && /paket başına bildirilmiş değil/.test(t)),
+      'oranlandığı söylenmeli: ' + JSON.stringify(metinler(orkide)));
 
-    const onizleme = await f.ok('/ec/reports/apply-fees?store_id=st');
-    assert.equal(onizleme.sale_entries_changed, 0, 'indirimi bağlanamayan siparişe kesinti yazılmaz');
-    assert.ok(onizleme.skipped.some(x => /indirimi paketlere bağlanamadı/.test(x.reason)), JSON.stringify(onizleme.skipped));
-    await f.ok('/ec/reports/apply-fees', {store_id: 'st', confirm: true});
-    assert.deepEqual(kesintiOf(f, erp), {commission_cents: null, shipping_cents: null, other_cents: null, fees_status: 'pending'},
-      'eksik bilgi sıfır sayılmadı, uydurulmuş indirim de yazılmadı');
+    const yazildi = await f.ok('/ec/reports/apply-fees', {store_id: 'st', confirm: true});
+    assert.equal(yazildi.applied, 1, 'indirim sipariş düzeyinde geldi diye paket bekletilmez: ' + JSON.stringify(yazildi.skipped));
+    assert.deepEqual(kesintiOf(f, erp), {commission_cents: 545, shipping_cents: 1196, other_cents: 154 + 14973, fees_status: 'confirmed'},
+      'hizmet payı + oranlanmış indirim payı yazıldı');
   } finally { f.close(); }
 });
 
@@ -112,50 +122,62 @@ test('Tek paketli siparişte sipariş düzeyli indirim yine o pakete yazılır',
   } finally { f.close(); }
 });
 
-test('Rapor paket başına indirim veriyorsa her paket KENDİ indirimini alır', async () => {
+test('Rapor PAKET başına indirim veriyorsa oranlama yapılmaz, tam o tutar kullanılır', async () => {
   const f = appFixture(); await f.setup(); try {
     await canliSekil(f);
-    siparisKaydi(f, 'PK-SAKSI', 1164);                    // indirimin tamamı indirimli satılan saksıya ait
-    siparisKaydi(f, 'PK-ORKIDE', 0);
+    siparisKaydi(f, 'PK-SAKSI', {package_seller_discount: PANEL_SAKSI / 100});
+    siparisKaydi(f, 'PK-ORKIDE', {package_seller_discount: PANEL_ORKIDE / 100});
+    const saksi = await deftere(f, 'PK-SAKSI'), orkide = await deftere(f, 'PK-ORKIDE');
+    const r = await f.ok('/ec/reports/orders?store_id=st');
+    assert.equal(giderSatiri(paket(r, 'PK-ORKIDE'), 'other_fee').discount_prorated, false, 'bildirilmiş tutar oranlanmış sayılmaz');
+    const yazildi = await f.ok('/ec/reports/apply-fees', {store_id: 'st', confirm: true});
+    assert.equal(yazildi.applied, 2, 'iki paket de yazıldı: ' + JSON.stringify(yazildi.skipped));
+    assert.deepEqual(kesintiOf(f, orkide), {commission_cents: 545, shipping_cents: 1196, other_cents: 154 + PANEL_ORKIDE, fees_status: 'confirmed'},
+      'panelin söylediği 152,45 birebir; oranlamayla çıkan 149,73 değil');
+    assert.deepEqual(kesintiOf(f, saksi), {commission_cents: 3695, shipping_cents: 8102, other_cents: 1044 + PANEL_SAKSI, fees_status: 'confirmed'});
+  } finally { f.close(); }
+});
+
+test('Rapor SATIR başına indirim veriyorsa satırların toplamı o paketin indirimidir', async () => {
+  const f = appFixture(); await f.setup(); try {
+    await canliSekil(f);
+    siparisKaydi(f, 'PK-SAKSI', {lines: [{seller_discount: 1000}, {seller_discount: PANEL_SAKSI / 100 - 1000}]});
+    siparisKaydi(f, 'PK-ORKIDE', {lines: [{seller_discount: PANEL_ORKIDE / 100}]});
+    const orkide = await deftere(f, 'PK-ORKIDE');
+    const r = await f.ok('/ec/reports/orders?store_id=st');
+    assert.equal(gider(paket(r, 'PK-ORKIDE'), 'other_fee'), -PANEL_ORKIDE, 'satır indirimlerinin toplamı');
+    assert.equal(gider(paket(r, 'PK-SAKSI'), 'other_fee'), -PANEL_SAKSI);
+    await f.ok('/ec/reports/apply-fees', {store_id: 'st', confirm: true});
+    assert.equal(kesintiOf(f, orkide).other_cents, 154 + PANEL_ORKIDE);
+  } finally { f.close(); }
+});
+
+test('Paket başına indirim bilinmese de iki pakete de yazılır; toplam korunur, hiçbiri beklemede kalmaz', async () => {
+  const f = appFixture(); await f.setup(); try {
+    await canliSekil(f);
     const saksi = await deftere(f, 'PK-SAKSI'), orkide = await deftere(f, 'PK-ORKIDE');
     const yazildi = await f.ok('/ec/reports/apply-fees', {store_id: 'st', confirm: true});
     assert.equal(yazildi.applied, 2, 'iki paket de yazıldı: ' + JSON.stringify(yazildi.skipped));
-    assert.deepEqual(kesintiOf(f, orkide), {commission_cents: 545, shipping_cents: 1196, other_cents: 154, fees_status: 'confirmed'},
-      'orkide paketine yalnız kendi komisyon/kargo/hizmet payı; indirim YOK');
-    assert.deepEqual(kesintiOf(f, saksi), {commission_cents: 3695, shipping_cents: 8102, other_cents: 1044 + 116400, fees_status: 'confirmed'},
-      'indirim bütünüyle saksı paketine');
+    assert.deepEqual(kesintiOf(f, saksi), {commission_cents: 3695, shipping_cents: 8102, other_cents: 1044 + 101427, fees_status: 'confirmed'});
+    assert.deepEqual(kesintiOf(f, orkide), {commission_cents: 545, shipping_cents: 1196, other_cents: 154 + 14973, fees_status: 'confirmed'});
+    // Sipariş toplamı korunur: kuruş artığı kaybolmaz, çoğalmaz.
+    assert.equal(101427 + 14973, 116400);
+    assert.equal(yazildi.totals.other, 1198 + 116400);
   } finally { f.close(); }
 });
 
-test('Paket başına indirim bilinmiyorsa hiçbir pakete dağıtılmaz; gerekçe her iki pakette de görünür', async () => {
+test('Paketin payı kendi cirosundan büyükse dağıtılmaz: anlamsız tutar yazmaktansa incelemeye kalır', async () => {
   const f = appFixture(); await f.setup(); try {
     await canliSekil(f);
-    const saksi = await deftere(f, 'PK-SAKSI'), orkide = await deftere(f, 'PK-ORKIDE');
-    const r = await f.ok('/ec/reports/orders?store_id=st');
-    for (const no of ['PK-SAKSI', 'PK-ORKIDE']) {
-      const p = paket(r, no);
-      assert.equal(gider(p, 'other_fee'), 0, no + ' indirim aldı: ' + JSON.stringify(p.fees));
-      assert.ok(metinler(p).some(t => /indirimi paketlere bağlanamadı/.test(t)), no + ' gerekçesiz: ' + JSON.stringify(metinler(p)));
-    }
-    const yazildi = await f.ok('/ec/reports/apply-fees', {store_id: 'st', confirm: true});
-    assert.equal(yazildi.applied, 0, 'iki paket de yazılmadı: ' + JSON.stringify(yazildi));
-    assert.equal(yazildi.skipped.filter(x => /indirimi paketlere bağlanamadı/.test(x.reason)).length, 2);
-    for (const erp of [saksi, orkide])
-      assert.deepEqual(kesintiOf(f, erp), {commission_cents: null, shipping_cents: null, other_cents: null, fees_status: 'pending'});
-  } finally { f.close(); }
-});
-
-test('Paketin kendi indirimi cirosundan büyükse dağıtılmaz: pakete cirosundan fazla indirim yazılamaz', async () => {
-  const f = appFixture(); await f.setup(); try {
-    await canliSekil(f);
-    siparisKaydi(f, 'PK-SAKSI', 0);
-    siparisKaydi(f, 'PK-ORKIDE', 1164);                   // 1.164,00 TL indirim 177,00 TL'lik pakete sığmaz
+    siparisKaydi(f, 'PK-SAKSI', {package_seller_discount: 0});
+    siparisKaydi(f, 'PK-ORKIDE', {package_seller_discount: 1164});   // 1.164,00 TL indirim 177,00 TL'lik pakete sığmaz
     const orkide = await deftere(f, 'PK-ORKIDE');
     const p = paket(await f.ok('/ec/reports/orders?store_id=st'), 'PK-ORKIDE');
     assert.equal(gider(p, 'other_fee'), 0, 'paketin cirosunu aşan indirim yazıldı: ' + JSON.stringify(p.fees));
     assert.ok(metinler(p).some(t => /indirimi paketlere bağlanamadı/.test(t) && /ciro/.test(t)), JSON.stringify(metinler(p)));
     const yazildi = await f.ok('/ec/reports/apply-fees', {store_id: 'st', confirm: true});
     assert.equal(yazildi.applied, 0);
+    assert.ok(yazildi.skipped.some(x => /indirimi paketlere bağlanamadı/.test(x.reason)), JSON.stringify(yazildi.skipped));
     assert.deepEqual(kesintiOf(f, orkide), {commission_cents: null, shipping_cents: null, other_cents: null, fees_status: 'pending'});
   } finally { f.close(); }
 });
@@ -168,22 +190,19 @@ test('İndirim dışındaki kesintiler eskisi gibi gelire göre bölünür (komi
     assert.equal(yazildi.applied, 2, JSON.stringify(yazildi.skipped));
     assert.deepEqual(kesintiOf(f, saksi), {commission_cents: 3695, shipping_cents: 8102, other_cents: 1044, fees_status: 'confirmed'});
     assert.deepEqual(kesintiOf(f, orkide), {commission_cents: 545, shipping_cents: 1196, other_cents: 154, fees_status: 'confirmed'});
-    // Sipariş toplamı korunur: kuruş artığı kaybolmaz, çoğalmaz.
     assert.deepEqual([3695 + 545, 8102 + 1196, 1044 + 154], [4240, 9298, 1198]);
   } finally { f.close(); }
 });
 
-test('Daha önce oranlanarak yazılmış kesinleşmiş kayıt sessizce düzeltilmez; sahibine listelenir', async () => {
+test('Oranlanarak yazılmış kesinleşmiş kayıt ikinci aktarımda değişmez; denetim izi çoğalmaz', async () => {
   const f = appFixture(); await f.setup(); try {
     await canliSekil(f);
     const orkide = await deftere(f, 'PK-ORKIDE');
-    // Eski kuralın yazdığı kayıt: 149,73 TL'si siparişin indirimi (gelire göre oranlanmış).
-    sql(f, "UPDATE ec_sale_entries SET commission_cents=545,shipping_cents=1196,other_cents=15127,fees_status='confirmed'" +
-      ' WHERE id IN (SELECT c.sale_id FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id WHERE l.package_id=?)', orkide);
-    const yazildi = await f.ok('/ec/reports/apply-fees', {store_id: 'st', confirm: true});
-    assert.deepEqual(kesintiOf(f, orkide), {commission_cents: 545, shipping_cents: 1196, other_cents: 15127, fees_status: 'confirmed'},
-      'kesinleşmiş defter kaydı bu ekrandan değiştirilmez');
-    assert.ok(yazildi.skipped.some(x => /indirimi paketlere bağlanamadı/.test(x.reason) && /elle düzeltilmeli/.test(x.reason)),
-      'düzeltme gerektiren paket listelenmedi: ' + JSON.stringify(yazildi.skipped));
+    await f.ok('/ec/reports/apply-fees', {store_id: 'st', confirm: true});
+    const once = kesintiOf(f, orkide), izOnce = f.sqlite.prepare('SELECT COUNT(*) n FROM ec_fee_audit').get().n;
+    const tekrar = await f.ok('/ec/reports/apply-fees', {store_id: 'st', confirm: true});
+    assert.equal(tekrar.sale_entries_changed, 0, 'ikinci aktarım hiçbir kaydı değiştirmedi');
+    assert.deepEqual(kesintiOf(f, orkide), once);
+    assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_fee_audit').get().n, izOnce, 'denetim izi de çoğalmadı');
   } finally { f.close(); }
 });
