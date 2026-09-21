@@ -1,0 +1,69 @@
+---
+session: lunapot-panel
+date: 2026-09-21
+status: complete
+outcome: SUCCEEDED
+---
+
+goal: "Komisyon görünürlüğü ve indirim dağıtımı düzeltmesi test edilip canlıya alındı; açık ajan/iş kalmadı. Panelde artık her siparişin komisyonu + oranı ve ürün bazında ağırlıklı ortalama komisyon oranı (kanal + dönem kırılımlı) var."
+now: "Açık zorunlu iş YOK. Kullanıcı yeni istek getirirse ondan başla; getirmezse 'acik_isler' listesindeki fiyat kararlarını ve 14 kargodaki paketin kesinti tahminini hatırlat."
+test: "npm test   # 849/834 pass, 15 atlanan (isteğe bağlı tarayıcı testleri). Yayın kuralı: npm test > out; grep -q '^ℹ fail 0' out && git push origin main"
+
+ortam:
+  repo: "C:/Users/baran/Desktop/site/lunapot-panel (main, HEAD 56f57ce). Documents/Codex kopyası ESKİ, dokunma."
+  canli: "https://muhasebe.lunapot.com · CACHE lunapot-shell-v122-komisyon-orani · migration 0049-0053 uygulandı."
+  yayin: "Migration varsa önce npm run db:remote, sonra git push (Cloudflare otomatik derler ~1-3 dk). Her UI yayınında public/sw.js içindeki CACHE'i artır, sonra curl https://muhasebe.lunapot.com/sw.js | grep lunapot-shell ile doğrula."
+  canli_okuma: "wrangler d1 execute lunapot-db --remote --command \"...\" --json çalışıyor (--file SADECE istatistik döndürür, satırları görmek için --command kullan). Geçici 7403 'account not authorized' hatası geliyorsa SORGUYU TEKRARLA; bir kez boş dönmesi 'kayıt yok' demek değildir (daha önce bu yüzden yanlış 'cari boş' dedim)."
+  tablo_adlari: "Canlıda tablolar ec_ önekli (ec_order_packages, ec_sale_entries, ec_order_line_components, ec_price_profiles, ec_products, ec_report_profiles). Kaynak kodda öneksiz yazılır, scoped-db ekler."
+  tarayici_tuzagi: "Açık sekmede eski modül kalıyor; yeni UI için sayfayı ?v=NNN ile yeniden yükle (hash değiştirmek yetmiyor)."
+  ui_dogrulama: "Canlı panele oturum açamıyorum (şifre kullanıcıda). Yayını curl ile statik dosyadan (yeni metin var mı) + wrangler d1 SELECT ile veriden doğruluyorum; ekran doğrulaması kullanıcının sekmesinde."
+
+kullanici:
+  - "Kısa, sade Türkçe. Rakamları pazaryeri ekranıyla karşılaştırır, ekran görüntüsü atar; iddiayı kanıtla, yanılırsan düzelt."
+  - "Tam yetki verdi: testler temizse sormadan canlıya al. Veri YAZAN işlemleri (ödeme girme, kayıt düzeltme) önce anlat, sonra yap."
+  - "Otomasyon bekliyor: 'neden eşleştirmeyi ben yapıyorum' dedi; elle iş çıkıyorsa kural yetersizdir."
+
+done_this_session:
+  - task: "Komisyon görünürlüğü (canlıda, v122). Sipariş listesi ve penceresinde paketin KDV dahil komisyonu + satışa oranı; kâr raporu satır detayında aynı iki rakam; ürün ekranında AĞIRLIKLI ortalama oran (Σ komisyon ÷ Σ ciro; oranların ortalaması DEĞİL), kanal kırılımı ve son 30 gün / önceki 30 gün / tüm zamanlar karşılaştırması. Yeni alanlar: commission_rate_bps, commission_gross_cents, commission_base_cents, komisyon_oran_bps, komisyon_donemler, komisyon_kanallar."
+    files: [src/performance-api.js, src/orders-api.js, src/order-insights-api.js, src/urun-karlilik-api.js, public/orders-ui.js, public/product-list.js, public/performance-ui.js, tests/komisyon-orani.test.js]
+  - task: "İndirim dağıtımı pro-rata'ya geri alındı (6239065). Paket/satır başına bildirim varsa o kullanılır, yoksa gelire göre oranlanır (discount_prorated); yalnız pay paketin cirosunu aşarsa incelemeye bırakılır."
+    files: [src/report-inbox-api.js, tests/indirim-dagitimi.test.js]
+  - task: "Canlı komisyon tablosu çıkarıldı ve kullanıcıya verildi (413 teslim paket; komisyonu bildirilmemiş 4 paket kapsam dışı, maliyeti bilinmeyen paket yok)."
+    files: [thoughts/shared/handoffs/lunapot-panel/2026-09-21_20-30_komisyon-orani-ve-devam.yaml]
+
+decisions:
+  - komisyon_orani_tek_formul: "Oran yalnız komisyonOraniBps() ile hesaplanır (src/performance-api.js:18): KDV dahil komisyon ÷ deftere yazılan KDV dahil satış. Dört ekran aynı iki rakamı böler; ikinci formül yok."
+  - payda_ekranda_yazili: "TY indirimi satış fiyatına uygulandıysa oran tarifeye eşit, indirim ayrı gider yazıldıysa tarifeden düşük görünür. Karışmasın diye ekranlar 'satışa oranı' der ve paydayı söyler."
+  - bilinmeyen_sifir_degil: "Komisyon ya da satış bilinmiyorsa oran BOŞ kalır. Kargodaki paketler ortalamaya girmez (yalnız teslim edilenler)."
+  - personel_yetkisi: "Tutar yetkisi olmayan personel oranı görür, kuruşu görmez (scrubAmounts)."
+
+findings:
+  - komisyon_kanala_gore_degisiyor: "Aynı ürün kanala göre çok farklı: Yeşil Yapraklı Besin 1000 ml HB %9,0 / TY %15,2; Yaprak Parlatıcı 750 ml HB %23,9 / TY %16,3; Klasmann TS1 HB %12,0 / TY %16,0."
+  - torf_sabit_besin_oynak: "Torf grubu ~%19-20 sabit (Torf 20 L: TY 07 %20,0 → 08 %18,9 → 09 %20,0; HB 09 %20,6). Besin/bakım grubu %9-24 arasında oynuyor."
+  - indirim_teshisim_yanlisti: "Pazaryeri indirimi zaten satırlara pro-rata dağıtıyor (1.164 TL → saksı 1.011,55 / orkide 152,45). Bir saat önce koyduğum sıkı kural yanlıştı, geri alındı ve kullanıcıya söylendi."
+
+worked:
+  - "Ajanlara sıkı dosya sahipliği vermek: iki ajan paralel çalıştı, çakışma olmadı."
+  - "Canlı veriyi wrangler d1 --command --json ile çekip Node'da tablolaştırmak; formülü koddan birebir kopyalamak (incl(v,bps) = round(v*(10000+bps)/10000))."
+  - "Yayın doğrulaması: sw.js CACHE adını curl ile beklemek + değişen statik dosyada yeni metni aramak."
+
+failed:
+  - "wrangler d1 execute --file: yalnız 'Rows read' özeti döner, satırları vermez. Satır için --command şart."
+  - "Bir kez başarısız/boş dönen canlı sorguya güvenip sonuç ilan etmek (7403 geçici hatası); tekrar dene."
+
+acik_isler:
+  - "Fiyat kararları kullanıcıda: TY 3'lü set ilanı 188 TL (2'şerli satılıyor, zarar), HB '6 Litre' ilanı 132 TL, HB Genel Bitki Besini 1000 ml ~132 TL, Yaprak Parlatıcı 750 ml (HB komisyonu %23,9), Orkide Besini 500 ml, Kaktüs Toprağı 2,5 L."
+  - "14 kargodaki pakette kesinti tahmini kaba (toplam ~477 TL); kesintiler gelince kendiliğinden kesinleşir."
+  - "FIFO'nun atladığı 4 eski satış (cancelled_milli=0) — bilgi amaçlı, etkisi yok."
+  - "Yalova Seçkin 20.160,00 TL cari borcu açık (kullanıcı ay sonunda ödeyecek)."
+  - "Güvenlik G10/G11 bilerek açık bırakıldı (kullanıcı kararı)."
+  - "Codex'e verilen dashboard istek listesi: docs/CLAUDE-UYGULAMA-RAPORU-2026-09-20.md §10 (ciro dönemleri, en çok ciro yapan ürün, tekte en yüksek kâr, kâr marjı, serbest tarih filtresi, depo stok değeri)."
+
+next:
+  - "Kullanıcının yeni isteğini bekle; hazır iş yok."
+  - "Yeni rapor dosyası yüklerse: otomatik işlenmeli, elle eşleştirme çıkmamalı (çıkarsa ilan-eslesme.js kuralı yetersizdir)."
+  - "Fiyat kararlarından biri gelirse ürün ekranındaki komisyon oranıyla birlikte değerlendir."
+
+files:
+  created: [tests/komisyon-orani.test.js, thoughts/shared/handoffs/lunapot-panel/2026-09-21_23-53_komisyon-yayinda.yaml]
+  modified: [src/performance-api.js, src/orders-api.js, src/order-insights-api.js, src/urun-karlilik-api.js, src/report-inbox-api.js, public/orders-ui.js, public/product-list.js, public/performance-ui.js, public/sw.js, tests/indirim-dagitimi.test.js]
