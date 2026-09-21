@@ -1,0 +1,57 @@
+---
+session: lunapot-panel
+date: 2026-09-21
+status: partial
+outcome: SUCCEEDED_WITH_OPEN_WORK
+---
+
+goal: "Codex'in UI turu devralındı; cari ödemeleri, otomatik ilan eşleştirme, set/ürün kâr ayrımı ve indirim dağıtımı yapıldı; bugünün raporları uçtan uca otomatik işlendi."
+now: "İKİ AJAN ÇALIŞIYOR (sonuçları gelince test + yayın gerekir): (1) komisyon görünürlüğü, (2) indirim dağıtımının pro-rata'ya geri alınması. Detay aşağıda 'devam_eden'."
+test: "npm test   # 837/822 pass, 15 atlanan (isteğe bağlı tarayıcı). Yayın: npm test > out; grep -q '^ℹ fail 0' out && git push origin main"
+
+ortam:
+  repo: "C:/Users/baran/Desktop/site/lunapot-panel (main, HEAD af25f3e). Documents/Codex kopyası ESKİ."
+  canli: "https://muhasebe.lunapot.com · CACHE lunapot-shell-v121-indirim-dagitimi · migration 0049-0053 uygulandı."
+  yayin: "migration gerekiyorsa önce npm run db:remote, sonra git push (Cloudflare otomatik derler). sw.js CACHE'i her UI yayınında artır; canlıda 'curl /sw.js | grep lunapot-shell' ile doğrula."
+  canli_okuma: "Veri okuyan wrangler d1 SELECT'leri çalışıyor (bazen geçici 7403 → SELECT 1 ile dene, tekrarla). UI doğrulaması kullanıcının tarayıcı sekmesinde (owner oturumu) fetch ile."
+  tarayici_tuzagi: "Açık sekmede eski modül kalıyor; yeni UI'yı görmek için sayfayı ?v=NNN ile yeniden yükle (hash değiştirmek yetmiyor)."
+
+kullanici:
+  - "Kısa, sade Türkçe. Rakamları pazaryeri ekranıyla karşılaştırır, ekran görüntüsü atar; iddiayı kanıtla."
+  - "Tam yetki verdi: testler temizse sormadan canlıya al. Veri YAZAN işlemleri (ödeme girme, kayıt düzeltme) önce anlat, sonra yap."
+  - "Otomasyon bekliyor: 'neden eşleştirmeyi ben yapıyorum' dedi; elle iş çıkarsa kural yetersizdir."
+
+devam_eden:
+  - ajan: "Komisyon görünürlüğü (a4786f5)"
+    istek: "Sipariş listesinde/penceresinde her siparişin komisyonu + efektif oran; ürün bazında ağırlıklı ortalama komisyon oranı (kanal kanal) ve dönem karşılaştırması (son 30 gün / önceki 30 / tüm zamanlar). Sebep: kampanya dönemlerinde oran değişiyor."
+    sahip_dosyalar: [src/urun-karlilik-api.js, src/performance-api.js, src/orders-api.js, src/order-insights-api.js, public/orders-ui.js, public/product-list.js, public/performance-ui.js, tests/komisyon-orani.test.js]
+  - ajan: "İndirim dağıtımı geri alma (a21a543)"
+    istek: "Bir saat önce indirim dağıtımını sıkılaştırdım (çok paketli siparişte paket başına indirim yoksa hiç dağıtma). Trendyol ekran görüntüsü gösterdi ki pazaryeri indirimi ZATEN satırlara pro-rata dağıtıyor (1.164 TL → saksı 1.011,55 / orkide 152,45; bizim hesap 151,26 idi). Ajandan: paket başına veri varsa onu kullan, yoksa ESKİ pro-rata davranışına dön; ciroyu aşan pay olursa incelemeye bırak."
+    sahip_dosyalar: [src/report-inbox-api.js, tests/indirim-dagitimi.test.js]
+    not: "Yayındaki v121 şu an SIKI kuralı taşıyor; geri alma yayınlanana kadar çok paketli indirimli sipariş kesinti yazmadan bekleyebilir."
+
+bugun_yapilanlar:
+  - "Devir: Codex'in UI turu (71b8b1d, v116) doğrulandı; 786 test, canlı dosya eşleşmesi, migration 0052 uygulanmış."
+  - "İade edilen siparişte komisyon: ekstre 0,00 beyan ederse yazılır, satır hiç yoksa yazılmaz (c1be96d)."
+  - "Cari ödemeleri (0053): fatura borcu, ödeme (nakit/kart/havale/çek + serbest not, banka zorunlu değil), çek vadesi, toplu ödeme, 'ay sonunda öderim'; sonra ödemelerin cari ekranlarında görünmesi (e1ef369, ea43e26). Kullanıcı KARAKUŞ ve Tropikal borcunu kartla kapattı; Yalova Seçkin 20.160,00 TL açık."
+  - "Ürün kârlılığı 'tek satıştan / set içinden' ayrımı + ilan bazında set kârlılığı (e1ef369)."
+  - "Otomatik ilan eşleştirme (ecd8246) + marka ayrımı (5ac4bd1): ilan başlığı kartın bütün kelimelerini ve ölçüsünü taşıyorsa ve tek kart uyuyorsa kendiliğinden bağlanır; çok ürünlü başlık set olur; belirsizse sorar. Bugün 7 bekleyen sipariş kendiliğinden aktı."
+  - "Rapor yükleme testi: 4 dosya (2 HB + 2 TY), 629 paket, elle iş yok, hata yok. Tüm zamanlar 356 → 416 paket, 24.762,46 → 28.923,04 TL."
+
+canli_veri_notlari:
+  - "Cari defteri BOŞ DEĞİL: 38 fatura borcu zaten vardı (ilk sorgum 7403 hatası yüzünden boş göründü; başarısız sorguyu tekrarla)."
+  - "Hediye vakası: TY 11617217215'te Pina saksı müşteriye hediye edilmiş, paket 'iptal' (0 satış/0 maliyet). Trendyol hediyenin indirimini iki satıra da yazmış; orkide setine düşen 152,45 TL kullanıcı talebiyle satırdan çıkarıldı (fees endpoint, denetim kaydı var) ve 'TY-11617217215-HEDIYE' referanslı 152,45 TL reklam gideri olarak yazıldı. Paket −48,07 → +101,65."
+  - "HB zarar edenler (fiyat kararı kullanıcıda): '6 Litre' orkide ilanı 132 TL (başabaş ~140), Yaprak Parlatıcı 750 ml ~355 (başabaş 355,34), Genel Bitki Besini 1000 ml ~132 (başabaş 130,62), Orkide Besini 500 ml 109 (başabaş 113,44), Kaktüs Toprağı 2,5 L 125 (~131)."
+  - "TY 3'lü set ilanı 188 TL'den satılıyor, tanesi ~11 TL zarar (kullanıcı kabul etti, fiyat değişecek)."
+  - "HB 4602361136: kargo 107,90 (normalin iki katı) → kullanıcı 'ayrı sorun, analizden çıkar' dedi."
+
+kalan_isler:
+  - "Kargodaki tahminde 14 pakette 'kaba tahmin' (benzer adette teslim geçmişi yok) — toplam 477 TL; ekstre gelince kesinleşir."
+  - "0049 öncesi açık kısmı iade edilmiş 4 satışta ec_open_costs.cancelled_milli=0; FIFO temkinli atlıyor."
+  - "Rapor Kutusu orderResults ortak satıra bağlandı; ledger'a bağlanmamış satırlar hâlâ kayıt tabanlı (etiketli)."
+  - "Güvenlik: G10 (orders:write rapor uçlarından defter yazabiliyor) ve G11 (pahalı uçlarda hız sınırı yok) bilerek açık."
+
+ogrenilenler:
+  - "Pazaryeri ekranı hakemdir: kullanıcının ekran görüntüsü benim 'hata' teşhisimi çürüttü (indirim dağıtımı). Rakamı değiştirmeden önce pazaryerinin kendi satır dökümünü iste."
+  - "TY komisyonu indirimli tutar üzerinden keser (177 TL satır, 152,45 indirim → komisyon 4,91 = %20 × 24,55). Efektif oran ile nominal oran ayrı gösterilmeli (yeni iş bunu kapsıyor)."
+  - "Rapor yalnız ilan kodu + pazarlama başlığı veriyor; barkod/satıcı stok kodu gelmiyor. Eşleştirme kuralı bu yüzden başlık üzerinden çalışmak zorunda."
