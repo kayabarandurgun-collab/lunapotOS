@@ -58,6 +58,13 @@ async function katalog(f) {
   return out;
 }
 
+/** Katalog dışı tek kart (rakip marka vb.). */
+async function ekKart(f, name, sku, brand) {
+  const p = await f.ok('/ec/products', {name, sku, stock_unit: 'adet', min_stock: 0, brand});
+  await f.ok('/ec/stock', {product_id: p.id, quantity: 10, unit_cost: 20, kind: 'opening', reference: 'ACILIS', occurred_on: DATE, notes: 'Açılış'});
+  return p.id;
+}
+
 /** Bakımın yaptığı gibi: atlananları biriktirerek tükenene kadar çağırır. */
 async function otomatik(f) {
   const skip = [], hepsi = {};
@@ -122,8 +129,9 @@ test('Belirsiz başlık eşleşmez: sebebi Türkçe söylenir, sipariş taslakta
     for (const sku of Object.keys(k)) assert.equal(stockOf(f, k[sku]), 10000, sku + ' stoğu değişmedi');
 
     // Birden çok kart uyuyorsa da hiçbir şey kurulmaz; aday adları sebebe yazılır ki sahibi seçebilsin.
+    // Başlık markasız: markasız kart ile markalı kart arasında seçim yapılamaz.
     await f.ok('/ec/products', {name: 'Orkide Toprağı', sku: 'TR-ORKIDE-SADE', stock_unit: 'adet', min_stock: 0, brand: ''});
-    satir(f, {paket: 'HBP-3B', kod: 'HBCV00000COKADAY', baslik: 'Tropikal Orkide Toprağı 3 Lt'});
+    satir(f, {paket: 'HBP-3B', kod: 'HBCV00000COKADAY', baslik: 'Orkide Toprağı 3 Lt'});
     const iki = await otomatik(f);
     assert.ok(iki['HBP-3B']?.skipped);
     assert.match(iki['HBP-3B'].reason, /Birden çok stok kartı/, iki['HBP-3B'].reason);
@@ -208,5 +216,61 @@ test('Otomatik eşleşme görünür ve geri alınabilir; sahibinin kurduğu bağ
     const ui = readFileSync(new URL('../public/catalog-ui.js', import.meta.url), 'utf8');
     assert.match(ui, /auto_matched/, 'ekran alanı okuyor');
     assert.match(ui, /otomatik eşleşti/, 'Türkçe rozet metni');
+  } finally { f.close(); }
+});
+
+// Canlıda HBCV00006H32VP 4 siparişle taslakta kaldı: aynı toprağın İKİ markası var, marka isteğe
+// bağlı olduğu için ikisi de aday oldu. Başlık markayı açıkça yazıyor; soru sorulmamalı.
+test('Marka ayırımı: aynı adlı iki marka arasından başlığın yazdığı marka seçilir', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const k = await katalog(f); magaza(f);
+    const gg = await ekKart(f, 'Gartengold Kaktüs ve Sukulent Toprağı 2,5 L', 'GG-KAKTUS-25L', 'Gartengold');
+    satir(f, {paket: 'HBP-10', kod: 'HBCV00006H32VP', baslik: KAKTUS_BASLIK});
+
+    const r = await otomatik(f);
+    assert.ok(r['HBP-10']?.done, 'marka yazılı başlık hâlâ soruyor: ' + JSON.stringify(r['HBP-10']));
+    assert.deepEqual(bilesenler(f, 'HBCV00006H32VP'), [{sku: 'TR-KAKTUS-25L', quantity_milli: 1000, revenue_share_bps: 10000}]);
+    assert.equal(stockOf(f, k['TR-KAKTUS-25L']), 9000, 'başlıkta yazan marka düştü');
+    assert.equal(stockOf(f, gg), 10000, 'öbür markaya dokunulmadı');
+  } finally { f.close(); }
+});
+
+test('Marka yazmayan başlıkta iki marka ayrılamaz; iki markayı da sayan başlık da ayrılamaz', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const k = await katalog(f); magaza(f);
+    const gg = await ekKart(f, 'Gartengold Kaktüs ve Sukulent Toprağı 2,5 L', 'GG-KAKTUS-25L', 'Gartengold');
+    // Marka hiç geçmiyor: hangi markanın satıldığı belli değil.
+    satir(f, {paket: 'HBP-11', kod: 'HBCV0000MARKASIZ', baslik: 'Kaktüs ve Sukulent Toprağı 2,5 Lt'});
+    // İki marka birden geçiyor: yine belli değil.
+    satir(f, {paket: 'HBP-12', kod: 'HBCV0000IKIMARKA', baslik: 'Tropikal veya Gartengold Kaktüs ve Sukulent Toprağı 2,5 Lt'});
+
+    const r = await otomatik(f);
+    for (const pk of ['HBP-11', 'HBP-12']) {
+      assert.ok(r[pk]?.skipped, pk + ' eşleşmemeliydi: ' + JSON.stringify(r[pk]));
+      assert.match(r[pk].reason, /Birden çok stok kartı/, r[pk].reason);
+      assert.match(r[pk].reason, /Tropikal Kaktüs ve Sukulent Toprağı 2,5 L/, 'aday adları söylenir');
+      assert.match(r[pk].reason, /Gartengold Kaktüs ve Sukulent Toprağı 2,5 L/, 'aday adları söylenir');
+    }
+    assert.equal(f.sqlite.prepare("SELECT COUNT(*) n FROM ec_catalog_mappings WHERE match_value LIKE 'HBCV0000%MARKA%'").get().n, 0);
+    assert.equal(stockOf(f, k['TR-KAKTUS-25L']), 10000, 'uydurma eşleşme yok');
+    assert.equal(stockOf(f, gg), 10000, 'uydurma eşleşme yok');
+  } finally { f.close(); }
+});
+
+test('Set başlığında marka ayırımı parça parça uygulanır: karma markalı set doğru çözülür', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const k = await katalog(f); magaza(f);
+    const ggToprak = await ekKart(f, 'Gartengold Orkide Toprağı 3 L', 'GG-ORKIDE-3L', 'Gartengold');
+    const ggBesin = await ekKart(f, 'Gartengold Orkide Bitki Besini 500 ml', 'GG-BES-ORKIDE', 'Gartengold');
+    satir(f, {paket: 'HBP-13', kod: 'HBCV0000KARMASET',
+      baslik: 'Tropikal 3 Lt. Orkide Toprağı ve Gartengold 500 Ml. Orkide Bitki Besini'});
+
+    const r = await otomatik(f);
+    assert.ok(r['HBP-13']?.done, 'karma set çözülmedi: ' + JSON.stringify(r['HBP-13']));
+    assert.deepEqual(bilesenler(f, 'HBCV0000KARMASET').map(x => x.sku), ['GG-BES-ORKIDE', 'TR-ORKIDE-3L']);
+    assert.equal(stockOf(f, k['TR-ORKIDE-3L']), 9000, 'ilk parçanın markası Tropikal');
+    assert.equal(stockOf(f, ggBesin), 9000, 'ikinci parçanın markası Gartengold');
+    assert.equal(stockOf(f, k['TR-BES-ORKIDE']), 10000, 'Tropikal besine dokunulmadı');
+    assert.equal(stockOf(f, ggToprak), 10000, 'Gartengold toprağa dokunulmadı');
   } finally { f.close(); }
 });

@@ -4,7 +4,9 @@
 // BİREBİR aynı olacak) pazarlama başlığını hiç tutmuyordu; her yeni ilan elle eşleştirme istiyordu.
 //
 // Buradaki kural: kart adının BÜTÜN ayırt edici sözcükleri başlıkta geçiyorsa kart adaydır.
-// Marka isteğe bağlıdır (ilan markasız yazılmış olabilir), ölçü kart adında varsa ZORUNLUDUR.
+// Marka aramada isteğe bağlıdır (ilan markasız yazılmış olabilir), ölçü kart adında varsa
+// ZORUNLUDUR. Birden çok aday kalırsa marka AYIRIR: başlık adayların markalarından yalnız birini
+// yazıyorsa o markanın kartları kalır; hiç marka yazmıyorsa ya da birkaçını yazıyorsa daraltılmaz.
 // Otomatik bağlantı yalnız aday TEK ise kurulur. Sıfır ya da birden çok adayda hiçbir şey
 // yazılmaz; sebebi ve aday adları söylenir. Benzerlik puanı, kısaltma, tahmin YOKTUR.
 //
@@ -40,11 +42,24 @@ export const sozcukler = s => duzles(s).split(BOSLUK).filter(Boolean);
 const olcuMu = t => /^\d+(?:ml|g)$/.test(t);
 const kume = s => new Set(s.split(BOSLUK).filter(Boolean));
 
-/** Kartın aranacak sözcükleri: markası ve bağlaçları düşer, ölçüsü kalır. */
+/** Kartın aranacak sözcükleri: markası ve bağlaçları düşer, ölçüsü kalır. Marka ayrıca saklanır. */
 export function kartAnahtari(kart) {
-  const marka = new Set(sozcukler(kart.brand || ''));
-  const gerek = [...new Set(sozcukler(kart.name).filter(t => !DOLGU.has(t) && !marka.has(t)))];
-  return {id: kart.id, name: kart.name, gerek, olcu: gerek.filter(olcuMu)};
+  const marka = [...new Set(sozcukler(kart.brand || ''))];
+  const gerek = [...new Set(sozcukler(kart.name).filter(t => !DOLGU.has(t) && !marka.includes(t)))];
+  return {id: kart.id, name: kart.name, marka, gerek, olcu: gerek.filter(olcuMu)};
+}
+
+/**
+ * MARKA AYIRIMI. Marka aranırken isteğe bağlıdır (ilan markasız yazılmış olabilir); ama aynı adı
+ * taşıyan iki kart YALNIZ markasıyla ayrılıyorsa ve başlık bu markalardan birini AÇIKÇA yazıyorsa
+ * o marka seçilir. Başlık hiçbir bilinen markayı yazmıyorsa ya da birden çok marka yazıyorsa
+ * daraltma yapılmaz: karar kullanıcıya kalır. Marka adı uydurulmaz, yalnız adayların kendi
+ * markaları aranır; çok sözcüklü marka ancak bütün sözcükleriyle geçerse sayılır.
+ */
+function markayaDaralt(aday, metin) {
+  const sozler = new Set(sozcukler(metin));
+  const gecen = aday.filter(k => k.marka.length && k.marka.every(t => sozler.has(t)));
+  return new Set(gecen.map(k => k.marka.join(' '))).size === 1 ? gecen : aday;
 }
 
 /**
@@ -77,22 +92,31 @@ function tutunanParca(kart, parcaSozleri) {
 
 /**
  * Başlığı çözer. Dönen: {parts:[{kart,adet}]} ya da {reason:'…'}.
- * Tek aday → tek bileşen. Birden çok aday ancak SET ise kabul edilir: başlık " ve ", " ile ",
- * "+" ya da "," ile bölündüğünde her aday AYRI bir parçaya tutunmalıdır. Aynı parçaya iki aday
- * düşüyorsa hangisinin satıldığı belirsizdir; hiçbir şey kurulmaz.
+ * Tek aday → tek bileşen. Birden çok aday önce markayla daraltılır; hâlâ birden çoksa ancak SET
+ * ise kabul edilir: başlık " ve ", " ile ", "+" ya da "," ile bölündüğünde her aday AYRI bir
+ * parçaya tutunmalıdır. Aynı parçaya birkaç aday düşerse o parçanın metniyle marka ayırımı bir
+ * kez daha denenir (karma markalı set); yine tek kalmıyorsa hiçbir şey kurulmaz.
  */
 export function ilanCozumle(baslik, kartlar) {
-  const aday = adaylar(baslik, kartlar);
-  const adlar = () => aday.map(k => k.name).join(', ');
-  if (!aday.length) return {reason: 'İlan başlığı hiçbir stok kartıyla eşleşmedi; elle eşleştirin.'};
-  const duz = duzles(baslik);
+  const tum = adaylar(baslik, kartlar), duz = duzles(baslik);
+  if (!tum.length) return {reason: 'İlan başlığı hiçbir stok kartıyla eşleşmedi; elle eşleştirin.'};
+  // Önce bütün başlıkla marka ayırımı: rakip markanın aynı adlı kartı adaylıktan düşer.
+  const aday = markayaDaralt(tum, duz);
+  const belirsiz = {reason: 'Birden çok stok kartı bu başlığa uyuyor (' + tum.map(k => k.name).join(', ')
+    + '); hangisi olduğu belli değil, eşleşmedi.'};
   if (aday.length === 1) return {parts: [{kart: aday[0], adet: coklukBul(duz)}]};
   const parca = duz.split(AYIRAC).map(p => p.trim()).filter(Boolean);
-  const belirsiz = {reason: 'Birden çok stok kartı bu başlığa uyuyor (' + adlar() + '); hangisi olduğu belli değil, eşleşmedi.'};
   if (aday.length > 5 || parca.length < 2) return belirsiz;
   const sozler = parca.map(kume), yer = aday.map(k => tutunanParca(k, sozler));
-  if (yer.some(i => i < 0) || new Set(yer).size !== yer.length) return belirsiz;
-  return {parts: aday.map((k, i) => ({kart: k, adet: coklukBul(parca[yer[i]])}))};
+  if (yer.some(i => i < 0)) return belirsiz;
+  // Aynı parçaya düşen rakipler o PARÇANIN kendi metniyle markaya göre ayrılır (karma markalı set).
+  const parts = [];
+  for (const i of new Set(yer)) {
+    const dar = markayaDaralt(aday.filter((_, j) => yer[j] === i), parca[i]);
+    if (dar.length !== 1) return belirsiz;
+    parts.push({kart: dar[0], adet: coklukBul(parca[i])});
+  }
+  return {parts};
 }
 
 /**
