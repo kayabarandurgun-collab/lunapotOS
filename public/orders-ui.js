@@ -21,6 +21,26 @@ const tarih=d=>d?d.slice(8,10)+'.'+d.slice(5,7)+'.'+d.slice(0,4):'';
 // İade rozeti: sipariş teslim edildikten sonra iade edildiyse pazaryeri sipariş raporu hâlâ
 // "Teslim edildi" der; iade yalnız finans ekstresinde görünür. Rozet bunu listede ve pencerede söyler.
 const iadeRozeti=d=>d==='tam'?'<span class="v2-badge danger ol-iade">İade edildi</span>':d==='kismi'?'<span class="v2-badge warning ol-iade">Kısmi iade</span>':'';
+// KOMİSYON ORANI. Pazaryeri komisyonu kampanya dönemlerinde değişir; sahibin göreceği oran
+// ETKİN orandır: KDV dahil komisyon ÷ KDV dahil satış. Oran sunucuda (kâr raporuyla aynı iki
+// rakamdan) hesaplanır, burada yalnız yazıya dökülür. Bin baz puan: 2000 = %20,0.
+const yuzde=bps=>new Intl.NumberFormat('tr-TR',{style:'percent',minimumFractionDigits:1,maximumFractionDigits:1}).format(bps/10000);
+export const komisyonOranMetni=bps=>Number.isSafeInteger(bps)?yuzde(bps):null;
+// Sipariş listesinde "Tutar" sütununun altındaki komisyon satırı. Oranın PAYDASI paketin deftere
+// yazılan KDV dahil satışıdır; başlık paydayı açıkça söyler ki pazaryerinin tarife oranıyla
+// karışmasın (indirim ayrı gider yazılmışsa bu oran tarifeden düşük görünür). Bilinmeyen komisyon
+// sıfır yazılmaz, nedeni başlıkta durur. Tutar yetkisi kapalı personelde kuruşlar boş gelir:
+// yalnız oran yazılır.
+export function komisyonSatiri(p){
+ if(!p||p.status==='cancelled')return '';
+ const oran=komisyonOranMetni(p.commission_rate_bps),tutar=Number.isSafeInteger(p.commission_gross_cents)?p.commission_gross_cents:null;
+ if(oran===null&&tutar===null)return `<br><small class="muted" title="${esc(p.cash_note||'Pazaryeri kesintisi henüz bilinmiyor.')}">Komisyon bilinmiyor</small>`;
+ const taban=Number.isSafeInteger(p.commission_base_cents)?p.commission_base_cents:null;
+ const baslik=tutar!==null&&taban!==null
+  ?'KDV dahil komisyon '+money(tutar)+' · deftere yazılan KDV dahil satış '+money(taban)+' üzerinden. Pazaryeri indirimli tutardan komisyon kesiyorsa tarife oranı daha yüksektir.'
+  :'Komisyonun deftere yazılan KDV dahil satışa oranı. Pazaryerinin tarife oranı değildir.';
+ return `<br><small class="muted" title="${esc(baslik)}">Komisyon ${[tutar===null?'':money(tutar),oran].filter(Boolean).join(' · ')}${p.cash_estimated?' · tahmini':''}</small>`;
+}
 export const iadeOf=sales=>{const sold=(sales||[]).filter(x=>x.kind==='sale'),returned=x=>(sales||[]).filter(r=>r.kind==='return'&&r.parent_id===x.id).reduce((n,r)=>n+r.quantity_milli,0);return sold.some(x=>returned(x)>0)?sold.every(x=>returned(x)>=x.quantity_milli)?'tam':'kismi':null;};
 
 // Offering type comes only from the recorded component/line ratio, never words in an order name.
@@ -135,7 +155,7 @@ export function mountOrders(root,namespace='ec'){
    // Tutar kâr raporunun aynı satırından; tahminse "tahmini" yazılır, yoksa kısa neden (tamamı üzerine gelince).
    const cebine=p.status==='cancelled'?'<span class="muted">—</span>':p.cash_result_cents!==null&&p.cash_result_cents!==undefined?`<span class="${p.cash_result_cents<0?'ol-neg':'ol-pos'}">${money(p.cash_result_cents)}</span>${p.cash_estimated||p.status==='shipped'&&p.return_status!=='tam'?`<small class="muted" title="${esc(p.cash_note||'')}">${p.status==='shipped'&&p.return_status!=='tam'?'Teslim bekliyor'+(p.cash_estimated?' · tahmini':''):'tahmini'}</small>`:''}`:`<small class="muted"${p.cash_note?` title="${esc(p.cash_note)}"`:''}>${p.cash_note?esc(p.cash_note.split(/[;:.]/)[0]):p.result_cents!==null&&p.result_cents!==undefined?'KDV oranı yok':'Kesinti bekliyor'}</small>`;
    const b=brut(p);
-   return `<tr data-ol-row="${esc(p.id)}" tabindex="0" aria-label="${esc((icerik(p)||'Sipariş')+' · '+(p.order_no||''))}"><td class="ol-c-urun"><span class="ol-urun" title="${esc(icerik(p)||'')}">${esc(icerik(p)||'Ürün eşleşmedi')}</span>${stockDetails(p)}<small>${esc(p.order_no||'—')}<span class="ol-m"> · ${esc(KANAL_KISA[p.channel]||p.channel)} · ${esc(tarih(p.occurred_on))}</span></small></td><td class="ol-c-kanal"><span class="ol-kanal ol-kanal-${esc(p.channel)}" title="${esc(channels[p.channel]||p.channel)}">${esc(KANAL_KISA[p.channel]||p.channel)}</span></td><td class="ol-c-tarih">${esc(tarih(p.occurred_on))}</td><td class="ol-c-durum">${badge(p)}${iadeRozeti(p.return_status)}${bilgi}</td><td class="ol-c-tutar" data-label="Tutar · KDV dahil">${b!==null?money(b):'—'}</td><td class="ol-c-cep" data-label="Cebine kalan">${cebine}</td></tr>`;}).join('')}</tbody></table></div>`;
+   return `<tr data-ol-row="${esc(p.id)}" tabindex="0" aria-label="${esc((icerik(p)||'Sipariş')+' · '+(p.order_no||''))}"><td class="ol-c-urun"><span class="ol-urun" title="${esc(icerik(p)||'')}">${esc(icerik(p)||'Ürün eşleşmedi')}</span>${stockDetails(p)}<small>${esc(p.order_no||'—')}<span class="ol-m"> · ${esc(KANAL_KISA[p.channel]||p.channel)} · ${esc(tarih(p.occurred_on))}</span></small></td><td class="ol-c-kanal"><span class="ol-kanal ol-kanal-${esc(p.channel)}" title="${esc(channels[p.channel]||p.channel)}">${esc(KANAL_KISA[p.channel]||p.channel)}</span></td><td class="ol-c-tarih">${esc(tarih(p.occurred_on))}</td><td class="ol-c-durum">${badge(p)}${iadeRozeti(p.return_status)}${bilgi}</td><td class="ol-c-tutar" data-label="Tutar · KDV dahil">${b!==null?money(b):'—'}${komisyonSatiri(p)}</td><td class="ol-c-cep" data-label="Cebine kalan">${cebine}</td></tr>`;}).join('')}</tbody></table></div>`;
  }
  // Sipariş penceresinin üstündeki işlem düğmeleri: yalnız o durumda yapılabilecek adımlar.
  function detayIslemleri(p){
@@ -188,7 +208,7 @@ export function mountOrders(root,namespace='ec'){
   const nakit=data.cash_cents??null;
   const feeTag=confirmed?' · doğrulandı':hasSales?' · kayıt / tahmin':'';
   const nakitGorunum=nakit!==null,k=ortakNakit?data.cash_breakdown:null;
-  const income=k?k.revenue_gross_cents:s.revenue_net_cents,costItems=[['Ürün maliyeti',k?k.cost_gross_cents:s.cost_net_cents],['Kargo'+feeTag,k?k.shipping_gross_cents:s.shipping_cents],['Komisyon'+feeTag,k?k.commission_gross_cents:s.commission_cents],['Diğer satış giderleri'+feeTag,k?k.other_gross_cents:s.other_cents],...(k&&stopaj?[['Stopaj · yıllık vergiden mahsup',stopaj]]:[])],max=Math.max(1,...[income,...costItems.map(([,v])=>v)].filter(v=>typeof v==='number').map(Math.abs));
+  const income=k?k.revenue_gross_cents:s.revenue_net_cents,costItems=[['Ürün maliyeti',k?k.cost_gross_cents:s.cost_net_cents],['Kargo'+feeTag,k?k.shipping_gross_cents:s.shipping_cents],['Komisyon'+feeTag+(komisyonOranMetni(data.commission_rate_bps)?' · satışa oranı '+komisyonOranMetni(data.commission_rate_bps):' · oran bilinmiyor'),k?k.commission_gross_cents:s.commission_cents],['Diğer satış giderleri'+feeTag,k?k.other_gross_cents:s.other_cents],...(k&&stopaj?[['Stopaj · yıllık vergiden mahsup',stopaj]]:[])],max=Math.max(1,...[income,...costItems.map(([,v])=>v)].filter(v=>typeof v==='number').map(Math.abs));
   const bars=costItems.map(([label,value])=>`<div class="order-cost-row"><span>${label}</span>${value===null||value===undefined?'<span class="order-cost-unknown">Belge / bilgi bekleniyor</span>':`<meter min="0" max="${max}" value="${Math.max(0,value)}" aria-label="${label}: ${esc(money(value))}"></meter>`}<strong>${money(value)}</strong></div>`).join('');
   const customer=data.customer||{},billing=customer.billing||{},shipping=customer.shipping||{},address=a=>[a.address,a.district,a.city,a.postal_code,a.country].filter(Boolean).join(', '),draftBilling=drafts[0]?.snapshot?.billing;
   const sourceCustomerPresent=!!(customer.name||customer.company||billing.address),shownCustomer=sourceCustomerPresent?customer:(draftBilling||customer),shownBilling=sourceCustomerPresent?billing:(draftBilling||billing);

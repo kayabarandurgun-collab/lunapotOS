@@ -1,7 +1,7 @@
 import {filterInsights} from './permission-policy.js';
 import {compositionKey,parcelTemplateKey,useParcelTemplate} from './order-estimate-api.js';
 import {packageProfit} from './package-profit.js';
-import {STOPAJ_SQL,stopajPayi,paketSonuclari} from './performance-api.js';
+import {STOPAJ_SQL,stopajPayi,paketSonuclari,komisyonOraniBps} from './performance-api.js';
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
 const stmt=(db,sql,args=[])=>db.prepare(sql).bind(...args);
 const all=async q=>(await q.all()).results;
@@ -54,6 +54,10 @@ async function orderData(env,key){
  const satirKdv=new Map(components.filter(c=>c.sale_id).map(c=>[c.sale_id,lines.find(l=>l.id===c.line_id)?.vat_bps]));
  const satisKdv=x=>satirKdv.get(x.kind==='return'?x.parent_id:x.id)??vat.get(x.product_id);
  let cash_cents=cashReady?sales.reduce((t,x)=>t+inc(x.revenue_cents,satisKdv(x))-inc(x.cost_cents,vat.get(x.product_id))-inc(x.commission_cents,fv)-inc(x.shipping_cents,fv)-inc(x.other_cents,fv),0)-stopaj:null;
+ // KOMİSYON: nakitle AYNI kalemlerden (KDV dahil). Teslim edilen / dönen / ikiz pakette aşağıda
+ // kâr raporunun satırıyla değiştirilir; oran her iki yolda da tek formülle hesaplanır.
+ let commission_gross_cents=cashReady?sales.reduce((t,x)=>t+inc(x.commission_cents,fv),0):null;
+ let commission_base_cents=cashReady?sales.reduce((t,x)=>t+inc(x.revenue_cents,satisKdv(x)),0):null;
  // TEK FORMÜL (Codex R22): teslim edilen, iade tarihiyle sonuçlanan ya da çift aktarım ikizi olan paketin
  // sonucu kâr raporunun AYNI satırıdır: geçmişten kesinti tahmini, "tahmini" işareti ve eksik nedeniyle.
  // Kapsam dışındaki (henüz teslim edilmemiş) pakette yukarıdaki gerçekleşen kayıt hesabı kalır.
@@ -61,9 +65,11 @@ async function orderData(env,key){
  if(p.status==='delivered'||['shipped','reserved'].includes(p.status)&&(sales.some(s=>s.kind==='return')||p.ikiz_kopya>0)){
   // Okunamazsa pencere yine açılır; nakit ikinci formülle uydurulmaz, boş kalır ve nedeni yazılır.
   let o;try{o=(await paketSonuclari(env,[p.id])).get(p.id);}catch(e){console.error('paket sonucu',e.message);o={cash_cents:null,estimated:false,withholding_cents:null,note:'Kâr raporundaki sonuç okunamadı; nakit hesaplanmadı.'};}
-  if(o){cash_cents=o.cash_cents;cash_estimated=o.estimated;cash_note=o.note;cash_source='performance';cash_breakdown=o.kalemler||null;if(o.withholding_cents!==null)stopaj=Math.abs(o.withholding_cents);}
+  if(o){cash_cents=o.cash_cents;cash_estimated=o.estimated;cash_note=o.note;cash_source='performance';cash_breakdown=o.kalemler||null;if(o.withholding_cents!==null)stopaj=Math.abs(o.withholding_cents);
+   commission_gross_cents=o.commission_gross_cents??null;commission_base_cents=o.commission_base_cents??null;}
  }
- return {package:p,lines,components,sales,withholding_cents:stopaj,cash_cents,cash_estimated,cash_note,cash_source,cash_breakdown,parcel_input:parcelInput,parcel_input_source:parcelInputSource,actual_summary:actualSummary,customer,source,source_facts:sourceFacts,purchase_invoices:purchases.slice(0,50).map(r=>({...r,source:'recent_receipt_not_exact_lot'})),purchase_invoices_truncated:purchases.length>50,fee_evidence:feeEvidence,drafts:drafts.map(unpack),invoice_status:'draft_only',notices:['Alış belgeleri bu stok kartlarının son mal teslimleridir. Satış maliyeti ağırlıklı ortalamadır; kesin parti/fatura çıkışı olduğu iddia edilmez.','Yerel satış faturası taslağı resmî fatura değildir. EDM/GİB gönderimi yapılmaz.',...(p.channel==='hepsiburada'?['Hepsiburada kaynakları henüz paket düzeyinde doğrulanmadığından müşteri ayrıntısı otomatik eşleştirilmedi.']:[])]};
+ return {package:p,lines,components,sales,withholding_cents:stopaj,cash_cents,cash_estimated,cash_note,cash_source,cash_breakdown,
+  commission_gross_cents,commission_base_cents,commission_rate_bps:komisyonOraniBps(commission_gross_cents,commission_base_cents),parcel_input:parcelInput,parcel_input_source:parcelInputSource,actual_summary:actualSummary,customer,source,source_facts:sourceFacts,purchase_invoices:purchases.slice(0,50).map(r=>({...r,source:'recent_receipt_not_exact_lot'})),purchase_invoices_truncated:purchases.length>50,fee_evidence:feeEvidence,drafts:drafts.map(unpack),invoice_status:'draft_only',notices:['Alış belgeleri bu stok kartlarının son mal teslimleridir. Satış maliyeti ağırlıklı ortalamadır; kesin parti/fatura çıkışı olduğu iddia edilmez.','Yerel satış faturası taslağı resmî fatura değildir. EDM/GİB gönderimi yapılmaz.',...(p.channel==='hepsiburada'?['Hepsiburada kaynakları henüz paket düzeyinde doğrulanmadığından müşteri ayrıntısı otomatik eşleştirilmedi.']:[])]};
 }
 function billingData(input){
  if(!input||typeof input!=='object'||Array.isArray(input))fail('Fatura alıcısı gerekli.');

@@ -16,13 +16,32 @@ import {aggregateSales, offeringComposition, pendingSalesSummary} from './sales-
 // Birden çok ürünlü pakette kesinti ve stopaj ürünlere KDV dahil satış oranında dağılır.
 //
 //   GET /api/urun-karlilik
-import {tumSatirlar, ilkSonucTarihi} from './performance-api.js';
+import {tumSatirlar, ilkSonucTarihi, komisyonOraniBps} from './performance-api.js';
 import {kesintiTahmincisi} from './fee-history.js';
 import {analyticsRange, analyticsChannel} from './panorama-api.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), {status}); };
 const nakitVar = r => r.cash_cents !== null && r.cash_cents !== undefined;
 const tam = Number.isSafeInteger, SEKIL = ['tek', 'set'];
+
+// ORTALAMA KOMİSYON ORANI VE DÖNEMLER. Pazaryeri komisyonu kampanya dönemlerinde değişir; sahibin
+// göreceği rakam AĞIRLIKLI orandır: Σ KDV dahil komisyon ÷ Σ KDV dahil satış. Oranların ortalaması
+// DEĞİLDİR (büyük paket küçük pakete eşit sayılamaz). Kaynak, kâr raporunun teslim edilen paket
+// satırlarının ürün paylarıdır (row.urunler): ikinci bir SQL toplamı ya da ikinci formül yoktur.
+// Sonucu hesaplanamayan paket (maliyeti/kesintisi bilinmeyen) kapsamda değildir: oran uydurulmaz.
+// Dönem sınırları raporun bitiş tarihine göredir; paketi olmayan dönem boş kalır, sıfır sayılmaz.
+const KANALLAR = ['trendyol', 'hepsiburada'], DONEM = ['son_30', 'onceki_30', 'tum'];
+const gunEkle = (d, n) => new Date(Date.parse(d) + n * 86400000).toISOString().slice(0, 10);
+const donemAraliklari = (from, to) => ({
+  son_30: {from: gunEkle(to, -29), to},
+  onceki_30: {from: gunEkle(to, -59), to: gunEkle(to, -30)},
+  tum: {from: from || null, to}});
+const komisyonKutusu = () => ({komisyon_cents: 0, ciro_cents: 0, paketler: new Set()});
+const komisyonOzeti = (kutu, aralik = null) => ({
+  oran_bps: kutu ? komisyonOraniBps(kutu.komisyon_cents, kutu.ciro_cents) : null,
+  paket: kutu ? kutu.paketler.size : 0,
+  komisyon_cents: kutu ? kutu.komisyon_cents : null, ciro_cents: kutu ? kutu.ciro_cents : null,
+  ...(aralik ? {from: aralik.from, to: aralik.to} : {})});
 export const SET_NOTICE = 'Bir bileşenin set payı, o ürünün tek başına kârı DEĞİLDİR: pazaryeri set için tek tutar öder, bu tutar gelir payına göre bölünür, her ürün kendi gerçek maliyetini taşır. Kararı ilan (set) bazında verin.';
 
 // SET (İLAN) KÂRLILIĞI. Sahibin gerçekten fiyatladığı şey ilanın kendisidir. Kırılım satış sunumunun
@@ -66,8 +85,23 @@ export async function urunKarlilikApi(request, env, path) {
     if (!urun.has(id)) urun.set(id, {product_id: id, adet_milli: 0, ciro_cents: 0, kar_cents: 0, teslim_kar_cents: 0, kargoda_kar_cents: 0,
       single_cash_cents: 0, multipack_cash_cents: 0, bundle_cash_cents: 0, return_cash_cents: 0,
       teslim_eksik: false, kargoda_eksik: false, preparing_cash_cents: 0, shipped_cash_cents: 0, preparing: new Set(), shipped: new Set(),
-      paketler: new Set(), tahmini: new Set(), kargodaki: new Set(), eksik: new Set(), neden: null, tek: bosSekil(), set: bosSekil()});
+      paketler: new Set(), tahmini: new Set(), kargodaki: new Set(), eksik: new Set(), neden: null, tek: bosSekil(), set: bosSekil(),
+      komisyon: new Map()});
     return urun.get(id);
+  };
+  // Komisyon kutuları: kanal ('hepsi' + gerçek kanal) × dönem. Yalnız TESLİM EDİLEN ve sonucu
+  // hesaplanan paketler; tutarlar kâr raporunun ürün paylarından gelir, yeniden hesaplanmaz.
+  const araliklar = donemAraliklari(from, to);
+  const komisyonEkle = (x, r, u) => {
+    if (!tam(u.commission_gross_cents) || !tam(u.revenue_gross_cents)) return;
+    const gun = r.delivered_on || '';
+    for (const kanal of ['hepsi', r.channel]) for (const d of DONEM) {
+      const a = araliklar[d];
+      if (d !== 'tum' && !(gun >= a.from && gun <= a.to)) continue;
+      const anahtar = kanal + '|' + d, kutu = x.komisyon.get(anahtar) || komisyonKutusu();
+      kutu.komisyon_cents += u.commission_gross_cents; kutu.ciro_cents += u.revenue_gross_cents; kutu.paketler.add(r.id);
+      x.komisyon.set(anahtar, kutu);
+    }
   };
   // SATIŞ ŞEKLİ KIRILIMI. Aynı paket satırı sales-presentation'da zaten tek/set olarak işaretlenmiştir
   // (tek = kendi ilanı ya da yalnız kendisinden oluşan çoklu paket, set = çok bileşenli ilan). Burada
@@ -86,6 +120,7 @@ export async function urunKarlilikApi(request, env, path) {
         sekilEkle(x, u, r.id, false);
         for (const field of ['single_cash_cents', 'multipack_cash_cents', 'bundle_cash_cents', 'return_cash_cents']) x[field] = Number.isSafeInteger(x[field]) && Number.isSafeInteger(u[field]) ? x[field] + u[field] : null;
         if (yolda) { const state = r.status === 'shipped' ? 'shipped' : 'preparing'; x[state].add(r.id); if (x[state + '_cash_cents'] !== null) x[state + '_cash_cents'] += u.cash_cents; }
+        else komisyonEkle(x, r, u);
         x.adet_milli += u.qty_milli; x.ciro_cents += u.revenue_gross_cents; x.kar_cents += u.cash_cents;
         if (yolda) { x.kargoda_kar_cents += u.cash_cents; x.kargodaki.add(r.id); } else x.teslim_kar_cents += u.cash_cents;
         x.paketler.add(r.id);
@@ -128,7 +163,16 @@ export async function urunKarlilikApi(request, env, path) {
           [s + '_kar_adet_cents', k !== null && v.adet_milli > 0 ? Math.round(k * 1000 / v.adet_milli) : null],
           [s + '_eksik_paket', v.eksik.size]];
       }));
-      return {product_id: u.product_id, role: 'stock_component_contribution', ...sekil,
+      // ORTALAMA KOMİSYON ORANI: ürünün bütün kapsamı, kanal kanal ve dönem dönem. Oran bir TUTAR
+      // DEĞİLDİR (pazaryerinin tarife oranıdır, tek başına TL vermez): tutar yetkisi kapalı personel
+      // oranı ve paket sayısını görür, *_cents alanları mevcut kuralla gizlenir.
+      const komisyonHepsi = komisyonOzeti(u.komisyon.get('hepsi|tum'));
+      const komisyon = {komisyon_oran_bps: komisyonHepsi.oran_bps, komisyon_paket: komisyonHepsi.paket,
+        komisyon_cents: komisyonHepsi.komisyon_cents, komisyon_ciro_cents: komisyonHepsi.ciro_cents,
+        komisyon_donemler: Object.fromEntries(DONEM.map(d => [d, komisyonOzeti(u.komisyon.get('hepsi|' + d), araliklar[d])])),
+        komisyon_kanallar: KANALLAR.filter(c => u.komisyon.has(c + '|tum')).map(c => ({kanal: c, ...komisyonOzeti(u.komisyon.get(c + '|tum')),
+          donemler: Object.fromEntries(DONEM.map(d => [d, komisyonOzeti(u.komisyon.get(c + '|' + d), araliklar[d])]))}))};
+      return {product_id: u.product_id, role: 'stock_component_contribution', ...sekil, ...komisyon,
         single_cash_cents: u.single_cash_cents, multipack_cash_cents: u.multipack_cash_cents, bundle_cash_cents: u.bundle_cash_cents, return_cash_cents: u.return_cash_cents,
         preparing_packages: u.preparing.size, shipped_packages: u.shipped.size, preparing_cash_cents: u.preparing_cash_cents, shipped_cash_cents: u.shipped_cash_cents,
         adet_milli: u.adet_milli, ciro_cents: u.eksik.size ? null : u.ciro_cents, kar_cents: kar,

@@ -2,6 +2,10 @@ export const BRANDS=['Tropikal','Gartengold','Klasmann','SAB'];
 export const CATEGORIES=['Torf ve yetiştirme ortamı','Bitki besini','Toprak düzenleyici','Bitki bakım ürünü','Saksı ve aksesuar'];
 const norm=s=>String(s||'').toLocaleLowerCase('tr-TR');
 const known=v=>Number.isSafeInteger(v)?v:null;
+// Oran bin baz puandır (2000 = %20,0). Tutar yetkisi kapalı personelde tutarlar boş gelir, oran kalır.
+const yuzde=bps=>new Intl.NumberFormat('tr-TR',{style:'percent',minimumFractionDigits:1,maximumFractionDigits:1}).format(bps/10000);
+const KANAL_ADI={trendyol:'Trendyol',hepsiburada:'Hepsiburada'};
+const DONEM_ADI=[['son_30','son 30 gün'],['onceki_30','önceki 30 gün'],['tum','tüm zamanlar']];
 const onHand=p=>known(p.on_hand_milli===undefined?p.quantity_milli:p.on_hand_milli);
 const reserved=p=>known(p.reserved_milli);
 const available=p=>p.available_milli===undefined?(onHand(p)===null||reserved(p)===null?null:onHand(p)-reserved(p)):known(p.available_milli);
@@ -41,9 +45,24 @@ export function productList(products,data,state,helpers){
   return '<div><dt>'+label+'</dt><dd>'+body+'</dd></div>';
  };
  const shape=(x,p)=>'<dl class="product-shape">'+shapeCell(x,p,'tek','Tek satıştan')+shapeCell(x,p,'set','Set içinden')+'</dl><p class="help">Tutarlar KDV dahil, cebine kalandır. Bir bileşenin set payı o ürünün tek başına kârı değildir: pazaryeri set için tek tutar öder, bu tutar gelir payına göre bölünür.</p>';
+ // ORTALAMA KOMİSYON ORANI. Pazaryerinin kestiği komisyon kampanya dönemlerinde değişir: burada
+ // AĞIRLIKLI oran (Σ komisyon ÷ Σ KDV dahil satış) ve arkasındaki paket sayısı yazar; oranların
+ // ortalaması değildir. Kanal kırılımı ve dönem karşılaştırması sunucudan hazır gelir.
+ // Bilinmeyen oran SIFIR yazılmaz ("bilinmiyor"), paketi olmayan dönem "veri yok" der.
+ const komisyonBlogu=x=>{
+  const bps=known(x.komisyon_oran_bps),paket=known(x.komisyon_paket)||0;
+  const kanallar=(x.komisyon_kanallar||[]).filter(k=>known(k.oran_bps)!==null).map(k=>esc(KANAL_ADI[k.kanal]||k.kanal)+' '+yuzde(k.oran_bps)+' ('+(known(k.paket)||0)+' paket)').join(' · ');
+  const donem=x.komisyon_donemler||{};
+  const seri=DONEM_ADI.map(([k,ad])=>ad+' '+(known(donem[k]?.oran_bps)===null?'veri yok':yuzde(donem[k].oran_bps)+' ('+(known(donem[k].paket)||0)+' paket)')).join(' · ');
+  const body=bps===null?'<strong>Bilinmiyor</strong><small>Komisyonu bilinen teslim edilmiş paket yok</small>'
+   :'<strong>'+yuzde(bps)+'</strong><small>'+paket+' paket'+(kanallar?' · '+kanallar:'')+'</small>';
+  return '<dl><div><dt>Ortalama komisyon oranı · KDV dahil satışa göre</dt><dd>'+body+'</dd></div></dl>'
+   +(bps===null?'':'<p class="help">Komisyon oranı: '+seri+'</p>')
+   +'<p class="help">Teslim edilen paketlerden, ağırlıklı: toplam komisyon ÷ toplam KDV dahil satış. Oran deftere yazılan satışa göredir; pazaryeri indirimli tutardan komisyon kesiyorsa tarife oranı daha yüksektir.</p>';
+ };
  const sales=p=>{
   const x=st(p);
-  const amount=state.stockRangeBusy?'<p role="status">Satış miktarı yükleniyor…</p>':!data.productStats?'<p>Satış miktarı alınamadı.</p>':!x?'<p>Bu dönemde ürün satış kaydı yok.</p>':shape(x,p)+'<dl><div><dt>Satış / sipariş miktarı · iadeler düşülmüş</dt><dd>'+quantity(x.adet_milli)+' '+esc(p.stock_unit)+'</dd></div></dl>';
+  const amount=state.stockRangeBusy?'<p role="status">Satış miktarı yükleniyor…</p>':!data.productStats?'<p>Satış miktarı alınamadı.</p>':!x?'<p>Bu dönemde ürün satış kaydı yok.</p>':shape(x,p)+komisyonBlogu(x)+'<dl><div><dt>Satış / sipariş miktarı · iadeler düşülmüş</dt><dd>'+quantity(x.adet_milli)+' '+esc(p.stock_unit)+'</dd></div></dl>';
   return '<details class="product-details product-sales"><summary>Satış kullanım ayrıntıları</summary>'+amount+'<p class="help">Seçili dönemde teslim edilen, kargodaki ve hazırlanan siparişlerdeki ürün miktarıdır; iadeler düşülür. Tekli satış, çoklu paket ve set içinde kullanılan miktarlar birlikte olabilir. Depo bakiyesi değildir.</p><p class="help">Set gelirinin bileşene dağıtılan payı, ürünün tek başına kârı değildir. İade gideri ve satış sonuçları paket bazında incelenir.</p><a href="#performance?view=sales">Satış performansını incele →</a></details>';
  };
  const transit=p=>'<strong>'+quantity(p.in_transit_milli)+'</strong>'+(p.in_transit_status==='incomplete'&&known(p.in_transit_known_milli)!==null?'<small>Doğrulanabilen '+quantity(p.in_transit_known_milli)+' · toplam eksik</small>':'')+(p.in_transit_notes||[]).map(n=>'<small class="stock-transit-note">'+esc(n)+'</small>').join('');

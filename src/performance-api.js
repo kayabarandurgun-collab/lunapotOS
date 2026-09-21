@@ -7,6 +7,15 @@ import {kesintiTahmincisi} from './fee-history.js';
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
 const day=v=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(v)||!Number.isFinite(Date.parse(v))||new Date(v).toISOString().slice(0,10)!==v)fail('Tarih geçersiz.');return v;};
 const all=async s=>(await s.all()).results;
+// KOMİSYON ORANI (bin baz puan). Pazaryerinin bu pakette aldığı KDV dahil komisyonun KDV DAHİL
+// SATIŞA oranıdır: kampanya döneminde oran değişince ekranda görünen budur. TEK FORMÜL: kâr raporu,
+// sipariş listesi, sipariş penceresi ve ürün kârlılığı aynı iki rakamı böler; ikinci hesap yoktur.
+// Satış sıfır/eksiyse ya da komisyon bilinmiyorsa oran UYDURULMAZ: boş kalır, sıfır sayılmaz.
+// PAYDA: paketin DEFTERE YAZILAN KDV dahil satışıdır. Pazaryeri indirimi satış fiyatına
+// uygulanmışsa bu indirimli tutardır (oran pazaryerinin tarife oranına eşit çıkar); indirim ayrı
+// gider olarak yazılmışsa liste tutarıdır (oran tarifeden DÜŞÜK görünür). İki okuma karışmasın
+// diye ekranlar oranı "satışa oranı" diye etiketler ve paydayı yanında söyler.
+export const komisyonOraniBps=(komisyon,ciro)=>Number.isSafeInteger(komisyon)&&Number.isSafeInteger(ciro)&&ciro>0?Math.round(komisyon*10000/ciro):null;
 // TESLİM EDİLEMEYİP DÖNEN PAKET ölçütü (kâr raporu ve ana sayfanın ilk tarihi AYNI ölçütü kullanır):
 // satışı var, gerçek iadesi satışı karşılıyor. DUZELTME-CIFT çift aktarım düzeltmesidir, iade sayılmaz.
 const SATILAN="(SELECT COALESCE(SUM(s.quantity_milli),0) FROM order_lines l JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries s ON s.id=c.sale_id WHERE l.package_id=order_packages.id AND s.kind='sale')";
@@ -67,11 +76,17 @@ export async function paketSonuclari(env,ids){
   for(const r of (await performanceReport(env,{mode:'delivered',ids:parca,tahminAl})).rows){
    if(iste.has(r.id))out.set(r.id,{cash_cents:r.cash_cents??null,profit_cents:r.profit_cents??null,withholding_cents:r.withholding_cents??null,
     estimated:!!(r.fees_estimated||r.cost_estimated),twin_of:r.twin_of,
+    // KOMİSYON: liste ve pencere KDV dahil komisyonu, oranın paydasını (KDV dahil satış) ve oranı
+    // kâr raporunun AYNI satırından alır. Hesaplanamayan pakette üçü de boş kalır, sıfır sayılmaz.
+    commission_gross_cents:Number.isSafeInteger(r.commission_gross_cents)?r.commission_gross_cents:null,
+    commission_base_cents:Number.isSafeInteger(r.revenue_gross_cents)?r.revenue_gross_cents:null,
+    commission_rate_bps:r.commission_rate_bps??null,
     // Pencerenin "Paran nereye gidiyor?" dökümü de aynı satırdan (KDV dahil; tahmini kesintiler dahil).
     kalemler:r.cash_cents===null||r.cash_cents===undefined?null:{revenue_gross_cents:r.revenue_gross_cents,cost_gross_cents:r.cost_gross_cents,shipping_gross_cents:r.shipping_gross_cents,commission_gross_cents:r.commission_gross_cents,other_gross_cents:r.other_gross_cents},
     // Kaba tahmin uyarısı (benzer adette teslim geçmişi yok) listede ve pencerede de görünür.
     note:[r.cash_cents===null||r.cash_cents===undefined?(r.missing[0]||r.cash_note||null):(r.cost_note||(r.twin_of?'Çift aktarım düzeltildi: teslim ve pazaryeri kesintileri kopyadan ('+r.twin_of+'), satış ve maliyet bu kayıttan.':null)),r.tahmin_uyari||null].filter(Boolean).join(' ')||null});
    if(r.twin_dup_id&&iste.has(r.twin_dup_id)&&!out.has(r.twin_dup_id))out.set(r.twin_dup_id,{cash_cents:null,profit_cents:null,withholding_cents:null,estimated:false,copy_of:r.id,
+    commission_gross_cents:null,commission_base_cents:null,commission_rate_bps:null,
     note:'Çift aktarım kopyası: bu paketin sonucu asıl kayıtta ('+r.external_id+') bir kez sayılır.'});
   }
  }
@@ -226,7 +241,7 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
  const pendingLineQuotes=new Map();
  const rows=packages.map(p=>{
   const packageLines=lineMap.get(p.id)||[],parts=partMap.get(p.id)||[];let entries=saleMap.get(p.id)||[];
-  const row={twin_of:p.twin_of||null,id:p.id,channel:p.channel,order_no:p.order_no,external_id:p.external_id,status:p.status,occurred_on:p.occurred_on,delivered_on:p.delivered_on,urun:urunOzet(parts),teslim_edilemedi:!!p.teslim_edilemedi,profit_cents:null,cash_cents:null,cash_note:null,missing:[],revenue_net_cents:null,cost_net_cents:null,shipping_cents:null,commission_cents:null,other_cents:null};
+  const row={twin_of:p.twin_of||null,id:p.id,channel:p.channel,order_no:p.order_no,external_id:p.external_id,status:p.status,occurred_on:p.occurred_on,delivered_on:p.delivered_on,urun:urunOzet(parts),teslim_edilemedi:!!p.teslim_edilemedi,profit_cents:null,cash_cents:null,cash_note:null,missing:[],revenue_net_cents:null,cost_net_cents:null,shipping_cents:null,commission_cents:null,other_cents:null,commission_rate_bps:null};
   if(p.twin_dup_id)row.twin_dup_id=p.twin_dup_id;
   if(p.source_changed){row.missing.push('Kaynak sipariş değişti; farkı inceleyin.');return row;}
   if(mode==='delivered'){
@@ -295,14 +310,20 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
     row.shipping_gross_cents=entries.reduce((t,e)=>t+incl(e.shipping_cents??0,fv),0);
     row.commission_gross_cents=entries.reduce((t,e)=>t+incl(e.commission_cents??0,fv),0);
     row.other_gross_cents=entries.reduce((t,e)=>t+incl(e.other_cents??0,fv),0);
+    // Pazaryerinin bu pakette aldığı etkin komisyon oranı; kesinti tahminiyse satır zaten
+    // "tahmini" işaretlidir (row.fees_estimated) ve oran da o tahmine aittir.
+    row.commission_rate_bps=komisyonOraniBps(row.commission_gross_cents,row.revenue_gross_cents);
     // Ürün bazında katkı: aynı satır formülü; stopaj ürünlere KDV dahil satış oranında dağılır,
     // yuvarlama artığı son ürüne yazılır. Toplamı her zaman paketin cash_cents'ine eşittir.
     if(detay){
      const m=new Map();
      for(const e of entries){
-      const u=m.get(e.product_id)||{product_id:e.product_id,qty_milli:0,revenue_gross_cents:0,cash_cents:0};
+      const u=m.get(e.product_id)||{product_id:e.product_id,qty_milli:0,revenue_gross_cents:0,cash_cents:0,commission_gross_cents:0};
       const brut=incl(e.revenue_cents,e.satir_kdv??e.vat_bps);
       u.qty_milli+=e.kind==='return'?-e.quantity_milli:e.quantity_milli;u.revenue_gross_cents+=brut;
+      // Ürünün kendi KDV dahil komisyonu: ürün kârlılığındaki ortalama komisyon oranının payı
+      // buradan toplanır. Ürün paylarının toplamı paketin commission_gross_cents'ine EŞİTTİR.
+      u.commission_gross_cents+=incl(e.commission_cents??0,fv);
       u.cash_cents+=brut-incl(e.cost_cents,e.vat_bps)-incl(e.commission_cents??0,fv)-incl(e.shipping_cents??0,fv)-incl(e.other_cents??0,fv);
       m.set(e.product_id,u);
      }
@@ -342,6 +363,7 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
     else{
      const v=oranlar[0],inc=(x,b)=>Math.round(x*(10000+b)/10000),mvs=[...new Set(parts.map(c=>c.urun_kdv))],mv=mvs.length===1&&mvs[0]!==null&&mvs[0]!==undefined?mvs[0]:v;
      row.revenue_gross_cents=inc(revenue,v);row.cost_gross_cents=inc(cost,mv);row.shipping_gross_cents=inc(h.shipping,fv);row.commission_gross_cents=inc(commission,fv);row.other_gross_cents=inc(h.other,fv);
+     row.commission_rate_bps=komisyonOraniBps(row.commission_gross_cents,row.revenue_gross_cents);
      const stopaj=Math.round(row.revenue_gross_cents*h.withholdingRate);row.withholding_cents=stopaj?-stopaj:0;
      row.cash_cents=row.revenue_gross_cents-row.cost_gross_cents-row.shipping_gross_cents-row.commission_gross_cents-row.other_gross_cents-stopaj;
      if(detay)row.urunler=urunPaylari(row,own,packageLines,parts,v,mv,birimMaliyet);
@@ -366,6 +388,7 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
      row.cash_cents=q.estimated_payout_cents-incl(q.cost_net_cents)-incl(kendiGider);
      row.revenue_gross_cents=q.price_cents;row.cost_gross_cents=incl(q.cost_net_cents);
      row.shipping_gross_cents=q.shipping_gross_cents;row.commission_gross_cents=q.commission_gross_cents;
+     row.commission_rate_bps=komisyonOraniBps(row.commission_gross_cents,row.revenue_gross_cents);
      row.other_gross_cents=incl(kendiGider);row.withholding_cents=q.withholding_cents?-q.withholding_cents:0;
      if(detay)row.urunler=urunPaylari(row,(saleMap.get(p.id)||[]).filter(e=>e.kind==='sale'),packageLines,parts,v,v,birimMaliyet);
     }

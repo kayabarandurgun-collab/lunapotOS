@@ -2,7 +2,7 @@ import {cents,milli} from '../public/accounting-math.js';
 import {resolveMapping} from './catalog-api.js';
 import {ordersQuery,AKTARIM_ARTIGI} from './orders-query.js';
 import {assertReportLinkFresh} from './report-link-guard.js';
-import {paketSonuclari} from './performance-api.js';
+import {paketSonuclari,komisyonOraniBps} from './performance-api.js';
 const fail=(m,s=400)=>{throw Object.assign(new Error(m),{status:s});};
 const id=()=>crypto.randomUUID();
 const text=(v,label,max=200)=>{if(typeof v!=='string'||!v.trim()||v.length>max)fail(label+' alanını kontrol edin.');return v.trim();};
@@ -141,6 +141,12 @@ export async function ordersApi(request,env,path,readBody){
    const r={pid,kanal:list[0].kanal,tam,iade:iadeAdet>0?(iadeAdet>=satilan?'tam':'kismi'):null,
     gelir:list.reduce((t,e)=>t+e.revenue_cents,0),
     sonuc:list.reduce((t,e)=>t+e.revenue_cents-e.cost_cents-(e.commission_cents||0)-(e.shipping_cents||0)-(e.other_cents||0),0)};
+   // KOMİSYON: nakitle AYNI kalemlerden, aynı KDV kuralıyla (KDV dahil). Kesintisi ya da KDV oranı
+   // eksikse boş kalır, sıfır sayılmaz. Teslim edilen pakette bu değer aşağıda kâr raporunun
+   // satırıyla değiştirilir: iki ekran aynı kuruşu gösterir.
+   r.komisyon=tam&&kdvTam&&Number.isInteger(fv)?list.reduce((t,e)=>t+inc(e.commission_cents,fv),0):null;
+   r.komisyon_ciro=r.komisyon===null?null:list.reduce((t,e)=>t+inc(e.revenue_cents,e.satir_kdv??e.vat_bps),0);
+   r.komisyon_bps=komisyonOraniBps(r.komisyon,r.komisyon_ciro);
    // Kesinti KDV'si beyan edilmemisse nakit hesaplanmaz; oran uydurulmaz, alan bos kalir.
    r.nakit=tam&&kdvTam&&Number.isInteger(fv)
     // Satış kendi satır KDV'siyle (müşterinin ödediği tutar), maliyet alış KDV'siyle (ürün profili) büyür.
@@ -157,12 +163,15 @@ export async function ordersApi(request,env,path,readBody){
   // sonucu kâr raporunun AYNI satırından gelir: kesinti tahmini, "tahmini" işareti, stopaj payı ve eksik
   // nedeniyle. Bilinmeyen maliyet/kesinti sıfır sayılmaz. Yukarıdaki kayıt hesabı yalnız kapsam dışında kalır.
   // Okunamazsa liste yine açılır; nakit ikinci formülle gösterilmez, boş kalır ve nedeni yazılır.
-  let ortak;try{const s=await ortakSoz;if(s.e)throw s.e;ortak=s.v;}catch(e){console.error('paket sonucu',e.message);for(const o of ozet.values())Object.assign(o,{nakit:null,tahmini:false,not:'Kâr raporundaki sonuç okunamadı; nakit gösterilmedi.'});return ozet;}
-  for(const [pid,s] of ortak){const o=ozet.get(pid)||{pid,iade:null,gelir:null};ozet.set(pid,Object.assign(o,{nakit:s.cash_cents,sonuc:s.profit_cents,tam:s.profit_cents!==null,tahmini:s.estimated,not:s.note}));}
+  let ortak;try{const s=await ortakSoz;if(s.e)throw s.e;ortak=s.v;}catch(e){console.error('paket sonucu',e.message);for(const o of ozet.values())Object.assign(o,{nakit:null,tahmini:false,komisyon:null,komisyon_ciro:null,komisyon_bps:null,not:'Kâr raporundaki sonuç okunamadı; nakit gösterilmedi.'});return ozet;}
+  for(const [pid,s] of ortak){const o=ozet.get(pid)||{pid,iade:null,gelir:null};ozet.set(pid,Object.assign(o,{nakit:s.cash_cents,sonuc:s.profit_cents,tam:s.profit_cents!==null,tahmini:s.estimated,not:s.note,
+   komisyon:s.commission_gross_cents??null,komisyon_ciro:s.commission_base_cents??null,komisyon_bps:s.commission_rate_bps??null}));}
   return ozet;
   }
   {const yer=new Map(sira.map((id,i)=>[id,i]));packages.sort((a,b)=>yer.get(a.id)-yer.get(b.id));}
-  return {packages:packages.slice(0,500).map(p=>{const ls=lines.filter(l=>l.package_id===p.id),lineIDs=new Set(ls.map(l=>l.id)),cs=components.filter(c=>lineIDs.has(c.line_id)),needs=new Map();for(const c of cs)needs.set(c.product_id,(needs.get(c.product_id)||0)+c.quantity_milli);const readiness=p.source_changed?'source_changed':ls.some(l=>cs.filter(c=>c.line_id===l.id).reduce((n,c)=>n+c.revenue_share_bps,0)!==10000)||cs.some(c=>c.stock_unit!==c.current_stock_unit)?'needs_mapping':ls.some(l=>l.net_revenue_cents===null)?'needs_amounts':p.status==='draft'&&[...needs].some(([product,q])=>(stock.get(product)||0)<q)?'needs_stock':'ready';return {...p,revenue_net_cents:ozet.get(p.id)?.gelir??null,result_cents:ozet.get(p.id)?.tam?ozet.get(p.id).sonuc:null,cash_result_cents:ozet.get(p.id)?.nakit??null,cash_estimated:!!ozet.get(p.id)?.tahmini,cash_note:ozet.get(p.id)?.not??null,return_status:ozet.get(p.id)?.iade??null,readiness};}),lines,components,products:products.map(p=>({...p,available_milli:p.quantity_milli-p.reserved_milli})),reservations,counts,sonuc_counts:sonucSayilari,truncated:offset+packages.length<total,pagination:{page,limit,total,pages:Math.max(1,Math.ceil(total/limit)),has_more:offset+packages.length<total}};
+  return {packages:packages.slice(0,500).map(p=>{const ls=lines.filter(l=>l.package_id===p.id),lineIDs=new Set(ls.map(l=>l.id)),cs=components.filter(c=>lineIDs.has(c.line_id)),needs=new Map();for(const c of cs)needs.set(c.product_id,(needs.get(c.product_id)||0)+c.quantity_milli);const readiness=p.source_changed?'source_changed':ls.some(l=>cs.filter(c=>c.line_id===l.id).reduce((n,c)=>n+c.revenue_share_bps,0)!==10000)||cs.some(c=>c.stock_unit!==c.current_stock_unit)?'needs_mapping':ls.some(l=>l.net_revenue_cents===null)?'needs_amounts':p.status==='draft'&&[...needs].some(([product,q])=>(stock.get(product)||0)<q)?'needs_stock':'ready';return {...p,revenue_net_cents:ozet.get(p.id)?.gelir??null,result_cents:ozet.get(p.id)?.tam?ozet.get(p.id).sonuc:null,cash_result_cents:ozet.get(p.id)?.nakit??null,cash_estimated:!!ozet.get(p.id)?.tahmini,cash_note:ozet.get(p.id)?.not??null,return_status:ozet.get(p.id)?.iade??null,
+    // Pazaryeri komisyonu: KDV dahil tutar, oranın paydası (KDV dahil satış) ve etkin oran.
+    commission_gross_cents:ozet.get(p.id)?.komisyon??null,commission_base_cents:ozet.get(p.id)?.komisyon_ciro??null,commission_rate_bps:ozet.get(p.id)?.komisyon_bps??null,readiness};}),lines,components,products:products.map(p=>({...p,available_milli:p.quantity_milli-p.reserved_milli})),reservations,counts,sonuc_counts:sonucSayilari,truncated:offset+packages.length<total,pagination:{page,limit,total,pages:Math.max(1,Math.ceil(total/limit)),has_more:offset+packages.length<total}};
  }
  const previewMatch=path.match(/^\/api\/orders\/([\w-]+)\/source$/);
  if(previewMatch&&method==='GET'){
