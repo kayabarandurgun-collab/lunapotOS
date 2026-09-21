@@ -1,4 +1,5 @@
 import {cents} from '../public/accounting-math.js';
+import {invoiceDebtStatement} from './accounting.js';
 
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
 const id=()=>crypto.randomUUID();
@@ -8,9 +9,25 @@ const optional=(x,max=500)=>x===undefined||x===null||x===''?'':text(x,'Bilgi',ma
 const day=x=>{if(typeof x!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(x)||!Number.isFinite(Date.parse(x))||new Date(x).toISOString().slice(0,10)!==x)fail('Geçerli tarih girin.');return x;};
 const money=x=>{let n;try{n=cents(x);}catch{fail('Geçerli bir tutar girin.');}if(!Number.isSafeInteger(n)||!n||Math.abs(n)>100000000000)fail('Tutar sıfır olamaz ve sınırı aşamaz.');return n;};
 const positive=x=>{const n=money(x);if(n<0)fail('Tutar pozitif olmalı.');return n;};
-async function execute(db,items){try{return await db.batch(items);}catch(error){const m=String(error.message);if(/OVER_ALLOCATION/.test(m))fail('Kapama tutarı belgenin kalan tutarını aşıyor.',409);if(/ENTRY_ALLOCATED/.test(m))fail('Önce bu hareketin belge kapamalarını geri alın.',409);if(/INVALID_ALLOCATION/.test(m))fail('Aynı cariye ait bir alacak ve bir borç hareketini seçin.',409);if(/REVERSAL|REVERSED_ENTRY/.test(m))fail('Bu hareket için ters kayıt oluşturulamaz.',409);if(/UNIQUE constraint/.test(m))fail('Bu referans veya kayıt daha önce işlendi.',409);if(/FOREIGN KEY/.test(m))fail('Seçilen kayıt bu çalışma alanında bulunamadı.',404);throw error;}}
+async function execute(db,items){try{return await db.batch(items);}catch(error){const m=String(error.message);if(/CHEQUE_DUE_REQUIRED/.test(m))fail('Çek için vade tarihi girin.');if(/INVALID_DUE_DATE|INVALID_PLAN_DATE/.test(m))fail('Geçerli tarih girin.');if(/PAYMENT_ENTRY_REQUIRED/.test(m))fail('Ödeme yöntemi yalnızca ödeme hareketine yazılabilir.',409);if(/DEBT_ENTRY_REQUIRED/.test(m))fail('Planlanan ödeme tarihi yalnızca açık borca eklenebilir.',409);if(/OVER_ALLOCATION/.test(m))fail('Kapama tutarı belgenin kalan tutarını aşıyor.',409);if(/ENTRY_ALLOCATED/.test(m))fail('Önce bu hareketin belge kapamalarını geri alın.',409);if(/INVALID_ALLOCATION/.test(m))fail('Aynı cariye ait bir alacak ve bir borç hareketini seçin.',409);if(/REVERSAL|REVERSED_ENTRY/.test(m))fail('Bu hareket için ters kayıt oluşturulamaz.',409);if(/UNIQUE constraint/.test(m))fail('Bu referans veya kayıt daha önce işlendi.',409);if(/FOREIGN KEY/.test(m))fail('Seçilen kayıt bu çalışma alanında bulunamadı.',404);throw error;}}
 async function requireParty(db,key){if(!await stmt(db,'SELECT id FROM suppliers WHERE id=?',[key]).first())fail('Cari bu çalışma alanında bulunamadı.',404);}
 const entryInsert=(db,e)=>stmt(db,'INSERT INTO party_entries(id,party_id,amount_cents,occurred_on,due_on,reference,description,source_key,source,reversal_of) VALUES(?,?,?,?,?,?,?,?,?,?)',[e.id,e.party_id,e.amount_cents,e.occurred_on,e.due_on||null,e.reference,e.description,e.source_key,e.source,e.reversal_of||null]);
+
+// Ödeme yöntemleri: hangi bankadan ödendiği DEĞİL, nasıl ödendiği sorulur. Kart/banka ayrıntısı serbest nottur.
+const METHODS={nakit:'Nakit',kart:'Kart',havale:'Havale / EFT',cek:'Çek'};
+const lira=value=>new Intl.NumberFormat('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(value/100)+' TL';
+// Hareketin ters kaydı yazılmışsa o hareket artık hesapta değildir; kapama ve ödeme için seçilemez.
+const LIVE="e.reversal_of IS NULL AND NOT EXISTS(SELECT 1 FROM party_entries x WHERE x.reversal_of=e.id)";
+const ALLOCATED=side=>`COALESCE((SELECT SUM(a.amount_cents) FROM payment_allocations a WHERE a.${side}_entry_id=e.id AND NOT EXISTS(SELECT 1 FROM allocation_reversals r WHERE r.allocation_id=a.id)),0)`;
+const PLANNED='(SELECT p.planned_on FROM party_entry_plans p WHERE p.entry_id=e.id ORDER BY p.created_at DESC,p.rowid DESC LIMIT 1)';
+const invoiceStatus=row=>row.remaining_cents<=0?'paid':row.paid_cents>0?'partial':'open';
+// Açık borçlar eskiden yeniye sıralanır: tutar belirtilip fatura seçilmediğinde en eski borç önce kapanır.
+const openDebtSql=`SELECT e.id,e.party_id,e.amount_cents,e.occurred_on,e.reference,e.source_key,${ALLOCATED('negative')} allocated_cents FROM party_entries e WHERE e.party_id=? AND e.amount_cents<0 AND ${LIVE} ORDER BY e.occurred_on,e.created_at,e.rowid LIMIT 2000`;
+const remainingOf=row=>-row.amount_cents-row.allocated_cents;
+async function digestReference(parts){
+ const bytes=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(parts.join('|'))));
+ return 'ODEME-'+[...bytes.slice(0,12)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
 
 // The caller provides an authenticated, fixed-workspace DB. No external money transfer is performed.
 export async function ledgerApi(request,env,path,readBody){
@@ -40,12 +57,24 @@ export async function ledgerApi(request,env,path,readBody){
   const results=await db.batch([
    db.prepare('SELECT s.*,COALESCE(SUM(e.amount_cents),0) balance_cents FROM suppliers s LEFT JOIN party_entries e ON e.party_id=s.id GROUP BY s.id ORDER BY s.name'),
    db.prepare('SELECT a.*,COALESCE(SUM(t.amount_cents),0) balance_cents FROM cash_accounts a LEFT JOIN cash_transactions t ON t.account_id=a.id GROUP BY a.id ORDER BY a.name'),
-   stmt(db,`SELECT e.*,s.name party_name,COALESCE((SELECT SUM(a.amount_cents) FROM payment_allocations a WHERE (a.positive_entry_id=e.id OR a.negative_entry_id=e.id) AND NOT EXISTS(SELECT 1 FROM allocation_reversals r WHERE r.allocation_id=a.id)),0) allocated_cents,(SELECT id FROM party_entries r WHERE r.reversal_of=e.id) reversed_by FROM party_entries e JOIN suppliers s ON s.id=e.party_id${where} ORDER BY e.occurred_on DESC,e.created_at DESC,e.rowid DESC LIMIT ? OFFSET ?`,[...args,limit,(page-1)*limit]),
+   stmt(db,`SELECT e.*,s.name party_name,COALESCE((SELECT SUM(a.amount_cents) FROM payment_allocations a WHERE (a.positive_entry_id=e.id OR a.negative_entry_id=e.id) AND NOT EXISTS(SELECT 1 FROM allocation_reversals r WHERE r.allocation_id=a.id)),0) allocated_cents,(SELECT id FROM party_entries r WHERE r.reversal_of=e.id) reversed_by,${PLANNED} planned_on,(SELECT m.method FROM party_payment_methods m WHERE m.entry_id=e.id) payment_method,(SELECT m.note FROM party_payment_methods m WHERE m.entry_id=e.id) payment_note,(SELECT m.due_on FROM party_payment_methods m WHERE m.entry_id=e.id) payment_due_on FROM party_entries e JOIN suppliers s ON s.id=e.party_id${where} ORDER BY e.occurred_on DESC,e.created_at DESC,e.rowid DESC LIMIT ? OFFSET ?`,[...args,limit,(page-1)*limit]),
    db.prepare('SELECT a.*,p.party_id,r.id reversed_by,r.reason reversal_reason FROM payment_allocations a JOIN party_entries p ON p.id=a.positive_entry_id LEFT JOIN allocation_reversals r ON r.allocation_id=a.id ORDER BY a.created_at DESC,a.rowid DESC LIMIT 501'),
-   db.prepare('SELECT t.*,a.name account_name,e.party_id,s.name party_name,(SELECT id FROM cash_transactions r WHERE r.reversal_of=t.id) reversed_by FROM cash_transactions t JOIN cash_accounts a ON a.id=t.account_id LEFT JOIN party_entries e ON e.id=t.party_entry_id LEFT JOIN suppliers s ON s.id=e.party_id ORDER BY t.occurred_on DESC,t.created_at DESC,t.rowid DESC LIMIT 501')
+   db.prepare('SELECT t.*,a.name account_name,e.party_id,s.name party_name,(SELECT id FROM cash_transactions r WHERE r.reversal_of=t.id) reversed_by FROM cash_transactions t JOIN cash_accounts a ON a.id=t.account_id LEFT JOIN party_entries e ON e.id=t.party_entry_id LEFT JOIN suppliers s ON s.id=e.party_id ORDER BY t.occurred_on DESC,t.created_at DESC,t.rowid DESC LIMIT 501'),
+   // Açık alış faturaları: hangi faturaya ne kadar ödendiği ve varsa "şu tarihte ödeyeceğim" notu.
+   stmt(db,`SELECT e.id entry_id,substr(e.source_key,9) invoice_id,e.reference invoice_no,e.party_id,s.name party_name,e.occurred_on,-e.amount_cents debt_cents,${ALLOCATED('negative')} paid_cents,${PLANNED} planned_on,e.due_on FROM party_entries e JOIN suppliers s ON s.id=e.party_id WHERE e.source='invoice' AND e.source_key LIKE 'invoice:%' AND e.amount_cents<0 AND ${LIVE}${party?' AND e.party_id=?':''} ORDER BY e.occurred_on,e.created_at,e.rowid LIMIT 501`,party?[party]:[]),
+   // Verilen çekler: borcu kapatır ama para hesaptan vadesinde çıkar.
+   stmt(db,`SELECT e.id entry_id,e.party_id,s.name party_name,e.amount_cents,e.occurred_on,e.reference,m.due_on,m.note,(SELECT id FROM party_entries r WHERE r.reversal_of=e.id) reversed_by FROM party_payment_methods m JOIN party_entries e ON e.id=m.entry_id JOIN suppliers s ON s.id=e.party_id WHERE m.method='cek' AND e.reversal_of IS NULL${party?' AND e.party_id=?':''} ORDER BY m.due_on,e.occurred_on LIMIT 201`,party?[party]:[])
   ]);
-  const [parties,accounts,entries,allocations,cash]=results.map(r=>r.results);
-  return {parties,accounts,entries:entries.map(e=>({...e,remaining_cents:Math.abs(e.amount_cents)-e.allocated_cents})),entry_pagination:{page,limit,total:countRow.total,pages:Math.max(1,Math.ceil(countRow.total/limit)),has_more:page*limit<countRow.total},entry_filters:{q,from,to,due,party_id:party||''},allocations:allocations.slice(0,500),cash_transactions:cash.slice(0,500),truncated:{entries:false,allocations:allocations.length>500,cash_transactions:cash.length>500},currency:'TRY',balance_note:'Pozitif cari bakiye alacağınız; negatif bakiye borcunuzdur.'};
+  const [parties,accounts,entries,allocations,cash,invoiceRows,chequeRows]=results.map(r=>r.results);
+  const invoices=invoiceRows.slice(0,500).map(r=>{const row={...r,remaining_cents:r.debt_cents-r.paid_cents};return {...row,status:invoiceStatus(row)};});
+  const openInvoices=invoices.filter(r=>r.status!=='paid');
+  const cheques=chequeRows.filter(c=>!c.reversed_by).slice(0,200);
+  // "Vadesi gelen / geçen": kısa liste. Faturada planlanan ödeme tarihi ya da vade, çekte vade esas alınır.
+  const dueSoon=[
+   ...openInvoices.filter(r=>r.planned_on||r.due_on).map(r=>({kind:'invoice',entry_id:r.entry_id,invoice_id:r.invoice_id,party_id:r.party_id,party_name:r.party_name,reference:r.invoice_no,due_on:r.planned_on||r.due_on,planned:!!r.planned_on,amount_cents:r.remaining_cents})),
+   ...cheques.filter(c=>c.due_on).map(c=>({kind:'cheque',entry_id:c.entry_id,invoice_id:null,party_id:c.party_id,party_name:c.party_name,reference:c.reference,due_on:c.due_on,planned:false,amount_cents:c.amount_cents}))
+  ].sort((a,b)=>a.due_on<b.due_on?-1:a.due_on>b.due_on?1:0).slice(0,20).map(x=>({...x,overdue:x.due_on<today}));
+  return {parties,accounts,entries:entries.map(e=>({...e,remaining_cents:Math.abs(e.amount_cents)-e.allocated_cents})),entry_pagination:{page,limit,total:countRow.total,pages:Math.max(1,Math.ceil(countRow.total/limit)),has_more:page*limit<countRow.total},entry_filters:{q,from,to,due,party_id:party||''},allocations:allocations.slice(0,500),cash_transactions:cash.slice(0,500),open_invoices:openInvoices,cheques,due_soon:dueSoon,payment_methods:Object.entries(METHODS).map(([key,label])=>({key,label})),truncated:{entries:false,allocations:allocations.length>500,cash_transactions:cash.length>500,open_invoices:invoiceRows.length>500,cheques:chequeRows.length>200},currency:'TRY',balance_note:'Pozitif cari bakiye alacağınız; negatif bakiye borcunuzdur.',cheque_note:'Verilen çek cari borcunu kapatır; para hesabınızdan vadesinde çıkar, henüz tahsil edilmemiştir.'};
  }
  if(method!=='POST')return null;
  const x=await readBody(request),key=id();
@@ -73,6 +102,83 @@ export async function ledgerApi(request,env,path,readBody){
   items.push(stmt(db,'INSERT INTO cash_transactions(id,account_id,party_entry_id,amount_cents,occurred_on,reference,description) VALUES(?,?,?,?,?,?,?)',[key,account,entry,amount,date,reference,description]));
   await execute(db,items);return {id:key,party_entry_id:entry};
  }
+ // Fatura ödemesi. Kasa/banka hesabı ZORUNLU DEĞİLDİR: ödemenin nasıl yapıldığı (nakit/kart/havale/çek)
+ // ve serbest not ("hangi kart, hangi banka") yeterlidir. Hesap verilirse kasa hareketi de aynı yazma
+ // kümesinde oluşur. Ödeme ve kapamaları tek db.batch: ya hepsi yazılır ya hiçbiri.
+ if(path==='/api/ledger/payments'){
+  const party=text(x.party_id,'Cari');await requireParty(db,party);
+  const amount=positive(x.amount),date=day(x.occurred_on),method=x.method;
+  if(!Object.hasOwn(METHODS,method))fail('Ödemeyi nasıl yaptığınızı seçin: nakit, kart, havale veya çek.');
+  const note=optional(typeof x.note==='string'?x.note.trim():x.note,200);
+  const due=x.due_on===undefined||x.due_on===null||x.due_on===''?null:day(x.due_on);
+  if(method==='cek'&&!due)fail('Çek için vade tarihi girin; çek vadesinde ödenecek.');
+  const account=optional(x.account_id,200);
+  if(x.invoice_ids!==undefined&&x.invoice_ids!==null&&!Array.isArray(x.invoice_ids))fail('Fatura seçimi geçersiz.');
+  const invoiceIds=Array.isArray(x.invoice_ids)?x.invoice_ids.filter(v=>v!==undefined&&v!==null&&v!=='').map(String):[];
+  if(invoiceIds.length>100)fail('Tek ödemede en fazla 100 fatura kapatılabilir.');
+  if(new Set(invoiceIds).size!==invoiceIds.length)fail('Aynı fatura iki kez seçilemez.');
+  // Aynı ödemenin iki kez gönderilmesi (çift tık, kopan bağlantı) ikinci kaydı oluşturmaz:
+  // referans girdiden türetilir ve source_key tekildir. Kendi öneki vardır: kasa/banka
+  // hareketinin ('cash:') referansıyla karışmaz.
+  const reference=x.reference?text(x.reference,'Referans',120):await digestReference([party,String(amount),date,method,due||'',note,[...invoiceIds].sort().join(',')]);
+  const sourceKey='odeme:'+reference;
+  const already=await stmt(db,'SELECT id FROM party_entries WHERE source_key=?',[sourceKey]).first();
+  if(already){
+   const closed=(await stmt(db,'SELECT n.source_key,a.amount_cents FROM payment_allocations a JOIN party_entries n ON n.id=a.negative_entry_id WHERE a.positive_entry_id=? AND NOT EXISTS(SELECT 1 FROM allocation_reversals r WHERE r.allocation_id=a.id)',[already.id]).all()).results;
+   return {id:already.id,existing:true,reference,allocated_cents:closed.reduce((sum,row)=>sum+row.amount_cents,0),closed_invoice_ids:closed.filter(r=>r.source_key.startsWith('invoice:')).map(r=>r.source_key.slice(8))};
+  }
+  const open=(await stmt(db,openDebtSql,[party]).all()).results.filter(row=>remainingOf(row)>0);
+  let targets=open;
+  if(invoiceIds.length){
+   const byInvoice=new Map(open.map(row=>[row.source_key,row]));
+   targets=invoiceIds.map(invoice=>{const row=byInvoice.get('invoice:'+invoice);if(!row)fail('Seçilen faturalardan birinin açık cari borcu bulunamadı. Fatura muhasebeleşmemiş ya da zaten ödenmiş olabilir.',409);return row;});
+   targets.sort((a,b)=>a.occurred_on<b.occurred_on?-1:a.occurred_on>b.occurred_on?1:0);
+  }
+  const available=targets.reduce((sum,row)=>sum+remainingOf(row),0);
+  if(!available)fail(invoiceIds.length?'Seçilen faturaların açık borcu kalmamış.':'Bu carinin açık borcu yok. Önce faturayı muhasebeleştirin ya da borcu elle girin.',409);
+  if(amount>available)fail((invoiceIds.length?'Seçilen faturaların kalan borcu ':'Bu carinin açık borcu ')+lira(available)+'. Daha fazlasını ödeme olarak yazamayız; tutarı düşürün'+(invoiceIds.length?' ya da başka fatura seçin.':'.'),409);
+  let left=amount;const picks=[];
+  for(const row of targets){if(left<=0)break;const take=Math.min(remainingOf(row),left);if(take<=0)continue;picks.push({row,take});left-=take;}
+  const label=METHODS[method],description='Ödeme · '+label+(method==='cek'?' · vade '+due:'')+(note?' · '+note:'');
+  const items=[
+   entryInsert(db,{id:key,party_id:party,amount_cents:amount,occurred_on:date,due_on:method==='cek'?due:null,reference,description,source_key:sourceKey,source:'cash'}),
+   stmt(db,'INSERT INTO party_payment_methods(entry_id,method,note,due_on) VALUES(?,?,?,?)',[key,method,note,due])
+  ];
+  picks.forEach((pick,index)=>items.push(stmt(db,'INSERT INTO payment_allocations(id,positive_entry_id,negative_entry_id,amount_cents,reference) VALUES(?,?,?,?,?)',[id(),key,pick.row.id,pick.take,reference+'#'+(index+1)])));
+  if(account){
+   if(!await stmt(db,'SELECT id FROM cash_accounts WHERE id=?',[account]).first())fail('Kasa/banka hesabı bulunamadı.',404);
+   items.push(stmt(db,'INSERT INTO cash_transactions(id,account_id,party_entry_id,amount_cents,occurred_on,reference,description) VALUES(?,?,?,?,?,?,?)',[id(),account,key,-amount,date,reference,description]));
+  }
+  await execute(db,items);
+  return {id:key,reference,method,note,due_on:due,allocated_cents:amount-left,account_id:account||null,closed_invoice_ids:picks.filter(p=>p.row.source_key.startsWith('invoice:')&&remainingOf(p.row)===p.take).map(p=>p.row.source_key.slice(8))};
+ }
+ // Muhasebeleşmiş ama cari borcu yazılmamış eski faturaları tamamlar. Tekrar çalıştırmak güvenlidir:
+ // borcu olan faturaya dokunmaz, taslak ve iptal faturayı hiç işlemez.
+ if(path==='/api/ledger/invoice-debts'){
+  const missing="SELECT i.id FROM purchase_invoices i JOIN purchase_lines l ON l.invoice_id=i.id WHERE i.status='posted' AND NOT EXISTS(SELECT 1 FROM party_entries e WHERE e.source_key='invoice:'||i.id) GROUP BY i.id HAVING SUM(l.net_cents+l.tax_cents)>0 ORDER BY i.invoice_date,i.rowid";
+  const pending=(await db.prepare(missing+' LIMIT 1001').all()).results;
+  if(!pending.length)return {created:0,created_cents:0,found:0,remaining:0};
+  const take=pending.slice(0,200);
+  await execute(db,take.map(row=>invoiceDebtStatement(db,row.id)));
+  const written=await stmt(db,`SELECT COUNT(*) n,COALESCE(SUM(-amount_cents),0) total FROM party_entries WHERE source_key IN (${take.map(()=>'?').join(',')})`,take.map(row=>'invoice:'+row.id)).first();
+  return {created:written.n,created_cents:written.total,found:pending.length,remaining:Math.max(0,pending.length-take.length)};
+ }
+ // "Bunu ay sonunda ödeyeceğim": açık borca planlanan ödeme tarihi. Para hareketi oluşturmaz.
+ // Defter değişmez olduğu için hareketin kendisi güncellenmez; plan ayrı satır olarak eklenir, son satır geçerlidir.
+ if(path==='/api/ledger/plans'){
+  const planned=day(x.planned_on),note=optional(typeof x.note==='string'?x.note.trim():x.note,200);
+  const entryId=optional(x.entry_id,200)||'invoice:'+text(x.invoice_id,'Fatura',200);
+  const row=await stmt(db,`SELECT e.id,e.amount_cents,e.reversal_of,${ALLOCATED('negative')} allocated_cents,(SELECT id FROM party_entries r WHERE r.reversal_of=e.id) reversed_by FROM party_entries e WHERE e.id=?`,[entryId]).first();
+  if(!row)fail('Bu fatura için cari borcu bulunamadı. Önce faturayı muhasebeleştirin.',404);
+  if(row.amount_cents>=0)fail('Planlanan ödeme tarihi yalnızca borç hareketine eklenebilir.');
+  if(row.reversal_of||row.reversed_by)fail('Düzeltilmiş hareket için ödeme tarihi planlanamaz.',409);
+  if(remainingOf(row)<=0)fail('Bu borç kapanmış; planlanan ödeme tarihi gerekmiyor.',409);
+  const planId='plan:'+entryId+':'+planned;
+  const seen=await stmt(db,'SELECT id FROM party_entry_plans WHERE id=?',[planId]).first();
+  if(seen)return {id:seen.id,entry_id:entryId,planned_on:planned,existing:true};
+  await execute(db,[stmt(db,'INSERT INTO party_entry_plans(id,entry_id,planned_on,note) VALUES(?,?,?,?)',[planId,entryId,planned,note])]);
+  return {id:planId,entry_id:entryId,planned_on:planned,remaining_cents:remainingOf(row)};
+ }
  if(path==='/api/ledger/allocations'){
   await execute(db,[stmt(db,'INSERT INTO payment_allocations(id,positive_entry_id,negative_entry_id,amount_cents,reference) VALUES(?,?,?,?,?)',[key,text(x.positive_entry_id,'Alacak hareketi'),text(x.negative_entry_id,'Borç hareketi'),positive(x.amount),text(x.reference,'Referans',200)])]);return {id:key};
  }
@@ -86,8 +192,10 @@ export async function ledgerApi(request,env,path,readBody){
    items.push(stmt(db,'INSERT INTO cash_transactions(id,account_id,party_entry_id,amount_cents,occurred_on,reference,description,reversal_of) VALUES(?,?,?,?,?,?,?,?)',[key,original.account_id,reversalEntry,-original.amount_cents,date,reference,reason,original.id]));
   }else{
    const e=await stmt(db,'SELECT * FROM party_entries WHERE id=?',[x.entry_id]).first();if(!e)fail('Cari hareketi bulunamadı.',404);
-   if(e.source==='cash')fail('Bu hareketi bağlı kasa/banka kaydı üzerinden geri alın.',409);
-   if(!['manual','opening'].includes(e.source))fail('Belgeden oluşan hareket için kaynak belge düzeltme işlemi gerekir.',409);
+   // Kasa/banka kaydına bağlı hareket oradan geri alınır. Hesap seçilmeden girilen ödemenin
+   // bağlı kasa kaydı yoktur; onun ters kaydı doğrudan burada yazılır.
+   if(e.source==='cash'&&await stmt(db,'SELECT id FROM cash_transactions WHERE party_entry_id=?',[e.id]).first())fail('Bu hareketi bağlı kasa/banka kaydı üzerinden geri alın.',409);
+   if(!['manual','opening','cash'].includes(e.source))fail('Belgeden oluşan hareket için kaynak belge düzeltme işlemi gerekir.',409);
    items.push(entryInsert(db,{...e,id:key,amount_cents:-e.amount_cents,occurred_on:date,due_on:null,reference,description:reason,source_key:'reverse:'+e.id,source:'reversal',reversal_of:e.id}));
   }
   await execute(db,items);return {id:key};

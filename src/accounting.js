@@ -61,6 +61,18 @@ function provisionalClose(db,invoiceId,productId,date,reference){
     WHERE m.rem>0) u WHERE u.take>0) t JOIN stock_balances b ON b.product_id=t.product_id`)
   .bind(suffix,'Geçici sayım faturayla kapandı ('+reference+')',date,productId,invoiceId,reference,productId,invoiceId,reference,productId,productId,suffix,suffix);
 }
+/** Muhasebeleşen alış faturasının KDV DAHİL toplamını tedarikçi borcu olarak yazar.
+ * Aynı fatura için ikinci kez çalışmaz: source_key 'invoice:<fatura>' tekildir ve satır
+ * yalnızca yoksa yazılır. Böylece hem muhasebeleştirme anında hem de eski faturaları
+ * tamamlarken (toplu tamamlama) aynı ifade güvenle kullanılır. Silme yoktur; düzeltme
+ * ters kayıtla yapılır. Tutarı sıfır veya eksi çıkan fatura borç yazmaz. */
+export const invoiceDebtStatement=(db,invoiceId)=>db.prepare(
+ `INSERT INTO party_entries(id,party_id,amount_cents,occurred_on,reference,description,source_key,source)
+  SELECT 'invoice:'||i.id,i.supplier_id,-SUM(l.net_cents+l.tax_cents),i.invoice_date,i.invoice_no,
+   'Alış faturası · '||s.name||' · '||i.invoice_no,'invoice:'||i.id,'invoice'
+  FROM purchase_invoices i JOIN purchase_lines l ON l.invoice_id=i.id JOIN suppliers s ON s.id=i.supplier_id
+  WHERE i.id=? AND i.status='posted' AND NOT EXISTS(SELECT 1 FROM party_entries e WHERE e.source_key='invoice:'||i.id)
+  GROUP BY i.id HAVING SUM(l.net_cents+l.tax_cents)>0`).bind(invoiceId);
 /** Eski sürümden kalan yarım işi tamamlar: teslimi yazılmış ama geçici sayım kapanışı yazılamamış fatura. */
 export async function completeProvisionalClose(db,invoiceId,reference){
  const rows=(await db.prepare("SELECT l.product_id,MAX(g.occurred_on) d FROM effective_receipts g JOIN purchase_lines l ON l.id=g.line_id WHERE l.invoice_id=? AND g.reference=? AND l.product_id IS NOT NULL GROUP BY l.product_id").bind(invoiceId,reference).all()).results;
@@ -227,7 +239,8 @@ export async function accountingApi(request,env,path,readBody){
    if(!result[0].results.length)fail('Bu fatura daha önce işlendi.',409);
    return {id:key};
   }
-  if(action==='post'){await batch(db,[statement(db,"UPDATE purchase_invoices SET status='posted' WHERE id=? AND status='draft'",[key]),log(db,'Alış faturası muhasebeleştirildi; mal teslimi bekleniyor')]);return {id:key};}
+  // Muhasebeleşme ve tedarikçi borcu AYNI yazma kümesindedir: fatura işlendiyse borç da yazılmıştır.
+  if(action==='post'){await batch(db,[statement(db,"UPDATE purchase_invoices SET status='posted' WHERE id=? AND status='draft'",[key]),invoiceDebtStatement(db,key),log(db,'Alış faturası muhasebeleştirildi; cari borcu oluştu, mal teslimi bekleniyor')]);return {id:key};}
   if(!Array.isArray(x.lines)||x.lines.length>40)fail('Fatura eşleştirmesi geçersiz.');const lines=(await statement(db,'SELECT * FROM purchase_lines WHERE invoice_id=?',[key]).all()).results;
   if(lines.length!==x.lines.length||new Set(x.lines.map(l=>l.id)).size!==lines.length)fail('Tüm satırlar bir kez eşleştirilmeli.');
   for(const line of x.lines)if(!line||!lines.some(old=>old.id===line.id))fail('Satır bulunamadı.');

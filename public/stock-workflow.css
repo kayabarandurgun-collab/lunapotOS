@@ -5,4 +5,17 @@
 .stock-physical dd { margin: .4rem 0 0; font-size: 1.15rem; font-weight: 650; overflow-wrap: anywhere; }
 .stock-physical small, .stock-transit-note { display: block; font-size: .78rem; font-weight: 400; line-height: 1.4; margin-top: .3rem; }
 .stock-count-preview { display: block; padding: .8rem; border: 1px solid var(--border, #d8e1d8); border-radius: .5rem; margin: .7rem 0; line-height: 1.6; }
-@media (max-width: 480px) { .stock-physical { grid-template-columns: 1fr; } }
+/* Tek satıştan / set içinden: aynı ürünün iki ayrı sonucu. Dar ekranda alt alta, yatay taşma yok. */
+.product-shape { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; margin: .2rem 0 .6rem; }
+.product-shape dt { font-size: .78rem; line-height: 1.4; }
+.product-shape dd { margin: .25rem 0 0; font-size: 1.02rem; font-weight: 650; overflow-wrap: anywhere; }
+.product-shape small { display: block; font-size: .74rem; font-weight: 400; line-height: 1.4; margin-top: .25rem; }
+.set-profit-list { list-style: none; margin: .4rem 0 0; padding: 0; display: grid; gap: .55rem; }
+.set-profit-row { padding: .55rem .65rem; border: 1px solid var(--border, #d8e1d8); border-radius: .5rem; }
+.set-profit-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: .35rem .7rem; }
+.set-profit-head strong { min-width: 0; overflow-wrap: anywhere; }
+.set-profit-result { text-align: right; white-space: nowrap; font-weight: 650; }
+.set-profit-result small { display: block; font-size: .7rem; font-weight: 400; white-space: normal; }
+.set-profit-row > small { display: block; font-size: .76rem; line-height: 1.45; margin-top: .25rem; overflow-wrap: anywhere; }
+.set-profit-parts { opacity: .85; }
+@media (max-width: 480px) { .stock-physical, .product-shape { grid-template-columns: 1fr; } }

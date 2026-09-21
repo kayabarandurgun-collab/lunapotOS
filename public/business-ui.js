@@ -12,6 +12,9 @@ const channels = [['trendyol','Trendyol'],['hepsiburada','Hepsiburada'],['other'
 const channelName = value => channels.find(([key]) => key === value)?.[1] || value;
 const kindNames = {supplier:'Tedarikçi', customer:'Müşteri', marketplace:'Pazaryeri', other:'Diğer'};
 const sourceNames = {manual:'Elle kayıt', opening:'Açılış', cash:'Kasa / banka', reversal:'Düzeltme', purchase:'Alış faturası', invoice:'Alış faturası', sale:'Satış', payment:'Ödeme', legacy_payment:'Ödeme', return:'İade'};
+// Ödemeyi nasıl yaptığın sorulur; hangi bankadan olduğu serbest nottur, listeden seçilmez.
+const methodNames = {nakit:'Nakit', kart:'Kart', havale:'Havale / EFT', cek:'Çek'};
+const payStatus = row => row.status === 'partial' ? badge('Kısmi · kalan ' + money(row.remaining_cents),'warning') : badge('Açık');
 const humanize = message => String(message).replace(/vat_bps|withholding_bps|replacement_cost_cents|packaging_cents|other_cents|length_mm|width_mm|height_mm|weight_grams|units_per_parcel/g, key => ({vat_bps:'KDV oranı',withholding_bps:'Stopaj oranı',replacement_cost_cents:'Ürün maliyeti',packaging_cents:'Ambalaj gideri',other_cents:'Diğer giderler',length_mm:'Paket uzunluğu',width_mm:'Paket genişliği',height_mm:'Paket yüksekliği',weight_grams:'Paket ağırlığı',units_per_parcel:'Paketteki ürün adedi'}[key]));
 const input = (label, name, value = '', type = 'text', extra = '') => `<label>${esc(label)}<input name="${esc(name)}" type="${type}" value="${esc(value)}" ${extra}></label>`;
 const amount = (label, name, value = '', required = true) => input(label, name, value, 'number', `min="0" max="100000000" step="0.01" ${required ? 'required' : ''}`);
@@ -39,7 +42,14 @@ export function mountBusiness(root, namespace, view, user = null) {
   const from=incomingDates.get('from')||'',to=incomingDates.get('to')||'';
   const validDates=(!from||isISODate(from))&&(!to||isISODate(to))&&(!from||!to||from<=to);
   const controller = new AbortController();
-  const state = { partyKind: '', ledgerQuery: '', ledgerFrom: validDates?from:'', ledgerTo: validDates?to:'', ledgerDue: '', ledgerPage: 1, entryPagination: null,data:null, tab:view === 'pricing' ? 'hizli' : canReceivables && incomingDates.get('tab') === 'receivables' ? 'receivables' : 'parties', party:'', search:'', quote:null, quoteInput:{channel:'trendyol',desired_profit:0,max_price:10000}, disposed:false, sequence:0};
+  // Alış faturası ekranındaki "Ödeme gir" buraya yönlendirir: #ledger?tab=odemeler&party=…&invoice=…
+  const incomingTab = incomingDates.get('tab') || '';
+  const ledgerTab = incomingTab === 'receivables' && canReceivables ? 'receivables'
+    : ['odemeler','entries','cash','allocations','statement'].includes(incomingTab) ? incomingTab : 'parties';
+  const safeId = value => /^[\w:.-]{1,120}$/.test(value || '') ? value : '';
+  const incomingParty = view === 'ledger' ? safeId(incomingDates.get('party')) : '';
+  const incomingInvoice = view === 'ledger' ? safeId(incomingDates.get('invoice')) : '';
+  const state = { partyKind: '', ledgerQuery: '', ledgerFrom: validDates?from:'', ledgerTo: validDates?to:'', ledgerDue: '', ledgerPage: 1, entryPagination: null,data:null, tab:view === 'pricing' ? 'hizli' : ledgerTab, party:incomingParty, search:'', quote:null, quoteInput:{channel:'trendyol',desired_profit:0,max_price:10000}, selected:new Set(), payParty:'', pendingInvoice:incomingInvoice, disposed:false, sequence:0};
   const $ = selector => root.querySelector(selector);
   const api = async (path = '', body) => {
     const response = await fetch(`/api/${namespace}/${view}${path}`, {signal:controller.signal, ...(body === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})});
@@ -69,14 +79,24 @@ export function mountBusiness(root, namespace, view, user = null) {
     }
     const result = await api(query);
     if (state.disposed || sequence !== state.sequence || !root.isConnected) return;
-    state.entryPagination = result.entry_pagination || null; state.data = result; render();
+    state.entryPagination = result.entry_pagination || null; state.data = result;
+    // Ekranda kalmayan fatura seçili sayılmaz: ödenen ya da düzeltilen satır listeden düşer.
+    const live = new Set((result.open_invoices || []).map(row => row.entry_id));
+    for (const id of [...state.selected]) if (!live.has(id)) state.selected.delete(id);
+    if (state.pendingInvoice) {
+      const row = (result.open_invoices || []).find(x => x.invoice_id === state.pendingInvoice);
+      if (row) { state.selected.add(row.entry_id); state.payParty = row.party_id; }
+      state.pendingInvoice = '';
+    }
+    if (!state.selected.size) state.payParty = '';
+    render();
   }
   function render() {
     prepareWorkflow(root);
     if (state.disposed || !state.data) return;
     const title = view === 'pricing' ? 'Fiyat ve kâr planı' : 'Cari hesaplar';
     const subtitle = view === 'pricing' ? 'Satmadan önce hesabını gör. Ürün, paket ve geçerli tarifelerle fiyatını belirle.' : 'Kimden alacağın var, kime borçlusun? Belgeleri ve ödemeleri aynı hesapta takip et.';
-    const tabs = view === 'pricing' ? [['hizli','Kaça satmalıyım?'],['quote','Tarifeyle hesapla'],['profiles','Ürün ve paket'],['tariffs','Komisyon ve kargo']] : [['parties','Cariler'],['entries','Hesap hareketleri'],['cash','Kasa ve banka'],['allocations','Belge kapamaları'],['statement','Mutabakat'],...(canReceivables ? [['receivables','Raporlardan hakediş']] : [])];
+    const tabs = view === 'pricing' ? [['hizli','Kaça satmalıyım?'],['quote','Tarifeyle hesapla'],['profiles','Ürün ve paket'],['tariffs','Komisyon ve kargo']] : [['parties','Cariler'],['odemeler','Fatura ödemeleri'],['entries','Hesap hareketleri'],['cash','Kasa ve banka'],['allocations','Belge kapamaları'],['statement','Mutabakat'],...(canReceivables ? [['receivables','Raporlardan hakediş']] : [])];
     root.innerHTML = `<div class="v2-page workflow-page"><div class="page-heading"><div><span class="eyebrow">${namespace === 'ec' ? 'E-TİCARET' : 'LUNAPOT'} ÇALIŞMA ALANI</span><h1>${title}</h1><p>${subtitle}</p></div>${view === 'ledger' ? `<div class="ac-actions">${button('Tahsilat / ödeme','cash')}${button('Cari ekle','party','',true)}</div>` : ''}</div><div class="notice" data-business-error role="alert" hidden></div><nav class="v2-tabs" aria-label="${title}">${tabs.map(([key,label]) => `<button type="button" data-business="tab" data-id="${key}" class="${state.tab === key ? 'active' : ''}" aria-current="${state.tab === key ? 'page' : 'false'}">${label}</button>`).join('')}</nav><section data-business-body></section></div>`;
     // Mutabakat kendi modulunde durur; sekme degisince onceki baglanti birakilir.
     if (state.statementDispose) { state.statementDispose(); state.statementDispose = null; }
@@ -175,10 +195,51 @@ export function mountBusiness(root, namespace, view, user = null) {
       `${select('Vade','due',[['','Tümü'],['overdue','Vadesi geçenler'],['upcoming','Vadesi gelecekler']],state.ledgerDue || '',false)}` +
       `<button class="secondary" type="submit">Göster</button><span class="muted">${esc(scope)}</span></form>`;
   }
+  // Fatura ödemeleri: açık alış faturaları, toplu ödeme, verilen çekler ve planlanan ödeme tarihleri.
+  // Ödeme için kasa/banka hesabı seçmek gerekmez; nasıl ödediğin ve serbest notun yeterlidir.
+  function paymentsView() {
+    const d = state.data, open = d.open_invoices || [], cheques = d.cheques || [], due = d.due_soon || [];
+    const toplam = open.reduce((sum, row) => sum + (row.remaining_cents || 0), 0);
+    const cekToplam = cheques.reduce((sum, row) => sum + (row.amount_cents || 0), 0);
+    const secili = open.filter(row => state.selected.has(row.entry_id));
+    const seciliToplam = secili.reduce((sum, row) => sum + (row.remaining_cents || 0), 0);
+    const suppliers = [...new Map(open.map(row => [row.party_id, row.party_name])).entries()].slice(0, 30);
+    const filtre = `<form class="v2-toolbar" data-business-form="pay-filter">${select('Cari hesabı','party_id',[['','Tüm cariler'],...partyOptions()],state.party,false)}<button class="secondary" type="submit">Listele</button>${button('Eksik fatura borçlarını tamamla','invoice-debts','',true)}</form>`;
+    const bilgi = '<div class="notice subtle">Muhasebeleşen her alış faturası cari borcu oluşturur. Eski faturaların borcu görünmüyorsa “Eksik fatura borçlarını tamamla”ya bas: yalnızca eksik olanlar yazılır, var olan kayda dokunulmaz, taslak fatura işlenmez.</div>';
+    const gruplar = suppliers.map(([id, name]) => {
+      const rows = open.filter(row => row.party_id === id);
+      const borc = rows.reduce((sum, row) => sum + (row.remaining_cents || 0), 0);
+      const seciliSayi = rows.filter(row => state.selected.has(row.entry_id)).length;
+      const actions = `<div class="ac-actions">${button(seciliSayi === rows.length ? 'Seçimi kaldır' : 'Tümünü seç · ' + rows.length + ' fatura','pay-all',id,true)}${seciliSayi ? button('Seçilenleri öde · ' + seciliSayi,'pay-open',id) : ''}</div>`;
+      return card(name + ' · borcum ' + money(borc), table(['Fatura','Tarih / planlanan ödeme','Toplam · KDV dahil','Kalan','İşlem'], rows.map(row => [
+        `<label class="pay-pick"><input type="checkbox" data-pay-pick="${esc(row.entry_id)}" data-party="${esc(row.party_id)}" ${state.selected.has(row.entry_id) ? 'checked' : ''} aria-label="${esc(row.invoice_no)} faturasını seç"> <strong>${esc(row.invoice_no)}</strong></label>`,
+        `${esc(row.occurred_on)}<small>${row.planned_on ? 'Ödeyeceğim: ' + esc(row.planned_on) : 'Planlanan ödeme yok'}</small>`,
+        `${money(row.debt_cents)}<small>Ödenen ${money(row.paid_cents)}</small>`,
+        `<strong>${money(row.remaining_cents)}</strong><small>KDV dahil</small>`,
+        `${payStatus(row)} ${button('Öde','pay-one',row.entry_id,true)} ${button(row.planned_on ? 'Tarihi değiştir' : 'Ay sonunda öderim','plan',row.entry_id,true)}`
+      ]), 'Bu carinin açık faturası yok.','Ödenmemiş alış faturası kalmadı.'), actions);
+    }).join('');
+    const bos = `<div class="v2-empty"><h3>Açık alış faturan yok.</h3><p>Muhasebeleşmiş ve ödenmemiş fatura bulunmuyor. Eski faturaların borcu hiç görünmüyorsa “Eksik fatura borçlarını tamamla”yı çalıştır.</p></div>`;
+    const cekKart = card('Verilen çekler · vade', table(['Vade','Cari','Tutar · KDV dahil','Çek notu'], cheques.map(row => [
+      `<strong>${esc(row.due_on || '—')}</strong><small>${row.due_on && row.due_on < today() ? 'Vadesi geçti' : 'Bekliyor'}</small>`,
+      `${esc(row.party_name)}<small>${esc(row.occurred_on)} tarihinde verildi</small>`, money(row.amount_cents), esc(row.note || '—')
+    ]), 'Verilmiş çek yok.','Çekle ödeme yaptığında vadesiyle burada listelenir.'))
+      + `<p class="help">${esc(d.cheque_note || 'Verilen çek cari borcunu kapatır; para hesabından vadesinde çıkar, henüz tahsil edilmemiştir.')}</p>`;
+    const vadeKart = card('Vadesi gelen / geçen', table(['Tarih','Cari / belge','Tutar','Durum'], due.map(row => [
+      `<strong>${esc(row.due_on)}</strong><small>${row.kind === 'cheque' ? 'Çek vadesi' : row.planned ? 'Planladığın ödeme' : 'Fatura vadesi'}</small>`,
+      `${esc(row.party_name)}<small>${esc(row.reference)}</small>`, money(row.amount_cents),
+      row.overdue ? badge('Vadesi geçti','danger') : badge('Yaklaşıyor','warning')
+    ]), 'Yaklaşan vade yok.','Faturaya ödeme tarihi işaretlediğinde ya da çek verdiğinde burada görünür.'));
+    return `<div class="v2-grid cols-3">${stat('Ödenmemiş fatura',number(open.length),state.party ? 'Seçili cari' : 'Tüm cariler')}${stat('Toplam açık borcum',money(toplam),'KDV dahil · kapatılmamış tutar',true)}${stat('Verilen çek',number(cheques.length),cheques.length ? 'Vadesinde çıkacak ' + money(cekToplam) : 'Bekleyen çek yok')}</div>`
+      + bilgi + filtre
+      + (secili.length ? `<div class="notice">${secili.length} fatura seçili · toplam ${esc(money(seciliToplam))}. ${button('Seçilenleri tek ödemeyle kapat','pay-open',state.payParty)}</div>` : '')
+      + (open.length ? gruplar : bos) + cekKart + vadeKart;
+  }
   function ledgerView() {
     const d = state.data, relevant = state.party && state.tab !== 'parties' ? d.parties.filter(p => p.id === state.party) : d.parties;
     const receivable = relevant.reduce((sum,p) => sum + Math.max(0,p.balance_cents),0), payable = relevant.reduce((sum,p) => sum + Math.max(0,-p.balance_cents),0);
     const warnings = Object.entries(d.truncated).filter(([,value]) => value).length ? '<div class="notice">Hareket listesinde son 500 kayıt gösteriliyor. Cari bakiyeleri tüm hareketleri içerir. Daha dar bir liste için cari seçin; indirilen dosya yalnızca gösterilen hareketleri kapsar.</div>' : '';
+    if (state.tab === 'odemeler') return paymentsView();
     if (state.tab === 'parties') {
       const parties = d.parties.filter(p => (!state.partyKind || p.kind === state.partyKind)
         && `${p.name} ${p.tax_id || ''} ${p.phone || ''}`.toLocaleLowerCase('tr-TR').includes(state.search.toLocaleLowerCase('tr-TR')));
@@ -189,7 +250,7 @@ export function mountBusiness(root, namespace, view, user = null) {
           + `<span>${esc(ad)}</span><strong>${number(n)}</strong></button>`).join('') + '</div>';
       return kindTabs + `<div class="v2-grid cols-3">${stat('Güncel alacağım',money(receivable),'Pozitif bakiyesi olan cari hesaplar')}${stat('Güncel borcum',money(payable),'Negatif bakiyesi olan cari hesaplar')}${stat('Cari hesap',number(d.parties.length),'Yalnızca bu çalışma alanı')}</div><div class="notice subtle">Lunapot ve e-ticaret carileri birbirinden ayrıdır. Alış ve ödemeler bu cari defterinde izlenir; eski tedarikçi özetleri ayrıca toplanmaz.</div>` + card('Cari listesi', `<form class="v2-toolbar" data-business-form="search">${input('Cari adı, vergi no veya telefon','search',state.search,'search','placeholder="Cari ara…"')}<button class="secondary" type="submit">Ara</button></form>` + table(['Cari','Tür','İletişim','Alacağım','Borcum','İşlem'],parties.map(p => [`<strong>${esc(p.name)}</strong><small>${esc(p.tax_id || 'Vergi numarası eklenmemiş')}</small>`, esc(kindNames[p.kind] || 'Tedarikçi'),`${esc(p.phone || '—')}<small>${esc(p.email || '')}</small>`,money(Math.max(0,p.balance_cents)),money(Math.max(0,-p.balance_cents)),button('Hesabı incele','party-detail',p.id,true)]),'Henüz cari hesabın yok.','Tedarikçi, müşteri veya pazaryerini cari olarak ekleyerek başlayabilirsin.', 'Kargo tarifesi tanımlı değil.', 'Zarar eden siparişlerin çoğu kargo yüzünden. Tutar bandı ve desi aralığıyla ücreti ekleyin; barem eşiğine yakın fiyatları önceden görün.'),button('Cari ekle','party'));
     }
-    if (state.tab === 'entries') return `<p class="workflow-scope">Bakiyeler günceldir. Tarih ve vade filtreleri yalnız hareket listesini daraltır.</p><div class="v2-grid cols-2">${stat('Güncel alacağım',money(receivable),state.party ? 'Seçili cari' : 'Tüm cariler')}${stat('Güncel borcum',money(payable),state.party ? 'Seçili cari' : 'Tüm cariler')}</div>${warnings}` + card('Cari hesap hareketleri', ledgerFilter() + table(['Tarih / vade','Cari / referans','Açıklama','Alacağım artışı','Borcum artışı','Kapatılmamış tutar','İşlem'], d.entries.map(e => [`${esc(e.occurred_on)}<small>${e.due_on ? 'Vade: ' + esc(e.due_on) : 'Vade yok'}</small>`,`<strong>${esc(e.party_name)}</strong><small>${esc(e.reference)}</small>`,`${esc(e.description)}<small>${esc(e.source_key?.startsWith('adjustment:')?'Fatura düzeltmesi':e.source_key?.startsWith('purchase-return:')?'Tedarikçi iadesi':sourceNames[e.source] || 'Belge kaydı')}</small>`,e.amount_cents > 0 ? money(e.amount_cents) : '—',e.amount_cents < 0 ? money(-e.amount_cents) : '—',e.reversed_by || e.reversal_of ? badge('Düzeltildi') : `${money(e.remaining_cents)}${e.due_on && e.due_on < today() && e.remaining_cents > 0 ? '<br>' + badge('Vadesi geçti','warning') : ''}`,!e.reversed_by && !e.reversal_of && ['manual','opening'].includes(e.source) ? button('Ters kayıt','reverse','entry_id:' + e.id,true) : '—'])),`<div class="ac-actions">${button('Hareket ekle','entry')}${button('CSV indir','csv','entries',true)}${ledgerPager()}</div>`);
+    if (state.tab === 'entries') return `<p class="workflow-scope">Bakiyeler günceldir. Tarih ve vade filtreleri yalnız hareket listesini daraltır.</p><div class="v2-grid cols-2">${stat('Güncel alacağım',money(receivable),state.party ? 'Seçili cari' : 'Tüm cariler')}${stat('Güncel borcum',money(payable),state.party ? 'Seçili cari' : 'Tüm cariler')}</div>${warnings}` + card('Cari hesap hareketleri', ledgerFilter() + table(['Tarih / vade','Cari / referans','Açıklama','Alacağım artışı','Borcum artışı','Kapatılmamış tutar','İşlem'], d.entries.map(e => [`${esc(e.occurred_on)}<small>${e.due_on ? 'Vade: ' + esc(e.due_on) : e.planned_on ? 'Ödeyeceğim: ' + esc(e.planned_on) : 'Vade yok'}</small>`,`<strong>${esc(e.party_name)}</strong><small>${esc(e.reference)}</small>`,`${esc(e.description)}<small>${esc(e.payment_method ? 'Ödeme · ' + (methodNames[e.payment_method] || e.payment_method) : e.source_key?.startsWith('adjustment:')?'Fatura düzeltmesi':e.source_key?.startsWith('purchase-return:')?'Tedarikçi iadesi':sourceNames[e.source] || 'Belge kaydı')}</small>`,e.amount_cents > 0 ? money(e.amount_cents) : '—',e.amount_cents < 0 ? money(-e.amount_cents) : '—',e.reversed_by || e.reversal_of ? badge('Düzeltildi') : `${money(e.remaining_cents)}${(e.due_on || e.planned_on) && (e.due_on || e.planned_on) < today() && e.remaining_cents > 0 ? '<br>' + badge('Vadesi geçti','warning') : ''}`,!e.reversed_by && !e.reversal_of && (['manual','opening'].includes(e.source) || e.source === 'cash' && !d.cash_transactions.some(t => t.party_entry_id === e.id)) ? button('Ters kayıt','reverse','entry_id:' + e.id,true) : '—'])),`<div class="ac-actions">${button('Hareket ekle','entry')}${button('CSV indir','csv','entries',true)}${ledgerPager()}</div>`);
     if (state.tab === 'cash') return `${warnings}<div class="v2-grid cols-3">${d.accounts.map(a => stat(a.name,money(a.balance_cents),a.kind === 'bank' ? 'Banka · kaydedilen bakiye' : 'Kasa · kaydedilen bakiye')).join('')}</div>${d.accounts.length ? '' : '<div class="notice subtle">Tahsilat veya ödeme kaydetmek için önce kasa ya da banka hesabı ekle.</div>'}` + card('Kasa ve banka hareketleri', table(['Tarih','Hesap / cari','Referans / açıklama','Giriş','Çıkış','İşlem'],d.cash_transactions.map(t => [esc(t.occurred_on),`<strong>${esc(t.account_name)}</strong><small>${esc(t.party_name || 'Cari bağlantısı yok')}</small>`,`${esc(t.reference)}<small>${esc(t.description)}</small>`,t.amount_cents > 0 ? money(t.amount_cents) : '—',t.amount_cents < 0 ? money(-t.amount_cents) : '—',t.reversed_by || t.reversal_of ? badge('Düzeltildi') : button('Ters kayıt','reverse','cash_transaction_id:' + t.id,true)])),`<div class="ac-actions">${button('Kasa / banka ekle','account','',true)}${button('Tahsilat / ödeme','cash')}</div>`) + '<p class="help">Bu ekran yalnızca gerçekleşen para hareketlerinin kaydını tutar; banka transferi yapmaz. Tahsilat/ödemeyi bir cariye bağlamak cari bakiyesini de günceller.</p>';
     const allocations = d.allocations.filter(a => !state.party || a.party_id === state.party);
     return `${warnings}<div class="notice subtle">Belge kapaması, hangi tahsilatın hangi alacağı ya da hangi ödemenin hangi borcu kapattığını gösterir. Yeni para hareketi oluşturmaz ve cari bakiyesini değiştirmez.</div>` + card('Belge kapamaları',ledgerFilter() + table(['Cari','Alacak yönlü belge','Borç yönlü belge','Referans','Tutar','Durum','İşlem'],allocations.map(a => [esc(d.parties.find(p => p.id === a.party_id)?.name || '—'),esc(d.entries.find(e => e.id === a.positive_entry_id)?.reference || 'Eski belge · listede değil'),esc(d.entries.find(e => e.id === a.negative_entry_id)?.reference || 'Eski belge · listede değil'),esc(a.reference),money(a.amount_cents),a.reversed_by ? badge('Geri alındı') : badge('Kapandı','success'),a.reversed_by ? esc(a.reversal_reason || '') : a.reference.startsWith('reverse:') ? badge('Otomatik düzeltme') : button('Kapamayı geri al','reverse','allocation_id:' + a.id,true)])),button('Belgeleri eşleştir','allocation'));
@@ -205,6 +266,14 @@ export function mountBusiness(root, namespace, view, user = null) {
     const common = input('Tarife adı','label','','text','required maxlength="200" placeholder="Örn. Eylül ilk hafta anlaşması"') + choose('Satış kanalı','channel',channels) + '<div class="field-grid">' + input('Başlangıç tarihi · dahil','valid_from','','date','required') + input('Bitiş tarihi · dahil','valid_to','','date','required') + amount('Satış fiyatı alt sınırı · dahil (TL)','price_min') + amount('Satış fiyatı üst sınırı · hariç (TL)','price_max','',false) + '</div><p class="help">Fiyat sınırları KDV dahil paket satışıdır. Üst sınırı boş bırakırsan üst limit olmaz. Alt sınır dahil, üst sınır hariçtir.</p>';
     const fields = shipping ? input('Kargo şirketi','carrier','','text','required maxlength="100"') + '<div class="field-grid">' + input('Desi/kg alt sınırı · dahil','billable_min','','number','required min="0" step="0.001"') + input('Desi/kg üst sınırı · hariç','billable_max','','number','min="0.001" step="0.001"') + input('Desi hesabının böleni','desi_divisor','','number','required min="1" max="1000000" step="1"') + input('Desi/kg yuvarlama adımı','billable_step','','number','required min="0.001" max="1000" step="0.001"') + amount('Paketin kargo ücreti (TL)','amount') + '</div><p class="help">Bölen ve yuvarlama adımını kargo anlaşmandan al. Sistem hacim desisi ile ağırlığın büyük olanını kullanır. Örneğin anlaşmanda 3000 böleni ve tam desiye yuvarlama varsa 3000 ve 1 gir.</p>' : '<div class="field-grid">' + input('Ürün kodu · isteğe bağlı','sku','','text','maxlength="100"') + input('Kategori · isteğe bağlı','category','','text','maxlength="100"') + amount('Komisyon oranı (%)','rate') + choose('Komisyon hangi tutardan alınır?','base',[['gross','KDV dahil satış'],['net','KDV hariç satış']]) + '</div><p class="help">Ürün kodu ve kategori boşsa tarife tüm ürünleri kapsar. Ürüne özel tarife, genel tarifeden önceliklidir.</p>';
     dialog(shipping ? 'Kargo tarifesi ekle' : 'Komisyon tarifesi ekle',type,common + fields + '<div class="field-grid">' + amount('Hizmet KDV oranı (%)','vat') + choose(shipping ? 'Yazdığın kargo ücreti' : 'Yazdığın komisyon oranı','tax_included',[['1','Hizmet KDV dahil'],['0','Hizmet KDV hariç']]) + '</div>' + input('Tarifenin kaynağı','source','','text','required maxlength="500" placeholder="Satıcı paneli / anlaşma adı ve tarihi"') + '<p class="help">Oran ve vergi koşullarını satıcı paneli veya anlaşmandan doğrula. Kaydedilen tarifeler geçmişi korumak için silinmez; gerektiğinde arşivlenir.</p>');
+  }
+  // Toplu ödeme: seçilen faturalar TEK ödeme kaydıyla kapanır; yöntem, tarih ve not bir kez sorulur.
+  function openPayment() {
+    const rows = (state.data.open_invoices || []).filter(row => state.selected.has(row.entry_id) && (!state.payParty || row.party_id === state.payParty));
+    if (!rows.length) throw new Error('Önce kapatılacak faturaları işaretle.');
+    if (new Set(rows.map(row => row.party_id)).size > 1) throw new Error('Tek ödeme yalnızca bir cariye yazılır. Aynı tedarikçinin faturalarını seç.');
+    state.payment = {party_id:rows[0].party_id, party_name:rows[0].party_name, rows, total:rows.reduce((sum,row) => sum + (row.remaining_cents || 0),0)};
+    ledgerForm('payment');
   }
   function ledgerForm(action, context = '') {
     const d = state.data;
@@ -225,6 +294,32 @@ export function mountBusiness(root, namespace, view, user = null) {
       if (!open.some(e => e.amount_cents > 0) || !open.some(e => e.amount_cents < 0)) throw new Error('Bu caride eşleştirilecek açık alacak ve borç yönlü hareket birlikte bulunmalı.');
       return dialog('Belgeleri eşleştir','allocation', `<p class="help">${esc(d.parties.find(p => p.id === state.party)?.name)} hesabında eşleşen iki hareketi seç.</p>` + choose('Alacak yönlü hareket','positive_entry_id',options(open.filter(e => e.amount_cents > 0))) + choose('Borç yönlü hareket','negative_entry_id',options(open.filter(e => e.amount_cents < 0))) + amount('Kapatılacak tutar (TL)','amount') + input('Benzersiz referans','reference',reference('KAPAMA'),'text','required maxlength="200"') + '<p class="help">Ödeme ve tahsilatlar cari hareketinin ters yönünde oluşur. Tutar iki belgenin açık bakiyesini aşamaz; kısmi kapama yapılabilir.</p>');
     }
+    // Ödeme: yöntem düğmelerden seçilir, "hangi banka / hangi kart" serbest nottur.
+    // Kasa/banka hesabı isteğe bağlıdır: seçilirse o hesabın bakiyesi de düşer.
+    if (action === 'payment') {
+      const pick = state.payment;
+      if (!pick || !pick.rows.length) throw new Error('Önce kapatılacak faturaları seç.');
+      const list = pick.rows.map(row => `<li>${esc(row.invoice_no)} · ${esc(money(row.remaining_cents))}</li>`).join('');
+      const methods = `<p class="help" id="pay-method-label">Ödemeyi nasıl yaptın?</p><div class="ac-actions" role="radiogroup" aria-labelledby="pay-method-label">${Object.entries(methodNames).map(([key,label],index) => `<label class="v2-badge"><input type="radio" name="method" value="${key}" ${index === 0 ? 'checked' : ''} required> ${esc(label)}</label>`).join('')}</div>`;
+      return dialog('Fatura ödemesi kaydet','payment',
+        `<p class="help"><strong>${esc(pick.party_name)}</strong> · ${pick.rows.length} fatura kapatılacak.</p><ul>${list}</ul>`
+        + methods + '<div class="field-grid">' + amount('Ödediğin tutar · KDV dahil (TL)','amount',divided(pick.total,100)) + input('Ödeme tarihi','occurred_on',today(),'date','required') + '</div>'
+        + input('Not · hangi kart, hangi banka, çek no','note','','text','maxlength="200" placeholder="Örn. Garanti Bonus kart / Ziraat EFT / Çek 123456"')
+        + '<div class="field-grid">' + input('Çek vadesi · yalnızca çekte zorunlu','due_on','','date') + select('Kasa / banka hesabı · isteğe bağlı','account_id',[['','Hesap seçme'],...accountOptions()],'',false) + '</div>'
+        + '<div class="notice subtle">Hesap seçmezsen yalnız cari borcun kapanır, kasa/banka bakiyesi değişmez. Çek seçersen borç kapanır ama para hesabından vade tarihinde çıkar; çek henüz tahsil edilmemiştir. Tutar seçili faturaların kalanını aşamaz; az yazarsan kalan açık kalır.</div>');
+    }
+    // "Bunu ay sonunda ödeyeceğim": ödeme yazmaz, yalnız tarihi işaretler.
+    if (action === 'plan') {
+      const row = (d.open_invoices || []).find(x => x.entry_id === context);
+      if (!row) throw new Error('Bu fatura açık listede bulunamadı.');
+      return dialog('Ne zaman ödeyeceksin?','plan',
+        `<p class="help"><strong>${esc(row.invoice_no)}</strong> · ${esc(row.party_name)} · kalan ${esc(money(row.remaining_cents))}</p>`
+        + input('Ödemeyi planladığın tarih','planned_on',row.planned_on || '','date','required')
+        + input('Not · isteğe bağlı','note','','text','maxlength="200" placeholder="Örn. Ay sonunda ödeyeceğim"')
+        + '<div class="notice subtle">Bu işlem ödeme kaydetmez ve bakiyeyi değiştirmez. Yalnızca “şu tarihte ödeyeceğim” notudur; vadesi gelen listesinde görünür. Tarihi sonra değiştirebilirsin, eski kayıt geçmişte kalır.</div>', context, 'Tarihi işaretle');
+    }
+    if (action === 'invoice-debts') return dialog('Eksik fatura borçlarını tamamla','invoice-debts',
+      '<div class="notice">Muhasebeleşmiş her alış faturası için eksik olan cari borcu yazılır. Borcu zaten olan faturaya dokunulmaz, taslak ve iptal fatura işlenmez. İstediğin kadar tekrar çalıştırabilirsin.</div>','','Eksikleri tamamla');
     if (action === 'reverse') {
       const [kind] = context.split(':');
       return dialog(kind === 'allocation_id' ? 'Belge kapamasını geri al' : 'Düzeltme kaydı oluştur','reverse', '<div class="notice">Asıl kayıt geçmişte korunur. Bu işlem onun etkisini geri alan bir kayıt oluşturur. Hareket kapatılmışsa önce ilgili belge kapamalarını geri al.</div>' + (kind === 'allocation_id' ? '' : '<div class="field-grid">' + input('Düzeltme tarihi','occurred_on',today(),'date','required') + input('Benzersiz referans','reference',reference('DUZELTME'),'text','required maxlength="200"') + '</div>') + textArea('Düzeltme nedeni','reason'),context,'Düzeltmeyi kaydet');
@@ -248,6 +343,7 @@ export function mountBusiness(root, namespace, view, user = null) {
         history.replaceState(history.state,'',route+(params.size?'?'+params:''));await load();return;
       }
       if (kind === 'search') { state.search = x.search; render(); return; }
+      if (kind === 'pay-filter') { state.party = x.party_id || ''; state.selected.clear(); state.payParty = ''; await load(); return; }
       if (kind === 'quote') {
         state.quoteInput = {...x};
         state.quote = await api('/quote',{product_id:x.product_id,channel:x.channel,carrier:x.carrier,date:x.date,quantity:scaled(x.quantity,1,'Ürün adedi'),price_cents:scaled(x.price,100,'Satış fiyatı'),desired_profit_cents:scaled(x.desired_profit,100,'Hedef kâr'),max_price_cents:scaled(x.max_price,100,'Arama üst sınırı')});
@@ -267,13 +363,28 @@ export function mountBusiness(root, namespace, view, user = null) {
       else if (kind === 'entry') { path = '/entries'; const value = scaled(x.amount,100,'Tutar'); if (value <= 0) throw new Error('Tutar sıfırdan büyük olmalı.'); body.amount = value / 100 * Number(x.sign); delete body.sign; }
       else if (kind === 'cash') { path = '/cash'; body.amount = scaled(x.amount,100,'Tutar') / 100; if (body.amount <= 0) throw new Error('Tutar sıfırdan büyük olmalı.'); }
       else if (kind === 'allocation') { path = '/allocations'; body.amount = scaled(x.amount,100,'Tutar') / 100; if (body.amount <= 0) throw new Error('Tutar sıfırdan büyük olmalı.'); }
+      else if (kind === 'payment') {
+        const pick = state.payment; if (!pick || !pick.rows.length) throw new Error('Kapatılacak fatura seçilmedi.');
+        if (!x.method) throw new Error('Ödemeyi nasıl yaptığını seç.');
+        if (x.method === 'cek' && !x.due_on) throw new Error('Çek için vade tarihi gir.');
+        const value = scaled(x.amount,100,'Tutar'); if (value <= 0) throw new Error('Tutar sıfırdan büyük olmalı.');
+        path = '/payments';
+        body = {party_id:pick.party_id, amount:value / 100, occurred_on:x.occurred_on, method:x.method, note:x.note || '', invoice_ids:pick.rows.map(row => row.invoice_id)};
+        if (x.due_on) body.due_on = x.due_on;
+        if (x.account_id) body.account_id = x.account_id;
+      }
+      else if (kind === 'plan') { path = '/plans'; body = {entry_id:form.dataset.context, planned_on:x.planned_on, note:x.note || ''}; }
+      else if (kind === 'invoice-debts') { path = '/invoice-debts'; body = {}; }
       else if (kind === 'reverse') { path = '/reverse'; const [type,id] = form.dataset.context.split(':'); body[type] = id; }
       else throw new Error('İşlem tanınmadı.');
       const result = await api(path,body);
       if (state.disposed) return;
       if (kind === 'party' && result.existing) { closeDialog(); await load(); showError('Bu vergi numarasıyla kayıtlı cari zaten var. Yeni kayıt açılmadı.'); return; }
+      if (kind === 'payment') { state.payment = null; state.selected.clear(); state.payParty = ''; }
       closeDialog(); if (view === 'pricing') state.quote = null;
       await load();
+      if (kind === 'payment' && result.existing && !state.disposed) showError('Bu ödeme daha önce kaydedilmişti; ikinci kez yazılmadı.');
+      if (kind === 'invoice-debts' && !state.disposed) showError(result.created ? result.created + ' fatura için eksik cari borcu yazıldı.' + (result.remaining ? ' ' + result.remaining + ' fatura kaldı, tekrar çalıştır.' : '') : 'Eksik fatura borcu bulunamadı; bütün muhasebeleşmiş faturaların cari borcu zaten yazılı.');
       // Bant bosluk/cakisma uyarisi kaydi engellemez; kullanicinin gormesi icin gosterilir.
       if (result?.warnings?.length && !state.disposed) showError(result.warnings.join(' '));
     } catch (e) { if (e.name !== 'AbortError' && !state.disposed) { if (error && error.isConnected) error.textContent = e.message; else showError(e.message); } }
@@ -298,6 +409,19 @@ export function mountBusiness(root, namespace, view, user = null) {
       else if (action === 'profile') profileForm(id);
       else if (action === 'shipping' || action === 'commission') tariffForm(action);
       else if (action === 'archive') dialog('Tarifeyi arşivle','archive','<p>Bu tarife yeni hesaplarda kullanılmayacak. Kaydın geçmişi korunacak.</p>',id,'Arşivle');
+      else if (action === 'pay-all') {
+        const rows = (state.data.open_invoices || []).filter(row => row.party_id === id);
+        const hepsi = rows.length > 0 && rows.every(row => state.selected.has(row.entry_id));
+        state.selected.clear(); state.payParty = hepsi ? '' : id;
+        if (!hepsi) for (const row of rows) state.selected.add(row.entry_id);
+        render();
+      }
+      else if (action === 'pay-one') {
+        const row = (state.data.open_invoices || []).find(x => x.entry_id === id);
+        if (!row) throw new Error('Bu fatura açık listede bulunamadı.');
+        state.selected.clear(); state.selected.add(row.entry_id); state.payParty = row.party_id; render(); openPayment();
+      }
+      else if (action === 'pay-open') { if (id) state.payParty = id; openPayment(); }
       else if (action === 'party-detail') { state.party = id; state.tab = 'entries'; await load(); }
       else if (action === 'csv') exportEntries();
       else if (action === 'retry') await load();
@@ -306,6 +430,15 @@ export function mountBusiness(root, namespace, view, user = null) {
   },{signal:controller.signal});
   root.addEventListener('submit',submit,{signal:controller.signal});
   root.addEventListener('change',event => {
+    // Fatura seçimi: bir ödeme tek cariye yazılır, başka tedarikçi işaretlenince seçim ona geçer.
+    const pick = event.target.closest('[data-pay-pick]');
+    if (pick && root.contains(pick)) {
+      const id = pick.dataset.payPick, party = pick.dataset.party;
+      if (pick.checked && state.payParty && party !== state.payParty) { state.selected.clear(); showError('Tek ödeme yalnızca bir cariye yazılır; seçim yeni tedarikçiye geçti.'); }
+      if (pick.checked) { state.selected.add(id); state.payParty = party; } else state.selected.delete(id);
+      if (!state.selected.size) state.payParty = '';
+      render(); return;
+    }
     const quoteForm=event.target.closest('[data-business-form="quote"]');
     if(view==='pricing'&&quoteForm){
       if(event.target.name==='product_id'){const profile=state.data.profiles.find(p=>p.product_id===event.target.value);quoteForm.elements.quantity.value=profile?.units_per_parcel??'';}

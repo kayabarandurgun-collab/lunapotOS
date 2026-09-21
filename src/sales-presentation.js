@@ -6,6 +6,10 @@ const inc = (v, b) => money(v) && money(b) ? Math.round(v * (10000 + b) / 10000)
 const gcd = (a, b) => b ? gcd(b, a % b) : a;
 const MONEY = ['revenue_gross_cents', 'cost_gross_cents', 'cash_cents', 'sold_cash_cents', 'return_cash_cents', 'withholding_cents'];
 const NOTE = 'Stok bileşeni katkısıdır; tek başına satılan ürün kârı değildir. Kesintiler bağlı satış kayıtlarından, stopaj paket payından gelir.';
+// SATIŞ ŞEKLİ. Ürünün bu paketteki payı TEK satıştan mı (kendi ilanı ya da yalnız kendisinden oluşan
+// çoklu paket) geldi, yoksa çok bileşenli SET ilanından mı. Yeni bir kâr formülü yoktur: mevcut
+// single/multipack/bundle kovalarından türer, tek_* + set_* her zaman ürünün paket payına EŞİTTİR.
+const SEKIL = ['tek', 'set'], sekilAdi = kind => kind === 'bundle' ? 'set' : 'tek';
 
 // Largest remainder, stable caller order, signed integer cents; even allocation when every weight is zero.
 function allocate(total, weights) {
@@ -17,6 +21,17 @@ function allocate(total, weights) {
   let left = Math.abs(total) - parts.reduce((n, p) => n + p.value, 0);
   for (const p of [...parts].sort((a, b) => compare(b.remainder, a.remainder) || a.i - b.i)) if (left-- > 0) p.value++;
   return parts.map(p => total < 0 ? -p.value : p.value);
+}
+
+// Paket payı (performance-api) ile satır sunumu ayrı yuvarlanabilir; kargodaki tahminde tek kuruşluk
+// fark çıkabilir. Artık, o alanda payı büyük olan şekle yazılır: şekillerin toplamı ürünün kendi
+// toplamına EŞİT kalır, hiçbir kuruş kaybolmaz. Teslim edilenlerde fark zaten sıfırdır.
+function esitle(u, field, total, gruplar) {
+  if (!money(total) || !SEKIL.every(s => money(u[s + field]))) return;
+  const fark = total - SEKIL.reduce((n, s) => n + u[s + field], 0);
+  if (!fark) return;
+  const dolu = SEKIL.filter((s, i) => gruplar[i].length);
+  u[[...(dolu.length ? dolu : SEKIL)].sort((a, b) => Math.abs(u[b + field]) - Math.abs(u[a + field]))[0] + field] += fark;
 }
 
 export function offeringComposition(line, parts, names = new Map()) {
@@ -158,6 +173,23 @@ export function buildSalesPresentation(row, lines, parts, entries, {names = new 
       const shares = allocate(u.cash_cents - base.reduce((n, v) => n + v, 0), weights);
       buckets.forEach((k, i) => { u[k + '_cash_cents'] = base[i] + shares[i]; }); u.return_cash_cents = 0;
     }
+    // Şekil kırılımı: tek = single + multipack, set = bundle. Teslim edilenlerde iade etkisi de kendi
+    // şekline yazılır (kargodaki tahminde iade payı yukarıda zaten sıfırlanmıştır).
+    const gruplar = SEKIL.map(s => ps.filter(p => sekilAdi(p.item.kind) === s));
+    const tekli = [u.single_cash_cents, u.multipack_cash_cents];
+    u.tek_cash_cents = tekli.every(money) ? tekli[0] + tekli[1] : null;
+    u.set_cash_cents = u.bundle_cash_cents;
+    if (!pending) SEKIL.forEach((s, i) => {
+      const iade = sum(gruplar[i], 'return_cash_cents');
+      u[s + '_cash_cents'] = money(u[s + '_cash_cents']) && money(iade) ? u[s + '_cash_cents'] + iade : null;
+    });
+    SEKIL.forEach((s, i) => {
+      u[s + '_revenue_gross_cents'] = sum(gruplar[i], 'revenue_gross_cents');
+      u[s + '_qty_milli'] = gruplar[i].reduce((n, p) => n + p.qty_milli, 0);
+      // Ürünün bu pakette o şekilde kaç ilan satırında geçtiği: paket sayımı buradan çıkar.
+      u[s + '_satir'] = new Set(gruplar[i].map(p => p.item)).size;
+    });
+    for (const [field, toplam] of [['_cash_cents', u.cash_cents], ['_revenue_gross_cents', u.revenue_gross_cents], ['_qty_milli', u.qty_milli]]) esitle(u, field, toplam, gruplar);
   }
   return row.sales_items;
 }

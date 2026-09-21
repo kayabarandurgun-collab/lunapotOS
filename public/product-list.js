@@ -31,9 +31,19 @@ export function productList(products,data,state,helpers){
  const cost=p=>onHand(p)>0&&p.value_cents!=null?Math.round(p.value_cents*1000/onHand(p)):null;
  const actions=p=>(helpers.editable===false?'':'<button type="button" class="text-button" data-ac="edit-product" data-id="'+esc(p.id)+'">Düzenle</button>')+'<button type="button" class="text-button" data-ac="stock-history" data-id="'+esc(p.id)+'">Hareketler →</button>';
  const st=p=>data.productStats?.get(p.id)||null;
+ // TEK SATIŞTAN / SET İÇİNDEN. Aynı ürünün iki ayrı sonucu ayrı gösterilir; karışık tek rakam yoktur.
+ // Bilinmeyen sıfır yazılmaz, nedeni yazılır. Tutarlar KDV dahil cebine kalandır.
+ const shapeCell=(x,p,key,label)=>{
+  const packages=known(x[key+'_paket']),value=known(x[key+'_kar_cents']),unit=known(x[key+'_kar_adet_cents']),missing=known(x[key+'_eksik_paket']);
+  const body=!packages?'<strong>—</strong><small>Bu dönemde yok</small>'
+   :value===null?'<strong>Bilinmiyor</strong><small>'+esc(missing?missing+' pakette '+(x.eksik_neden||'kâr hesaplanamadı'):'Kâr hesaplanamadı')+'</small>'
+   :'<strong class="'+(value<0?'ol-neg':'ol-pos')+'">'+money(value)+'</strong><small>'+quantity(x[key+'_adet_milli'])+' '+esc(p.stock_unit)+' · '+packages+' paket'+(unit===null?'':' · adet başına '+money(unit))+'</small>';
+  return '<div><dt>'+label+'</dt><dd>'+body+'</dd></div>';
+ };
+ const shape=(x,p)=>'<dl class="product-shape">'+shapeCell(x,p,'tek','Tek satıştan')+shapeCell(x,p,'set','Set içinden')+'</dl><p class="help">Tutarlar KDV dahil, cebine kalandır. Bir bileşenin set payı o ürünün tek başına kârı değildir: pazaryeri set için tek tutar öder, bu tutar gelir payına göre bölünür.</p>';
  const sales=p=>{
   const x=st(p);
-  const amount=state.stockRangeBusy?'<p role="status">Satış miktarı yükleniyor…</p>':!data.productStats?'<p>Satış miktarı alınamadı.</p>':!x?'<p>Bu dönemde ürün satış kaydı yok.</p>':'<dl><div><dt>Satış / sipariş miktarı · iadeler düşülmüş</dt><dd>'+quantity(x.adet_milli)+' '+esc(p.stock_unit)+'</dd></div></dl>';
+  const amount=state.stockRangeBusy?'<p role="status">Satış miktarı yükleniyor…</p>':!data.productStats?'<p>Satış miktarı alınamadı.</p>':!x?'<p>Bu dönemde ürün satış kaydı yok.</p>':shape(x,p)+'<dl><div><dt>Satış / sipariş miktarı · iadeler düşülmüş</dt><dd>'+quantity(x.adet_milli)+' '+esc(p.stock_unit)+'</dd></div></dl>';
   return '<details class="product-details product-sales"><summary>Satış kullanım ayrıntıları</summary>'+amount+'<p class="help">Seçili dönemde teslim edilen, kargodaki ve hazırlanan siparişlerdeki ürün miktarıdır; iadeler düşülür. Tekli satış, çoklu paket ve set içinde kullanılan miktarlar birlikte olabilir. Depo bakiyesi değildir.</p><p class="help">Set gelirinin bileşene dağıtılan payı, ürünün tek başına kârı değildir. İade gideri ve satış sonuçları paket bazında incelenir.</p><a href="#performance?view=sales">Satış performansını incele →</a></details>';
  };
  const transit=p=>'<strong>'+quantity(p.in_transit_milli)+'</strong>'+(p.in_transit_status==='incomplete'&&known(p.in_transit_known_milli)!==null?'<small>Doğrulanabilen '+quantity(p.in_transit_known_milli)+' · toplam eksik</small>':'')+(p.in_transit_notes||[]).map(n=>'<small class="stock-transit-note">'+esc(n)+'</small>').join('');
