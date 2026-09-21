@@ -1,0 +1,38 @@
+---
+session: lunapot-panel
+date: 2026-09-20
+status: complete
+outcome: PARTIAL_PLUS
+---
+
+goal: UI/frontend incelemesi, açık kaynak araştırması, doğrulanmış arayüz düzeltmeleri ve Claude devir paketi
+now: Desktop deposunda docs/UI-CLAUDE-HANDOFF-2026-09-20.md oku; yerel değişiklikleri koruyarak P1 yönlendirme yarışlarını ele al.
+test: npm test; ardından devir belgesindeki opt-in tarayıcı testleri ve npm run build
+
+done_this_session:
+  - task: Dört ajanla gezinme, klavye, mimari ve alt iş akışları incelendi; 69 adres iki genişlikte tarandı.
+    files: [docs/UI-CLAUDE-HANDOFF-2026-09-20.md, docs/UI-DESIGN-RESEARCH-2026-09-20.md]
+  - task: Günlük işler öne alındı; okunurluk, menü odağı, arama/tarih davranışı ve kabuk bağımlılıkları düzeltildi.
+    files: [public/panorama-ui.js, public/operations-ui.js, public/insights-design.css, public/workspace-design.css, public/ui-polish.css, public/ui-shell.js, public/ui-navigation.js, public/workspace-navigation.js, public/workspace-frame.js, public/sw.js]
+blockers: []
+questions: []
+decisions:
+  - sonuc: Kullanıcı değerlendirmesi PARTIAL_PLUS — büyük ölçüde tamamlandı, küçük eksikler var. Kalan işler ana devir belgesinde öncelik sırasıyla kayıtlı.
+  - yayin: Bu tur devir içindir; commit/push/deploy/migrasyon yapılmadı. HEAD 0e07fd1, yerel taslak v116.
+  - is_kurallari: Müşteri carisi açma; fiziksel stok ile satış biçimi kârını ayır; gizli veya bilinmeyen tutarı sıfır yapma.
+  - tasarim: Orman yeşili ve açık kâğıt kimliğini, vanilla modülleri koru; yeni framework gerekmiyor.
+findings:
+  - acik_oncelikler: Üretim import ve web yönetim yanıt yarışları; özetin tek yardımcı istek hatasında tamamen kaybolması. Tekrar ve kabul ölçütleri ana belgede.
+  - dogrulama: Genel 766 başarılı/0 hata/5 opt-in atlama; ayrı tarayıcı 40+1 başarılı; 138 geniş tarama ve 18 son ekran kontrolünde hata yok; build başarılı.
+  - kapasite: E-ticaret 44 statik modül ve yaklaşık 716 KB ham JS; hız veya ağ aktarımı ölçümü değildir.
+worked: [Sentetik yerel Chrome, bağımsız dosya sahipliği, resmi tasarım rehberleri, geciktirilmiş yanıt deneyleri, ölçülmüş kontrast]
+failed: [CUA ve yerel görüntü aracı ACL yardımcısı nedeniyle kullanılamadı; yerel Playwright ve ekran çıktısıyla devam edildi.]
+next:
+  - Ana devir belgesini ve güncel git diff durumunu oku; eski çalışma dışı dosyalara dokunma.
+  - P1 yarışları ve bölüm bazlı özet hata durumunu küçük doğrulanabilir işler halinde düzelt.
+  - Personel metinleri, boş durumlar, reçete taslağı koruması ve frontend yaşam döngüsü planını sırayla uygula.
+files:
+  created: [docs/UI-CLAUDE-HANDOFF-2026-09-20.md, docs/UI-DESIGN-RESEARCH-2026-09-20.md, docs/UI-FRONTEND-ARCHITECTURE-2026-09-20.md, docs/UI-WORKFLOW-REVIEW-2026-09-20.md, docs/UI-KEYBOARD-REVIEW-2026-09-20.md, docs/UI-NAVIGATION-REVIEW-2026-09-20.md, tests/ui-interactions-browser.test.js, tests/ui-navigation-browser.test.js]
+  modified: [public/panorama-ui.js, public/operations-ui.js, public/insights-design.css, public/workspace-design.css, public/ui-polish.css, public/ui-shell.js, public/ui-navigation.js, public/workspace-navigation.js, public/workspace-frame.js, public/sw.js]
+
+# SUPERSEDED BY thoughts/shared/handoffs/lunapot-panel/2026-09-21_00-04_ui-uygulandi-canli-claude.yaml — UI work implemented and published.

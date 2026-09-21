@@ -6,12 +6,12 @@ outcome: SUCCEEDED_WITH_OPEN_WORK
 ---
 
 goal: "Codex'in UI turu devralındı; cari ödemeleri, otomatik ilan eşleştirme, set/ürün kâr ayrımı ve indirim dağıtımı yapıldı; bugünün raporları uçtan uca otomatik işlendi."
-now: "İKİ AJAN ÇALIŞIYOR (sonuçları gelince test + yayın gerekir): (1) komisyon görünürlüğü, (2) indirim dağıtımının pro-rata'ya geri alınması. Detay aşağıda 'devam_eden'."
-test: "npm test   # 837/822 pass, 15 atlanan (isteğe bağlı tarayıcı). Yayın: npm test > out; grep -q '^ℹ fail 0' out && git push origin main"
+now: "İki ajanın işi de bitti, test edildi ve YAYINDA: indirim dağıtımı pro-rata'ya döndü (6239065, v121), komisyon görünürlüğü çıktı (59b35de, v122). Açık iş kalmadı; bekleyenler 'acik_isler'de."
+test: "npm test   # 849/834 pass, 15 atlanan (isteğe bağlı tarayıcı). Yayın: npm test > out; grep -q '^ℹ fail 0' out && git push origin main"
 
 ortam:
-  repo: "C:/Users/baran/Desktop/site/lunapot-panel (main, HEAD af25f3e). Documents/Codex kopyası ESKİ."
-  canli: "https://muhasebe.lunapot.com · CACHE lunapot-shell-v121-indirim-dagitimi · migration 0049-0053 uygulandı."
+  repo: "C:/Users/baran/Desktop/site/lunapot-panel (main, HEAD 59b35de). Documents/Codex kopyası ESKİ."
+  canli: "https://muhasebe.lunapot.com · CACHE lunapot-shell-v122-komisyon-orani · migration 0049-0053 uygulandı."
   yayin: "migration gerekiyorsa önce npm run db:remote, sonra git push (Cloudflare otomatik derler). sw.js CACHE'i her UI yayınında artır; canlıda 'curl /sw.js | grep lunapot-shell' ile doğrula."
   canli_okuma: "Veri okuyan wrangler d1 SELECT'leri çalışıyor (bazen geçici 7403 → SELECT 1 ile dene, tekrarla). UI doğrulaması kullanıcının tarayıcı sekmesinde (owner oturumu) fetch ile."
   tarayici_tuzagi: "Açık sekmede eski modül kalıyor; yeni UI'yı görmek için sayfayı ?v=NNN ile yeniden yükle (hash değiştirmek yetmiyor)."
@@ -21,16 +21,17 @@ kullanici:
   - "Tam yetki verdi: testler temizse sormadan canlıya al. Veri YAZAN işlemleri (ödeme girme, kayıt düzeltme) önce anlat, sonra yap."
   - "Otomasyon bekliyor: 'neden eşleştirmeyi ben yapıyorum' dedi; elle iş çıkarsa kural yetersizdir."
 
-devam_eden:
-  - ajan: "Komisyon görünürlüğü (a4786f5)"
-    istek: "Sipariş listesinde/penceresinde her siparişin komisyonu + efektif oran; ürün bazında ağırlıklı ortalama komisyon oranı (kanal kanal) ve dönem karşılaştırması (son 30 gün / önceki 30 / tüm zamanlar). Sebep: kampanya dönemlerinde oran değişiyor."
-    sahip_dosyalar: [src/urun-karlilik-api.js, src/performance-api.js, src/orders-api.js, src/order-insights-api.js, public/orders-ui.js, public/product-list.js, public/performance-ui.js, tests/komisyon-orani.test.js]
-  - ajan: "İndirim dağıtımı geri alma (a21a543)"
-    istek: "Bir saat önce indirim dağıtımını sıkılaştırdım (çok paketli siparişte paket başına indirim yoksa hiç dağıtma). Trendyol ekran görüntüsü gösterdi ki pazaryeri indirimi ZATEN satırlara pro-rata dağıtıyor (1.164 TL → saksı 1.011,55 / orkide 152,45; bizim hesap 151,26 idi). Ajandan: paket başına veri varsa onu kullan, yoksa ESKİ pro-rata davranışına dön; ciroyu aşan pay olursa incelemeye bırak."
-    sahip_dosyalar: [src/report-inbox-api.js, tests/indirim-dagitimi.test.js]
-    not: "Yayındaki v121 şu an SIKI kuralı taşıyor; geri alma yayınlanana kadar çok paketli indirimli sipariş kesinti yazmadan bekleyebilir."
+komisyon_tablosu_21_09:
+  - "Canlı (413 teslim paket; komisyonu bildirilmemiş 4 paket kapsam dışı, maliyeti bilinmeyen paket yok). Kanal/ay kırılımı ürün ekranında; dikkat çekenler:"
+  - "Yeşil Yapraklı Bitki Besini 1000 ml: HB %9,0 (15 paket) · TY %15,2 (11) → en ucuz komisyon."
+  - "Klasmann TS1 Torf 210 L: HB %12,0 (1) · TY %16,0 (15); Gartengold Torf 40 L: HB %13,4 · TY %18,8."
+  - "Yaprak Parlatıcı 750 ml: HB %23,9 (5 paket) · TY %16,3 (18) → HB en pahalı komisyon; fiyat kararı bekliyor."
+  - "Gartengold Torf 20 L (en çok satan, 73 paket): TY 07 %20,0 → 08 %18,9 → 09 %20,0; HB 09 %20,6. Torf 2,5 L: %20,0 → %18,6."
+  - "Genel: torf grubu ~%19-20 sabit, besin/bakım grubu %9-24 arasında oynuyor; oran kampanya dönemine göre değişiyor."
 
 bugun_yapilanlar:
+  - "Komisyon görünürlüğü (59b35de, v122): sipariş listesi ve penceresinde paketin KDV dahil komisyonu + satışa oranı; kâr raporu satır detayında aynı iki rakam; ürün ekranında AĞIRLIKLI ortalama oran (Σ komisyon ÷ Σ ciro, oranların ortalaması değil), kanal kırılımı ve son 30 / önceki 30 / tüm zamanlar karşılaştırması. Oran tek formülden gelir (komisyonOraniBps, performance-api.js); komisyon ya da satış bilinmiyorsa oran BOŞ kalır, sıfır sayılmaz. Tutar yetkisi olmayan personel oranı görür, kuruşu görmez."
+  - "İndirim dağıtımı geri alındı (6239065): pazaryeri zaten satırlara pro-rata dağıtıyormuş; paket başına bildirim varsa o, yoksa pro-rata (discount_prorated) — teşhisim yanlıştı, kullanıcıya söylendi."
   - "Devir: Codex'in UI turu (71b8b1d, v116) doğrulandı; 786 test, canlı dosya eşleşmesi, migration 0052 uygulanmış."
   - "İade edilen siparişte komisyon: ekstre 0,00 beyan ederse yazılır, satır hiç yoksa yazılmaz (c1be96d)."
   - "Cari ödemeleri (0053): fatura borcu, ödeme (nakit/kart/havale/çek + serbest not, banka zorunlu değil), çek vadesi, toplu ödeme, 'ay sonunda öderim'; sonra ödemelerin cari ekranlarında görünmesi (e1ef369, ea43e26). Kullanıcı KARAKUŞ ve Tropikal borcunu kartla kapattı; Yalova Seçkin 20.160,00 TL açık."
