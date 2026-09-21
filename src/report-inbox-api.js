@@ -31,6 +31,8 @@ export const APPLY_BATCH = 200;
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
 const parse = (s, fallback) => { try { return JSON.parse(s); } catch { return fallback; } };
+// Türkçe küçültme: /indirim/i deseni 'İndirim' ile EŞLEŞMEZ (büyük İ, U+0130, ASCII i'ye katlanmaz).
+const trKucuk = v => String(v ?? '').toLocaleLowerCase('tr-TR');
 const b64bytes = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 async function sha256Hex(bytes) {
   const d = await crypto.subtle.digest('SHA-256', bytes);
@@ -319,6 +321,28 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
   for (const l of lines) { const d = parse(l.data_json, {}); if (d.package_id !== undefined && d.package_id !== null && d.package_id !== '') packageOwner.set(String(d.package_id), d.order_no || ''); }
   const packageIds = [...packageOwner.keys()];
 
+  // PAKET BAŞINA SATICI İNDİRİMİ. Ekstredeki "İndirim" satırı çoğu kez SİPARİŞ düzeyindedir ve hangi
+  // pakete ait olduğunu söylemez; bunu yalnız pazaryerinin SİPARİŞ kaydı bilir (Trendyol
+  // packageSellerDiscount / satır bazında lineSellerDiscount). Kaynak TL verir, burada bir kez kuruşa
+  // çevrilir. Alan yoksa paketin indirimi BİLİNMİYOR demektir; sıfır sayılmaz, tahmin de edilmez.
+  const paketIndirimi = new Map();
+  if (packageIds.length) {
+    const kayitlar = (await db.prepare('SELECT r.external_id,r.payload_json FROM ec_provider_records r' +
+      ' JOIN ec_provider_connections c ON c.provider=r.provider AND c.seller_id=r.seller_id' +
+      " WHERE r.provider=? AND r.kind='orders' AND r.external_id IN (SELECT value FROM json_each(?))" +
+      ' ORDER BY r.source_updated_at,r.last_seen_at,r.rowid').bind(store.provider, JSON.stringify(packageIds)).all()).results;
+    const tlSayi = v => typeof v === 'number' && Number.isFinite(v) ? v : null;
+    for (const k of kayitlar) {                                  // sıra eskiden yeniye: EN SON kayıt geçerlidir
+      const p = parse(k.payload_json, {});
+      const paketten = tlSayi(p.package_seller_discount);
+      const satirlar = Array.isArray(p.lines) && p.lines.length && p.lines.every(l => tlSayi(l?.seller_discount) !== null)
+        ? p.lines.reduce((t, l) => t + l.seller_discount, 0) : null;
+      const tl = paketten !== null ? paketten : satirlar;
+      if (tl === null) paketIndirimi.delete(String(k.external_id));
+      else paketIndirimi.set(String(k.external_id), Math.round(Math.abs(tl) * 100));
+    }
+  }
+
   // DEFTERDEKİ MALİYET. Bu ekran raporu okur, ama ürün maliyeti defterin işidir ve iki yerde
   // rapordan ayrılır: (1) iade gelip stoğa dönen malın maliyeti defterde geri alınır,
   // (2) defter, gönderim anında DONDURULAN maliyeti kullanır; rapor tarafı sipariş tarihindeki
@@ -420,6 +444,9 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
     if (alan.startsWith('ek:')) return alan.slice(3);
     return (profileMapping.get(e.profile_id) || {})[alan] || '';
   };
+  // İndirim "diğer kesinti/hizmet" içinde toplanır; etiketten ayırt edilemez, KAYNAK SÜTUNA bakılır:
+  // ham alan adı ('ek:İndirim') ya da profilin o alana eşlediği başlık ('İndirim', 'İndirim Tutarı').
+  const indirimOlayi = e => FEE_TYPES.includes(e.type) && (trKucuk(e.source_field).includes('indirim') || trKucuk(sutunAdi(e)).includes('indirim'));
   for (const pid of [...new Set(allEvents.map(e => e.profile_id).filter(Boolean))])
   {
     const p = await db.prepare('SELECT options_json,mapping_json FROM ec_report_profiles WHERE id=?').bind(pid).first();
@@ -491,8 +518,49 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
     const weights = list.map(p => grossOf(p));
     const evenSplit = weights.some(w => !w);
     const sharedNotes = [];
+    // İNDİRİM GELİRE GÖRE ORANLANMAZ. İndirim siparişin tamamına değil, İNDİRİMLİ SATILAN PAKETE
+    // aittir (canlı TY 11617217215: 1.164,00 TL indirim 1.199 TL'lik saksınındı; gelire oranlanınca
+    // 177 TL'lik orkide paketine 151,26 TL gider yazıldı ve paket −48,07 TL göründü). Kural:
+    //  - Rapor paket başına indirim veriyorsa her paket KENDİ indirimini alır (toplam korunur).
+    //  - Vermiyorsa indirim HİÇ dağıtılmaz: gerekçesi yazılır, paketin kârı hesaplanmaz. Yanlış
+    //    pakete gider yazmaktansa eksik bırakılır; bilinmeyen sıfır da sayılmaz.
+    //  - Bir pakete kendi cirosundan büyük indirim yazılamaz; öyleyse dağıtım güvenilmezdir.
+    // Tek paketli siparişte (ve aynı pazaryeri paketi defterde ikiye ayrılmışsa) indirim zaten o
+    // paketindir: eski davranış, yani gelire göre bölüşme, aynen sürer.
+    const paketNo = p => String(p.package_id ?? '');
+    const paketNolari = [...new Set(list.map(paketNo))];
+    let indirimBaglanamadi = 0;
+    const indirimNedenleri = [];
     for (const e of shared) {
       if (list.length === 1) { packageEvents.get(list[0].key).push(e); continue; }
+      if (indirimOlayi(e) && paketNolari.length > 1) {
+        const paylar = paketNolari.map(no => paketIndirimi.has(no) ? paketIndirimi.get(no) : null);
+        const bilinen = paylar.every(v => v !== null) && paylar.some(v => v > 0);
+        // Hakediş kaynak satırın TAMAMINA aittir; indirim payıyla bölünemez (öteki kalemler taşır).
+        const {net_payout: _hakedis, ...olay} = e;
+        // Önce PAKETE (kendi indirimi kadar), sonra paketin defterdeki satırlarına (gelirine göre).
+        const paketPaylari = bilinen ? allocateCents(e.amount_cents, paylar) : null;
+        const parts = paketPaylari ? list.map(() => 0) : null;
+        if (parts) paketNolari.forEach((no, gi) => {
+          const uyeler = list.flatMap((p, i) => paketNo(p) === no ? [i] : []);
+          if (!paketPaylari[gi]) return;
+          const ic = allocateCents(paketPaylari[gi], uyeler.some(i => weights[i] > 0) ? uyeler.map(i => weights[i]) : uyeler.map(() => 1));
+          uyeler.forEach((i, j) => { parts[i] = ic[j]; });
+        });
+        const asan = parts ? parts.findIndex((v, i) => Math.abs(v) > weights[i]) : -1;
+        if (!parts || asan >= 0) {
+          indirimBaglanamadi += e.amount_cents;
+          indirimNedenleri.push('Siparişin indirimi paketlere bağlanamadı (' + tlYaz(Math.abs(e.amount_cents)) + '): ' +
+            (parts ? (list[asan].package_id || 'bir paket') + ' paketinin payı kendi cirosundan büyük çıktı'
+              : 'rapor paket başına indirim vermiyor, indirimin hangi pakete ait olduğu bilinmiyor') +
+            '. Gelire göre oranlanmadı — oranlansaydı indirimsiz paket haksız yere zarara düşerdi; bu siparişin kârı hesaplanmadı.');
+          continue;
+        }
+        list.forEach((p, i) => { if (parts[i]) packageEvents.get(p.key).push({...olay, amount_cents: parts[i], allocated: true}); });
+        sharedNotes.push('İndirim sipariş düzeyinde geldi; gelire göre değil, her paketin KENDİ indirimine göre dağıtıldı (' +
+          list.map((p, i) => (p.package_id || p.key) + ': ' + (Math.abs(parts[i]) / 100).toFixed(2)).join(' · ') + ' TL).');
+        continue;
+      }
       const shares = evenSplit ? list.map(() => 1) : weights;
       const parts = allocateCents(e.amount_cents, shares);
       // Bildirilen net hakediş kaynak kapsamına aittir; kopyalanırsa sipariş toplamı çoğalır.
@@ -502,6 +570,9 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
         (netParts ? ' (bildirilen net hakediş de aynı oranda bölündü; sipariş toplamı değişmedi)' : '') +
         (evenSplit ? ' (satır tutarı bilinmediği için eşit bölündü; dağılım belirsiz).' : '.'));
     }
+    // Bağlanamayan indirim siparişin BÜTÜN paketlerini ilgilendirir: gideri eksik olan paketin kârı
+    // hesaplanmaz (conflictNotes ile aynı çizgi), sebebi paketin üstünde durur.
+    if (indirimBaglanamadi) conflictNotes.push(...indirimNedenleri);
 
     for (const g of list) {
       const events = packageEvents.get(g.key);
@@ -552,11 +623,9 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
 
       let fees = 0, vatUnknown = false;
       const feeRows = [];
-      // İndirim "diğer kesinti" içinde toplanır; etiketten ayırt edilemez, KAYNAK alanına bakılır.
-      // DİKKAT: /indirim/i deseni 'ek:İndirim' ile EŞLEŞMEZ — Türkçe büyük İ (U+0130) ASCII i'ye
-      // katlanmaz. Karşılaştırma tr-TR küçültmesiyle yapılır.
-      const trKucuk = v => String(v ?? '').toLocaleLowerCase('tr-TR');
-      const indirimOlay = events.filter(e => trKucuk(e.source_field).includes('indirim'));
+      // İndirim "diğer kesinti" içinde toplanır; etiketten ayırt edilemez, KAYNAK SÜTUNA bakılır
+      // (indirimOlayi; tr-TR küçültmesiyle, çünkü /indirim/i deseni 'İndirim' ile eşleşmez).
+      const indirimOlay = events.filter(indirimOlayi);
       const indirimBrut = indirimOlay.reduce((t, e) => t + -e.amount_cents, 0);
       for (const t of FEE_TYPES) {
         if (!has(t)) continue;
@@ -664,6 +733,9 @@ async function packagesFor(db, store, orderNos, memo = newMemo(), {withEstimates
         estimated_cash_cents: cashBasis !== null && complete && estimates.length ? cashBasis + estimatedFees : null,
         fee_events: events.filter(e => FEE_TYPES.includes(e.type)).map(e => ({id: e.id, type: e.type, label: EVENT_TYPES[e.type], amount_cents: e.amount_cents, invoice_line_id: e.invoice_line_id || null, allocated: !!e.allocated})),
         discount_gross_cents: indirimBrut,
+        // Paketlere bağlanamayan sipariş indirimi: deftere yazılmaz, sahibine gerekçesiyle listelenir.
+        discount_unallocated_cents: indirimBaglanamadi,
+        discount_unallocated_reason: indirimNedenleri.join(' ') || null,
         discount_net_cents: indirimOlay.reduce((t, e) => { const v = feeVatOf(e); return t + -(v ? exVat(e.amount_cents, v) : e.amount_cents); }, 0),
         estimates, estimated_result_cents: basis !== null && complete && estimates.length ? basis + estimatedFees : null,
         notes
@@ -821,6 +893,17 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
       "WHERE l.package_id=? AND s.kind='sale' ORDER BY c.id").bind(g.erp_package_id).all()).results;
     if (!rows.length) { skipped.push({group: g.group, reason: 'ERP paketinde satış kaydı yok (stok çıkışı yapılmamış).'}); continue; }
     if (rows.some(r => r.faturali)) { skipped.push({group: g.group, reason: 'Bu paketin gideri faturaya bağlanmış; fatura üstündür, dokunulmadı.'}); continue; }
+    // SİPARİŞ İNDİRİMİ PAKETE BAĞLANAMADIYSA HİÇBİR KESİNTİ YAZILMAZ. Yalnız indirimi atlayıp
+    // komisyon/kargoyu yazmak, bilinmeyen gideri sıfır saymak olurdu. Daha önce (gelire göre
+    // oranlayan eski kuralla) yazılmış KESİNLEŞMİŞ kayıt bu ekrandan düzeltilmez: defter geriye
+    // dönük sessizce değiştirilmez, düzeltilmesi gereken paket sahibine burada listelenir.
+    if (g.discount_unallocated_cents) {
+      const yazili = rows.filter(r => r.fees_status === 'confirmed' && r.other_cents);
+      skipped.push({group: g.group, reason: (g.discount_unallocated_reason || 'Siparişin indirimi paketlere bağlanamadı.') +
+        ' Kesinti yazılmadı.' + (yazili.length ? ' DİKKAT: defterde bu paketin ' +
+          tlYaz(yazili.reduce((t, r) => t + r.other_cents, 0)) + ' "diğer gider" kaydı kesinleşmiş duruyor; değiştirilmedi, elle düzeltilmeli.' : '')});
+      continue;
+    }
     // Gelirleri oranında böl; hepsi sıfırsa eşit böl. allocateCents toplamı korur.
     const weights = rows.map(r => r.revenue_cents);
     const shares = weights.some(w => w > 0) ? weights : rows.map(() => 1);
