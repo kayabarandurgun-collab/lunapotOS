@@ -767,20 +767,27 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
     // geri kalanı da (IADE/DONEN, iade tahsisi, aşağıdaki iade düzeltmesi) DUZ'u iade saymaz.
     const iadeli = g.erp_package_id ? await db.prepare("SELECT 1 FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_sale_entries r ON r.parent_id=c.sale_id WHERE l.package_id=? AND r.kind='return' AND r.external_id NOT LIKE 'DUZELTME-CIFT-%' LIMIT 1").bind(g.erp_package_id).first() : null;
     if (!g.delivered && !iadeli) { skipped.push({group: g.group, reason: 'Teslim edilmedi; kargo kesinleşmeden kesinti yazılmaz.'}); continue; }
-    const want = {commission: 0, shipping: 0, other: 0}, kaynak = {commission: false, shipping: false, other: false};
+    // kaynak: tutarı olan kalem. bildirilen: ekstrede satırı OLAN kalem (tutarı 0 olsa da).
+    // İkisi ayrıdır: "pazaryeri 0,00 beyan etti" gerçek sıfırdır, "satır hiç yok" bilinmeyendir.
+    const want = {commission: 0, shipping: 0, other: 0}, kaynak = {commission: false, shipping: false, other: false},
+      bildirilen = {commission: false, shipping: false, other: false};
     for (const f of g.fees) {
       const comp = FEE_COMPONENT[f.type];
       if (!comp) continue;
       // Rapor kesintileri negatif gelir; defterde kesinti POZİTİF saklanıp kârdan düşülür.
       const tutar = -(f.net_cents ?? f.actual_cents);
       want[comp] += tutar;
+      bildirilen[comp] = true;
       if (tutar !== 0) kaynak[comp] = true;
     }
     // Teslim edilmiş bir pazaryeri paketinde komisyon ve kargo MUTLAKA vardır; yoksa rapor eksiktir
     // ve sıfır yazmak veri uydurmak olur. "Diğer" kalemi ise gerçekten alınmamış olabilir: 0 yazılır.
-    // İade edilen siparişte pazaryeri komisyonu GERİ VERİR: son hâlde komisyonun sıfır olması eksik
-    // veri değildir. Kargo ise iadede de ödenir; o yine zorunludur.
-    if ((!kaynak.commission && !iadeli) || !kaynak.shipping) {
+    // İade edilen siparişte pazaryeri komisyonu GERİ VERİR: ekstre komisyonu açıkça 0,00 beyan
+    // ediyorsa (canlı TY 11581049903/11587333488, HB 4221039448) bu eksik veri değil, gerçek sıfırdır.
+    // Ama iadeli pakette bile komisyon satırı HİÇ yoksa tutar bilinmiyordur: sıfır yazılmaz.
+    // Kargo iadede de ödenir ve teslim edilmiş pakette "0" çoğu kez henüz yazılmamış demektir:
+    // orada tutar şartı (kaynak.shipping) korunur.
+    if ((!kaynak.commission && !(iadeli && bildirilen.commission)) || !kaynak.shipping) {
       skipped.push({group: g.group, reason: 'Raporda ' + (!kaynak.commission ? 'komisyon' : 'kargo') + ' kesintisi yok; eksik veri sıfır sayılmaz.'});
       continue;
     }

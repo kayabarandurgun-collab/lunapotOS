@@ -99,17 +99,33 @@ test('DUZ kopyasına kesintiler normal teslim gibi yazılır; kâr raporu ikizde
   } finally { f.close(); }
 });
 
-test('Gerçek müşteri iadesinde bugünkü davranış korunur: geri verilen komisyon sıfır yazılır', async () => {
+test('Gerçek müşteri iadesinde ekstre komisyonu 0,00 BEYAN ederse sıfır yazılır', async () => {
   const f = appFixture(); await f.setup(); try {
     kur(f);
-    // Teslim edildi, sonra müşteri iade etti: pazaryeri komisyonu geri verdi (ekstrede yok), kargo kaldı.
+    // Teslim edildi, sonra müşteri iade etti: pazaryeri komisyonu geri verdi ve ekstrede 0,00 yazdı.
+    paket(f, 'gercek', gun(-6));
+    iade(f, 'gercek', gun(-3));
+    raporSatiri(f, {siparis: 'S-gercek', paket: 'PKG', erp: 'gercek', tarih: gun(-6), teslim: gun(-5), durum: 'İade Edildi'});
+    kesinti(f, {siparis: 'S-gercek', paket: 'PKG', tur: 'cargo', tutar: 6000, tarih: gun(-4)});
+    kesinti(f, {siparis: 'S-gercek', paket: 'PKG', tur: 'commission', tutar: 0, tarih: gun(-4)});
+    const yazildi = await f.ok('/ec/reports/apply-fees', {store_id: 'st-ty', confirm: true});
+    assert.equal(yazildi.applied, 1, 'gerçek iade kesinleşmiştir: ' + JSON.stringify(yazildi.skipped));
+    assert.deepEqual(kesintiOf(f, 's-gercek'), {commission_cents: 0, shipping_cents: 5000, other_cents: 0, fees_status: 'confirmed'},
+      'pazaryerinin beyan ettiği sıfır gerçek sıfırdır');
+  } finally { f.close(); }
+});
+
+test('Gerçek müşteri iadesinde komisyon satırı HİÇ yoksa sıfır uydurulmaz', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    // Aynı senaryo ama ekstrede komisyon satırı hiç yok: tutar bilinmiyor, yazılmaz (§3.4).
     paket(f, 'gercek', gun(-6));
     iade(f, 'gercek', gun(-3));
     raporSatiri(f, {siparis: 'S-gercek', paket: 'PKG', erp: 'gercek', tarih: gun(-6), teslim: gun(-5), durum: 'İade Edildi'});
     kesinti(f, {siparis: 'S-gercek', paket: 'PKG', tur: 'cargo', tutar: 6000, tarih: gun(-4)});
     const yazildi = await f.ok('/ec/reports/apply-fees', {store_id: 'st-ty', confirm: true});
-    assert.equal(yazildi.applied, 1, 'gerçek iade kesinleşmiştir: ' + JSON.stringify(yazildi.skipped));
-    assert.deepEqual(kesintiOf(f, 's-gercek'), {commission_cents: 0, shipping_cents: 5000, other_cents: 0, fees_status: 'confirmed'},
-      'iadede komisyonun sıfır olması eksik veri değildir');
+    assert.equal(yazildi.applied, 0, 'bilinmeyen komisyon yazıldı');
+    assert.ok(yazildi.skipped.some(x => /komisyon/.test(x.reason)), JSON.stringify(yazildi.skipped));
+    assert.deepEqual(kesintiOf(f, 's-gercek'), {commission_cents: null, shipping_cents: null, other_cents: null, fees_status: 'pending'});
   } finally { f.close(); }
 });
