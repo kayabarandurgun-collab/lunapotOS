@@ -4,7 +4,7 @@
 import {pdfBytes, xlsxBytes, docxBytes, csvBytes, saveFile, safeFilename, printDocument} from './doc-engine.js';
 import {
   statementPdfDocument, statementSheets, statementCsvRows, statementPrintHtml, statementBlocks,
-  STATUS_NAMES, money, balanceSentence, balancePhrase, differenceSentence
+  STATUS_NAMES, money, balanceSentence, balancePhrase, differenceSentence, settlementNote
 } from './statement-document.js';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
@@ -74,7 +74,7 @@ export function mountStatement(root, namespace, parties = []) {
 
   function statementTable(statement) {
     if (!statement.rows.length) return '<div class="v2-empty"><h3>Bu dönemde hareket yok.</h3><p>Tarih aralığını genişletin ya da başka bir cari seçin.</p></div>';
-    return `<div class="table-wrap"><table class="v2-table"><thead><tr><th>Tarih / vade</th><th>Referans</th><th>Açıklama</th><th>Alacağımız</th><th>Borcumuz</th><th>Bakiye</th></tr></thead><tbody>${statement.rows.map(row => `<tr><td>${esc(dayText(row.occurred_on))}<small>${row.due_on ? 'Vade: ' + esc(dayText(row.due_on)) : 'Vade yok'}</small></td><td>${esc(row.reference || '')}</td><td>${esc(row.description || '')}</td><td>${row.receivable_cents ? esc(money(row.receivable_cents)) : (row.receivable_cents === null ? esc(money(null)) : '—')}</td><td>${row.payable_cents ? esc(money(row.payable_cents)) : (row.payable_cents === null ? esc(money(null)) : '—')}</td><td>${esc(money(row.running_cents))}</td></tr>`).join('')}</tbody></table></div>`;
+    return `<div class="table-wrap"><table class="v2-table"><thead><tr><th>Tarih / vade</th><th>Referans</th><th>Açıklama</th><th>Alacağımız</th><th>Borcumuz</th><th>Bakiye</th></tr></thead><tbody>${statement.rows.map(row => `<tr><td>${esc(dayText(row.occurred_on))}<small>${row.due_on ? 'Vade: ' + esc(dayText(row.due_on)) : 'Vade yok'}</small></td><td>${esc(row.reference || '')}</td><td>${esc(row.description || '')}${settlementNote(row, true) ? `<small>${esc(settlementNote(row, true))}</small>` : ''}</td><td>${row.receivable_cents ? esc(money(row.receivable_cents)) : (row.receivable_cents === null ? esc(money(null)) : '—')}</td><td>${row.payable_cents ? esc(money(row.payable_cents)) : (row.payable_cents === null ? esc(money(null)) : '—')}</td><td>${esc(money(row.running_cents))}</td></tr>`).join('')}</tbody></table></div>`;
   }
 
   function livePanel() {

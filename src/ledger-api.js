@@ -17,7 +17,11 @@ const entryInsert=(db,e)=>stmt(db,'INSERT INTO party_entries(id,party_id,amount_
 const METHODS={nakit:'Nakit',kart:'Kart',havale:'Havale / EFT',cek:'Çek'};
 const lira=value=>new Intl.NumberFormat('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(value/100)+' TL';
 // Hareketin ters kaydı yazılmışsa o hareket artık hesapta değildir; kapama ve ödeme için seçilemez.
-const LIVE="e.reversal_of IS NULL AND NOT EXISTS(SELECT 1 FROM party_entries x WHERE x.reversal_of=e.id)";
+const live=alias=>`${alias}.reversal_of IS NULL AND NOT EXISTS(SELECT 1 FROM party_entries x WHERE x.reversal_of=${alias}.id)`;
+const LIVE=live('e');
+// "Ödediğim hareket": kasa/banka yoluyla yazılan ya da ödeme yöntemi işaretlenmiş artı hareket.
+// Tedarikçi iadesi gibi borcu azaltan başka kayıtlar ödeme sayılmaz.
+const PAYMENT=alias=>`${alias}.amount_cents>0 AND (${alias}.source='cash' OR EXISTS(SELECT 1 FROM party_payment_methods m WHERE m.entry_id=${alias}.id))`;
 const ALLOCATED=side=>`COALESCE((SELECT SUM(a.amount_cents) FROM payment_allocations a WHERE a.${side}_entry_id=e.id AND NOT EXISTS(SELECT 1 FROM allocation_reversals r WHERE r.allocation_id=a.id)),0)`;
 const PLANNED='(SELECT p.planned_on FROM party_entry_plans p WHERE p.entry_id=e.id ORDER BY p.created_at DESC,p.rowid DESC LIMIT 1)';
 const invoiceStatus=row=>row.remaining_cents<=0?'paid':row.paid_cents>0?'partial':'open';
@@ -39,7 +43,10 @@ export async function ledgerApi(request,env,path,readBody){
   // Cari hareket araması ve sayfalama sunucudadır; eski kayıtlar 500 sınırının ardında kalmaz.
   // Bakiyeler her zaman tam veriden hesaplanır, filtreden etkilenmez.
   const q=(url.searchParams.get('q')||'').trim(),from=url.searchParams.get('from')||'',to=url.searchParams.get('to')||'',due=url.searchParams.get('due')||'',page=Number(url.searchParams.get('page')||1);
+  // "Yalnızca ödemeler" süzgeci: sunucuda süzülür, yoksa sayfanın dışında kalan ödemeler görünmez.
+  const kind=url.searchParams.get('kind')||'';
   if(q.length>200)fail('Arama en fazla 200 karakter olmalı.');
+  if(!['','payments'].includes(kind))fail('Hareket süzgeci geçersiz.');
   if(!['','overdue','upcoming'].includes(due))fail('Vade seçimi geçersiz.');
   if(!Number.isSafeInteger(page)||page<1||page>1000000)fail('Sayfa bilgisi geçersiz.');
   const today=new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Istanbul'});
@@ -51,11 +58,13 @@ export async function ledgerApi(request,env,path,readBody){
   if(q){terms.push("(e.reference LIKE ? ESCAPE '\\' OR e.description LIKE ? ESCAPE '\\' OR s.name LIKE ? ESCAPE '\\')");const term='%'+q.replace(/[\\%_]/g,c=>'\\'+c)+'%';args.push(term,term,term);}
   if(due==='overdue'){terms.push('e.due_on IS NOT NULL AND e.due_on<?');args.push(today);}
   if(due==='upcoming'){terms.push('e.due_on IS NOT NULL AND e.due_on>=?');args.push(today);}
+  if(kind==='payments')terms.push('('+PAYMENT('e')+')');
   const where=terms.length?' WHERE '+terms.join(' AND '):'';
   const limit=200;
   const countRow=await stmt(db,`SELECT COUNT(*) total FROM party_entries e JOIN suppliers s ON s.id=e.party_id${where}`,args).first();
   const results=await db.batch([
-   db.prepare('SELECT s.*,COALESCE(SUM(e.amount_cents),0) balance_cents FROM suppliers s LEFT JOIN party_entries e ON e.party_id=s.id GROUP BY s.id ORDER BY s.name'),
+   // Cari kartı: bakiyenin yanında toplam borç, kapatılan (ödenen) ve kalan da okunur.
+   db.prepare(`SELECT s.*,COALESCE(SUM(e.amount_cents),0) balance_cents,(SELECT COALESCE(SUM(-d.amount_cents),0) FROM party_entries d WHERE d.party_id=s.id AND d.amount_cents<0 AND ${live('d')}) debt_cents,(SELECT COALESCE(SUM(a.amount_cents),0) FROM payment_allocations a JOIN party_entries d ON d.id=a.negative_entry_id WHERE d.party_id=s.id AND ${live('d')} AND NOT EXISTS(SELECT 1 FROM allocation_reversals r WHERE r.allocation_id=a.id)) paid_cents FROM suppliers s LEFT JOIN party_entries e ON e.party_id=s.id GROUP BY s.id ORDER BY s.name`),
    db.prepare('SELECT a.*,COALESCE(SUM(t.amount_cents),0) balance_cents FROM cash_accounts a LEFT JOIN cash_transactions t ON t.account_id=a.id GROUP BY a.id ORDER BY a.name'),
    stmt(db,`SELECT e.*,s.name party_name,COALESCE((SELECT SUM(a.amount_cents) FROM payment_allocations a WHERE (a.positive_entry_id=e.id OR a.negative_entry_id=e.id) AND NOT EXISTS(SELECT 1 FROM allocation_reversals r WHERE r.allocation_id=a.id)),0) allocated_cents,(SELECT id FROM party_entries r WHERE r.reversal_of=e.id) reversed_by,${PLANNED} planned_on,(SELECT m.method FROM party_payment_methods m WHERE m.entry_id=e.id) payment_method,(SELECT m.note FROM party_payment_methods m WHERE m.entry_id=e.id) payment_note,(SELECT m.due_on FROM party_payment_methods m WHERE m.entry_id=e.id) payment_due_on FROM party_entries e JOIN suppliers s ON s.id=e.party_id${where} ORDER BY e.occurred_on DESC,e.created_at DESC,e.rowid DESC LIMIT ? OFFSET ?`,[...args,limit,(page-1)*limit]),
    db.prepare('SELECT a.*,p.party_id,r.id reversed_by,r.reason reversal_reason FROM payment_allocations a JOIN party_entries p ON p.id=a.positive_entry_id LEFT JOIN allocation_reversals r ON r.allocation_id=a.id ORDER BY a.created_at DESC,a.rowid DESC LIMIT 501'),
@@ -63,9 +72,25 @@ export async function ledgerApi(request,env,path,readBody){
    // Açık alış faturaları: hangi faturaya ne kadar ödendiği ve varsa "şu tarihte ödeyeceğim" notu.
    stmt(db,`SELECT e.id entry_id,substr(e.source_key,9) invoice_id,e.reference invoice_no,e.party_id,s.name party_name,e.occurred_on,-e.amount_cents debt_cents,${ALLOCATED('negative')} paid_cents,${PLANNED} planned_on,e.due_on FROM party_entries e JOIN suppliers s ON s.id=e.party_id WHERE e.source='invoice' AND e.source_key LIKE 'invoice:%' AND e.amount_cents<0 AND ${LIVE}${party?' AND e.party_id=?':''} ORDER BY e.occurred_on,e.created_at,e.rowid LIMIT 501`,party?[party]:[]),
    // Verilen çekler: borcu kapatır ama para hesaptan vadesinde çıkar.
-   stmt(db,`SELECT e.id entry_id,e.party_id,s.name party_name,e.amount_cents,e.occurred_on,e.reference,m.due_on,m.note,(SELECT id FROM party_entries r WHERE r.reversal_of=e.id) reversed_by FROM party_payment_methods m JOIN party_entries e ON e.id=m.entry_id JOIN suppliers s ON s.id=e.party_id WHERE m.method='cek' AND e.reversal_of IS NULL${party?' AND e.party_id=?':''} ORDER BY m.due_on,e.occurred_on LIMIT 201`,party?[party]:[])
+   stmt(db,`SELECT e.id entry_id,e.party_id,s.name party_name,e.amount_cents,e.occurred_on,e.reference,m.due_on,m.note,(SELECT id FROM party_entries r WHERE r.reversal_of=e.id) reversed_by FROM party_payment_methods m JOIN party_entries e ON e.id=m.entry_id JOIN suppliers s ON s.id=e.party_id WHERE m.method='cek' AND e.reversal_of IS NULL${party?' AND e.party_id=?':''} ORDER BY m.due_on,e.occurred_on LIMIT 201`,party?[party]:[]),
+   // "Son ödeme": her cari için TEK satır. max() ile seçilen satırın öbür sütunları da o satırdan gelir,
+   // böylece kalabalık defterde bir carinin son ödemesi listenin sonunda kalıp kaybolmaz.
+   db.prepare(`SELECT p.party_id,max(p.occurred_on||'#'||p.created_at||'#'||printf('%020d',p.rowid)) ordinal,p.id entry_id,p.occurred_on,p.amount_cents,p.reference,m.method,m.note,m.due_on FROM party_entries p LEFT JOIN party_payment_methods m ON m.entry_id=p.id WHERE ${PAYMENT('p')} AND ${live('p')} GROUP BY p.party_id`)
   ]);
-  const [parties,accounts,entries,allocations,cash,invoiceRows,chequeRows]=results.map(r=>r.results);
+  const [parties,accounts,entries,allocations,cash,invoiceRows,chequeRows,paymentRows]=results.map(r=>r.results);
+  // Ödeme → kapattığı faturalar. Yalnızca bu sayfadaki ödemeler sorulur: liste eksik kalmaz, sınıra takılmaz.
+  // Tutar yetkisi olmayan personelde amount_cents gizlenir, fatura numarası kalır.
+  const paid=entries.filter(e=>e.amount_cents>0&&e.allocated_cents>0).map(e=>e.id);
+  const closedRows=paid.length?(await stmt(db,`SELECT a.positive_entry_id,a.negative_entry_id,a.amount_cents,n.reference invoice_no,n.source_key,n.occurred_on invoice_on FROM payment_allocations a JOIN party_entries n ON n.id=a.negative_entry_id WHERE a.positive_entry_id IN (${paid.map(()=>'?').join(',')}) AND NOT EXISTS(SELECT 1 FROM allocation_reversals r WHERE r.allocation_id=a.id) ORDER BY n.occurred_on,n.reference,a.rowid`,paid).all()).results:[];
+  const closedBy=new Map();
+  for(const row of closedRows){
+   const list=closedBy.get(row.positive_entry_id)||[];
+   list.push({entry_id:row.negative_entry_id,invoice_id:row.source_key&&row.source_key.startsWith('invoice:')?row.source_key.slice(8):null,invoice_no:row.invoice_no,occurred_on:row.invoice_on,amount_cents:row.amount_cents});
+   closedBy.set(row.positive_entry_id,list);
+  }
+  // Ödemesi olmayan cari için uydurma kayıt üretilmez: last_payment null kalır, ekranda "Ödeme yok" yazar.
+  const lastPayment=new Map();
+  for(const row of paymentRows)lastPayment.set(row.party_id,{entry_id:row.entry_id,occurred_on:row.occurred_on,amount_cents:row.amount_cents,reference:row.reference,method:row.method||null,note:row.note||'',due_on:row.due_on||null});
   const invoices=invoiceRows.slice(0,500).map(r=>{const row={...r,remaining_cents:r.debt_cents-r.paid_cents};return {...row,status:invoiceStatus(row)};});
   const openInvoices=invoices.filter(r=>r.status!=='paid');
   const cheques=chequeRows.filter(c=>!c.reversed_by).slice(0,200);
@@ -74,7 +99,12 @@ export async function ledgerApi(request,env,path,readBody){
    ...openInvoices.filter(r=>r.planned_on||r.due_on).map(r=>({kind:'invoice',entry_id:r.entry_id,invoice_id:r.invoice_id,party_id:r.party_id,party_name:r.party_name,reference:r.invoice_no,due_on:r.planned_on||r.due_on,planned:!!r.planned_on,amount_cents:r.remaining_cents})),
    ...cheques.filter(c=>c.due_on).map(c=>({kind:'cheque',entry_id:c.entry_id,invoice_id:null,party_id:c.party_id,party_name:c.party_name,reference:c.reference,due_on:c.due_on,planned:false,amount_cents:c.amount_cents}))
   ].sort((a,b)=>a.due_on<b.due_on?-1:a.due_on>b.due_on?1:0).slice(0,20).map(x=>({...x,overdue:x.due_on<today}));
-  return {parties,accounts,entries:entries.map(e=>({...e,remaining_cents:Math.abs(e.amount_cents)-e.allocated_cents})),entry_pagination:{page,limit,total:countRow.total,pages:Math.max(1,Math.ceil(countRow.total/limit)),has_more:page*limit<countRow.total},entry_filters:{q,from,to,due,party_id:party||''},allocations:allocations.slice(0,500),cash_transactions:cash.slice(0,500),open_invoices:openInvoices,cheques,due_soon:dueSoon,payment_methods:Object.entries(METHODS).map(([key,label])=>({key,label})),truncated:{entries:false,allocations:allocations.length>500,cash_transactions:cash.length>500,open_invoices:invoiceRows.length>500,cheques:chequeRows.length>200},currency:'TRY',balance_note:'Pozitif cari bakiye alacağınız; negatif bakiye borcunuzdur.',cheque_note:'Verilen çek cari borcunu kapatır; para hesabınızdan vadesinde çıkar, henüz tahsil edilmemiştir.'};
+  return {parties:parties.map(p=>({...p,remaining_cents:p.debt_cents-p.paid_cents,last_payment:lastPayment.get(p.id)||null})),accounts,entries:entries.map(e=>{
+   const row={...e,remaining_cents:Math.abs(e.amount_cents)-e.allocated_cents,closed_invoices:closedBy.get(e.id)||[]};
+   // Ödenen tutar yalnızca borç satırında anlamlıdır; ödeme satırına sıfır yazılmaz.
+   if(e.amount_cents<0)row.paid_cents=e.allocated_cents;
+   return row;
+  }),entry_pagination:{page,limit,total:countRow.total,pages:Math.max(1,Math.ceil(countRow.total/limit)),has_more:page*limit<countRow.total},entry_filters:{q,from,to,due,kind,party_id:party||''},allocations:allocations.slice(0,500),cash_transactions:cash.slice(0,500),open_invoices:openInvoices,cheques,due_soon:dueSoon,payment_methods:Object.entries(METHODS).map(([key,label])=>({key,label})),truncated:{entries:false,allocations:allocations.length>500,cash_transactions:cash.length>500,open_invoices:invoiceRows.length>500,cheques:chequeRows.length>200},currency:'TRY',balance_note:'Pozitif cari bakiye alacağınız; negatif bakiye borcunuzdur.',cheque_note:'Verilen çek cari borcunu kapatır; para hesabınızdan vadesinde çıkar, henüz tahsil edilmemiştir.'};
  }
  if(method!=='POST')return null;
  const x=await readBody(request),key=id();

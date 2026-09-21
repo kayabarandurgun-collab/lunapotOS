@@ -27,21 +27,60 @@ async function partyCard(db, key) {
   return card;
 }
 
+// Ekstre satırı hangi ödemeyle kapandığını da anlatır: yöntem, serbest not, çekse vade,
+// planlanan ödeme tarihi ve ödemenin kapattığı fatura numaraları. Tutarlar *_cents adıyla
+// taşınır ki tutar yetkisi olmayan personelde scrubAmounts onları gizlesin, numara kalsın.
+const settle = (row, entry = {}, closed = []) => {
+  const extra = {
+    payment_method: entry.payment_method || null,
+    payment_note: entry.payment_note || '',
+    payment_due_on: entry.payment_due_on || null,
+    planned_on: entry.planned_on || null,
+    closed_invoices: closed
+  };
+  // Ödenen tutar yalnızca borç satırında anlamlıdır; ödeme satırına sıfır yazılmaz.
+  if (row.payable_cents) extra.paid_cents = row.allocated_cents;
+  return {...row, ...extra};
+};
+
 // Dönem sonuna kadar olan HER hareket alınır: devir dönem öncesinden hesaplanır.
 async function compute(db, key, from, to) {
   const entries = (await db.prepare(
-    'SELECT id,amount_cents,occurred_on,due_on,reference,description,source,reversal_of,created_at ' +
-    'FROM party_entries WHERE party_id=? AND occurred_on<=? ORDER BY occurred_on,created_at,id LIMIT ?'
+    'SELECT e.id,e.amount_cents,e.occurred_on,e.due_on,e.reference,e.description,e.source,e.reversal_of,e.created_at,' +
+    '(SELECT m.method FROM party_payment_methods m WHERE m.entry_id=e.id) payment_method,' +
+    '(SELECT m.note FROM party_payment_methods m WHERE m.entry_id=e.id) payment_note,' +
+    '(SELECT m.due_on FROM party_payment_methods m WHERE m.entry_id=e.id) payment_due_on,' +
+    '(SELECT k.planned_on FROM party_entry_plans k WHERE k.entry_id=e.id ORDER BY k.created_at DESC,k.rowid DESC LIMIT 1) planned_on ' +
+    'FROM party_entries e WHERE e.party_id=? AND e.occurred_on<=? ORDER BY e.occurred_on,e.created_at,e.id LIMIT ?'
   ).bind(key, to, MAX_ROWS + 1).all()).results;
   if (entries.length > MAX_ROWS) fail('Bu cari için ' + MAX_ROWS + '’den fazla hareket var. Dönemi daraltın.', 409);
 
   const allocations = (await db.prepare(
     'SELECT a.id,a.positive_entry_id,a.negative_entry_id,a.amount_cents,' +
+    'n.reference closed_reference,n.source_key closed_source_key,n.occurred_on closed_on,' +
     '(SELECT r.id FROM allocation_reversals r WHERE r.allocation_id=a.id) reversed_by ' +
-    'FROM payment_allocations a JOIN party_entries p ON p.id=a.positive_entry_id WHERE p.party_id=?'
+    'FROM payment_allocations a JOIN party_entries p ON p.id=a.positive_entry_id ' +
+    'LEFT JOIN party_entries n ON n.id=a.negative_entry_id WHERE p.party_id=?'
   ).bind(key).all()).results;
 
-  return buildStatement({entries, allocations, from, to});
+  const byId = new Map(entries.map(entry => [entry.id, entry]));
+  const closedBy = new Map();
+  for (const allocation of allocations) {
+    if (allocation.reversed_by) continue;
+    const list = closedBy.get(allocation.positive_entry_id) || [];
+    const source = allocation.closed_source_key || '';
+    list.push({
+      entry_id: allocation.negative_entry_id,
+      invoice_id: source.startsWith('invoice:') ? source.slice(8) : null,
+      invoice_no: allocation.closed_reference || '',
+      occurred_on: allocation.closed_on || null,
+      amount_cents: allocation.amount_cents
+    });
+    closedBy.set(allocation.positive_entry_id, list);
+  }
+
+  const statement = buildStatement({entries, allocations, from, to});
+  return {...statement, rows: statement.rows.map(row => settle(row, byId.get(row.id), closedBy.get(row.id) || []))};
 }
 
 // Belge numarası yıl bazlıdır ve UNIQUE(document_no,revision) ile korunur.

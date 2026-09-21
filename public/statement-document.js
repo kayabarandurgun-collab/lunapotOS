@@ -79,11 +79,40 @@ const TABLE_COLUMNS = [
   {header: 'Borcumuz', width: 13}, {header: 'Bakiye', width: 15}
 ];
 
+// Borcun NASIL kapandığı: ödeme yöntemi, serbest not, çek vadesi, kapattığı fatura
+// numaraları ve borç satırında ödenen/kalan. Tutar gizliyse numara yine yazılır; sıfır uydurulmaz.
+const METHOD_NAMES = {nakit: 'Nakit', kart: 'Kart', havale: 'Havale-EFT', cek: 'Çek'};
+// compact: dar ekranda tablo satırı için. Belge ve çıktılarda kısaltma yapılmaz, hepsi yazılır.
+const COMPACT_NOTE = 40, COMPACT_INVOICES = 3;
+const shorten = (value, max) => String(value ?? '').length > max ? String(value).slice(0, max - 1) + '…' : String(value ?? '');
+export function settlementNote(row = {}, compact = false) {
+  const parts = [];
+  if (row.payment_method) parts.push(METHOD_NAMES[row.payment_method] || 'Ödeme');
+  if (row.payment_note) parts.push(compact ? shorten(row.payment_note, COMPACT_NOTE) : row.payment_note);
+  if (row.payment_due_on) parts.push('vade ' + dayText(row.payment_due_on));
+  if (row.closed_invoices && row.closed_invoices.length) {
+    const all = row.closed_invoices, shown = compact ? all.slice(0, COMPACT_INVOICES) : all;
+    const rest = all.length - shown.length;
+    parts.push('kapattığı fatura: ' + shown.map(item => {
+      const no = item.invoice_no || 'Belge';
+      return item.amount_cents === null || item.amount_cents === undefined ? no : `${no} ${money(item.amount_cents)}`;
+    }).join(', ') + (rest > 0 ? ` ve ${rest} fatura daha` : ''));
+  }
+  if (row.payable_cents && row.paid_cents) parts.push('ödenen ' + money(row.paid_cents) + ' · kalan ' + money(row.remaining_cents));
+  if (row.planned_on) parts.push('ödeyeceğim ' + dayText(row.planned_on));
+  return parts.join(' · ');
+}
+
+const describe = row => {
+  const note = settlementNote(row);
+  return note ? `${row.description || ''} — ${note}` : (row.description || '');
+};
+
 const tableRows = statement => statement.rows.map(row => [
   dayText(row.occurred_on),
   dayText(row.due_on) || '—',
   row.reference || '',
-  row.description || '',
+  describe(row),
   row.receivable_cents ? money(row.receivable_cents) : (row.receivable_cents === null ? HIDDEN : '—'),
   row.payable_cents ? money(row.payable_cents) : (row.payable_cents === null ? HIDDEN : '—'),
   money(row.running_cents)
@@ -154,11 +183,13 @@ export function statementSheets({party, workspace, statement, difference, meta =
         {header: 'Açıklama', width: 46},
         {header: 'Alacağımız TL', type: 'number', width: 16},
         {header: 'Borcumuz TL', type: 'number', width: 16},
-        {header: 'Bakiye TL', type: 'number', width: 16}
+        {header: 'Bakiye TL', type: 'number', width: 16},
+        {header: 'Ödeme / kapama', width: 46}
       ],
+      // Sayı sütunlarının yeri korunur; ödeme açıklaması sona eklenir.
       rows: statement.rows.map(row => [
         row.occurred_on, row.due_on || '', row.reference || '', row.description || '',
-        lira(row.receivable_cents), lira(row.payable_cents), lira(row.running_cents)
+        lira(row.receivable_cents), lira(row.payable_cents), lira(row.running_cents), settlementNote(row)
       ])
     }
   ];
@@ -166,10 +197,10 @@ export function statementSheets({party, workspace, statement, difference, meta =
 
 export function statementCsvRows({statement}) {
   return [
-    ['Tarih', 'Vade', 'Referans', 'Açıklama', 'Alacağımız TL', 'Borcumuz TL', 'Bakiye TL'],
+    ['Tarih', 'Vade', 'Referans', 'Açıklama', 'Alacağımız TL', 'Borcumuz TL', 'Bakiye TL', 'Ödeme / kapama'],
     ...statement.rows.map(row => [
       row.occurred_on, row.due_on || '', row.reference || '', row.description || '',
-      lira(row.receivable_cents), lira(row.payable_cents), lira(row.running_cents)
+      lira(row.receivable_cents), lira(row.payable_cents), lira(row.running_cents), settlementNote(row)
     ])
   ];
 }
