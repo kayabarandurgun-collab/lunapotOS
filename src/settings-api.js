@@ -37,11 +37,13 @@ export async function settingsApi(request,env,path,readBody){
   // bir JSON'a sığmaz. Hepsi tam D1 yedeğinde ve zaman yolculuğu geri sarmasında durur. Açık maliyet
   // ve kapanış kayıtları da ara hesaptır: sonuç maliyet satış satırlarında (cost_cents) zaten vardır.
   // Ödeme yöntemi/çek vadesi ve planlanan ödeme tarihi cari hareketin yan bilgisidir; tutar, tarih ve
-  // kapama zaten party_entries/payment_allocations ile dışa aktarılır. Aynı 40 tablo sınırı korunur.
-  const names=all.filter(n=>n.startsWith(ns+'_')&&!/connections|cursors|records|_report_|purchase_document|sales_document|product_famil|purchase_family|import_batches|import_items|bank_files|bank_lines|open_costs|cost_settlements|cost_dirty|cost_revaluations|party_payment_methods|party_entry_plans/.test(n));
+  // kapama zaten party_entries/payment_allocations ile dışa aktarılır. Faturasız mal girişinin BAŞLIĞI yedekte kalır (açık girişin faturaya bağlanması ve kapanış
+  // durumu başka tablodan kurulamaz); SATIRLARI çıkarılır, çünkü ürün/miktar/değer zaten
+  // stock_movements’taki GECICI-SAYIM referansındadır. Sorgu bütçesi (<45) böyle korunur.
+  const names=all.filter(n=>n.startsWith(ns+'_')&&!/connections|cursors|records|_report_|purchase_document|sales_document|product_famil|purchase_family|import_batches|import_items|bank_files|bank_lines|open_costs|cost_settlements|cost_dirty|cost_revaluations|party_payment_methods|party_entry_plans|provisional_receipt_lines/.test(n));
   if(ns==='lp')names.push('products','materials','recipes','recipe_items');
   if(names.some(n=>!/^\w+$/.test(n)))fail('Yedek tablo adı doğrulanamadı.',500);
-  if(!names.length||names.length>40)fail('Bu dışa aktarma en fazla 40 veri tablosunu destekler; D1 dışa aktarımını kullanın.',409);
+  if(!names.length||names.length>45)fail('Bu dışa aktarma en fazla 45 veri tablosunu destekler; D1 dışa aktarımını kullanın.',409);
   // D1 limits compound SELECT terms more strictly than desktop SQLite.
   // Scalar counts use one query without UNION and leave Free-tier query headroom.
   const counts=await db.prepare('SELECT '+names.map(n=>'(SELECT COUNT(*) FROM '+n+')').join(' + ')+' AS total_rows').first();

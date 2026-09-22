@@ -8,6 +8,9 @@ const text=(x,label,max=500)=>{if(typeof x!=='string'||!x.trim()||x.length>max)f
 const optional=(x,max=500)=>x===undefined||x===null||x===''?'':text(x,'Bilgi',max);
 const day=x=>{if(typeof x!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(x)||!Number.isFinite(Date.parse(x))||new Date(x).toISOString().slice(0,10)!==x)fail('Geçerli tarih girin.');return x;};
 const money=x=>{let n;try{n=cents(x);}catch{fail('Geçerli bir tutar girin.');}if(!Number.isSafeInteger(n)||!n||Math.abs(n)>100000000000)fail('Tutar sıfır olamaz ve sınırı aşamaz.');return n;};
+const milliQty=x=>{const n=Math.round(Number(x)*1000);if(!Number.isFinite(n)||!Number.isSafeInteger(n)||n<=0||n>1000000000)fail('Miktar geçersiz.');return n;};
+const costCents=x=>{let n;try{n=cents(x??0);}catch{fail('Birim maliyeti kontrol edin.');}if(!Number.isSafeInteger(n)||n<0||n>100000000000)fail('Birim maliyet geçersiz.');return n;};
+const vatBps=x=>{const n=x===undefined||x===null||x===''?2000:Number(x);if(!Number.isSafeInteger(n)||n<0||n>10000)fail('KDV oranı geçersiz.');return n;};
 const positive=x=>{const n=money(x);if(n<0)fail('Tutar pozitif olmalı.');return n;};
 async function execute(db,items){try{return await db.batch(items);}catch(error){const m=String(error.message);if(/CHEQUE_DUE_REQUIRED/.test(m))fail('Çek için vade tarihi girin.');if(/INVALID_DUE_DATE|INVALID_PLAN_DATE/.test(m))fail('Geçerli tarih girin.');if(/PAYMENT_ENTRY_REQUIRED/.test(m))fail('Ödeme yöntemi yalnızca ödeme hareketine yazılabilir.',409);if(/DEBT_ENTRY_REQUIRED/.test(m))fail('Planlanan ödeme tarihi yalnızca açık borca eklenebilir.',409);if(/OVER_ALLOCATION/.test(m))fail('Kapama tutarı belgenin kalan tutarını aşıyor.',409);if(/ENTRY_ALLOCATED/.test(m))fail('Önce bu hareketin belge kapamalarını geri alın.',409);if(/INVALID_ALLOCATION/.test(m))fail('Aynı cariye ait bir alacak ve bir borç hareketini seçin.',409);if(/REVERSAL|REVERSED_ENTRY/.test(m))fail('Bu hareket için ters kayıt oluşturulamaz.',409);if(/UNIQUE constraint/.test(m))fail('Bu referans veya kayıt daha önce işlendi.',409);if(/FOREIGN KEY/.test(m))fail('Seçilen kayıt bu çalışma alanında bulunamadı.',404);throw error;}}
 async function requireParty(db,key){if(!await stmt(db,'SELECT id FROM suppliers WHERE id=?',[key]).first())fail('Cari bu çalışma alanında bulunamadı.',404);}
@@ -99,7 +102,9 @@ export async function ledgerApi(request,env,path,readBody){
    ...openInvoices.filter(r=>r.planned_on||r.due_on).map(r=>({kind:'invoice',entry_id:r.entry_id,invoice_id:r.invoice_id,party_id:r.party_id,party_name:r.party_name,reference:r.invoice_no,due_on:r.planned_on||r.due_on,planned:!!r.planned_on,amount_cents:r.remaining_cents})),
    ...cheques.filter(c=>c.due_on).map(c=>({kind:'cheque',entry_id:c.entry_id,invoice_id:null,party_id:c.party_id,party_name:c.party_name,reference:c.reference,due_on:c.due_on,planned:false,amount_cents:c.amount_cents}))
   ].sort((a,b)=>a.due_on<b.due_on?-1:a.due_on>b.due_on?1:0).slice(0,20).map(x=>({...x,overdue:x.due_on<today}));
-  return {parties:parties.map(p=>({...p,remaining_cents:p.debt_cents-p.paid_cents,last_payment:lastPayment.get(p.id)||null})),accounts,entries:entries.map(e=>{
+  // Faturasız mal girişi ürün seçtirir; liste bu ekranda da gerekli.
+  const products=(await stmt(db,'SELECT id,name,sku FROM products ORDER BY name LIMIT 2000').all()).results;
+  return {products,parties:parties.map(p=>({...p,remaining_cents:p.debt_cents-p.paid_cents,last_payment:lastPayment.get(p.id)||null})),accounts,entries:entries.map(e=>{
    const row={...e,remaining_cents:Math.abs(e.amount_cents)-e.allocated_cents,closed_invoices:closedBy.get(e.id)||[]};
    // Ödenen tutar yalnızca borç satırında anlamlıdır; ödeme satırına sıfır yazılmaz.
    if(e.amount_cents<0)row.paid_cents=e.allocated_cents;
@@ -208,6 +213,44 @@ export async function ledgerApi(request,env,path,readBody){
   if(seen)return {id:seen.id,entry_id:entryId,planned_on:planned,existing:true};
   await execute(db,[stmt(db,'INSERT INTO party_entry_plans(id,entry_id,planned_on,note) VALUES(?,?,?,?)',[planId,entryId,planned,note])]);
   return {id:planId,entry_id:entryId,planned_on:planned,remaining_cents:remainingOf(row)};
+ }
+
+ // FATURASIZ MAL GİRİŞİ. Vadeli tedarikçi malı önce gönderir, faturayı vade gününde keser.
+ // Mal buradan girilir: stok 'GECICI-SAYIM-<referans>' sayımıyla artar, cariye geçici borç yazılır.
+ // Gerçek fatura muhasebeleşince geçici borç ters kayıtla kapanır (accounting.js '/post'), teslim
+ // yapılınca da geçici sayım provisionalClose ile düşer. Çift giriş bu yüzden oluşamaz: her iki taraf
+ // da karşılığı doğduğu anda kapanır ve kapanış kayıtları tekildir.
+ if(path==='/api/ledger/provisional'){
+  // Gövde ve key yukarıda bir kez okunur (satır 113); ikinci readBody isteği kilitler.
+  const party=text(x.supplier_id,'Tedarikçi');
+  await requireParty(db,party);
+  const date=day(x.occurred_on),reference=text(x.reference,'İrsaliye referansı',200),notes=optional(x.notes,1000);
+  if(!Array.isArray(x.lines)||!x.lines.length)fail('En az bir ürün satırı girin.');
+  if(x.lines.length>200)fail('Tek girişte en fazla 200 satır olabilir.');
+  const seen=new Set(),rows=[];
+  for(const line of x.lines){
+   const product=text(line.product_id,'Ürün');
+   if(seen.has(product))fail('Aynı ürün iki satırda olamaz; miktarları birleştirin.');
+   seen.add(product);
+   const qty=milliQty(line.quantity),unit=costCents(line.unit_cost),vat=vatBps(line.vat_bps);
+   if(!await stmt(db,'SELECT product_id FROM stock_balances WHERE product_id=?',[product]).first())fail('Ürün bu çalışma alanında bulunamadı.',404);
+   rows.push({product,qty,unit,vat,value:Math.round(qty*unit/1000)});
+  }
+  const brut=rows.reduce((t,r)=>t+Math.round(r.value*(10000+r.vat)/10000),0);
+  if(brut<=0)fail('Girişin KDV dahil tutarı sıfırdan büyük olmalı.');
+  // Cari satırı ÖNCE yazılır: başlık entry_id ile ona bağlı, ters sırada yabancı anahtar kırılır.
+  const entry=id(),statements=[
+   entryInsert(db,{id:entry,party_id:party,amount_cents:-brut,occurred_on:date,reference,
+    description:'Faturasız mal girişi · '+reference,source_key:'gecici:'+key,source:'manual'}),
+   stmt(db,'INSERT INTO provisional_receipts(id,supplier_id,occurred_on,reference,notes,entry_id) VALUES(?,?,?,?,?,?)',[key,party,date,reference,notes,entry])];
+  for(const r of rows){
+   statements.push(stmt(db,'INSERT INTO stock_movements(id,product_id,quantity_milli,value_cents,kind,reference,notes,occurred_on) VALUES(?,?,?,?,?,?,?,?)',
+    [id(),r.product,r.qty,r.value,'count','GECICI-SAYIM-'+reference,'Faturasız mal girişi · fatura gelince kapanır',date]));
+   statements.push(stmt(db,'INSERT INTO provisional_receipt_lines(id,receipt_id,product_id,quantity_milli,unit_cost_cents,vat_bps) VALUES(?,?,?,?,?,?)',
+    [id(),key,r.product,r.qty,r.unit,r.vat]));
+  }
+  await execute(db,statements);
+  return {id:key,amount_cents:-brut};
  }
  if(path==='/api/ledger/allocations'){
   await execute(db,[stmt(db,'INSERT INTO payment_allocations(id,positive_entry_id,negative_entry_id,amount_cents,reference) VALUES(?,?,?,?,?)',[key,text(x.positive_entry_id,'Alacak hareketi'),text(x.negative_entry_id,'Borç hareketi'),positive(x.amount),text(x.reference,'Referans',200)])]);return {id:key};

@@ -192,6 +192,8 @@ export function mountBusiness(root, namespace, view, user = null) {
     }
   }
   const productOptions = () => state.data.products.map(p => [p.id, `${p.name} · ${p.sku}`]);
+  // Faturasız mal girişinin ürün satırı. Aynı adlar tekrarlanır; gönderirken FormData.getAll ile okunur.
+  const provisionalRow = (n) => `<fieldset class="field-grid provisional-row" data-provisional-row><legend>Ürün ${n}</legend>` + choose('Ürün','product_id',productOptions()) + input('Adet','quantity','','number','required min="0.001" max="1000000" step="0.001"') + amount('Birim maliyet · KDV hariç (TL)','unit_cost') + input('KDV %','vat','20','number','required min="0" max="100" step="0.01"') + '</fieldset>';
   const partyOptions = () => state.data.parties.map(p => [p.id, p.name]);
   const accountOptions = () => state.data.accounts.map(p => [p.id, `${p.name} · ${p.kind === 'bank' ? 'Banka' : 'Kasa'}`]);
 
@@ -258,7 +260,7 @@ export function mountBusiness(root, namespace, view, user = null) {
     const secili = open.filter(row => state.selected.has(row.entry_id));
     const seciliToplam = secili.reduce((sum, row) => sum + (row.remaining_cents || 0), 0);
     const suppliers = [...new Map(open.map(row => [row.party_id, row.party_name])).entries()].slice(0, 30);
-    const filtre = `<form class="v2-toolbar" data-business-form="pay-filter">${select('Cari hesabı','party_id',[['','Tüm cariler'],...partyOptions()],state.party,false)}<button class="secondary" type="submit">Listele</button>${button('Eksik fatura borçlarını tamamla','invoice-debts','',true)}</form>`;
+    const filtre = `<form class="v2-toolbar" data-business-form="pay-filter">${select('Cari hesabı','party_id',[['','Tüm cariler'],...partyOptions()],state.party,false)}<button class="secondary" type="submit">Listele</button>${button('Eksik fatura borçlarını tamamla','invoice-debts','',true)+button('Faturasız mal girişi','provisional','',true)}</form>`;
     const bilgi = '<div class="notice subtle">Muhasebeleşen her alış faturası cari borcu oluşturur. Eski faturaların borcu görünmüyorsa “Eksik fatura borçlarını tamamla”ya bas: yalnızca eksik olanlar yazılır, var olan kayda dokunulmaz, taslak fatura işlenmez.</div>';
     const gruplar = suppliers.map(([id, name]) => {
       const rows = open.filter(row => row.party_id === id);
@@ -352,6 +354,7 @@ export function mountBusiness(root, namespace, view, user = null) {
   }
   function ledgerForm(action, context = '') {
     const d = state.data;
+    if (action === 'provisional-row') { const box = $('[data-provisional-rows]'); if (box && box.children.length < 40) box.insertAdjacentHTML('beforeend', provisionalRow(box.children.length + 1)); return; }
     if (action === 'party') return dialog('Cari hesap ekle','party', input('Cari adı / unvan','name','','text','required maxlength="200"') + '<div class="field-grid">' + choose('Cari türü','kind',Object.entries(kindNames)) + input('VKN / TCKN · isteğe bağlı','tax_id','','text','maxlength="11" inputmode="numeric" pattern="[0-9]{10,11}"') + input('Yetkili kişi · isteğe bağlı','contact','','text','maxlength="500"') + input('Telefon · isteğe bağlı','phone','','tel','maxlength="50"') + input('E-posta · isteğe bağlı','email','','email','maxlength="200"') + '</div>' + textArea('Adres · isteğe bağlı','address','',false));
     if (action === 'account') return dialog('Kasa veya banka hesabı ekle','account',input('Hesap adı','name','','text','required maxlength="200" placeholder="Örn. İşletme banka hesabı"') + choose('Hesap türü','kind',[['cash','Kasa'],['bank','Banka']]) + '<p class="help">Hesap boş bakiye ile açılır. Mevcut bakiyeyi kaydederken gerçekleşen giriş/çıkışı ve açıklamasını kullan.</p>');
     if (action === 'entry') {
@@ -393,6 +396,15 @@ export function mountBusiness(root, namespace, view, user = null) {
         + input('Not · isteğe bağlı','note','','text','maxlength="200" placeholder="Örn. Ay sonunda ödeyeceğim"')
         + '<div class="notice subtle">Bu işlem ödeme kaydetmez ve bakiyeyi değiştirmez. Yalnızca “şu tarihte ödeyeceğim” notudur; vadesi gelen listesinde görünür. Tarihi sonra değiştirebilirsin, eski kayıt geçmişte kalır.</div>', context, 'Tarihi işaretle');
     }
+    if (action === 'provisional') return dialog('Faturasız mal girişi','provisional',
+      '<div class="notice subtle"><strong>Faturası henüz kesilmemiş malı buradan gir.</strong><p>Stok hemen artar ve cariye borcun yazılır. Gerçek fatura gelip muhasebeleştiğinde bu giriş <b>kendiliğinden</b> kapanır: mal ikinci kez stoğa girmez, borç iki kez durmaz. Senin ayrıca bir şey yapman gerekmez.</p></div>'
+      + choose('Cari · tedarikçi','supplier_id',partyOptions(),state.party)
+      + '<div class="field-grid">' + input('Malın geldiği tarih','occurred_on',today(),'date','required') + input('İrsaliye / referans','reference','','text','required maxlength="200"') + '</div>'
+      + input('Not · isteğe bağlı','notes','','text','maxlength="1000"')
+      + '<div data-provisional-rows>' + provisionalRow(1) + '</div>'
+      + button('+ Ürün satırı ekle','provisional-row','',true)
+      + '<p class="help">Aynı ürünü iki satıra yazma, miktarı birleştir. Fatura bu girişin tamamı için gelecek; kısmi fatura beklemiyorsan tek giriş yeterlidir.</p>',
+      '', 'Girişi kaydet');
     if (action === 'invoice-debts') return dialog('Eksik fatura borçlarını tamamla','invoice-debts',
       '<div class="notice">Muhasebeleşmiş her alış faturası için eksik olan cari borcu yazılır. Borcu zaten olan faturaya dokunulmaz, taslak ve iptal fatura işlenmez. İstediğin kadar tekrar çalıştırabilirsin.</div>','','Eksikleri tamamla');
     if (action === 'reverse') {
@@ -448,6 +460,14 @@ export function mountBusiness(root, namespace, view, user = null) {
         body = {party_id:pick.party_id, amount:value / 100, occurred_on:x.occurred_on, method:x.method, note:x.note || '', invoice_ids:pick.rows.map(row => row.invoice_id)};
         if (x.due_on) body.due_on = x.due_on;
         if (x.account_id) body.account_id = x.account_id;
+      }
+      else if (kind === 'provisional') {
+        // Satır adları tekrarlandığı için Object.fromEntries yetmez; hepsini getAll ile okuyoruz.
+        const data = new FormData(form), ids = data.getAll('product_id'), qs = data.getAll('quantity'), cs = data.getAll('unit_cost'), vs = data.getAll('vat');
+        const lines = ids.map((pid, i) => ({product_id: pid, quantity: Number(qs[i]), unit_cost: cs[i], vat_bps: Math.round(Number(vs[i]) * 100)})).filter(l => l.product_id);
+        if (!lines.length) throw Error('En az bir ürün satırı ekleyin.');
+        if (new Set(lines.map(l => l.product_id)).size !== lines.length) throw Error('Aynı ürün iki satırda olamaz; miktarları birleştirin.');
+        path = '/provisional'; body = {supplier_id: x.supplier_id, occurred_on: x.occurred_on, reference: x.reference, notes: x.notes || '', lines};
       }
       else if (kind === 'plan') { path = '/plans'; body = {entry_id:form.dataset.context, planned_on:x.planned_on, note:x.note || ''}; }
       else if (kind === 'invoice-debts') { path = '/invoice-debts'; body = {}; }

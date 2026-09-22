@@ -155,7 +155,9 @@ test('review: business exports exclude credentials, grants, sessions and keep qu
   await f.enroll();const prepare=f.env.DB.prepare.bind(f.env.DB);let queries=0;f.env.DB.prepare=sql=>{queries++;return prepare(sql);};
   for(const ns of ['ec','lp']){
    queries=0;const result=await f.send('/'+ns+'/settings/backup',{cookie:f.owner});assert.equal(result.status,200,ns+' export must remain available');
-   assert.ok(Object.keys(result.data.tables).length<=40);assert.ok(queries<45,'export queries: '+queries);
+   // Bütçe 45: faturasız mal girişi başlığı ve satırları yedekte kalır (açık girişin faturaya
+  // bağlanması başka tablodan kurulamaz). Sorgu bütçesi değişmedi; asıl D1 baskısı satır sınırıdır.
+  assert.ok(Object.keys(result.data.tables).length<=45);assert.ok(queries<45,'export queries: '+queries);
    assert.ok(!Object.keys(result.data.tables).some(n=>/trusted_devices|sessions|admin|staff_users|login_limits|connections/.test(n)));
    assert.doesNotMatch(JSON.stringify(result.data),/pin_hash|pin_salt|password_hash|token_hash/);
   }
