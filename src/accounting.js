@@ -119,7 +119,9 @@ export async function accountingApi(request,env,path,readBody){
   const closeLoss=env.WORKSPACE==='ec'?(await statement(db,`SELECT c.id,'kapanis-kayip:'||c.id reference,'loss' category,c.value_cents amount_cents,m.occurred_on,0 paid,'Geçici sayımla kapanan kayıp malın gerçek fatura farkı' notes FROM ec_close_cost_revaluations c JOIN stock_movements m ON m.id=c.movement_id WHERE c.kind='kayip' AND m.occurred_on BETWEEN ? AND ? ORDER BY m.occurred_on DESC LIMIT 5001`,[from,to]).all()).results:[];
   if(closeLoss.length>5000)fail('Düzeltme sayısı fazla; tarih aralığını daraltın.',409);
   const costMovements=env.WORKSPACE==='ec'?(await db.prepare(`SELECT a.id,l.product_id,p.name product_name,p.stock_unit,0 quantity_milli,iif(a.reversal_of IS NULL,-a.stock_cents,a.stock_cents) value_cents,'purchase' kind,'price-adjustment:'||a.id reference,a.reference||' · '||a.reason notes,a.occurred_on,a.created_at FROM purchase_adjustments a JOIN purchase_lines l ON l.id=a.line_id JOIN products p ON p.id=l.product_id WHERE a.stock_cents!=0 ORDER BY a.created_at DESC,a.rowid DESC LIMIT 200`).all()).results:[];
-  return filterAccounting({from,to,stock,sales,expenses:[...expenses,...adjustments,...credits,...closeLoss],suppliers,invoices,movements:[...movements,...costMovements].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,200),pending_fee_cents:pendingFees[0].pending_fee_cents},env.USER,env.WORKSPACE);
+  // Sabit gider planları gider ekranında listelenir; arşivlenenler gösterilmez.
+  const schedules=(await statement(db,'SELECT * FROM expense_schedules WHERE archived_at IS NULL ORDER BY day_of_month,label',[]).all()).results;
+  return filterAccounting({from,to,expense_schedules:schedules,stock,sales,expenses:[...expenses,...adjustments,...credits,...closeLoss],suppliers,invoices,movements:[...movements,...costMovements].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,200),pending_fee_cents:pendingFees[0].pending_fee_cents},env.USER,env.WORKSPACE);
  }
  if(path==='/api/accounting/suppliers'&&method==='POST'){
   const x=await readBody(request),key=id(),tax=optional(x.tax_id);if(tax&&!/^\d{10,11}$/.test(tax))fail('VKN/TCKN 10 veya 11 rakam olmalı.');
@@ -180,9 +182,57 @@ export async function accountingApi(request,env,path,readBody){
  }
  if(path==='/api/accounting/expenses'&&method==='POST'){
   const x=await readBody(request),key=id();if(!['shipping','commission','advertising','rent','packaging','other'].includes(x.category))fail('Gider kategorisi geçersiz.');
-  await batch(db,[statement(db,'INSERT INTO expenses(id,reference,category,amount_cents,occurred_on,paid,notes) VALUES(?,?,?,?,?,?,?)',[key,text(x.reference,'Gider referansı'),x.category,amount(x.amount),day(x.occurred_on),x.paid===true?1:0,optional(x.notes).slice(0,2000)]),log(db,'Genel gider kaydedildi')]);return {id:key};
+  await batch(db,[statement(db,'INSERT INTO expenses(id,reference,category,amount_cents,occurred_on,paid,notes,label) VALUES(?,?,?,?,?,?,?,?)',[key,text(x.reference,'Gider referansı'),x.category,amount(x.amount),day(x.occurred_on),x.paid===true?1:0,optional(x.notes).slice(0,2000),optional(x.label).slice(0,200)]),log(db,'Genel gider kaydedildi')]);return {id:key};
  }
- const invoiceMatch=path.match(/^\/api\/accounting\/invoices\/([\w-]+)(?:\/(post|cancel|receive))?$/);
+ 
+ // SABİT (TEKRARLI) GENEL GİDER. Kira, elektrik, yakıt her ay aynı tutarla tekrarlıyor; kullanıcı
+ // her ay elle girmesin diye bir kez tanımlanır. Üretim TEKRAR GÜVENLİDİR: gider referansı
+ // 'GIDER-PLAN-<plan>-<YYYY-MM>' tekildir, aynı ay ikinci kez yazılmaz. Bu yüzden planda ayrıca
+ // "şu aya kadar üretildi" işareti tutulmaz; tek doğruluk kaynağı yazılmış giderin kendisidir.
+ if(path==='/api/accounting/expense-schedules'&&method==='POST'){
+  const x=await readBody(request),key=id();
+  if(!['shipping','commission','advertising','rent','packaging','other'].includes(x.category))fail('Gider kategorisi geçersiz.');
+  const tutar=amount(x.amount);if(!(tutar>0))fail('Sabit giderin tutarı sıfırdan büyük olmalı.');
+  const gun=Number(x.day_of_month);
+  // 29-31 kabul edilmez: kısa aylarda kayacak ya da atlanacak gün kalmasın.
+  if(!Number.isSafeInteger(gun)||gun<1||gun>28)fail('Ayın günü 1 ile 28 arasında olmalı.');
+  const basla=day(x.starts_on),bitis=x.ends_on?day(x.ends_on):null;
+  if(bitis&&bitis<basla)fail('Bitiş tarihi başlangıçtan önce olamaz.');
+  await batch(db,[statement(db,'INSERT INTO expense_schedules(id,label,category,amount_cents,day_of_month,starts_on,ends_on,notes) VALUES(?,?,?,?,?,?,?,?)',
+   [key,text(x.label,'Gider adı',200),x.category,tutar,gun,basla,bitis,optional(x.notes).slice(0,2000)]),log(db,'Sabit gider tanımlandı')]);
+  return {id:key};
+ }
+ if(path==='/api/accounting/expense-schedules/generate'&&method==='POST'){
+  const x=await readBody(request),sonuna=day(x.through);
+  const plans=(await statement(db,'SELECT * FROM expense_schedules WHERE archived_at IS NULL ORDER BY created_at',[]).all()).results;
+  const pad=n=>String(n).padStart(2,'0'),statements=[];
+  for(const plan of plans){
+   const son=plan.ends_on&&plan.ends_on<sonuna?plan.ends_on:sonuna;
+   let [yil,ay]=plan.starts_on.split('-').map(Number);
+   const [sy,sa]=son.split('-').map(Number);
+   for(let guard=0;(yil<sy||(yil===sy&&ay<=sa))&&guard<600;guard++){
+    const tarih=yil+'-'+pad(ay)+'-'+pad(plan.day_of_month);
+    if(tarih>=plan.starts_on&&tarih<=son){
+     const reference='GIDER-PLAN-'+plan.id+'-'+yil+'-'+pad(ay);
+     // Tekil referans zaten korur; WHERE NOT EXISTS ile tekrar çalıştırma hata da vermez.
+     statements.push(statement(db,"INSERT INTO expenses(id,reference,category,amount_cents,occurred_on,paid,notes,label) SELECT ?,?,?,?,?,0,?,? WHERE NOT EXISTS(SELECT 1 FROM expenses WHERE reference=?) RETURNING id",
+      [id(),reference,plan.category,plan.amount_cents,tarih,plan.notes,plan.label,reference]));
+    }
+    ay++;if(ay>12){ay=1;yil++;}
+   }
+  }
+  if(!statements.length)return {created:0};
+  const sonuc=await batch(db,[...statements,log(db,'Sabit giderlerin ayı üretildi')]);
+  return {created:sonuc.slice(0,statements.length).filter(r=>r.results.length).length};
+ }
+ const schedulePrefix='/api/accounting/expense-schedules/',scheduleId=path.startsWith(schedulePrefix)&&path.endsWith('/archive')?path.slice(schedulePrefix.length,-8):'',scheduleMatch=scheduleId&&!scheduleId.includes('/')?[null,scheduleId]:null;
+ if(scheduleMatch&&method==='POST'){
+  // Arşiv silmez: yazılmış giderler yerinde kalır, yalnız yeni ay üretilmez.
+  const sonuc=await batch(db,[statement(db,"UPDATE expense_schedules SET archived_at=datetime('now') WHERE id=? AND archived_at IS NULL RETURNING id",[scheduleMatch[1]]),log(db,'Sabit gider arşivlendi')]);
+  if(!sonuc[0].results.length)fail('Sabit gider bulunamadı veya zaten arşivlenmiş.',404);
+  return {id:scheduleMatch[1]};
+ }
+const invoiceMatch=path.match(/^\/api\/accounting\/invoices\/([\w-]+)(?:\/(post|cancel|receive))?$/);
  if(invoiceMatch&&method==='GET'){
   const invoice=await statement(db,'SELECT * FROM purchase_invoices WHERE id=?',[invoiceMatch[1]]).first();if(!invoice)fail('Fatura bulunamadı.',404);
   const returns=env.WORKSPACE==='ec'?(await statement(db,'SELECT r.*,(SELECT id FROM purchase_returns x WHERE x.reversal_of=r.id) reversed_by FROM purchase_returns r JOIN purchase_lines l ON l.id=r.line_id WHERE l.invoice_id=? ORDER BY r.created_at,r.rowid',[invoice.id]).all()).results:[];
