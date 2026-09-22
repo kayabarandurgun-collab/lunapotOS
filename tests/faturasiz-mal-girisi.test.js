@@ -100,3 +100,28 @@ test('Aynı referansla ikinci geçici giriş açılamaz', async () => {
   assert.equal(stok(f, product).q, 10000, 'reddedilen giriş stoğa dokunmamalı');
  } finally { f.close(); }
 });
+
+// Cari ekranındaki "Faturası bekleniyor" rozeti bu iki alana dayanır: source_key ön eki ve
+// reversed_by. Fatura gelince ters kayıt doğar ve rozet "Faturalandı"ya döner.
+test('Cari listesi geçici girişi faturası bekleniyor olarak ayırt edebilir', async () => {
+ const {f, supplier, product} = await seed(); try {
+  const r = await gecici(f, supplier.id, product);
+  const once = (await f.ok('/ec/ledger')).entries.find(e => e.source_key === 'gecici:' + r.id);
+  assert.ok(once, 'geçici borç cari hareketlerinde görünmeli');
+  assert.equal(once.reversed_by, null, 'fatura gelmeden ters kaydı olmamalı (rozet: faturası bekleniyor)');
+  assert.match(once.description, /Faturasız mal girişi/, 'açıklama girişi adıyla anmalı');
+
+  await gercekFatura(f, supplier.id, product);
+
+  const sonra = (await f.ok('/ec/ledger')).entries.find(e => e.source_key === 'gecici:' + r.id);
+  assert.ok(sonra.reversed_by, 'fatura gelince ters kayıt doğmalı (rozet: faturalandı)');
+ } finally { f.close(); }
+});
+
+test('Faturasız mal girişi ekranı ürün listesi döndürür', async () => {
+ const {f, product} = await seed(); try {
+  const d = await f.ok('/ec/ledger');
+  assert.ok(Array.isArray(d.products), 'ürün listesi gelmeli ki wizard ürün seçtirebilsin');
+  assert.ok(d.products.some(p => p.id === product), 'eklenen ürün listede olmalı');
+ } finally { f.close(); }
+});

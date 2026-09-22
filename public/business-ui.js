@@ -299,6 +299,8 @@ export function mountBusiness(root, namespace, view, user = null) {
     const kaynak = e.payment_method ? ''
       : e.source_key?.startsWith('adjustment:') ? 'Fatura düzeltmesi'
       : e.source_key?.startsWith('purchase-return:') ? 'Tedarikçi iadesi'
+      : e.source_key?.startsWith('gecici-kapanis:') ? 'Faturasız giriş faturalandı'
+      : e.source_key?.startsWith('gecici:') ? 'Faturasız mal girişi'
       : sourceNames[e.source] || 'Belge kaydı';
     // Not zaten açıklamada geçiyorsa tekrarlanmaz; vade her zaman Türkçe biçimde yazılır.
     const ek = [
@@ -306,7 +308,10 @@ export function mountBusiness(root, namespace, view, user = null) {
       e.payment_due_on ? 'vade ' + gun(e.payment_due_on) : ''
     ].filter(Boolean).join(' · ');
     const kapanan = kapatilanFaturalar(e), durum = borcDurumu(e);
-    return esc(aciklama) + (kaynak ? `<small>${esc(kaynak)}</small>` : '')
+    // FATURASIZ MAL GİRİŞİ ROZETİ: mal geldi ama faturası kesilmedi. Ters kaydı varsa fatura
+    // gelmiş ve giriş kapanmıştır; o zaman bekleyen bir şey kalmaz.
+    const gecici = e.source_key?.startsWith('gecici:') ? badge(e.reversed_by ? 'Faturalandı' : 'Faturası bekleniyor', e.reversed_by ? 'success' : 'warning') : '';
+    return esc(aciklama) + (kaynak ? `<small>${esc(kaynak)}</small>` : '') + (gecici ? `<div class="ledger-pay">${gecici}</div>` : '')
       + (e.payment_method ? `<div class="ledger-pay">${badge(odemeRozeti(e.payment_method) || 'Ödeme','success')}${ek ? `<small>${esc(ek)}</small>` : ''}</div>` : '')
       + (kapanan ? `<small>${esc(kapanan)}</small>` : '')
       + (durum ? `<small>${esc(durum)}</small>` : '');
