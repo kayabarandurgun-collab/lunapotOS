@@ -1,0 +1,62 @@
+---
+session: lunapot-panel
+date: 2026-09-22
+status: complete
+outcome: SUCCEEDED
+---
+
+goal: "Faturasız mal girişi (geçici mal kabul) yapıldı ve yayınlandı: vadeli tedarikçi malı faturasız girilince stok artar ve cariye borç yazılır; gerçek fatura gelince her iki taraf da kendiliğinden kapanır, çift sayma olmaz."
+now: "Açık zorunlu iş YOK. Kullanıcı ekranı henüz kendi sekmesinde denemedi; ilk geri bildirim gelirse ondan başla."
+test: "npm test   # 855 test, 840 pass, 15 atlanan, 0 fail. Yayın: npm test > out; grep -q '^ℹ fail 0' out && git push origin main"
+
+ortam:
+  repo: "C:/Users/baran/Desktop/site/lunapot-panel (main, HEAD 61e6be1). Documents/Codex kopyası ESKİ, dokunma."
+  canli: "https://muhasebe.lunapot.com · CACHE lunapot-shell-v124-gecici-rozet · migration 0054 uygulandı (ec_provisional_receipts, ec_provisional_receipt_lines canlıda doğrulandı)."
+  yayin: "Migration varsa önce npm run db:remote, sonra git push. Her UI yayınında public/sw.js CACHE'ini artır, curl ile doğrula."
+  canli_okuma: "wrangler d1 execute --remote --command ... --json çalışıyor. --file SADECE istatistik döner. Geçici 7403 gelirse SORGUYU TEKRARLA."
+
+kullanici:
+  - "TEKNİK ANLATMA. Bu oturumda tablo/jargonla anlattım, kullanıcı 'ne dedin anlamadım' dedi. Kısa, sade Türkçe; ne istediğini ve ondan ne beklediğini tek cümleyle söyle."
+  - "Komut gösterince 'bu neyin komutu' diye sordu: komutu ben çalıştırıyorum, ondan sadece onay bekliyorum — bunu açıkça yaz."
+  - "Tam yetki: testler temizse yayına al. Canlı VERİ yazan/şema değiştiren işlemleri önce anlat."
+
+done_this_session:
+  - task: "Cari rozeti (61e6be1, v124): geçici borç listede 'Faturası bekleniyor' (turuncu), fatura gelince 'Faturalandı' (yeşil). Ayrı durum alanı YOK; rozet source_key'in 'gecici:' ön ekine ve reversed_by'a bakar, bu yüzden borç kapandıysa rozet de kendiliğinden döner."
+    files: [public/business-ui.js, tests/faturasiz-mal-girisi.test.js]
+  - task: "Komisyon/kâr doğrulaması (yeni kod yok): sistem KARDA. 401 teslim paket, ciro 181.089,95 · katkı 27.884,13 TL (%15,4). Stopaj ve gelir vergisi hariç; sistemde kayıtlı genel gider yalnız 1 adet/152,45 TL olduğu için gerçek net kâr daha düşük. Kargo (38.660) komisyondan (32.991) pahalı."
+  - task: "Faturasız mal girişi (4d55dd8, v123). Cari ekranında 'Faturasız mal girişi' düğmesi: tedarikçi, tarih, irsaliye, çoklu ürün satırı."
+    files: [migrations/0054_faturasiz_mal_girisi.sql, src/ledger-api.js, src/accounting.js, src/scoped-db.js, src/settings-api.js, public/business-ui.js, tests/faturasiz-mal-girisi.test.js]
+
+decisions:
+  - iki_taraf_ayri_kapanir: "Stok mal tesliminde (provisionalClose, accounting.js — ZATEN VARDI), cari fatura muhasebeleşince (/post, yeni) kapanır. Her taraf karşılığı doğduğu anda kapanır; tek bir yerde toplanmadı."
+  - gecici_borc_manual_kaynakli: "Geçici borç source='manual', source_key='gecici:<id>'. Ters kayıt tetikleyicisi (ec_entry_reverse_validate) yalnız manual/opening/cash kaynaklı satırı tersler; bu yüzden yeni bir source değeri EKLENMEDİ."
+  - tam_eslesme: "Kullanıcı 'faturanın tamamı gelecek' dedi; kısmi fatura kurgusu YAPILMADI. Fatura muhasebeleşince tedarikçinin en eski AÇIK girişi kapanır."
+  - yedek_butcesi: "Dışa aktarma sorgu bütçesi (<45) asıl D1 kısıtı. Geçici girişin BAŞLIĞI yedekte kalır, SATIRLARI settings-api'deki dışlama regex'ine eklendi (ürün/miktar/değer zaten stock_movements'taki GECICI-SAYIM referansında). Tablo bütçesi 40→45."
+
+worked:
+  - "Mevcut mekanizmayı önce aramak: provisionalClose ve GECICI-SAYIM zaten yazılmıştı (accounting.js:41 yorumu kullanıcının senaryosunu birebir anlatıyor). Sıfırdan yazsaydım çift mekanizma olurdu."
+  - "TDD: çift girişi kanıtlayan test önce yazıldı; 10 adet geçici + gerçek fatura → stok 10'da kaldı, borç bir kez."
+
+failed:
+  - "ledger-api'de kendi readBody'mi çağırdım: gövde satır 113'te BİR KEZ okunuyor ve bütün POST uçlarına 'x' olarak veriliyor. İkinci okuma 'ReadableStream is locked' → 500. Yeni uç eklerken x ve key'i yukarıdan kullan."
+  - "provisional_receipts'i party_entries'ten ÖNCE insert ettim; entry_id yabancı anahtarı kırıldı. Cari satırı önce yazılmalı."
+  - "Testte fatura tutarlarını kuruş verdim; fatura uçları LİRA bekliyor (amount() kuruşa çevirir). 12.000.000 çıktı."
+  - "worker.js'e inline node -e ile probe eklerken kaçış bozuldu ve dosya kırıldı; onarıldı. Karmaşık yamayı scratchpad'e .cjs dosyası yazarak uygula."
+
+acik_isler:
+  - "Kullanıcı yeni ekranı kendi sekmesinde DENEMEDİ (oturum bende yok). İlk gerçek girişte doğrula: stok arttı mı, cari borç göründü mü."
+  - "Fiyat kararları hâlâ kullanıcıda: Kaktüs+Sukulent Toprağı 2,5 L HB'de ZARARDA (66,66 satış / 70,10 başabaş). İnce kâr: Orkide Besini 500 ml HB (+2,94), Genel Bitki Besini 1000 ml HB (+4,43), Orkide Toprağı 3 L (+4,36 HB / +5,96 TY). Başabaş rakamları STOPAJ HARİÇ, yani gerçek eşik biraz daha yüksek."
+  - "Yaprak Parlatıcı 750 ml: HB komisyonu %23,9 (TY %16,3) AMA HB daha kârlı (28,34 vs 18,93), çünkü fiyat 42 TL yüksek. Komisyon tek başına fiyat düşürme sebebi değil."
+  - "HB'de kargo ürün maliyetinden pahalı olabiliyor (Orkide Besini 500 ml: kargo 46,44 / maliyet 38,40). Paket birleştirme fiyat artışından daha etkili olabilir."
+  - "14 kargodaki paketin kesinti tahmini hâlâ kaba (~477 TL); teslim sayısı 413'te sabit, ekstre gelince kesinleşir."
+  - "Genel işletme giderleri sisteme girilmiyor (1 kayıt/152,45 TL). Kira, elektrik, yakıt, ambalaj girilirse net kâr gerçekçi olur."
+  - "Yalova Seçkin 20.160,00 TL cari borcu açık. Güvenlik G10/G11 bilerek açık."
+
+next:
+  - "Kullanıcı ekranı denesin; hata çıkarsa ilk bakılacak yer ledger-api'deki /api/ledger/provisional ve accounting.js '/post' kapanışı."
+  - "İsterse geçici borca ayrı rozet eklenir."
+  - "Fiyat kararlarından biri gelirse ürün ekranındaki komisyon oranı + başabaş ile birlikte değerlendir."
+
+files:
+  created: [migrations/0054_faturasiz_mal_girisi.sql, tests/faturasiz-mal-girisi.test.js, thoughts/shared/handoffs/lunapot-panel/2026-09-22_11-40_faturasiz-mal-girisi.yaml]
+  modified: [src/ledger-api.js, src/accounting.js, src/scoped-db.js, src/settings-api.js, public/business-ui.js, public/sw.js, tests/quick-access-review.test.js]
