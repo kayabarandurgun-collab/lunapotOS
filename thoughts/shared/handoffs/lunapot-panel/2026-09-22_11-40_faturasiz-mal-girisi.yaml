@@ -7,11 +7,11 @@ outcome: SUCCEEDED
 
 goal: "Faturasız mal girişi (geçici mal kabul) yapıldı ve yayınlandı: vadeli tedarikçi malı faturasız girilince stok artar ve cariye borç yazılır; gerçek fatura gelince her iki taraf da kendiliğinden kapanır, çift sayma olmaz."
 now: "Açık zorunlu iş YOK. Kullanıcı ekranı henüz kendi sekmesinde denemedi; ilk geri bildirim gelirse ondan başla."
-test: "npm test   # 855 test, 840 pass, 15 atlanan, 0 fail. Yayın: npm test > out; grep -q '^ℹ fail 0' out && git push origin main"
+test: "npm test   # 859 test, 844 pass, 15 atlanan, 0 fail. Yayın: npm test > out; grep -q '^ℹ fail 0' out && git push origin main"
 
 ortam:
-  repo: "C:/Users/baran/Desktop/site/lunapot-panel (main, HEAD 61e6be1). Documents/Codex kopyası ESKİ, dokunma."
-  canli: "https://muhasebe.lunapot.com · CACHE lunapot-shell-v124-gecici-rozet · migration 0054 uygulandı (ec_provisional_receipts, ec_provisional_receipt_lines canlıda doğrulandı)."
+  repo: "C:/Users/baran/Desktop/site/lunapot-panel (main, HEAD 48de15d). Documents/Codex kopyası ESKİ, dokunma."
+  canli: "https://muhasebe.lunapot.com · CACHE lunapot-shell-v125-sabit-gider · migration 0054 ve 0055 uygulandı (ec_provisional_receipts, ec_provisional_receipt_lines, ec_expense_schedules canlıda doğrulandı)."
   yayin: "Migration varsa önce npm run db:remote, sonra git push. Her UI yayınında public/sw.js CACHE'ini artır, curl ile doğrula."
   canli_okuma: "wrangler d1 execute --remote --command ... --json çalışıyor. --file SADECE istatistik döner. Geçici 7403 gelirse SORGUYU TEKRARLA."
 
@@ -21,6 +21,8 @@ kullanici:
   - "Tam yetki: testler temizse yayına al. Canlı VERİ yazan/şema değiştiren işlemleri önce anlat."
 
 done_this_session:
+  - task: "Sabit (tekrarlı) genel gider + gider adı (48de15d, v125). Genel giderler ekranında '+ Sabit gider', 'Eksik ayları oluştur', 'Durdur'. Elle giderde de ad alanı; listede ad üstte, kategori altında."
+    files: [migrations/0055_sabit_gider.sql, src/accounting.js, src/permission-policy.js, src/scoped-db.js, src/settings-api.js, public/accounting-ui.js, tests/sabit-gider.test.js]
   - task: "Cari rozeti (61e6be1, v124): geçici borç listede 'Faturası bekleniyor' (turuncu), fatura gelince 'Faturalandı' (yeşil). Ayrı durum alanı YOK; rozet source_key'in 'gecici:' ön ekine ve reversed_by'a bakar, bu yüzden borç kapandıysa rozet de kendiliğinden döner."
     files: [public/business-ui.js, tests/faturasiz-mal-girisi.test.js]
   - task: "Komisyon/kâr doğrulaması (yeni kod yok): sistem KARDA. 401 teslim paket, ciro 181.089,95 · katkı 27.884,13 TL (%15,4). Stopaj ve gelir vergisi hariç; sistemde kayıtlı genel gider yalnız 1 adet/152,45 TL olduğu için gerçek net kâr daha düşük. Kargo (38.660) komisyondan (32.991) pahalı."
@@ -28,6 +30,10 @@ done_this_session:
     files: [migrations/0054_faturasiz_mal_girisi.sql, src/ledger-api.js, src/accounting.js, src/scoped-db.js, src/settings-api.js, public/business-ui.js, tests/faturasiz-mal-girisi.test.js]
 
 decisions:
+  - gider_uretimi_idempotent: "Üretilen giderin referansı 'GIDER-PLAN-<plan>-<YYYY-MM>' ve expenses.reference TEKİL. Planda 'şu aya kadar üretildi' işareti TUTULMAZ; işaret ikinci bir doğruluk kaynağı olurdu. Üretim kaç kez çalışırsa çalışsın aynı ay bir kez yazılır."
+  - ayin_gunu_1_28: "29-31 kabul edilmiyor: kısa aylarda kayacak ya da atlanacak gün kalmasın."
+  - gider_label: "Kategori CHECK kısıtı dar (elektrik de yakıt da 'other'). CHECK'i yeniden kurmak yerine expenses ve plana label kolonu eklendi (ALTER TABLE ADD COLUMN güvenli)."
+  - yedek_disinda_plan: "ec_expense_schedules dışa aktarımdan ÇIKARILDI: dışa aktarma SORGU bütçesi (<45) asıl D1 kısıtı ve tam doluydu. Plan yapılandırmadır; ondan üretilen giderler expenses ile yedekte. Yedekten dönülürse planlar yeniden tanımlanır. Kullanıcıya söylendi, itiraz gelmedi."
   - iki_taraf_ayri_kapanir: "Stok mal tesliminde (provisionalClose, accounting.js — ZATEN VARDI), cari fatura muhasebeleşince (/post, yeni) kapanır. Her taraf karşılığı doğduğu anda kapanır; tek bir yerde toplanmadı."
   - gecici_borc_manual_kaynakli: "Geçici borç source='manual', source_key='gecici:<id>'. Ters kayıt tetikleyicisi (ec_entry_reverse_validate) yalnız manual/opening/cash kaynaklı satırı tersler; bu yüzden yeni bir source değeri EKLENMEDİ."
   - tam_eslesme: "Kullanıcı 'faturanın tamamı gelecek' dedi; kısmi fatura kurgusu YAPILMADI. Fatura muhasebeleşince tedarikçinin en eski AÇIK girişi kapanır."
@@ -49,7 +55,7 @@ acik_isler:
   - "Yaprak Parlatıcı 750 ml: HB komisyonu %23,9 (TY %16,3) AMA HB daha kârlı (28,34 vs 18,93), çünkü fiyat 42 TL yüksek. Komisyon tek başına fiyat düşürme sebebi değil."
   - "HB'de kargo ürün maliyetinden pahalı olabiliyor (Orkide Besini 500 ml: kargo 46,44 / maliyet 38,40). Paket birleştirme fiyat artışından daha etkili olabilir."
   - "14 kargodaki paketin kesinti tahmini hâlâ kaba (~477 TL); teslim sayısı 413'te sabit, ekstre gelince kesinleşir."
-  - "Genel işletme giderleri sisteme girilmiyor (1 kayıt/152,45 TL). Kira, elektrik, yakıt, ambalaj girilirse net kâr gerçekçi olur."
+  - "GENEL GİDER ARACI HAZIR ama kullanıcı HENÜZ GİRMEDİ: canlıda 1 gider kaydı (152,45 TL) ve 0 sabit gider planı var. Kira/elektrik/yakıt tanımlanıp ayları üretilene kadar kâr rakamı brüt katkıdır."
   - "Yalova Seçkin 20.160,00 TL cari borcu açık. Güvenlik G10/G11 bilerek açık."
 
 next:
