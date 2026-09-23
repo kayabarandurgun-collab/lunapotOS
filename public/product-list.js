@@ -5,7 +5,7 @@ const known=v=>Number.isSafeInteger(v)?v:null;
 // Oran bin baz puandır (2000 = %20,0). Tutar yetkisi kapalı personelde tutarlar boş gelir, oran kalır.
 const yuzde=bps=>new Intl.NumberFormat('tr-TR',{style:'percent',minimumFractionDigits:1,maximumFractionDigits:1}).format(bps/10000);
 const KANAL_ADI={trendyol:'Trendyol',hepsiburada:'Hepsiburada'};
-const DONEM_ADI=[['son_30','son 30 gün'],['onceki_30','önceki 30 gün'],['tum','tüm zamanlar']];
+const DONEM_ADI=[['son_30','son 30 gün'],['onceki_30','önceki 30 gün'],['tum','seçili dönem']];
 const onHand=p=>known(p.on_hand_milli===undefined?p.quantity_milli:p.on_hand_milli);
 const reserved=p=>known(p.reserved_milli);
 const available=p=>p.available_milli===undefined?(onHand(p)===null||reserved(p)===null?null:onHand(p)-reserved(p)):known(p.available_milli);
@@ -53,7 +53,16 @@ export function productList(products,data,state,helpers){
   const bps=known(x.komisyon_oran_bps),paket=known(x.komisyon_paket)||0;
   const kanallar=(x.komisyon_kanallar||[]).filter(k=>known(k.oran_bps)!==null).map(k=>esc(KANAL_ADI[k.kanal]||k.kanal)+' '+yuzde(k.oran_bps)+' ('+(known(k.paket)||0)+' paket)').join(' · ');
   const donem=x.komisyon_donemler||{};
-  const seri=DONEM_ADI.map(([k,ad])=>ad+' '+(known(donem[k]?.oran_bps)===null?'veri yok':yuzde(donem[k].oran_bps)+' ('+(known(donem[k].paket)||0)+' paket)')).join(' · ');
+  // DÖNEM PENCERELERİ ekranın tarih filtresinden bağımsız hesaplanır, ama satırlar filtreye göre
+  // gelir. Filtre darsa (ör. 30 gün) 'önceki 30 gün' penceresi yüklenen aralığın tamamen dışında
+  // kalır; orada 'veri yok' demek YANLIŞ olur (kayıt var, sadece süzülmüş). Aralık dışı olduğunu
+  // söyler ve her dönemin gerçek tarihlerini yazarız.
+  const seri=DONEM_ADI.map(([k,ad])=>{
+   const d=donem[k];
+   if(known(d?.oran_bps)!==null)return ad+' '+yuzde(d.oran_bps)+' ('+(known(d.paket)||0)+' paket)';
+   const disarida=d?.filtre_disi;
+   return ad+' '+(disarida?'seçili tarih aralığının dışında':'veri yok');
+  }).join(' · ');
   const body=bps===null?'<strong>Bilinmiyor</strong><small>Komisyonu bilinen teslim edilmiş paket yok</small>'
    :'<strong>'+yuzde(bps)+'</strong><small>'+paket+' paket'+(kanallar?' · '+kanallar:'')+'</small>';
   return '<dl><div><dt>Ortalama komisyon oranı · KDV dahil satışa göre</dt><dd>'+body+'</dd></div></dl>'

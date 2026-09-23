@@ -5,7 +5,7 @@
 //     listesinde, sipariş penceresinde ve kâr raporunda AYNI kuruş/oranla görünür.
 //  2) Ürünün ORTALAMA komisyon oranı AĞIRLIKLIDIR: Σ komisyon ÷ Σ satış. Oranların ortalaması
 //     DEĞİLDİR (büyük paket küçük pakete eşit sayılmaz).
-//  3) Dönem karşılaştırması (son 30 gün / önceki 30 gün / tüm zamanlar) doğru paketleri seçer;
+//  3) Dönem karşılaştırması (son 30 gün / önceki 30 gün / seçili dönem) doğru paketleri seçer;
 //     paketi olmayan dönem "veri yok" der, sıfır saymaz.
 //  4) Komisyonu bilinen teslim edilmiş paketi olmayan ürün "bilinmiyor" der, %0 demez.
 //  5) KARAR: oranın kendisi TUTAR DEĞİLDİR (pazaryerinin ilan ettiği tarife oranıdır ve tek
@@ -240,7 +240,7 @@ test('stok ekranı ürünün ortalama komisyon oranını ve dönem karşılaşt�
       assert.ok(html.includes('%15,0') && html.includes('%25,0'), 'kanal kırılımı');
       assert.match(html, /son 30 gün %23,3/, 'dönem karşılaştırması');
       assert.match(html, /önceki 30 gün %10,0/);
-      assert.match(html, /tüm zamanlar %20,0/);
+      assert.match(html, /seçili dönem %20,0/, 'tum penceresi ekranın tarih filtresidir; "tüm zamanlar" yanıltıcıydı');
       assert.ok(!html.includes('%0,0'), 'bilinmeyen sıfır yazılmaz');
 
       const bos = productList([urun('p2')], data, {stockView}, helpers);
@@ -260,5 +260,24 @@ test('stok ekranı paketi olmayan dönem için "veri yok" yazar', async () => {
     const html = productList([urun('p1')], data, {stockView: 'cards'}, helpers);
     assert.match(html, /son 30 gün %20,0/);
     assert.match(html, /önceki 30 gün veri yok/, 'boş dönem sıfır değil, veri yok');
+  } finally { f.close(); }
+});
+
+// TARİH FİLTRESİ DAR OLDUĞUNDA dönem penceresi filtrenin öncesine düşer ve kaçınılmaz olarak boş
+// çıkar. Kayıt vardır, sadece süzülmüştür; ekran buna "veri yok" derse kullanıcı satış olmadığını
+// sanar. Sunucu bu durumu filtre_disi ile işaretler. Filtre YOKKEN işaret KONMAZ: orada boşluk
+// gerçekten veri yokluğudur.
+test('dar tarih filtresinde boş dönem filtre_disi ile işaretlenir; filtresiz işaretlenmez', async () => {
+  const f = appFixture(); await f.setup(); try {
+    donemler(f);
+    const filtresiz = (await f.ok('/ec/urun-karlilik')).rows.find(x => x.product_id === 'p1').komisyon_donemler;
+    assert.equal(filtresiz.onceki_30.paket, 1, 'filtresiz: önceki 30 günün paketi görünür');
+    assert.equal(filtresiz.onceki_30.filtre_disi, undefined, 'filtre yokken işaret konmamalı');
+
+    const bugun = new Date().toISOString().slice(0, 10);
+    const dar = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
+    const suzulmus = (await f.ok('/ec/urun-karlilik?from=' + dar + '&to=' + bugun)).rows.find(x => x.product_id === 'p1').komisyon_donemler;
+    assert.equal(suzulmus.onceki_30.paket, 0, 'dar filtrede önceki 30 günün paketi süzülür');
+    assert.equal(suzulmus.onceki_30.filtre_disi, true, 'boşluğun sebebi filtre; "veri yok" denmemeli');
   } finally { f.close(); }
 });

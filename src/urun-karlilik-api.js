@@ -32,16 +32,22 @@ const tam = Number.isSafeInteger, SEKIL = ['tek', 'set'];
 // Dönem sınırları raporun bitiş tarihine göredir; paketi olmayan dönem boş kalır, sıfır sayılmaz.
 const KANALLAR = ['trendyol', 'hepsiburada'], DONEM = ['son_30', 'onceki_30', 'tum'];
 const gunEkle = (d, n) => new Date(Date.parse(d) + n * 86400000).toISOString().slice(0, 10);
-const donemAraliklari = (from, to) => ({
-  son_30: {from: gunEkle(to, -29), to},
-  onceki_30: {from: gunEkle(to, -59), to: gunEkle(to, -30)},
-  tum: {from: from || null, to}});
+// DÖNEM PENCERELERİ. Satırlar ekranın tarih filtresine göre yüklenir; pencere o filtrenin ÖNCESİNE
+// uzanıyorsa o dönem kaçınılmaz olarak boş çıkar. Bunu 'veri yok' diye sunmak yanlış olur (kayıt var,
+// süzülmüş), o yüzden filtre_disi ile işaretlenir. Filtre YOKKEN from veri başlangıcıdır: orada boşluk
+// gerçekten veri yokluğudur ve işaretlenmez.
+const donemAraliklari = (from, to, filtreli) => {
+ const isaret = p => ({...p, ...(filtreli && from && p.from && p.from < from ? {filtre_disi: true} : {})});
+ return {
+  son_30: isaret({from: gunEkle(to, -29), to}),
+  onceki_30: isaret({from: gunEkle(to, -59), to: gunEkle(to, -30)}),
+  tum: {from: from || null, to}};};
 const komisyonKutusu = () => ({komisyon_cents: 0, ciro_cents: 0, paketler: new Set()});
 const komisyonOzeti = (kutu, aralik = null) => ({
   oran_bps: kutu ? komisyonOraniBps(kutu.komisyon_cents, kutu.ciro_cents) : null,
   paket: kutu ? kutu.paketler.size : 0,
   komisyon_cents: kutu ? kutu.komisyon_cents : null, ciro_cents: kutu ? kutu.ciro_cents : null,
-  ...(aralik ? {from: aralik.from, to: aralik.to} : {})});
+  ...(aralik ? {from: aralik.from, to: aralik.to, ...(aralik.filtre_disi ? {filtre_disi: true} : {})} : {})});
 export const SET_NOTICE = 'Bir bileşenin set payı, o ürünün tek başına kârı DEĞİLDİR: pazaryeri set için tek tutar öder, bu tutar gelir payına göre bölünür, her ürün kendi gerçek maliyetini taşır. Kararı ilan (set) bazında verin.';
 
 // SET (İLAN) KÂRLILIĞI. Sahibin gerçekten fiyatladığı şey ilanın kendisidir. Kırılım satış sunumunun
@@ -91,7 +97,7 @@ export async function urunKarlilikApi(request, env, path) {
   };
   // Komisyon kutuları: kanal ('hepsi' + gerçek kanal) × dönem. Yalnız TESLİM EDİLEN ve sonucu
   // hesaplanan paketler; tutarlar kâr raporunun ürün paylarından gelir, yeniden hesaplanmaz.
-  const araliklar = donemAraliklari(from, to);
+  const araliklar = donemAraliklari(from, to, !!(range?.from));
   const komisyonEkle = (x, r, u) => {
     if (!tam(u.commission_gross_cents) || !tam(u.revenue_gross_cents)) return;
     const gun = r.delivered_on || '';
