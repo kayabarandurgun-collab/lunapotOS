@@ -288,13 +288,13 @@ export function mountBusiness(root, namespace, view, user = null) {
       const borc = rows.reduce((sum, row) => sum + (row.remaining_cents || 0), 0);
       const seciliSayi = rows.filter(row => state.selected.has(row.entry_id)).length;
       const actions = `<div class="ac-actions">${button(seciliSayi === rows.length ? 'Seçimi kaldır' : 'Tümünü seç · ' + rows.length + ' fatura','pay-all',id,true)}${seciliSayi ? button('Seçilenleri öde · ' + seciliSayi,'pay-open',id) : ''}</div>`;
-      return card(name + ' · borcum ' + money(borc), table(['Fatura','Tarih / planlanan ödeme','Toplam · KDV dahil','Kalan','İşlem'], rows.map(row => [
-        `<label class="pay-pick"><input type="checkbox" data-pay-pick="${esc(row.entry_id)}" data-party="${esc(row.party_id)}" ${state.selected.has(row.entry_id) ? 'checked' : ''} aria-label="${esc(row.invoice_no)} faturasını seç"> <strong>${esc(row.invoice_no)}</strong></label>`,
+      return card(name + ' · borcum ' + money(borc), table(['Fatura / irsaliye','Tarih / planlanan ödeme','Toplam · KDV dahil','Kalan','İşlem'], rows.map(row => [
+        `<label class="pay-pick"><input type="checkbox" data-pay-pick="${esc(row.entry_id)}" data-party="${esc(row.party_id)}" ${state.selected.has(row.entry_id) ? 'checked' : ''} aria-label="${esc(row.invoice_no)} faturasını seç"> <strong>${esc(row.invoice_no)}</strong></label>${row.faturasiz ? '<br>' + badge('Faturası bekleniyor', 'warning') : ''}`,
         `${esc(row.occurred_on)}<small>${row.planned_on ? 'Ödeyeceğim: ' + esc(row.planned_on) : 'Planlanan ödeme yok'}</small>`,
         `${money(row.debt_cents)}<small>Ödenen ${money(row.paid_cents)}</small>`,
         `<strong>${money(row.remaining_cents)}</strong><small>KDV dahil</small>`,
         `${payStatus(row)} ${button('Öde','pay-one',row.entry_id,true)} ${button(row.planned_on ? 'Tarihi değiştir' : 'Ay sonunda öderim','plan',row.entry_id,true)}`
-      ]), 'Bu carinin açık faturası yok.','Ödenmemiş alış faturası kalmadı.'), actions);
+      ]), 'Bu carinin açık borcu yok.','Ödenmemiş alış faturası ve faturasız giriş kalmadı.'), actions);
     }).join('');
     const bos = `<div class="v2-empty"><h3>Açık alış faturan yok.</h3><p>Muhasebeleşmiş ve ödenmemiş fatura bulunmuyor. Eski faturaların borcu hiç görünmüyorsa “Eksik fatura borçlarını tamamla”yı çalıştır.</p></div>`;
     const cekKart = card('Verilen çekler · vade', table(['Vade','Cari','Tutar · KDV dahil','Çek notu'], cheques.map(row => [

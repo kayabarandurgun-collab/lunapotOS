@@ -179,3 +179,26 @@ test('Vade boş bırakılabilir ama geçersiz tarih reddedilir', async () => {
   assert.equal(geri.status, 400, 'vade malın geliş tarihinden önce olamaz');
  } finally { f.close(); }
 });
+
+// AÇIK BORÇ LİSTESİ yalnız gerçek faturalardan doluyordu; faturasız giriş orada görünmediği için
+// ödeme kaydedilemiyor, "ne zaman ödeyeceğim" planı da girilemiyordu. Artık normal borç gibi listelenir.
+test('Faturasız giriş açık borç listesinde görünür ve faturasız olduğu belli olur', async () => {
+ const {f, supplier, product} = await seed(); try {
+  const r = await f.ok('/ec/ledger/provisional', {
+   supplier_id: supplier.id, occurred_on: GELIS, reference: 'IRS-ACIK', notes: '', due_on: '2026-10-15',
+   lines: [{product_id: product, quantity: 10, unit_cost: 100, vat_bps: 2000}]});
+
+  const acik = (await f.ok('/ec/ledger')).open_invoices.find(x => x.invoice_no === 'IRS-ACIK');
+  assert.ok(acik, 'faturasız giriş açık borç listesinde olmalı');
+  assert.equal(acik.debt_cents, 120000, 'borç KDV dahil olmalı');
+  assert.equal(acik.paid_cents, 0);
+  assert.equal(acik.faturasiz, 1, 'faturasız olduğu işaretlenmeli ki ekran fatura sanmasın');
+  assert.equal(acik.invoice_id, null, 'faturası yok; fatura kimliği uydurulmamalı');
+  assert.equal(acik.due_on, '2026-10-15', 'vade listede görünmeli');
+
+  // Gerçek fatura gelip geçici borç kapanınca listeden düşer.
+  await gercekFatura(f, supplier.id, product);
+  assert.equal((await f.ok('/ec/ledger')).open_invoices.filter(x => x.invoice_no === 'IRS-ACIK').length, 0,
+   'kapanan geçici borç açık listede kalmamalı');
+ } finally { f.close(); }
+});
