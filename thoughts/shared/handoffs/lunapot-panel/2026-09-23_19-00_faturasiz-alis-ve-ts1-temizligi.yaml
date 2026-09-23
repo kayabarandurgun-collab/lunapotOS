@@ -1,0 +1,78 @@
+---
+session: lunapot-panel
+date: 2026-09-23
+status: complete
+outcome: SUCCEEDED_WITH_OPEN_WORK
+---
+
+goal: "Faturasız mal girişi uçtan uca kuruldu (wizard, rozet, vade, açık borç listesi); sabit gider eklendi; TS1/Plug Mix karışıklığı temizlendi; birkaç UI hatası düzeltildi."
+now: "Açık zorunlu iş YOK. Kullanıcı yarın devam edecek. 'acik_isler' listesinden başla; en somutu HB kargo tarifesinin iki bandı ve genel giderlerin girilmesi."
+test: "npm test   # 866 test, 851 pass, 15 atlanan, 0 fail. Yayın: npm test > out; grep -q '^ℹ fail 0' out && git push origin main"
+
+ortam:
+  repo: "C:/Users/baran/Desktop/site/lunapot-panel (main, HEAD 42e1f46). Documents/Codex kopyası ESKİ, dokunma."
+  canli: "https://muhasebe.lunapot.com · CACHE lunapot-shell-v131-vade-goster · migration 0054 ve 0055 uygulandı."
+  yayin: "Migration varsa önce npm run db:remote, sonra git push (Cloudflare ~2-3 dk). Her UI yayınında public/sw.js CACHE'ini artır, curl ile doğrula."
+  canli_okuma: "wrangler d1 execute --remote --command ... --json çalışıyor. Geçici 7403 gelirse SORGUYU TEKRARLA (3 denemelik döngü kullan)."
+  tarayici: "KENDİ TARAYICIN VAR ve panelde oturum AÇIK: mcp__Claude_Browser__ ile https://muhasebe.lunapot.com/ecommerce#ledger?tab=odemeler açılıyor. Ekran işini kullanıcıya vermeden ÖNCE kendin dene. Bunu bu oturumda yapmadım, kullanıcı haklı olarak kızdı."
+  onbellek: "Yayın sonrası sayfa eski modülü tutabiliyor. Tarayıcıda serviceWorker.getRegistrations().unregister() + caches.delete() ile temizle, sonra ?t=<yeni> ile aç."
+  kullanici_terminali: "PowerShell 5.1. '&&' YOK (';' kullan), 'npx' execution-policy yüzünden engelli (npx.cmd yaz), yollar Windows biçiminde. Kullanıcıya komut verirken bunu unutma; bu oturumda üç kez yanlış komut verdim."
+
+kullanici:
+  - "TEKNİK ANLATMA. Uzun/tablo/jargon dolu cevap okumuyor: 'ne dedin anlamadım', 'üşendim' dedi. Kısa, sade Türkçe; ondan ne beklediğini tek cümleyle söyle."
+  - "Komutu ben çalıştırırım sanıyor değil; 'nerede çalıştıracağım' diye sordu. Bash blokları uygulamada Run düğmesiyle çalışıyor, bunu söyle."
+  - "Tam yetki: testler temizse yayına al. Canlı VERİ yazan işlemleri önce anlat."
+  - "Hata bulunca sert konuşuyor ama haklı oluyor; savunma yapma, düzelt."
+
+done_this_session:
+  - task: "Faturasız mal girişi (0054, v123-v131). Cari ekranında wizard: tedarikçi, tarih, irsaliye, ödeme vadesi, çoklu ürün satırı. Stok GECICI-SAYIM ile artar, cariye KDV dahil borç yazılır. Gerçek fatura muhasebeleşince borç ters kayıtla, mal tesliminde stok provisionalClose ile kapanır."
+    files: [migrations/0054_faturasiz_mal_girisi.sql, src/ledger-api.js, src/accounting.js, src/scoped-db.js, src/settings-api.js, public/business-ui.js, public/accounting-ui.js, tests/faturasiz-mal-girisi.test.js]
+  - task: "Wizard ekranı yeniden yazıldı (v128): ürün 37 kalemlik select yerine datalist ile YAZARAK aranıyor, her ürün tek satır (ad/adet/birim/KDV/sil), TASLAK KORUMA (localStorage; pencere kapansa da kaybolmuyor)."
+  - task: "Sabit (tekrarlı) genel gider (0055, v125): bir kez tanımla, 'Eksik ayları oluştur' ile yazılmamış aylar üretilir. Gider adı (label) alanı eklendi."
+    files: [migrations/0055_sabit_gider.sql, src/accounting.js, public/accounting-ui.js, tests/sabit-gider.test.js]
+  - task: "UI düzeltmeleri: gizli alanların başıboş etiketi (11 pencerede 'Fatura'/'Plan' yazıp altında kutu yoktu), tablo başlıklarının harf harf kırılması, cariden faturaya 'Faturayı aç →' bağlantısı, açık borç listesinde vade gösterimi."
+  - task: "Komisyon ekranındaki iki yanıltıcı gösterim düzeltildi (v127): dar tarih filtresinde 'önceki 30 gün veri yok' YALAN söylüyordu (kayıt var, süzülmüş) → filtre_disi; sipariş penceresinde KDV hariç kartta KDV dahil oran yazılıyordu."
+  - task: "TS1/Plug Mix temizliği (canlı veri, elle). Detay 'ts1_hikayesi'nde."
+  - task: "Tropikal faturasız girişi kaydedildi: 10 ürün, 502 adet, 17.666,40 TL, vade 15.10.2026. Kullanıcının 2. girişi (ref 00000) 6 ürün/507 adet/14.925,60 TL."
+
+ts1_hikayesi:
+  - "Gerçek: 17 adet alındı, 17 adet satıldı, depoda 0. Seçkin 13 adet faturaladı (biri YSK2026000000402'de 'Rec 402 Ts1Plug M.' diye kesilmiş, sistem doğru şekilde Plug Mix'e bağlamıştı), 4 adedin faturası yok."
+  - "Önceki oturumda eklenmiş 15 adetlik UYDURMA geçici sayım iptal edildi; 4 adet faturasız girişle (1.400 TL) eklendi; Plug Mix'in 2 adedi GEÇİCİ olarak TS1'e taşındı (reference 'urun-duzeltme:plugmix-ts1-2026-09-23')."
+  - "Bütün TS1 satışlarının maliyeti 1.400 TL/adet'e çekildi (29 satır UPDATE). Net: 17 adet / 23.800 TL. Kâr ~2.800 TL düştü, doğrusu bu."
+  - "Sonuç: TS1 0 adet/0 TL, Plug Mix 0 adet/0 TL, eksi stoklu ürün 0, sıfır adette değer taşıyan ürün 0."
+  - "Cari: Seçkin borcu 15.120 TL (9 adet × 1.400 + KDV). 11.760 TL kredi kartı ödemesi kaydedildi, YSK...400 ve YSK...402 tam kapandı. Faturasız 4 adedin ödeme planı 1.10.2026."
+
+decisions:
+  - iki_taraf_ayri_kapanir: "Stok mal tesliminde (provisionalClose), cari fatura muhasebeleşince (/post). Her taraf karşılığı doğduğu anda kapanır; tek yerde toplanmadı."
+  - gecici_borc_manual: "source='manual', source_key='gecici:<id>'. Ters kayıt tetikleyicisi yalnız manual/opening/cash kaynaklıyı tersler; yeni bir source değeri EKLENMEDİ."
+  - acik_borc_listesi: "Faturasız girişler de listede (faturasiz=1 ile işaretli, invoice_id null). Fatura gelince ters kayıtla kapandığı için LIVE koşuluyla kendiliğinden düşer."
+  - vade_iki_alan: "due_on (girişte yazılan vade) ve planned_on (sonradan girilen plan) AYRI kavramlar. Liste önce plan, yoksa vade gösterir. party_entries DEĞİŞTİRİLEMEZ (IMMUTABLE_LEDGER), o yüzden sonradan tarih vermek için party_entry_plans kullanılır."
+  - yedek_disinda: "ec_provisional_receipt_lines ve ec_expense_schedules dışa aktarımdan çıkarıldı: dışa aktarma SORGU bütçesi (<45) asıl D1 kısıtı ve doluydu. Başlık ve üretilen giderler yedekte kalıyor."
+
+failed:
+  - "EN BÜYÜK HATA: canlı veriye elle SQL yazmak. Uydurma geçici sayımı iptal ederken değerin sıfırın altına inemediğini hesaba katmadım; 8.400 TL sahipsiz stok değeri oluştu, temizlemesi uğraştırdı. Bir daha: ya uygulamanın kendi ucunu kullan ya düğmesini yap."
+  - "Wizard'ı test etmeden kullanıcıya verdim: form METİN gönderiyor, cents() yalnız SAYI kabul ediyor → 10 satır doldurduktan sonra 'Birim maliyeti kontrol edin.' ile hepsi gitti. Yeni uç yazarken formdan gelen değerin tipini kontrol et."
+  - "ledger-api'de kendi readBody'mi çağırdım: gövde satır 113'te BİR KEZ okunur ve bütün POST uçlarına 'x' olarak verilir. İkinci okuma 'ReadableStream is locked' → 500."
+  - "ledgerForm(action,context) içinde 'button' değişkeni YOK; satır silme düğmesi data-id ile çalışır."
+  - "Kendi tarayıcımı kullanmayı akıl etmedim, kullanıcı hatırlattı. Panelde oturum açık, ekran işini önce kendin dene."
+
+acik_isler:
+  - "AY SONU: Seçkin'e 2 adet Plug Mix iadesi kesilecek, Seçkin yeni TS1 faturası kesecek. Panelde: Alış faturaları → YSK2026000000402 → 'Tedarikçiye iade' 2 adet, sonra yeni fatura normal girilir. Bu olunca 'urun-duzeltme:plugmix-ts1-2026-09-23' hareketleri ters kayıtla geri alınmalı. HATIRLAT."
+  - "HB kargo tarifesinde iki bant gerçekte daha ucuz (126 teslim paketten ölçüldü): 400-599,99 bandı 139,19 → 130,39; 1000 TL+ bandı 268,79 → 230,99. Kullanıcı onay vermedi, soruldu."
+  - "BÜTÜN tarifeler (kargo + komisyon) 31.12.2026'da bitiyor; o tarihten sonra 'kaça satmalıyım' hiç fiyat vermez. Aralık'ta hatırlat."
+  - "Ürün ölçüleri SAHTE: 27 HB ürününün 27'si de 10x10x10 cm / 1 kg. Desi hesabı bu yüzden uydurma. HB fiyata göre kargo aldığı için şimdilik zarar vermiyor."
+  - "Genel giderler hâlâ girilmedi: canlıda 1 gider kaydı (152,45 TL). Sabit gider aracı hazır; kira/elektrik/yakıt girilene kadar 'kâr' rakamı brüt katkıdır."
+  - "Komisyon tarifesi tek düz oran (TY %20, HB %24 'ölçülen tavan') ama gerçek oranlar %9-24 arası; hesap temkinli taraftan yanılıyor. Ürün/kategori kırılımlı tarife önerildi."
+  - "Barkod ve Parti/Lot ekranları 'workflow-page' sınıfını almıyor (v2-page), dar ekranda taşma riski. Kozmetik."
+  - "Service worker 4 sayfayı (index/ecommerce/production/access.html) yönlendirmeli önbelleğe alıyor; çevrimdışı navigasyonda hata verebilir. Çevrimiçi etkilenmiyor."
+  - "Sipariş listesinde iadeli pakette komisyon oranının paydası yanındaki 'Tutar' değil (12/120=%10 ama %20 yazıyor). İkisi de doğru sayı ama yan yana kafa karıştırıyor; nasıl gösterileceği kullanıcının tercihi, soruldu."
+  - "Güvenlik G10/G11 bilerek açık (kullanıcı kararı)."
+
+next:
+  - "Kullanıcı yarın devam edecek. İlk soracağı muhtemelen genel gider girişi veya rapor akışı."
+  - "Rapor yükleme AKIYOR: bugün 4 dosya yüklendi, hepsi 'applied', açık inceleme 0. Kullanıcı 'Failed to fetch' görse bile dosya işlenmiş olabilir, önce durumu kontrol et."
+  - "Yeni ekran işi çıkarsa ÖNCE kendi tarayıcında dene, sonra kullanıcıya söyle."
+
+files:
+  created: [migrations/0054_faturasiz_mal_girisi.sql, migrations/0055_sabit_gider.sql, tests/faturasiz-mal-girisi.test.js, tests/sabit-gider.test.js, thoughts/shared/handoffs/lunapot-panel/2026-09-23_19-00_faturasiz-alis-ve-ts1-temizligi.yaml]
+  modified: [src/ledger-api.js, src/accounting.js, src/scoped-db.js, src/settings-api.js, src/permission-policy.js, src/urun-karlilik-api.js, public/business-ui.js, public/accounting-ui.js, public/product-list.js, public/orders-ui.js, public/commerce-workflows.css, public/sw.js, tests/komisyon-orani.test.js, tests/quick-access-review.test.js]
