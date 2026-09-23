@@ -235,3 +235,22 @@ dialog.workflow-dialog .history-movement :is(code,p){white-space:normal;overflow
    input gizlenir ama etiket metni ("Fatura", "Plan") altinda hicbir kontrol olmadan ekranda kalirdi. */
 .workflow-page label:has(>input[type=hidden]),
 .workflow-dialog label:has(>input[type=hidden]){display:none}
+
+/* FATURASIZ MAL GİRİŞİ SATIRLARI. Her ürün tek satır: ad, adet, birim, KDV, sil.
+   Önce her alan alt alta gelen bir fieldset idi; 10 ürün girince pencere okunmaz oluyordu. */
+.pro-basliklar,.pro-row{display:grid;grid-template-columns:minmax(0,1fr) 84px 128px 72px 36px;gap:8px;align-items:end}
+.pro-basliklar{padding:8px 0 2px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.pro-basliklar span:nth-child(2),.pro-basliklar span:nth-child(3),.pro-basliklar span:nth-child(4){text-align:right}
+.pro-row{margin-bottom:6px}
+.pro-row label{display:flex;flex-direction:column;gap:2px;font-size:0;margin:0}
+.pro-row input{width:100%;font-size:14px}
+.pro-row .pro-adet input,.pro-row .pro-maliyet input,.pro-row .pro-kdv input{text-align:right}
+.pro-row .pro-sil{padding:0;width:36px;height:36px;line-height:1;font-size:18px;display:flex;align-items:center;justify-content:center}
+/* Dar ekranda başlık şeridi gizlenir, alanlar kendi etiketiyle alt alta geçer. */
+@media (max-width:760px){
+ .pro-basliklar{display:none}
+ .pro-row{grid-template-columns:1fr 1fr;gap:6px}
+ .pro-row .pro-urun{grid-column:1/-1}
+ .pro-row label{font-size:11px;color:var(--muted)}
+ .pro-row .pro-sil{grid-column:2;justify-self:end}
+}

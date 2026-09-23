@@ -125,3 +125,29 @@ test('Faturasız mal girişi ekranı ürün listesi döndürür', async () => {
   assert.ok(d.products.some(p => p.id === product), 'eklenen ürün listede olmalı');
  } finally { f.close(); }
 });
+
+// FORMDAN GELEN DEĞER METİNDİR. cents() yalnız sayı kabul ediyor; ekran "24" gönderince bütün
+// giriş "Birim maliyeti kontrol edin." ile reddediliyordu ve kullanıcının doldurduğu satırlar
+// kayboluyordu. Uç, sayıya çevrilebilen metni kabul eder.
+test('Birim maliyet ve miktar metin olarak gelse de kabul edilir', async () => {
+ const {f, supplier, product} = await seed(); try {
+  const r = await f.req('/ec/ledger/provisional', {
+   supplier_id: supplier.id, occurred_on: GELIS, reference: 'IRS-METIN', notes: '',
+   lines: [{product_id: product, quantity: '20', unit_cost: '24', vat_bps: 2000}]
+  });
+  assert.equal(r.status, 200, 'metin tutar reddedilmemeli: ' + JSON.stringify(r.data));
+  assert.equal(f.sqlite.prepare('SELECT quantity_milli q FROM ec_stock_movements WHERE reference=?').get('GECICI-SAYIM-IRS-METIN').q, 20000);
+  assert.equal(r.data.amount_cents, -57600, '20 × 24 TL + %20 KDV = 576 TL borç');
+ } finally { f.close(); }
+});
+
+test('Gerçekten geçersiz tutar hâlâ reddedilir', async () => {
+ const {f, supplier, product} = await seed(); try {
+  for (const bad of ['abc', '', null]) {
+   const r = await f.req('/ec/ledger/provisional', {
+    supplier_id: supplier.id, occurred_on: GELIS, reference: 'IRS-' + String(bad), notes: '',
+    lines: [{product_id: product, quantity: 5, unit_cost: bad, vat_bps: 2000}]});
+   assert.equal(r.status, 400, 'geçersiz tutar "' + bad + '" kabul edilmemeli');
+  }
+ } finally { f.close(); }
+});
