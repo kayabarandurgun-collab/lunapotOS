@@ -226,6 +226,10 @@ export async function ledgerApi(request,env,path,readBody){
   const party=text(x.supplier_id,'Tedarikçi');
   await requireParty(db,party);
   const date=day(x.occurred_on),reference=text(x.reference,'İrsaliye referansı',200),notes=optional(x.notes,1000);
+  // ÖDEME VADESİ isteğe bağlıdır: girilirse cari hareketine yazılır, ekranda "Vade" olarak görünür
+  // ve vadesi geçenler işaretlenir. Malın geliş tarihinden önce olamaz.
+  const vade=x.due_on===undefined||x.due_on===null||x.due_on===''?null:day(x.due_on);
+  if(vade&&vade<date)fail('Ödeme vadesi malın geldiği tarihten önce olamaz.');
   if(!Array.isArray(x.lines)||!x.lines.length)fail('En az bir ürün satırı girin.');
   if(x.lines.length>200)fail('Tek girişte en fazla 200 satır olabilir.');
   const seen=new Set(),rows=[];
@@ -241,7 +245,7 @@ export async function ledgerApi(request,env,path,readBody){
   if(brut<=0)fail('Girişin KDV dahil tutarı sıfırdan büyük olmalı.');
   // Cari satırı ÖNCE yazılır: başlık entry_id ile ona bağlı, ters sırada yabancı anahtar kırılır.
   const entry=id(),statements=[
-   entryInsert(db,{id:entry,party_id:party,amount_cents:-brut,occurred_on:date,reference,
+   entryInsert(db,{id:entry,party_id:party,amount_cents:-brut,occurred_on:date,due_on:vade,reference,
     description:'Faturasız mal girişi · '+reference,source_key:'gecici:'+key,source:'manual'}),
    stmt(db,'INSERT INTO provisional_receipts(id,supplier_id,occurred_on,reference,notes,entry_id) VALUES(?,?,?,?,?,?)',[key,party,date,reference,notes,entry])];
   for(const r of rows){

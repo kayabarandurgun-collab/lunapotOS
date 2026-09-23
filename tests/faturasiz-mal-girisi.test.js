@@ -151,3 +151,31 @@ test('Gerçekten geçersiz tutar hâlâ reddedilir', async () => {
   }
  } finally { f.close(); }
 });
+
+// ÖDEME VADESİ. Faturasız alışta "bu adama ne zaman ödeyeceğim" bilgisi de tutulur; cari
+// ekranında "Vade yok" yerine tarih görünür ve vadesi geçenler işaretlenebilir.
+test('Faturasız girişe ödeme vadesi yazılır', async () => {
+ const {f, supplier, product} = await seed(); try {
+  const r = await f.ok('/ec/ledger/provisional', {
+   supplier_id: supplier.id, occurred_on: GELIS, reference: 'IRS-VADE', notes: '', due_on: '2026-10-15',
+   lines: [{product_id: product, quantity: 10, unit_cost: 100, vat_bps: 2000}]});
+  const entry = f.sqlite.prepare("SELECT due_on FROM ec_party_entries WHERE source_key='gecici:' || ?").get(r.id);
+  assert.equal(entry.due_on, '2026-10-15', 'vade cari hareketine yazılmalı');
+ } finally { f.close(); }
+});
+
+test('Vade boş bırakılabilir ama geçersiz tarih reddedilir', async () => {
+ const {f, supplier, product} = await seed(); try {
+  const bos = await f.ok('/ec/ledger/provisional', {supplier_id: supplier.id, occurred_on: GELIS, reference: 'IRS-VADESIZ', notes: '',
+   lines: [{product_id: product, quantity: 1, unit_cost: 100, vat_bps: 2000}]});
+  assert.equal(f.sqlite.prepare("SELECT due_on FROM ec_party_entries WHERE source_key='gecici:' || ?").get(bos.id).due_on, null);
+
+  const kotu = await f.req('/ec/ledger/provisional', {supplier_id: supplier.id, occurred_on: GELIS, reference: 'IRS-KOTU', notes: '', due_on: '15.10.2026',
+   lines: [{product_id: product, quantity: 1, unit_cost: 100, vat_bps: 2000}]});
+  assert.equal(kotu.status, 400, 'geçersiz vade reddedilmeli');
+
+  const geri = await f.req('/ec/ledger/provisional', {supplier_id: supplier.id, occurred_on: GELIS, reference: 'IRS-GERI', notes: '', due_on: '2026-09-01',
+   lines: [{product_id: product, quantity: 1, unit_cost: 100, vat_bps: 2000}]});
+  assert.equal(geri.status, 400, 'vade malın geliş tarihinden önce olamaz');
+ } finally { f.close(); }
+});
