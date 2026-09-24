@@ -26,6 +26,15 @@ Müşteri, tedarikçi, pazaryeri ve diğer cariler tutulabilir. Pozitif cari bak
 
 Ödeme kaydı gerçek banka transferi yapmaz. Tedarikçi ödemesi aynı alış maliyetini yeniden giderleştirmez. Eski ödeme kayıtları için olmayan kasa hareketi uydurulmaz. Her çalışma alanının kasa ve carileri bağımsızdır.
 
+## Pazaryeri hakedişi: banka ekstresi olmadan kayıt doğmaz
+Pazaryerinin bildirdiği hakediş bir ALACAK BİLDİRİMİDİR, para değildir. Bildirimle ön kayıt açılmaz; kaydı doğuran şey yüklenmiş bir banka ekstresi satırı ve kullanıcının açık onayıdır. Kaynak kayıtlar (`provider_records`) yalnızca aday listesi için okunur.
+
+Her pazaryerinin ayrı bir alacak hesabı vardır ("Trendyol Alacağı"). Onaylanan eşleştirme tek yazma kümesinde üç kasa hareketi doğurur: alacak hesabına giriş, alacak hesabından virman çıkışı, ekstrenin bankasına virman girişi. Net etki gerçek banka hesabına giren paradır; **Ana Kasa etkilenmez**. Alacak hesabının bakiyesi tanım gereği sıfırdır; sıfırdan farklıysa açıklanmamış para vardır ve ekranda yazar. Bu hesaba elle para hareketi yazılamaz.
+
+Deftere yazılan tutar HER ZAMAN banka satırının tutarıdır; pazaryerinin bildirdiği tutar yalnız kanıt olarak saklanır. Tam eşitlik dışında hiçbir aday önerilmez. 1,00 TL'ye kadarki fark kullanıcıya gösterilir ve ancak açık onayla yazılır; bunun üstü hiçbir onayla geçmez. Aynı tutara uyan birden çok ödeme emri varsa öneri verilmez, seçimi kullanıcı yapar.
+
+Aynı ekstre satırı ve aynı ödeme emri ikinci kez yazılamaz. Geri alma ters kayıt yazar; ham ekstre satırı ve özgün hareketler silinmez, satır yeniden eşleştirilebilir.
+
 ## Tahmini kâr, gerçekleşen kâr ve taban fiyat
 Tahmini katkı kârı = KDV hariç satış − ürün maliyeti − ambalaj/diğer doğrudan maliyet − komisyon − kargo. Genel giderler ayrıca faaliyet sonucuna girer. Vergi sonrası şirket kârı veya banka bakiyesi değildir.
 

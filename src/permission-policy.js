@@ -9,6 +9,13 @@ export function permit(user,path,method){
  const write=!['GET','HEAD'].includes(method),parts=sub.split('/').filter(Boolean),head=parts[0];
  if(!head||!match&&head==='data'){if(write)deny();return;}
  if(['settings','connections','integrations','recovery','attention'].includes(head)){if(head==='settings'&&!write&&sub==='/settings'&&can(user,ns,ns==='ec'?'invoices':'accounts'))return;deny();}
+ // Banka ekstresi ve hakediş–banka eşleştirme YALNIZ e-ticarettedir ve cari/nakit (ledger)
+ // yetkisiyle çalışır: public/permissions.js routeAliases zaten bank→ledger diyor, menü bu ekranı
+ // ledger yetkisi olan personele gösteriyordu ama uç yalnız yöneticiye açıktı. Eşleştirme ucu
+ // KASAYA PARA YAZAR; okumak için ledger okuma, onay/geri alma için ledger YAZMA yetkisi gerekir.
+ // Ledger yazma yetkisi olan personel zaten /api/ec/ledger/cash ile kasa hareketi yazabiliyor;
+ // bu eşleme yeni bir güç vermez, var olan yetkiyi aynı ekranda tutar.
+ if(head==='bank'){if(ns!=='ec'||!match)deny();if(!can(user,'ec','ledger',write))deny();return;}
  if(head==='marketplace-receivables'){if(ns!=='ec'||!match||sub!=='/marketplace-receivables'||method!=='GET'||!can(user,'ec','ledger')||!can(user,'ec','orders'))deny();return;}
  let feature;
  if(!match){if(!['products','materials','recipes'].includes(head))deny();feature=head;}

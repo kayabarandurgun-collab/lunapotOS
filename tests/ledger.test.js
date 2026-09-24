@@ -4,13 +4,13 @@ import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 import {ledgerApi} from '../src/ledger-api.js';
 
-const tables=['party_payment_methods','party_entry_plans','party_entries','payment_allocations','allocation_reversals','cash_accounts','cash_transactions','suppliers'];
+const tables=['party_payment_methods','party_entry_plans','party_entries','payment_allocations','allocation_reversals','bank_matches','cash_accounts','cash_transactions','suppliers'];
 const date='2026-09-09';
 function fixture(beforeMigration){
  const sqlite=new DatabaseSync(':memory:');sqlite.exec('PRAGMA foreign_keys=ON');
  for(const name of ['0001_initial.sql','0002_accounting.sql','0003_accounting_audit.sql'])sqlite.exec(readFileSync(new URL('../migrations/'+name,import.meta.url),'utf8'));
  beforeMigration?.(sqlite);
- for(const name of ['0005_ledger.sql','0053_cari_odeme.sql','0057_cari_hesap_arsivi.sql'])sqlite.exec(readFileSync(new URL('../migrations/'+name,import.meta.url),'utf8'));
+ for(const name of ['0005_ledger.sql','0053_cari_odeme.sql','0057_cari_hesap_arsivi.sql','0058_hakedis_eslestirme.sql'])sqlite.exec(readFileSync(new URL('../migrations/'+name,import.meta.url),'utf8'));
  const raw={prepare(sql){return {args:[],bind(...a){this.args=a;return this;},first(){return sqlite.prepare(sql).get(...this.args)||null;},all(){return {results:sqlite.prepare(sql).all(...this.args)};}};},async batch(items){sqlite.exec('BEGIN');try{const result=items.map(x=>x.all());sqlite.exec('COMMIT');return result;}catch(e){sqlite.exec('ROLLBACK');throw e;}}};
  async function call(workspace,path='',body){const DB={...raw,prepare(sql){for(const table of tables)sql=sql.replace(new RegExp('\\b'+table+'\\b','g'),workspace+'_'+table);return raw.prepare(sql);}};return ledgerApi(new Request('https://test.local/api/ledger'+path,{method:body?'POST':'GET'}),{DB,WORKSPACE:workspace},'/api/ledger'+path,async()=>body);}
  const party=(workspace,name='Tedarikçi')=>call(workspace,'/parties',{name,kind:'supplier',tax_id:'1234567890'});

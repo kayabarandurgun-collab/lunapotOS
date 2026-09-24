@@ -41,7 +41,7 @@ export async function bankApi(request, env, path, readBody) {
       db.prepare("SELECT a.id,a.name,a.kind,(SELECT COUNT(*) FROM bank_lines l WHERE l.account_id=a.id) line_count," +
         "(SELECT MAX(l.occurred_on) FROM bank_lines l WHERE l.account_id=a.id) last_date," +
         "(SELECT COALESCE(SUM(l.amount_cents),0) FROM bank_lines l WHERE l.account_id=a.id) net_cents" +
-        ' FROM cash_accounts a ORDER BY a.name').all(),
+        ' FROM cash_accounts a WHERE a.role IS NULL ORDER BY a.name').all(),
       db.prepare('SELECT f.id,f.account_id,f.filename,f.row_count,f.status,f.period_from,f.period_to,f.created_at,a.name account_name' +
         ' FROM bank_files f JOIN cash_accounts a ON a.id=f.account_id ORDER BY f.created_at DESC LIMIT 50').all()
     ]);
@@ -60,8 +60,11 @@ export async function bankApi(request, env, path, readBody) {
 
   if (sub === '/files' && method === 'POST') {
     const x = await readBody(request);
-    const account = await db.prepare('SELECT id FROM cash_accounts WHERE id=?').bind(key(x.account_id)).first();
+    const account = await db.prepare('SELECT id,name,role FROM cash_accounts WHERE id=?').bind(key(x.account_id)).first();
     if (!account) fail('Hesap bulunamadı.', 404);
+    // Pazaryeri alacak hesabı (role='marketplace_clearing') bir defter hesabıdır, bankadan ekstresi
+    // gelmez. Oraya ekstre yüklenirse hakediş eşleştirmesi kendi çıktısını kaynak sanardı.
+    if (account.role) fail(account.name + ' bir pazaryeri alacak hesabıdır; banka ekstresi yüklenmez.', 409);
     if (!/^[0-9a-f]{64}$/.test(x.sha256 || '')) fail('Dosya özeti geçersiz.');
     if (!Number.isSafeInteger(x.size_bytes) || x.size_bytes <= 0 || x.size_bytes > 25 * 1024 * 1024) fail('Dosya boyutu geçersiz.');
     const varOlan = await db.prepare('SELECT id,filename,row_count,status FROM bank_files WHERE account_id=? AND sha256=?').bind(account.id, x.sha256).first();

@@ -11,7 +11,9 @@ const PARTI = 400;
 
 export function mountBank(root, namespace = 'ec') {
   const controller = new AbortController(), signal = controller.signal;
-  const state = {data: null, account: '', draft: null, lines: null, page: 1, query: '', busy: false, message: '', error: '', progress: ''};
+  // İki iş, tek ekran: ekstre yükleme (ham veri) ve hakediş eşleştirme (para defteri).
+  // Eşleştirme görünümü ayrı modüldür; sekmesi açıkken bu modülün render'ı DOM'a dokunmaz.
+  const state = {data: null, account: '', draft: null, lines: null, page: 1, query: '', busy: false, message: '', error: '', progress: '', tab: 'ekstre', matchDispose: null};
 
   const api = async (path = '', body) => {
     const r = await fetch('/api/' + namespace + '/bank' + path, {method: body === undefined ? 'GET' : 'POST',
@@ -123,12 +125,37 @@ export function mountBank(root, namespace = 'ec') {
         : '<p class="rb-muted">Bu aramaya uyan hareket yok.</p>') : '<p class="rb-muted">Hesap seçin.</p>'}</section>`;
   }
 
+  const sekmeler = () => '<nav class="v2-tabs" aria-label="Banka">' +
+    [['ekstre', 'Ekstre yükle'], ['eslestirme', 'Hakediş eşleştirme']].map(([key, label]) =>
+      `<button type="button" data-bank-tab="${key}" class="${state.tab === key ? 'active' : ''}" aria-current="${state.tab === key ? 'page' : 'false'}">${label}</button>`).join('') + '</nav>';
+
+  // Eşleştirme sekmesi kendi modülünü kurar; bu modülün render'ı oraya karışmaz.
+  async function eslestirmeyiAc() {
+    // Kapsayıcı sade tutulur: iç modül kendi 'rb workflow-page' sayfasını kurar, iç içe geçmez.
+    root.innerHTML = '<div class="bank-tabs">' + sekmeler() + '</div><div data-bank-match><p class="rb-busy" role="status">Eşleştirme ekranı yükleniyor…</p></div>';
+    const yer = root.querySelector('[data-bank-match]');
+    try {
+      const {mountBankMatch} = await import('./bank-match-ui.js');
+      if (signal.aborted || !yer.isConnected || state.tab !== 'eslestirme') return;
+      state.matchDispose = mountBankMatch(yer, namespace);
+    } catch (e) {
+      if (!signal.aborted && yer.isConnected) yer.innerHTML = '<p class="rb-alert error" role="alert">Eşleştirme ekranı yüklenemedi: ' + esc(e.message) + '</p>';
+    }
+  }
+  function sekmeSec(tab) {
+    if (state.tab === tab) return;
+    state.matchDispose?.(); state.matchDispose = null;
+    state.tab = tab;
+    if (tab === 'eslestirme') eslestirmeyiAc(); else render();
+  }
+
   function render() {
-    if(signal.aborted)return;
+    if(signal.aborted||state.tab==='eslestirme')return;
     prepareWorkflow(root);
     root.innerHTML = '<div class="rb workflow-page">' +
       `<section class="page-heading"><div><span class="eyebrow">E-ticaret / Banka</span><h1>Banka hareketlerini doğrula</h1>
         <p>Paranın gerçekten yattığını buradan doğrularız. ${esc(state.data?.notice || '')}</p></div></section>` +
+      sekmeler() +
       (state.error ? `<p class="rb-alert error" role="alert">${esc(state.error)}</p>` : '') +
       (state.message ? `<p class="rb-alert ok" role="status">${esc(state.message)}</p>` : '') +
       (state.data?.accounts?.length ? yuklemeKarti() + satirKarti() + '<details class="workflow-details"><summary>Hesapları yönet · '+state.data.accounts.length+' hesap</summary>'+hesapKarti()+'</details>' : hesapKarti()) + '<details class="workflow-details"><summary>Yüklenen ekstreler · '+(state.data?.files?.length||0)+' dosya</summary>'+dosyaKarti()+'</details>' +
@@ -206,6 +233,8 @@ export function mountBank(root, namespace = 'ec') {
     if (alan && state.draft) state.draft.mapping[alan] = e.target.value || undefined;
   });
   root.addEventListener('click', e => {
+    const sekme = e.target.closest('[data-bank-tab]');
+    if (sekme) { sekmeSec(sekme.dataset.bankTab); return; }
     const b = e.target.closest('[data-bank-act]'); if (!b) return;
     const a = b.dataset.bankAct;if(state.busy||b.disabled)return;
     if(a==='previous'||a==='next'){state.page=Math.max(1,state.page+(a==='next'?1:-1));run(loadLines);return;}
@@ -223,5 +252,5 @@ export function mountBank(root, namespace = 'ec') {
   });
 
   run(async () => { await load(); });
-  return () => {root.removeAttribute('aria-busy');controller.abort();};
+  return () => {root.removeAttribute('aria-busy');state.matchDispose?.();state.matchDispose=null;controller.abort();};
 }

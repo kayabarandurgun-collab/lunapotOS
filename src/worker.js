@@ -45,6 +45,7 @@ import {reportStockLinkApi} from './report-stock-link-api.js';
 import {attentionApi} from './attention-api.js';
 import {reportInboxApi} from './report-inbox-api.js';
 import {bankApi} from './bank-api.js';
+import {bankMatchApi} from './bank-match-api.js';
 import {marketplaceReceivablesApi} from './marketplace-receivables-api.js';
 const fail = (message,status=400) => {throw Object.assign(new Error(message),{status});};
 const str=(v,name,max=200)=> {if(typeof v!=='string'||!v.trim()||v.length>max)fail(name+' alanını kontrol edin.');return v.trim();};
@@ -153,7 +154,7 @@ async function api(request,env,path){
  const workspace=path.match(/^\/api\/(ec|lp)(\/.*)?$/);
  if(workspace){
   const scoped={...env,DB:scopedDB(db,workspace[1]),ROOT_DB:db,WORKSPACE:workspace[1],USER:current.user},subpath=workspace[2]||'';
-  for(const handler of [fifoApi,fiyatHesapApi,urunKarlilikApi,panoramaApi,stagedImportApi,purchaseDocumentApi,purchaseAutopostApi,salesDocumentApi,reportStockLinkApi,reportInboxApi,marketplaceReceivablesApi,bankApi,lotApi,barcodeApi,offersApi,partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null){await maliyetiTazele(scoped,request);return json(scrubAmounts(result,current.user,workspace[1]));}}
+  for(const handler of [fifoApi,fiyatHesapApi,urunKarlilikApi,panoramaApi,stagedImportApi,purchaseDocumentApi,purchaseAutopostApi,salesDocumentApi,reportStockLinkApi,reportInboxApi,marketplaceReceivablesApi,bankMatchApi,bankApi,lotApi,barcodeApi,offersApi,partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null){await maliyetiTazele(scoped,request);return json(scrubAmounts(result,current.user,workspace[1]));}}
   const accounting=await accountingApi(request,scoped,'/api/accounting'+subpath,body);await maliyetiTazele(scoped,request);
   return json(scrubAmounts(accounting,current.user,workspace[1]));
  }
@@ -219,7 +220,13 @@ export default {
   // icinde durmasi "magaza yayinda" anlamina gelmez.
   if((path==='/magaza'||path.startsWith('/magaza/'))&&!demoEnabled(request,env))response=json({error:'Web mağaza henüz satışa açılmadı.'},404);
   else if(path.startsWith('/api/'))response=await api(request,env,path);else if(path==='/webmagaza'||path==='/webmagaza/'){const assetURL=new URL(request.url);assetURL.pathname='/webshop';response=await env.ASSETS.fetch(new Request(assetURL,request));}else if(path==='/uretim'||path==='/uretim/'){const assetURL=new URL(request.url);assetURL.pathname='/production';response=await env.ASSETS.fetch(new Request(assetURL,request));}else if(path==='/eticaret'||path==='/eticaret/'){const assetURL=new URL(request.url);assetURL.pathname='/ecommerce';response=await env.ASSETS.fetch(new Request(assetURL,request));}else response=await env.ASSETS.fetch(request);}
- catch(error){response=json({error:error.status?error.message:'İşlem tamamlanamadı. Bağlantıyı kontrol edip tekrar deneyin.'},error.status||500);}
+ catch(error){
+  // Hata gövdesi kural olarak yalnız {error} taşır. Bazı uçlar arayüzün DOĞRU SORUYU sorabilmesi
+  // için makine okunur bir ayrıntı ekler (örn. 'alacak hesabı yok', 'kuruş farkı var'). Bu ayrıntı
+  // yalnızca hatayı fırlatan kodun açıkça yazdığı error.detail nesnesinden gelir; başka hiçbir
+  // hata alanı dışarı sızmaz ve sunucu hatalarında (status yok) hiç eklenmez.
+  const detail=error.status&&error.detail&&typeof error.detail==='object'?error.detail:null;
+  response=json({error:error.status?error.message:'İşlem tamamlanamadı. Bağlantıyı kontrol edip tekrar deneyin.',...detail},error.status||500);}
  // Video için bayt aralığı: iPhone Safari kısmi yanıt (206) almadan videoyu oynatmaz ve ileri saramaz.
  // Statik dosya katmanı aralık isteğine tam dosyayla (200) dönüyordu; burada tek aralık kesilir.
  if(response.status===200&&(response.headers.get('Content-Type')||'').startsWith('video/'))response=await videoRange(request,response);

@@ -19,7 +19,11 @@ async function requireParty(db,key){if(!await stmt(db,'SELECT id FROM suppliers 
 // hareket) arşiv sorulmaz; yalnız YENİ hareket, ödeme ve mal girişi yazarken sorulur. Bu yüzden
 // requireParty olduğu gibi kalır ve arşiv denetimi ayrı bir kapıdır.
 async function livingParty(db,key){const row=await stmt(db,'SELECT id,name,archived_at FROM suppliers WHERE id=?',[key]).first();if(!row)fail('Cari bu çalışma alanında bulunamadı.',404);if(row.archived_at)fail(row.name+' arşivlenmiş bir caridir; yeni kayıt yazılamaz. Cari listesinden “Arşivden geri al” deyip yeniden deneyin.',409);return row;}
-async function livingAccount(db,key){const row=await stmt(db,'SELECT id,name,archived_at FROM cash_accounts WHERE id=?',[key]).first();if(!row)fail('Kasa/banka hesabı bulunamadı.',404);if(row.archived_at)fail(row.name+' arşivlenmiş bir hesaptır; yeni para hareketi yazılamaz. Kasa ve banka ekranından “Arşivden geri al” deyip yeniden deneyin.',409);return row;}
+// PAZARYERİ ALACAK HESABI (role='marketplace_clearing') ELLE PARA HAREKETİNE KAPALIDIR.
+// O hesabın bakiyesi tanım gereği sıfırdır: hakediş girişiyle virman çıkışı birlikte doğar.
+// Elle bir ödeme/tahsilat yazılırsa bakiye sıfırdan çıkar ve "açıklanmamış para" göstergesi
+// anlamını yitirir. role kolonu 0058'de HER İKİ çalışma alanına da eklendi; bu sorgu ortaktır.
+async function livingAccount(db,key){const row=await stmt(db,'SELECT id,name,role,archived_at FROM cash_accounts WHERE id=?',[key]).first();if(!row)fail('Kasa/banka hesabı bulunamadı.',404);if(row.archived_at)fail(row.name+' arşivlenmiş bir hesaptır; yeni para hareketi yazılamaz. Kasa ve banka ekranından “Arşivden geri al” deyip yeniden deneyin.',409);if(row.role==='marketplace_clearing')fail(row.name+' pazaryeri alacak hesabıdır; buraya elle para hareketi yazılmaz. Hakediş–banka eşleştirme ekranını kullanın.',409);return row;}
 // SİLME ENGELLERİ. Hangi bağlantının engellediği tahmin edilmez: cariye ve hesaba bakan yabancı
 // anahtarların tamamı (artı yabancı anahtarı olmayan alış eşleştirme kuralı) tek tek sorulur.
 // Bir tanesi bile doluysa kayıt defterde iz bırakmıştır; silinmez, arşivlenir.
@@ -373,6 +377,10 @@ export async function ledgerApi(request,env,path,readBody){
   const date=day(x.occurred_on),reference=text(x.reference,'Referans',200),items=[];
   if(x.cash_transaction_id){
    const original=await stmt(db,'SELECT * FROM cash_transactions WHERE id=?',[x.cash_transaction_id]).first();if(!original)fail('Kasa/banka hareketi bulunamadı.',404);
+   // Hakediş eşleştirmesi ÜÇ hareketten oluşur (alacak girişi + virman çifti). Tek bacağı burada
+   // ters kaydetmek bakiyeleri yarım bırakır; eşleştirme kendi ekranından bütün olarak geri alınır.
+   // bank_matches yalnız e-ticarette vardır: sorgu kısa devreyle öbür alanda hiç çalışmaz.
+   if(env.WORKSPACE==='ec'&&await stmt(db,"SELECT id FROM bank_matches WHERE status='confirmed' AND (clearing_in_id=? OR transfer_out_id=? OR transfer_in_id=?)",[original.id,original.id,original.id]).first())fail('Bu hareket bir hakediş eşleştirmesinin parçasıdır; Hakediş–banka eşleştirme ekranından geri alın.',409);
    let reversalEntry=null;if(original.party_entry_id){const e=await stmt(db,'SELECT * FROM party_entries WHERE id=?',[original.party_entry_id]).first();reversalEntry=id();items.push(entryInsert(db,{...e,id:reversalEntry,amount_cents:-e.amount_cents,occurred_on:date,due_on:null,reference,description:reason,source_key:'reverse:'+e.id,source:'reversal',reversal_of:e.id}));}
    items.push(stmt(db,'INSERT INTO cash_transactions(id,account_id,party_entry_id,amount_cents,occurred_on,reference,description,reversal_of) VALUES(?,?,?,?,?,?,?,?)',[key,original.account_id,reversalEntry,-original.amount_cents,date,reference,reason,original.id]));
   }else{
