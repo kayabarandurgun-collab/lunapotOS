@@ -12,6 +12,11 @@ export async function pullSourcePages({requestPage,startPage=0,allPages=true,sig
   try{r=await requestPage(page,signal);}catch(error){return snapshot(signal?.aborted?'paused':'error',signal?.aborted?'':error.message);}
   requests++;
   if(!r||r.page!==page||typeof r.hasMore!=='boolean'||!Array.isArray(r.records)||!Number.isInteger(r.next_page)||r.next_page!==page+1)return snapshot('error','Kaynak sayfa sırası doğrulanamadı.');
+  // ÖNİZLEME BU AKIŞA GİRMEZ. Yazmayan çağrı taslak üretmediği (orders null) için aşağıdaki
+  // "ilerleme oldu mu" kuralı önizlemeyi haksız yere hata sayardı; imleç de yazılmadığı için sayfa
+  // sırası ilerlemez ve aynı sayfa sonsuza kadar tekrarlanırdı. Önizleme TEK SAYFA çağrılır
+  // (operations-ui.js); yanlış kullanım sessizce kabul edilmez, açıkça söylenir.
+  if(r.preview===true)return snapshot('error','Önizleme sayfa sayfa alma akışında kullanılamaz; önizleme tek sayfa çalışır ve hiçbir şey yazmaz.');
   if(!counted){records+=r.records.length;counted=true;}
   created+=r.orders?.created||0;
   // Teslim onayı sayfa uyarılarına bırakılamaz: uyarılar yalnız duraklatılmayan sayfalarda

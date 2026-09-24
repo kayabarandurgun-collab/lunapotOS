@@ -29,3 +29,15 @@ test('Teslim edilmiş işaretlenen paket sayısı bütün sayfalardan toplanır'
  assert.equal(r.status,'complete');assert.equal(r.delivered,8,'duraklatılan sayfadaki teslim onayı da sayılmalı');
  const bos=await pullSourcePages({requestPage:async page=>response(page,false)});assert.equal(bos.delivered,0);
 });
+// ÖNİZLEME BU AKIŞA GİRMEZ: yazmayan çağrı taslak üretmediği için (orders null) aşağıdaki "ilerleme
+// oldu mu" kuralı önizlemeyi haksız yere hata sayardı ve imleç yazılmadığı için sayfa da ilerlemezdi.
+// Önizleme tek sayfa çağrılır (operations-ui.js); yardımcı yanlış kullanımı sessizce kabul etmez.
+test('Önizleme yanıtı sayfa sayfa alma akışında kabul edilmez',async()=>{
+ let istek=0;
+ const r=await pullSourcePages({requestPage:async page=>{istek++;return response(page,true,{preview:true,orders:null,importableOrders:3});}});
+ assert.equal(r.status,'error');assert.equal(istek,1,'önizleme görülünce ikinci sayfa istenmemeli');
+ assert.match(r.error,/Önizleme/);
+ assert.equal(r.pages,0);assert.equal(r.created,0);
+ const yazan=await pullSourcePages({requestPage:async page=>response(page,false,{preview:false})});
+ assert.equal(yazan.status,'complete','gerçek senkron yanıtı (preview:false) aynen çalışmalı');
+});

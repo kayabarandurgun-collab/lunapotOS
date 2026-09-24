@@ -6,28 +6,130 @@
 //   1. yarım kalan rapor dosyalarını bitirir (kaldığı partiden)
 //   2. her mağaza için: yeni siparişleri aktarır (stok ayırır / gönderir / teslim eder)
 //   3. rapora göre teslimleri günceller, iadeleri kaydeder, kesintileri yazar
-//   4. hareketi değişen ürünlerin satış maliyetini (FIFO) günceller
+//   4. pazaryeri bağlantılarından yeni kaynakları çeker (yalnız aralığı dolmuşsa)
+//   5. hareketi değişen ürünlerin satış maliyetini (FIFO) günceller
 //
 // Adımların hepsi tekrar çalıştırılabilir: yapılmış işi ikinci kez yazmaz. Kullanıcı o sırada dosya
 // yüklüyorsa (son 10 dakikada rapor hareketi) aynı işi ekranla yarışarak yapmamak için tur atlanır.
 import {scopedDB} from './scoped-db.js';
 import {reportInboxApi} from './report-inbox-api.js';
 import {reportStockLinkApi} from './report-stock-link-api.js';
+import {syncProvider} from './connections-api.js';
+import {telegramBildir} from './telegram.js';
 import {fifoRevalue} from './fifo-cost.js';
 
 const SISTEM = {owner: true, id: 'otomatik-bakim', username: 'otomatik', name: 'Otomatik bakım'};
+// D1 damgaları 'YYYY-MM-DD HH:MM:SS' ve UTC'dir; ISO'ya çevrilmeden Date.parse yerel saat sanıyor.
+const damga = t => Date.parse(String(t).replace(' ', 'T') + 'Z');
+// Defterdeki gün TÜRKİYE günüdür. Türkiye kalıcı olarak UTC+03, yaz saati yok: sabit kaydırma yeter.
+const gunTR = ms => new Date(ms + 3 * 3600000).toISOString().slice(0, 10);
 
-export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sakinDakika = 10} = {}) {
+// PAZARYERİ SENKRONU. Cron 15 DAKİKADA BİR tetikleniyor ama her turda pazaryerine gitmek YANLIŞ
+// olur: sağlayıcının istek sınırı boşuna yenir ve ücretsiz D1 yazma bütçesi (günde 100.000 satır)
+// değişmemiş kayıtların upsert'iyle tükenir — aynı sayfayı günde 96 kez çekmek aynı satırları 96 kez
+// yazar. ARALIK KAYNAK TÜRÜNE GÖRE seçildi:
+//   · siparişler 4 SAAT: paketin kargo/teslim durumu gün içinde değişiyor ve kâr yalnız TESLİM
+//     edilen pakette doğuyor; 4 saatlik gecikme kâr raporunu bozmaz, günde 6 tur eder.
+//   · hakediş/iade finansı 12 SAAT, kesinti ve hakediş emri 24 SAAT: bu kayıtlar günlük kesiliyor,
+//     daha sık çekmek aynı satırları tekrar yazmaktan başka işe yaramaz.
+// PENCERE son başarılı senkrondan bugüne kurulur (+1 gün emniyet payı, en az 2 gün: pazaryeri geç
+// güncellenen paketi geriye dönük değiştirebiliyor). Sürekli 14 günlük pencere çekmek boşuna yazma
+// üretirdi. Uç sınırı aşılamaz: sipariş ucu en fazla 14, Trendyol finans uçları 15 gün (gün sayısı
+// 'enGeri' başlangıç ile bitiş arası fark olduğu için 13/14'tür).
+// Hepsiburada 'commissions' türü buraya girmez: o uç SKU listesi ister, kullanıcı seçimi olmadan
+// hangi ürünlerin sorulacağı uydurulamaz.
+export const SENKRON_KAYNAKLARI = {
+  trendyol: [{kind: 'orders', saat: 4, enGeri: 13}, {kind: 'sale', saat: 12, enGeri: 14}, {kind: 'return', saat: 12, enGeri: 14},
+    {kind: 'deductions', saat: 24, enGeri: 14}, {kind: 'payments', saat: 24, enGeri: 14}],
+  hepsiburada: [{kind: 'orders', saat: 4, enGeri: 13}, {kind: 'finance', saat: 12, enGeri: 13}]
+};
+// Tur başına sağlayıcı isteği sınırı: 50 sipariş/sayfa ile 8 sayfa iki günlük hacmi rahat alır.
+// Sınır hem sağlayıcı nezaketi hem de tek turda yazılacak satır sayısı için üst kapaktır.
+export const SENKRON_ISTEK = 8;
+const SENKRON_PAY = 10000;   // sağlayıcı isteği için bütçeden ayrılan pay (istek zaman aşımı 20 sn)
+const SENKRON_ILK_GUN = 3;   // hiç senkron yapılmamış bağlantıda ilk pencere (ilk tam alım elle yapılır)
+const coz = v => { try { return JSON.parse(v); } catch { return null; } };
+
+/**
+ * Yapılandırılmış pazaryeri bağlantılarından kaynak sayfalarını çeker. Hiçbir hata yukarı kaçmaz:
+ * bir sağlayıcı düşerse bakımın geri kalanı (iade, kesinti, maliyet, iz kaydı) aynen sürer.
+ */
+async function pazaryeriSenkronu(ec, db, {simdi, vakitVar, getir, ozet}) {
+  const baglantilar = (await db.prepare('SELECT provider,last_success_at,last_error FROM ec_provider_connections ORDER BY provider').all()).results;
+  for (const b of baglantilar) {
+    const kaynaklar = SENKRON_KAYNAKLARI[b.provider];
+    if (!kaynaklar || !vakitVar()) continue;
+    // ÇÖZÜLMEMİŞ HATASI OLAN BAĞLANTI OTOMATİK DENENMEZ: kimlik bilgisi bozulmuş ya da mağaza
+    // erişimi kapanmışsa her 4 saatte bir aynı hatayı üretmek sağlayıcıya da bize de yük olur.
+    // Sessiz kalmıyoruz: hata metni Bağlantılar ekranında kırmızı satır olarak zaten duruyor ve
+    // kullanıcı "Verileri al" ile bir kez başarılı çektiğinde last_error silinir, otomatik senkron
+    // kendiliğinden geri gelir.
+    if (b.last_error) { ozet.senkronAtlandi.push(b.provider); continue; }
+    if (b.last_success_at && simdi - damga(b.last_success_at) < Math.min(...kaynaklar.map(k => k.saat)) * 3600000) continue;
+    // Tür başına son başarı zamanı: imleç satırı yalnız YAZILAN sayfada tazelenir, yani bu damga
+    // "bu türü en son ne zaman gerçekten çektik" sorusunun cevabıdır.
+    const turlar = (await db.prepare('SELECT kind,MAX(last_success_at) son FROM ec_provider_cursors WHERE provider=? GROUP BY kind').bind(b.provider).all()).results;
+    let istek = SENKRON_ISTEK;
+    try {
+      for (const k of kaynaklar) {
+        if (istek <= 0 || !vakitVar()) break;
+        const son = turlar.find(t => t.kind === k.kind)?.son, gecen = son ? simdi - damga(son) : null;
+        if (gecen !== null && gecen < k.saat * 3600000) continue;
+        // İmleç sorgu anahtarı sunucuda hash'lendiği için burada pencere (from/to) ile eşleştirilir.
+        const imlecler = (await db.prepare('SELECT query_json,next_page,has_more,last_success_at FROM ec_provider_cursors WHERE provider=? AND kind=? ORDER BY last_success_at DESC')
+          .bind(b.provider, k.kind).all()).results.map(c => ({...c, q: coz(c.query_json)})).filter(c => c.q?.from && c.q?.to);
+        // YARIM KALAN PENCERE ÖNCE BİTİRİLİR. Süre/istek bütçesi dolduğunda aynı pencere ve kalınan
+        // sayfadan sürülür; yoksa her tur daha dar bir pencere kurulur ve önceki pencerenin
+        // çekilmemiş son sayfalarına bir daha hiç sıra gelmezdi. Yalnız TAZE (son iki gün içinde
+        // ilerlemiş) pencere sürdürülür: panelden haftalar önce yarım bırakılmış geniş bir aralık
+        // otomatik bakımı sonsuza kadar geçmişte tutmasın, o iş ekrandan elle sürdürülür.
+        const yarim = imlecler.find(c => c.has_more && simdi - damga(c.last_success_at) < 2 * 86400000);
+        const geri = gecen === null ? SENKRON_ILK_GUN : Math.min(Math.max(Math.ceil(gecen / 86400000) + 1, 2), k.enGeri);
+        const to = yarim ? yarim.q.to : gunTR(simdi), from = yarim ? yarim.q.from : gunTR(simdi - geri * 86400000);
+        const imlec = yarim ?? imlecler.find(c => c.q.from === from && c.q.to === to);
+        let sayfa = imlec?.has_more ? imlec.next_page : 0;
+        while (istek > 0 && vakitVar()) {
+          istek--;
+          const r = await syncProvider(ec, b.provider, {kind: k.kind, from, to, page: sayfa, preview: false}, getir);
+          ozet.senkronKayit += r.records.length;
+          ozet.senkronTeslim += r.deliveredMarked || 0;
+          ozet.senkronTaslak += r.orders?.created || 0;
+          // Ücretsiz işlem sınırı yüzünden ertelenen taslaklar AYNI sayfada kalır: ilerleme varsa
+          // sayfa tekrar çekilir, hiç ilerleme yoksa sıradaki tura bırakılır (panelin kuralıyla aynı).
+          if (r.deferredOrders > 0) { if (r.orders?.created > 0) continue; break; }
+          if (!r.hasMore) break;
+          sayfa = r.next_page;
+        }
+      }
+    } catch (e) {
+      // Sağlayıcı hatası bakımı ÇÖKERTMEZ. Bu sağlayıcının sıradaki türleri de zorlanmaz: 429/401
+      // gibi hatalar bağlantının tamamını ilgilendirir, arka arkaya denemek sınırı daha da yer.
+      // Hata metni zaten syncProvider tarafından provider_connections.last_error'a yazıldı.
+      ozet.hatalar.push('senkron ' + b.provider + ': ' + e.message);
+    }
+  }
+}
+
+/** Telegram özeti: yalnız EKRAN KAPALIYKEN olan kayda değer iş bildirilir. */
+export const senkronBildirimi = ozet => '🔄 Otomatik senkron — pazaryerinden yeni bilgi geldi\n' +
+  [ozet.senkronTaslak && ozet.senkronTaslak + ' yeni sipariş taslağı', ozet.senkronTeslim && ozet.senkronTeslim + ' paket teslim edildi işaretlendi',
+    ozet.senkronKayit && ozet.senkronKayit + ' kaynak kaydı tarandı'].filter(Boolean).join(' · ');
+
+export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sakinDakika = 10, senkronGetir = fetch} = {}) {
   const bas = Date.now(), vakitVar = () => Date.now() - bas < sureMs;
+  // Senkron SAĞLAYICIYA ÇIKAR: tek istek zaman aşımına kadar 20 saniye sürebilir, o yüzden bütçeden
+  // 10 saniyelik pay AYRILIR ve pay içine girilmişken yeni sayfa istenmez. Yarıda kalan pencere bir
+  // sonraki turda kaldığı sayfadan sürer (imleç saklı), yani kesilen iş kaybolmaz.
+  const senkronVakti = () => Date.now() - bas + SENKRON_PAY < sureMs;
   const ec = {...env, DB: scopedDB(env.DB, 'ec'), ROOT_DB: env.DB, WORKSPACE: 'ec', USER: SISTEM};
   const db = env.DB;
   const son = await db.prepare('SELECT MAX(created_at) t FROM ec_report_files').first();
-  if (son?.t && simdi - Date.parse(String(son.t).replace(' ', 'T') + 'Z') < sakinDakika * 60000)
+  if (son?.t && simdi - damga(son.t) < sakinDakika * 60000)
     return {atlandi: 'Son ' + sakinDakika + ' dakikada rapor yüklendi; ekran işliyor olabilir.'};
 
   const cagir = (handler, yol, govde) => handler(new Request('https://internal.invalid/api/ec' + yol.replace(/^\/api/, ''), {method: govde === undefined ? 'GET' : 'POST'}),
     ec, yol, async () => govde);
-  const ozet = {dosya: 0, siparis: 0, teslim: 0, iade: 0, kesinti: 0, maliyet: 0, hatalar: []};
+  const ozet = {dosya: 0, siparis: 0, teslim: 0, iade: 0, kesinti: 0, maliyet: 0, senkronKayit: 0, senkronTeslim: 0, senkronTaslak: 0, senkronAtlandi: [], hatalar: []};
   const dene = async (ad, fn) => { try { await fn(); } catch (e) { ozet.hatalar.push(ad + ': ' + e.message); } };
 
   // 1. Yarım kalan dosyalar. Hata veren dosya silinmez ve "işlendi" sayılmaz: deneme sayısı, son hata
@@ -79,16 +181,30 @@ export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sa
     });
   }
 
-  // 4. Maliyet (FIFO) kuyruğu.
+  // 4. Pazaryeri senkronu. Rapor işleri ÖNCE bitirilir (onlar zaten sistemdeki veriyi tamamlıyor),
+  // senkron ise YENİ veri getirir ve gerekirse bir sonraki tura kalabilir. FIFO'dan önce durur:
+  // senkronun açtığı taslakların maliyeti aynı turda değerlensin ve maliyet kuyruğu bütün bütçeyi
+  // yiyip senkronu aç bırakmasın.
+  await pazaryeriSenkronu(ec, db, {simdi, vakitVar: senkronVakti, getir: senkronGetir, ozet});
+
+  // 5. Maliyet (FIFO) kuyruğu.
   await dene('maliyet', async () => {
     for (let i = 0; i < 30 && vakitVar(); i++) { const r = await fifoRevalue(ec.DB, 8); ozet.maliyet += r.changed; if (!r.remaining) break; }
   });
 
-  const is = ozet.dosya + ozet.siparis + ozet.teslim + ozet.iade + ozet.kesinti + ozet.maliyet;
+  // BİLDİRİM yalnız EKRAN KAPALIYKEN olan kayda değer iş için: yeni sipariş taslağı ya da teslim
+  // işaretlemesi. Yalnız "kayıt tarandı" ise kanal SUSAR — 4 saatte bir "bir şey değişmedi" mesajı
+  // bildirimleri okunmaz hâle getirirdi. Hatalar da kanala düşmez: Bağlantılar ekranında kırmızı
+  // satır olarak duruyor ve aynı hata her turda tekrar ederdi. Bildirim hiçbir işi durdurmaz.
+  if (ozet.senkronTaslak || ozet.senkronTeslim) await dene('bildirim', () => telegramBildir(env, senkronBildirimi(ozet)));
+
+  const is = ozet.dosya + ozet.siparis + ozet.teslim + ozet.iade + ozet.kesinti + ozet.maliyet + ozet.senkronKayit + ozet.senkronTeslim + ozet.senkronTaslak;
   if (is || ozet.hatalar.length)
     await db.prepare('INSERT INTO ec_activity(id,description) VALUES(?,?)').bind(crypto.randomUUID(),
       'Otomatik bakım: ' + [ozet.dosya && ozet.dosya + ' rapor dosyası bitirildi', ozet.siparis && ozet.siparis + ' sipariş aktarıldı', ozet.teslim && ozet.teslim + ' teslim',
-        ozet.iade && ozet.iade + ' iade', ozet.kesinti && ozet.kesinti + ' satışa kesinti yazıldı', ozet.maliyet && ozet.maliyet + ' maliyet düzeltmesi'].filter(Boolean).join(', ')
+        ozet.iade && ozet.iade + ' iade', ozet.kesinti && ozet.kesinti + ' satışa kesinti yazıldı', ozet.maliyet && ozet.maliyet + ' maliyet düzeltmesi',
+        ozet.senkronKayit && ozet.senkronKayit + ' pazaryeri kaydı tarandı', ozet.senkronTaslak && ozet.senkronTaslak + ' yeni sipariş taslağı',
+        ozet.senkronTeslim && ozet.senkronTeslim + ' paket teslim işaretlendi'].filter(Boolean).join(', ')
       + (ozet.hatalar.length ? (is ? '; ' : '') + 'sorun: ' + ozet.hatalar.join(' | ').slice(0, 400) : '')).run();
   // İŞ YOKKEN DE İZ BIRAKILIR (en çok 6 saatte bir): ekranda hiç satır olmayınca bakımın çalışıp
   // çalışmadığı anlaşılmıyordu. Her 15 dakikada yazmak listeyi doldururdu.
