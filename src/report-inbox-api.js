@@ -18,8 +18,9 @@
 //   POST /api/ec/reports/records/:id/evidence    {invoice_line_id} gider kanıtı (ikinci gider yok)
 //
 // Bu dosya stok hareketi, sevkiyat, satış kaydı veya fatura OLUŞTURMAZ; pazaryeri API'si çağırmaz.
-import {FIELDS, PROVIDERS, EVENT_TYPES, FEE_TYPES, headerSignature, normalizeRows, compareVersions, contentHash, exVat, observedEstimate, allocateCents} from '../public/report-core.js';
+import {FIELDS, PROVIDERS, REPORT_KINDS, EVENT_TYPES, FEE_TYPES, headerSignature, normalizeRows, compareVersions, contentHash, exVat, observedEstimate, allocateCents} from '../public/report-core.js';
 import {paketSonuclari} from './performance-api.js';
+import {telegramBildir, telegramHata} from './telegram.js';
 
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), {status}); };
 const id = () => crypto.randomUUID();
@@ -1208,7 +1209,9 @@ export async function pendingReturns(db, storeId) {
  */
 async function applyStep(db, f) {
   if (f.status === 'receiving') fail('Dosya henüz tamamen alınmadı.', 409);
-  if (f.status === 'applied') return {done: true, applied_row: f.applied_row, counts: parse(f.counts_json, {})};
+  // Zaten işlenmiş dosya: yapılacak iş yok. 'already' bu dönüşü GERÇEK tamamlanmadan ayırır; çağıran
+  // bildirimi yalnız gerçek tamamlanmada gönderir (aksi halde her tekrar çağrıda kanala haber düşerdi).
+  if (f.status === 'applied') return {done: true, already: true, applied_row: f.applied_row, counts: parse(f.counts_json, {})};
   const profile = await loadProfile(db, f);
   const lastRow = (await db.prepare('SELECT MAX(row_no) m FROM ec_report_rows WHERE file_id=?').bind(f.id).first()).m || 0;
   const chunkRows = (await db.prepare('SELECT row_no FROM ec_report_rows WHERE file_id=? AND row_no>? ORDER BY row_no LIMIT ?').bind(f.id, f.applied_row, APPLY_BATCH).all()).results;
@@ -1303,6 +1306,39 @@ async function applyStep(db, f) {
   try { await db.batch(stmts); }
   catch (e) { if (/REPORT_STALE_WRITE|UNIQUE|PRIMARY KEY/.test(e.message)) return {stale: true}; throw e; }
   return {done, applied_row: toRow, row_count: f.row_count, counts};
+}
+
+/* ---------------- Telegram bildirimi ---------------- */
+// Dosyanın işlenmesi bitince kanala kısa bir özet düşer: kullanıcı ekranı kapatıp gitse de (ya da işi
+// gece otomatik bakım bitirse de) sonucu görür. Sıfır olan sayılar YAZILMAZ; hiçbir şeyi değiştirmeyen
+// 'aynı' ve 'eski' sonuçları da yazılmaz, satırı kalabalıklaştırır. Elle dokunulması gereken tek yer
+// inceleme kuyruğu olduğu için o ayrı bir uyarı satırındadır.
+// counts.fee_events ayrıca yazılmaz: finans dosyasında yeni+güncellenen sayısı zaten kesinti sayısıdır.
+const BILDIRIM_BIRIMI = {orders: 'sipariş', finance: 'kesinti', bank: 'hareket'};
+const bildirimMagaza = f => [PROVIDERS[f.provider] || f.provider || 'Pazaryeri', f.store_name].filter(Boolean).join(' · ');
+const bildirimSayi = v => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : 0; };
+
+/** Örnek: "📥 Trendyol · Mağaza / 496 satır · 12 yeni sipariş / ⚠️ 2 satır inceleme bekliyor" */
+export function raporOzetMetni(f, counts = {}) {
+  const birim = BILDIRIM_BIRIMI[f.kind] || 'kayıt';
+  const bilgi = [f.filename, bildirimSayi(f.row_count) + ' satır'];
+  if (bildirimSayi(counts.new)) bilgi.push(bildirimSayi(counts.new) + ' yeni ' + birim);
+  if (bildirimSayi(counts.updated)) bilgi.push(bildirimSayi(counts.updated) + ' ' + birim + ' güncellendi');
+  if (bildirimSayi(counts.delivered)) bilgi.push(bildirimSayi(counts.delivered) + ' paket teslim edildi');
+  const satirlar = ['📥 ' + bildirimMagaza(f) + ' — ' + (REPORT_KINDS[f.kind] || 'Rapor') + ' işlendi', bilgi.filter(Boolean).join(' · ')];
+  if (bildirimSayi(counts.review)) satirlar.push('⚠️ ' + bildirimSayi(counts.review) + ' satır inceleme bekliyor');
+  return satirlar.join('\n');
+}
+
+/** Hata kanalı metni: ham hata mesajı SQL parçası içerebilir, bu yüzden kısa kesilir. */
+export function raporHataMetni(f, e) {
+  return '🛑 ' + bildirimMagaza(f) + ' raporu işlenemedi\n' +
+    [f.filename, String(e?.message || 'Bilinmeyen hata')].filter(Boolean).join(' · ').slice(0, 400);
+}
+
+// Bildirim ASLA rapor işlemeyi düşürmez: metni kurarken de gönderirken de ne olursa yutulur.
+async function bildirimDene(ad, fn) {
+  try { await fn(); } catch (e) { console.error(ad + ' bildirimi atlandı:', e?.message || e); }
 }
 
 /* ---------------- uçlar ---------------- */
@@ -1520,9 +1556,21 @@ export async function reportInboxApi(request, env, path, readBody) {
       // Yarışta kaybeden parti yazılmadan geri alınır; dosya yeniden okunup güncel kayıtlarla
       // sınıflandırılır. Aynı partiyi başkası bitirdiyse sıradaki partiye (ya da "bitti"ye) geçilir.
       for (let deneme = 1, g = f; ; deneme++, g = await loadFile(db, f.id)) {
-        const r = await applyStep(db, g);
-        if (!r.stale) return r;
-        if (deneme >= 4) fail('Kayıtlar bu sırada başka bir işlemle değişti. Birazdan yeniden deneyin.', 409);
+        let r;
+        try { r = await applyStep(db, g); }
+        catch (e) {
+          // Yalnızca BEKLENMEYEN hata kanala düşer. Denetimli uyarılar (4xx: eksik eşleştirme, yarım
+          // dosya, yarış) kullanıcının ekranında zaten okunuyor; kanala düşerse hata kanalı işe
+          // yaramaz hâle gelir. Bildirim asıl hatayı gölgelemez: yutulur, hata aynen yukarı fırlar.
+          if (!(e?.status >= 400 && e.status < 500)) await bildirimDene('Rapor hatası', () => telegramHata(env, raporHataMetni(g, e)));
+          throw e;
+        }
+        if (r.stale) { if (deneme >= 4) fail('Kayıtlar bu sırada başka bir işlemle değişti. Birazdan yeniden deneyin.', 409); continue; }
+        // Bildirim yalnızca dosyanın SON partisi yazıldığında, bir kez gider. Zaten işlenmiş dosyaya
+        // tekrar apply çağrılırsa applyStep yine done döner ama 'already' ile işaretlidir: ikinci
+        // bildirim gitmez. Yarışı kaybeden istek de bir sonraki turda o erken dönüşe düşer.
+        if (r.done && !r.already) await bildirimDene('Rapor özeti', () => telegramBildir(env, raporOzetMetni(g, r.counts)));
+        return r;
       }
     }
   }
