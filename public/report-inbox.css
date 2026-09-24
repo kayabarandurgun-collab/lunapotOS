@@ -1,7 +1,7 @@
 /* Rapor Kutusu — e-ticaret paneli. Satır içi stil yok (CSP style-src 'self'). */
 .rb{display:grid;gap:16px}
 .rb-tabs{display:flex;flex-wrap:wrap;gap:6px;border-bottom:1px solid var(--line,#d8ded8);padding-bottom:8px}
-.rb-tabs button{border:1px solid var(--line,#d8ded8);background:transparent;border-radius:var(--radius-dugme);padding:7px 14px;cursor:pointer;font:inherit}
+.rb-tabs button{border:1px solid var(--line,#d8ded8);background:transparent;border-radius:var(--radius-dugme);padding:7px 14px;cursor:pointer;font-family:inherit;font-size:var(--yazi-dugme-kucuk);font-weight:var(--kalinlik-dugme)}
 .rb-tabs button.active{background:var(--ink,#1f2a24);color:var(--paper,#fff);border-color:var(--ink,#1f2a24)}
 .rb-intro{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:18px}
 .rb-intro h2{margin:0 0 6px}
@@ -52,7 +52,7 @@
 .rb-help[open] summary{margin-bottom:8px}
 /* Sayılı durum kartları: bekleyen iş görünür olsun. */
 .rb-status{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:0 0 4px}
-.rb-status a,.rb-status button{text-align:left;border:1px solid var(--line,#d8ded8);border-radius:var(--radius-dugme);padding:12px 14px;background:#fff;display:grid;gap:3px;font:inherit;cursor:pointer}
+.rb-status a,.rb-status button{text-align:left;border:1px solid var(--line,#d8ded8);border-radius:var(--radius-dugme);padding:12px 14px;background:#fff;display:grid;gap:3px;font-family:inherit;font-size:var(--yazi-dugme);font-weight:var(--kalinlik-dugme);cursor:pointer}
 .rb-status button:hover{border-color:var(--brand,#4e56a6);background:var(--brand-soft,#eff0fa)}
 .rb-status span{font-size:12px;color:var(--muted,#5e6b63)}
 .rb-status strong{font-size:23px;font-variant-numeric:tabular-nums}

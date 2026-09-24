@@ -183,9 +183,9 @@ input[type='checkbox'], input[type='radio'] { display: inline-block; width: 17px
 .ac-filters .secondary { min-height: 39px; }
 .ac-filters > .muted { font-size: 11px; margin-left: auto; padding-bottom: 10px; }
 .ac-tabs, .v2-tabs { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin-bottom: 26px; padding-bottom: 12px; }
-.ac-tabs button, .v2-tabs button, .v2-tabs a { padding: 9px 12px; min-height: 39px; border-radius:var(--radius-dugme); border: 1px solid transparent; color: var(--muted); background: transparent; font-size:var(--yazi-dugme-kucuk); font-weight: 500; }
+.ac-tabs button, .v2-tabs button, .v2-tabs a { padding: 9px 12px; min-height: 39px; border-radius:var(--radius-dugme); border: 1px solid transparent; color: var(--muted); background: transparent; font-size:var(--yazi-dugme-kucuk); font-weight: var(--kalinlik-dugme); }
 .ac-tabs button:hover, .v2-tabs button:hover, .v2-tabs a:hover { background: var(--surface); color: var(--brand); }
-.ac-tabs button.selected, .v2-tabs .active, .v2-tabs [aria-selected='true'] { background: var(--brand-soft); color: var(--brand); border-color: var(--brand-border); font-weight: 600; }
+.ac-tabs button.selected, .v2-tabs .active, .v2-tabs [aria-selected='true'] { background: var(--brand-soft); color: var(--brand); border-color: var(--brand-border); font-weight: var(--kalinlik-dugme); }
 .ac-invoice-line { background: var(--canvas); border-color: var(--line); padding: 18px; border-radius: 10px; }
 .ac-line-title { font-size: 12px; }
 .ac-file:focus-within { outline-color: var(--brand); outline-offset: 3px; }

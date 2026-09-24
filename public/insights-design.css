@@ -22,7 +22,7 @@
 /* Shared date controls intentionally usable by orders and stock as well. */
 .ins-date-filter {border:1px solid #dce3d9;border-radius:14px;background:#fff;color:#20342f;padding:14px;margin-bottom:20px;min-width:0}
 .ins-date-presets {display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
-.ins-date-presets button {min-height:36px;min-width:0;background:#f5f6f2;border:1px solid transparent;border-radius:var(--radius-dugme);padding:6px 12px;color:#53645a;font:inherit;font-size:var(--yazi-dugme-kucuk);font-weight:500;white-space:normal}
+.ins-date-presets button {min-height:36px;min-width:0;background:#f5f6f2;border:1px solid transparent;border-radius:var(--radius-dugme);padding:6px 12px;color:#53645a;font-family:inherit;font-size:var(--yazi-dugme-kucuk);font-weight:var(--kalinlik-dugme);white-space:normal}
 .ins-date-presets button[aria-pressed="true"] {background:#315c45;color:#fff;border-color:#315c45;box-shadow:none}
 .ins-date-presets button:hover:not(:disabled) {border-color:#9fb49e}
 .ins-date-form {display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin:0}

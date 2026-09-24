@@ -187,7 +187,7 @@ body.workspace-redesign .workspace main{width:100%;max-width:1640px;min-width:0;
  .workspace-redesign :is(.v2-tabs,.ac-tabs){gap:14px}
  .workspace-redesign .workspace>footer{padding:16px 16px 92px;font-size:11px}
  .workspace-redesign .mobile-dock{position:fixed;inset:auto 10px 10px;bottom:max(10px,env(safe-area-inset-bottom));display:flex;justify-content:space-around;align-items:center;z-index:55;min-height:62px;border:1px solid #dce4d3;border-radius:14px;background:#fcfdf9;box-shadow:0 6px 32px #20342f14;padding:4px}
- .mobile-dock>a,.mobile-dock>button{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;background:transparent;color:#7c8b70;border:0;border-radius:9px;min-height:52px;padding:5px 2px;font-size:9px;text-decoration:none}
+ .mobile-dock>a,.mobile-dock>button{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;background:transparent;color:#7c8b70;border:0;border-radius:var(--radius-dugme);min-height:52px;padding:5px 2px;font-size:9px;text-decoration:none}
  .mobile-dock svg{width:19px;height:19px}
  .mobile-dock>a[aria-current]{background:#e9f0e1;color:#345334;font-weight:600}
  .workspace-redesign .ui-menu-shade{z-index:60;background:#20342f55;inset:0}
@@ -270,7 +270,7 @@ body.workspace-redesign #sidebar .workspace-identity strong{white-space:normal;o
 .workspace-redesign :is(a,button,input,select,textarea,summary,[tabindex]){scroll-margin-block:86px 100px}
 @media(max-width:800px){
  body.workspace-redesign :is(input:not([type=checkbox]):not([type=radio]),select,textarea){font-size:16px}
- body.workspace-redesign :is(.primary,.secondary,.text-button,.icon-button,.workspace-switch,.ui-quick-nav){min-height:44px}
+ body.workspace-redesign :is(.primary,.secondary,.text-button,.icon-button,.danger-button,.ol-chip,.workspace-switch,.ui-quick-nav){min-height:44px}
  body.workspace-redesign :is(.icon-button,.workspace-switch,.ui-quick-nav){min-width:44px}
  body.workspace-redesign .header-actions .text-button{min-height:44px}
  body.workspace-redesign details>summary{min-height:44px}

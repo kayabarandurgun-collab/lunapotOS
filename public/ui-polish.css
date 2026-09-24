@@ -203,7 +203,7 @@ main .text-button{font-weight:var(--kalinlik-dugme)}
 .v2-badge,.pill{font-weight:560}
 main th{font-weight:600}
 .order-sold-main strong{font-weight:560}.order-sold-qty{font-weight:600}
-.order-copy-row{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.order-copy-row button{width:auto;min-height:32px;padding:5px 10px;font-size:var(--yazi-dugme-kucuk);font-weight:500}
+.order-copy-row{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.order-copy-row button{width:auto;min-height:32px;padding:5px 10px;font-size:var(--yazi-dugme-kucuk);font-weight:var(--kalinlik-dugme)}
 .order-timeline li{font-size:12px;padding:5px 10px}
 @media(max-width:600px){.order-timeline{gap:5px}.order-timeline li{font-size:11px;padding:4px 8px}.order-summary-heading h3{font-size:19px}}
 .decision-pending strong+small{display:block;margin-top:4px;font-size:12px;font-weight:400;color:var(--muted,#6b6878)}
@@ -214,14 +214,14 @@ main th{font-weight:600}
    tablo. Satırın tamamı tıklanır; detay pencerede açılır. Dar ekranda satır iki satırlık karta döner. */
 .ol-heading{margin-bottom:14px}.ol-heading h1{margin:0}.ol-heading p{margin:4px 0 0;font-size:13px;color:var(--muted)}
 .ol-chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
-.ol-chip{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:7px 13px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--ink);font-size:13px;font-weight:500;cursor:pointer}
+.ol-chip{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:7px 13px;border:1px solid var(--line);border-radius:var(--radius-dugme);background:#fff;color:var(--ink);font-size:var(--yazi-dugme);font-weight:var(--kalinlik-dugme);cursor:pointer}
 .ol-chip b{font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums}
 .ol-chip:hover{border-color:var(--brand-border);background:var(--brand-soft)}
 .ol-chip[aria-pressed="true"]{background:var(--brand);border-color:var(--brand);color:#fff}.ol-chip[aria-pressed="true"] b{color:#ffffffd0}
 .ol-card{overflow:hidden}
 .ol-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
-.ol-seg{display:inline-flex;border:1px solid var(--line);border-radius:11px;overflow:hidden;background:#fff;flex:none}
-.ol-seg button{min-height:40px;padding:8px 14px;border:0;border-right:1px solid var(--line);background:transparent;color:var(--ink);font-size:var(--yazi-dugme-kucuk);font-weight:500;cursor:pointer}
+.ol-seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--radius-dugme);overflow:hidden;background:#fff;flex:none}
+.ol-seg button{min-height:40px;padding:8px 14px;border:0;border-right:1px solid var(--line);background:transparent;color:var(--ink);font-size:var(--yazi-dugme-kucuk);font-weight:var(--kalinlik-dugme);cursor:pointer}
 .ol-seg button:last-child{border-right:0}.ol-seg button:hover{background:var(--brand-soft)}
 .ol-seg button[aria-pressed="true"]{background:var(--brand);color:#fff}
 .ol-say{font-variant-numeric:tabular-nums;opacity:.8}
@@ -326,7 +326,7 @@ main th{font-weight:600}
 .pn-hb{fill:var(--pn-hb,#eb6834);background:var(--pn-hb,#eb6834)}
 .panorama .is-negative{color:var(--pn-neg)}
 .pn-periods{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}
-.pn-period{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0;padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:#fff;color:var(--ink);font:inherit;text-align:left;cursor:pointer;transition:border-color .15s,box-shadow .15s,background .15s}
+.pn-period{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius-kart);background:#fff;color:var(--ink);font:inherit;text-align:left;cursor:pointer;transition:border-color .15s,box-shadow .15s,background .15s}
 .pn-period:hover{border-color:var(--brand-border)}
 .pn-period:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 .pn-period.is-selected{border-color:var(--brand);background:var(--brand-soft);box-shadow:inset 0 0 0 1px var(--brand)}

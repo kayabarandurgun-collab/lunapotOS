@@ -27,7 +27,9 @@
 .workflow-page :is(input,select,textarea),.workflow-dialog :is(input,select,textarea){max-width:100%;min-width:0;border:1px solid #cbd5ca;border-radius:var(--radius-dugme);background:#fff;color:var(--ink);font:inherit;box-shadow:none}
 .workflow-page :is(input,select,textarea):not([type=checkbox]):not([type=radio]):not([type=hidden]),.workflow-dialog :is(input,select,textarea):not([type=checkbox]):not([type=radio]):not([type=hidden]){width:100%;min-height:42px;padding:9px 11px}
 .workflow-page :is(input[type=checkbox],input[type=radio]),.workflow-dialog :is(input[type=checkbox],input[type=radio]){accent-color:var(--brand);flex:none}
-.workflow-page :is(button,.primary,.secondary),.workflow-dialog :is(button,.primary,.secondary){font:inherit;font-weight:var(--kalinlik-dugme);white-space:normal;overflow-wrap:anywhere;max-width:100%;border-radius:var(--radius-dugme);min-height:40px}
+.workflow-page :is(button,.primary,.secondary),.workflow-dialog :is(button,.primary,.secondary){font-family:inherit;font-size:var(--yazi-dugme);line-height:1.5;font-weight:var(--kalinlik-dugme);white-space:normal;overflow-wrap:anywhere;max-width:100%;border-radius:var(--radius-dugme);min-height:40px}
+/* Metin düğmesi satır içi ikincil eylemdir: küçük kademede kalır. */
+.workflow-page .text-button,.workflow-dialog .text-button{font-size:var(--yazi-dugme-kucuk)}
 .workflow-page .primary,.workflow-dialog .primary{background:var(--brand);border-color:var(--brand);color:#fff;box-shadow:none}
 .workflow-page .secondary,.workflow-dialog .secondary{background:#fff;border:1px solid #cbd5ca;color:var(--ink)}
 .workflow-page :is(button,input,select,textarea,a,summary):focus-visible,.workflow-dialog :is(button,input,select,textarea,a,summary):focus-visible{outline:3px solid #648568;outline-offset:3px}
@@ -44,7 +46,7 @@
 .workflow-page table:has(input) th{position:static}
 .workflow-page :is(.v2-tabs,.rb-tabs,.ac-tabs){display:flex;flex-wrap:wrap;gap:6px;border-bottom:1px solid var(--line);padding-bottom:10px;overflow:visible}
 .workflow-page :is(.v2-tabs,.rb-tabs,.ac-tabs) button{background:transparent;color:var(--muted);border:1px solid transparent;padding:8px 12px}
-.workflow-page :is(.v2-tabs,.rb-tabs,.ac-tabs) :is(.active,.selected,[aria-pressed=true]){background:var(--brand-soft);border-color:#cad7c5;color:var(--ink);font-weight:500}
+.workflow-page :is(.v2-tabs,.rb-tabs,.ac-tabs) :is(.active,.selected,[aria-pressed=true]){background:var(--brand-soft);border-color:#cad7c5;color:var(--ink);font-weight:var(--kalinlik-dugme)}
 .workflow-details,.workflow-page .stock-tips{border:1px solid var(--line);border-radius:10px;background:#fff;padding:11px 14px;margin:12px 0;font-size:13px}
 .workflow-details>summary,.workflow-page .stock-tips>summary{cursor:pointer;color:var(--brand);font-weight:500;min-height:24px;overflow-wrap:anywhere}
 .workflow-details>p{margin:12px 0 0;color:var(--muted)}
@@ -104,7 +106,7 @@
 .workflow-orders .ol-toolbar{gap:14px;align-items:end;padding:16px}
 .workflow-orders .ol-seg{flex-wrap:wrap}.workflow-orders .ol-seg button{white-space:normal}
 .workflow-orders .ol-chips{flex-wrap:wrap;overflow:visible;gap:8px;margin:0 0 16px}
-.workflow-orders .ol-chip{border:1px solid var(--line);border-radius:10px;background:#fff}
+.workflow-orders .ol-chip{border:1px solid var(--line);border-radius:var(--radius-dugme);background:#fff}
 .workflow-orders .ol-chip[aria-pressed=true],.workflow-orders .ol-seg button[aria-pressed=true]{background:var(--brand-soft);color:var(--ink);border-color:#aec2a5}
 .workflow-orders .ol-chip[aria-pressed=true] b{color:var(--ink)}
 .workflow-orders .ol-more{background:#f5f6f2;margin:0 16px 10px;border-radius:10px}
