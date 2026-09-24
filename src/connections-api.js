@@ -118,20 +118,28 @@ function normalizeTY(kind,payload,page,size=50){
  });
  return {records,hasMore:page+1<payload.totalPages,totalPages:payload.totalPages};
 }
+// Sağlayıcı yanıtı beklenen şemaya uymadığında hangi alanların geldiğini log'a yazar. DEĞER YAZILMAZ,
+// yalnız alan adları ve iç nesnelerin alan adları: sağlayıcı alanı yeniden adlandırdığında tek
+// çalıştırmayla görülür, aksi hâlde hata mesajı genel kalıyor ve sebep hiç öğrenilemiyor.
+const hbSema=(kind,r,mesaj)=>{
+ const ic=Object.fromEntries(Object.entries(r||{}).filter(([,v])=>v&&typeof v==='object'&&!Array.isArray(v)).map(([k,v])=>[k,Object.keys(v)]));
+ console.error('HB şema doğrulanamadı:',kind,'alanlar=',JSON.stringify(Object.keys(r||{})),'iç alanlar=',JSON.stringify(ic));
+ fail(mesaj,502);
+};
 function normalizeHB(kind,payload,page,limit){
  if(!payload||typeof payload!=='object')fail('Hepsiburada yanıt şeması doğrulanamadı.',502);
  const list=Array.isArray(payload)?payload:Array.isArray(payload.items)?payload.items:Array.isArray(payload.data)?payload.data:null;
  if(!list||list.length>limit)fail('Hepsiburada yanıt şeması doğrulanamadı; kayıt oluşturulmadı.',502);
  const records=list.map(r=>{
   if(kind==='commissions'){
-   const sku=externalID(r.hepsiburadaSku??r.sku),commission=numeric(r.commissionRate);if(commission===null||commission<0||commission>100)fail('HB komisyon yanıtı ürün/oran eşleşmesi doğrulanamadı.',502);
+   const sku=externalID(r.hepsiburadaSku??r.sku),commission=numeric(r.commissionRate);if(commission===null||commission<0||commission>100)hbSema(kind,r,'HB komisyon yanıtı ürün/oran eşleşmesi doğrulanamadı.');
    return {external_id:sku,sku,merchant_sku:short(r.merchantSku),commission_rate:commission,commission_bps:rate(commission),source_updated_at:null,tax_basis:'unverified',validity:'current_observation_only'};
   }
   if(kind==='orders'){
-   const id=externalID(r.id??r.lineItemId);if(!id)fail('HB sipariş kalem kimliği eksik.',502);
+   const id=externalID(r.id??r.lineItemId);if(!id)hbSema(kind,r,'HB sipariş kalem kimliği eksik.');
    return {external_id:id,order_no:short(r.orderNumber),package_id:short(r.packageId),sku:short(r.merchantSKU??r.merchantSku),hb_sku:short(r.sku),quantity:numeric(r.quantity),total_price:numeric(r.totalPrice?.amount),currency:short(r.totalPrice?.currency),commission:numeric(r.commission?.amount),vat:numeric(r.vat),external_status:short(r.status),source_updated_at:iso(r.lastUpdatedDate??r.orderDate),customer:customerFacts(r,'hepsiburada'),interpretation:'pending_order_line_requires_package_mapping'};
   }
-  const id=externalID(r.id??r.transactionId);if(!short(r.transactionType??r.type)||numeric(r.amount?.amount??r.amount)===null)fail('HB finans kaydının kimlik/tür/tutar şeması doğrulanamadı.',502);
+  const id=externalID(r.id??r.transactionId);if(!short(r.transactionType??r.type)||numeric(r.amount?.amount??r.amount)===null)hbSema(kind,r,'HB finans kaydının kimlik/tür/tutar şeması doğrulanamadı.');
   return {external_id:id,type:short(r.transactionType??r.type),order_no:short(r.orderNumber),package_no:short(r.packageNumber),sku:short(r.sku),amount:numeric(r.amount?.amount??r.amount),currency:short(r.amount?.currency??r.currency),payment_status:short(r.paymentStatus),source_updated_at:iso(r.transactionDate??r.date),interpretation:'unreconciled_financial_record_not_bank_transfer'};
  });
  const total=Number.isInteger(payload.totalCount)?payload.totalCount:null;
