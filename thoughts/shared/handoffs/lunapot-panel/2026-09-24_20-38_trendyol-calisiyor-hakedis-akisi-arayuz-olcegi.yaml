@@ -1,0 +1,93 @@
+---
+session: lunapot-panel
+date: 2026-09-24
+status: complete
+outcome: SUCCEEDED
+---
+
+goal: "Trendyol entegrasyonu sabah HİÇ çalışmıyordu; dört engel bulundu, düzeltildi, gerçek senkron çalıştırıldı. Hakediş akışı kuruldu. Kullanıcının 'eksikleri hep ben mi bulacağım' şikâyeti üzerine sistem baştan tarandı: beş düzeltilebilirlik eksiği ve bir güvenlik açığı kapatıldı. Arayüz ölçüleri tek ölçeğe oturtuldu."
+now: "SIRADAKİ İŞ KULLANICIDA: (1) Hepsiburada bağlantısını PANELDEN kendisi kuracak, (2) Trendyol ödemelerinin yattığı hesabın banka ekstresini yükleyecek. İkisi de yapılınca test/doğrulama sende. Kod tarafında bekleyen iş yok."
+test: "npm test   # 972 test, 957 pass, 15 atlanan, 0 fail. Yayın: npm test > out; grep -q '^ℹ fail 0' out && git push origin main"
+
+ortam:
+  repo: "C:/Users/baran/Desktop/site/lunapot-panel (main, HEAD 8003d19). Documents/Codex kopyası ESKİ, DOKUNMA."
+  canli: "https://muhasebe.lunapot.com · CACHE lunapot-shell-v139-dugme-olcegi-tamam · migration 0058'e kadar uygulandı."
+  yayin: "Migration varsa ÖNCE npm run db:remote, sonra git push (Cloudflare ~2-3 dk). UI değiştiyse public/sw.js CACHE'ini artır."
+  canli_okuma: "wrangler d1 execute --remote --command ... --json. Geçici 7403 gelirse 3 denemelik döngüyle tekrar et."
+  tarayici: "mcp__Claude_Browser__ ile panel açılıyor. Oturum bu oturum boyunca DÜŞMEDİ. Yayın sonrası eski kabuk tutulursa: serviceWorker registration.update() + bir reload YETİYOR, unregister/caches.delete GEREKMEZ (onlar oturumu düşürüyordu). sw.js'de skipWaiting + clients.claim + eski cache silme zaten doğru yazılmış."
+  kullanici_terminali: "PowerShell 5.1. '&&' YOK (';' kullan), 'npx' engelli ('npx.cmd' yaz), Windows yolu."
+  worker_secretlari: "CREDENTIAL_KEY, SETUP_TOKEN, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ORDERS, TELEGRAM_CHAT_ERRORS."
+
+kullanici:
+  - "TEKNİK ANLATMA, KISA YAZ. Uzun cevap okumuyor."
+  - "İddialarını sorguluyor ve HAKLI ÇIKIYOR. Bu oturumda da: 'eşleşmeyen ürün var, sistem nerede uyarı veriyor' (uyarı vardı ama gözden kaçıyordu), 'Seçkin ödemelerinde kasa seçimi yaptın mı' (yapılmamıştı, gerçek hata), HB API notu ('aralık en fazla 24 saat' — kod 14 gün istiyordu, gerçek hata). Kestirip atma, ÖLÇ."
+  - "Sinirlenince sert konuşuyor ('seni boğucam', 'sistemi yırtıp çöpe atıcam'). Savunmaya geçme, kabul et ve iş yap."
+  - "API ŞİFRESİNİ SANA VERİP 'sen gir' DİYOR. GİRME — kural. Kısaca söyle, ısrar etme, 'sen gir ben test ederim' de. Bu oturumda HB şifresi sohbete düştü; kullanıcıya yenilemesi söylendi."
+  - "AJAN RAPORUNA GÜVENME. Bu oturumda tasarım ajanı 'tek yarıçap, iki yazı boyutu' dedi, gerçek tarayıcıda ölçünce ÜÇ yazı boyutu çıktı. Ölç, sonra onayla."
+
+done_this_session:
+  - task: "TRENDYOL ÇALIŞIYOR. Dört engel üst üste binmişti, hepsi düzeltildi: (1) redirect:'error' — Cloudflare Workers kabul etmiyor, istek ağa çıkmadan TypeError ile düşüyordu, iki dosyada vardı; (2) supplierId:0 — Trendyol bu alanı kullanmıyor, ham karşılaştırmada her sipariş yabancı mağaza sanılıyordu; (3) yanıt sayfa boyutu sabit 50'deydi, finans size=500 ile çağrıldığı için hakediş hiç geçemiyordu; (4) sipariş satırının kendi durumu (UnPacked) saklanmıyordu."
+  - task: "Gerçek senkron ÇALIŞTIRILDI: 592 sipariş kaydı, 58 paket teslim işaretlendi, 539 sipariş 'zaten sistemde' diye tanındı (mükerrer açılmadı), 19 yeni taslak, 506 finans kaydı. SONUÇ: teslim edilmiş paket 348→406, kârı hesaplanan 342→408, toplam kâr 15.508→17.676 TL, komisyonu bilinen 333→408."
+  - task: "Senkronda 'yazmadan dene' (preview) modu + panelde düğmesi. preview yalnız gerçek boolean kabul eder; form gövdeleri metin taşıdığı için 'on' değeri 400 ile reddedilir."
+  - task: "Teslim onayı: Trendyol teslim kaydı paketi delivered yapıyor. Eşleştirme SİPARİŞ NUMARASI üzerinden (yerel external_id'ler rapor/fatura yolundan geliyor, API'nin paket kimliğiyle kesişim SIFIR). Belirsizse dokunmuyor."
+  - task: "Mükerrer paket önleme: sipariş numarası sistemde varsa ikinci paket açılmıyor. Olmasaydı ~65 hayalet paket + mükerrer stok/satış oluşacaktı."
+  - task: "Otomatik senkron (cron): siparişler 4 saatte bir, hakediş/iade 12, kesinti/ödeme 24 saatte bir. Yarım kalan pencere kalınan sayfadan sürüyor. Hata alan bağlantı otomatik denenmiyor."
+  - task: "HAKEDİŞ AKIŞI kuruldu (migration 0058). Banka ekstresi yüklenip satır eşleşince para pazaryeri alacak hesabına girer, oradan gerçek banka hesabına aktarılır. Deftere yazılan tutar HER ZAMAN bankanın tutarı; pazaryeri bildirimi yalnız kanıt. Tam eşitlik dışında aday önerilmiyor; 1 TL'ye kadar fark açık onay ister, üstü hiç geçmez. Belirsizse yazma yok. Geri alınabilir, ham ekstre bozulmaz."
+  - task: "BEŞ DÜZELTİLEBİLİRLİK EKSİĞİ kapandı (migration 0056, 0057): genel gider, cari, ürün kartı, kasa/banka hesabı, ürün ailesi. Hepsi düzeltilebiliyor ve arşivlenebiliyor. Defterde iz bırakan kayıt silinmiyor; kalıcı silme ayrıca delete_records yetkisi istiyor."
+  - task: "GÜVENLİK AÇIĞI: /api/ec/bank* yetki haritasında hiç yoktu → yönetici dışı herkese 403, ama menü ekranı ledger yetkili personele gösteriyordu. Okuma ledger-read, yazma ledger-write'a bağlandı."
+  - task: "Telegram bildirimi canlıda: rapor işlenince TELEGRAM_CHAT_ORDERS'a özet, beklenmeyen hatada TELEGRAM_CHAT_ERRORS'a uyarı. İki kanal da gerçek mesajla doğrulandı. Bildirim başarısız olursa rapor işleme düşmüyor."
+  - task: "Ödemede kasa ZORUNLU (nakit, havale, kart; yalnız çek hariç) + var olan ödemeye sonradan kasa bağlama. Seçkin'in 11.760 TL'lik kasasız ödemesi bu yolla düzeltildi; kasasız kalan ödeme sayısı 0."
+  - task: "HEPSİBURADA sorgu aralığı 24 saatle sınırlandı. Kod 14 gün istiyordu; bağlantı kurulsa bile her istek uçtan geri dönerdi. Hata iki katmandaydı (sorgu kurulumu + otomatik bakımın pencere hesabı)."
+  - task: "ARAYÜZ ÖLÇEĞİ: düğme köşe 7–11px → 8px, yazı 10–14px → 13px, kalınlık 500–600 → 600, kart köşe 11–18px → 12px. Renk/yazı tipi/gölge BİREBİR korundu (kod karşılaştırmasıyla doğrulandı). Kök sebep 'font:inherit' kısayoluydu: font-size'ı da sıfırlıyor, kural yalnız font-weight'i geri yazıyordu. Yedi yerde temizlendi, kısayolu yasaklayan test eklendi."
+  - task: "Küçük düzeltmeler: alış faturaları başlığında 99px taşma (flex-shrink), faturasız mal girişinde silme düğmesi hizası (20px marj), açık borç listesinde tek ödeme etiketi, ürün bağlantısı modalında canlı pay toplamı + %100 değilken kaydet kapalı + ürün adı tam görünür, etkin sekmenin etkisizden ince görünmesi."
+
+acik_isler:
+  - "KULLANICIDA: Hepsiburada bağlantısını PANELDEN kuracak (Bağlantılar → Hepsiburada → Bağlantı kur). Kurunca test et: kind='orders' ve 'finance' ile tek günlük pencere. HB şifresi sohbet geçmişine düştü, kullanıcıya yenilemesi söylendi."
+  - "KULLANICIDA: Banka ekstresi yükleyecek. ANA KASA −117.091,20 TL ve bu ancak ekstre yüklenip hakediş eşleşince düzelir. Ekstre yükleme ekranı sahte CSV ile test edildi, çalışıyor (Türk bankası biçimini okuyor, sütunları otomatik eşleştiriyor)."
+  - "Satış kayıtları sayfasında SAYFALAMA YOK: 1255 satır, 20.137 DOM öğesi, 2509 düğme tek seferde basılıyor. Sayfa ağır. public/accounting-ui.js."
+  - "Hepsiburada hakediş adayı üretilemiyor: mevcut HB bağlayıcısı finans kaydında paymentOrderId döndürmüyor. Ekran bunu açıkça yazıyor, uydurma eşleşme üretmiyor."
+  - "AY SONU — Seçkin TS1/Plug Mix: 2 adet Plug Mix iadesi + yeni TS1 faturası. Alış faturaları → YSK2026000000402 → 'Tedarikçiye iade' 2 adet. SONRA 'urun-duzeltme:plugmix-ts1-2026-09-23' referanslı stok hareketleri ters kayıtla geri alınmalı, yoksa 2 adet çift sayılır."
+  - "Komisyon farkı 514,96 TL (278 siparişte, HEPSİ aynı yönde: TY daha yüksek). %47'si paketten çıkarılan satırlar (üçünde de fark/indirim oranı tam 0,13), %31'i indirim farkı (fark = indirimin tam %20'si, 31 siparişte kuruşu kuruşuna), %21'i tek kalıba oturmuyor (19 sipariş, ortalama 6 TL). Birkaç hafta sonra aynı siparişlere tekrar bak: TY çıkarılan satırların komisyonunu iade ederse fark kapanır."
+  - "Cari birleştirme yok (aynı cari iki kez açılmışsa tek kayda indirgenemiyor). Düzeltme ve arşiv var, birleştirme bilerek kapsam dışı."
+  - "HB kargo tarifesinde iki bant gerçekte daha ucuz: 400–599,99 → 130,39; 1000 TL+ → 230,99 (126 teslim paketten ölçüldü). Kullanıcı onay vermedi."
+  - "BÜTÜN tarifeler 31.12.2026'da bitiyor; sonrasında fiyat hesaplanamaz. Aralık'ta hatırlat."
+  - "Ürün ölçüleri SAHTE: 27 HB ürününün hepsi 10x10x10 cm / 1 kg."
+  - "Genel giderler girilmedi (canlıda 1 kayıt/152,45 TL). Girilene kadar 'kâr' brüt katkıdır."
+  - "Güvenlik G10/G11 bilerek açık."
+
+failed:
+  - "TASARIM AJANININ RAPORUNA GÜVENDİM, YANLIŞTI. Ajan kendi yazdığı kademe benzeticisiyle 'tek yarıçap, iki yazı boyutu' raporladı; gerçek tarayıcıda getComputedStyle ile ölçünce ÜÇ yazı boyutu ve iki yarıçap çıktı. Benzetici 'font' kısayolunu ve mirası modellemiyordu. DERS: ajan raporunu canlıda ölçmeden onaylama."
+  - "Kullanıcıya 'senkronun asıl faydası teslim durumunu düzeltmek' dedim, YANLIŞTI. createPackage yalnız external_status güncelliyor, iç durumu değiştirmiyor. Yazma yapmadan önce kodu okuyup düzelttim ama kullanıcı o bilgiyle karar vermişti."
+  - "'Komisyonu eksik 215 sipariş' için 'asıl fayda burada' dedim, ölçünce 183'ünde yapılacak bir şey olmadığı çıktı (Trendyol da henüz komisyon kesmemiş). Tahmin etmeden önce ölç."
+  - "Ekstre yükleme ekranını 'sen de aynı sorunu yaşarsın' diye uyardım (eski kabuk), sonra mekanizmanın doğru olduğunu gördüm: bir reload yetiyor. Yanlış alarm."
+  - "GEÇMİŞ OTURUM DERSİ (hâlâ geçerli): canlı veriye elle SQL yazma. Uygulamanın kendi ucunu kullan (tarayıcıdan fetch ile çağrılabilir) ya da düğmesini yap."
+
+next:
+  - "1) Kullanıcı HB bağlantısını kurunca: Bağlantılar ekranından 'Yazmadan dene' ile tek günlük pencere test et (kind='orders', sonra 'finance'). Hata gelirse wrangler tail ile gerçek hatayı gör — hata mesajları genel, log'a gerçek sebep yazılıyor."
+  - "2) Kullanıcı banka ekstresini yükleyince: Banka ekstresi → 'Hakediş eşleştirme' sekmesi → hesabı seç → tam eşleşmeleri onayla. İlk onayda 'Trendyol Alacağı' hesabı açılmasını onaylaman istenir. Sonra Ana Kasa ve alacak hesabı bakiyelerini ölç."
+  - "3) Satış kayıtları sayfasına sayfalama ekle (public/accounting-ui.js) — 2509 düğme tek seferde basılıyor."
+  - "4) Birkaç hafta sonra komisyon farkını tekrar ölç (yukarıda tarif var)."
+
+files:
+  created:
+    - thoughts/shared/handoffs/lunapot-panel/2026-09-24_20-38_trendyol-calisiyor-hakedis-akisi-arayuz-olcegi.yaml
+    - docs/YAPILACAKLAR.md
+    - src/telegram.js
+    - src/bank-match-api.js
+    - public/bank-match-ui.js
+    - migrations/0056_gider_urun_arsivi.sql
+    - migrations/0057_cari_hesap_arsivi.sql
+    - migrations/0058_hakedis_eslestirme.sql
+  modified:
+    - src/connections-api.js
+    - src/otomatik-bakim.js
+    - src/ledger-api.js
+    - src/accounting.js
+    - src/purchase-document-api.js
+    - src/purchase-split-api.js
+    - src/permission-policy.js
+    - src/bank-api.js
+    - src/worker.js
+    - src/report-inbox-api.js
+    - public/ (19 CSS + business-ui, accounting-ui, catalog-ui, product-list, purchase-document-ui, operations-ui, sync-pages, bank-ui, sw.js)
+  scratchpad: "Önceki oturumun salt-okur Trendyol karşılaştırma scriptleri hâlâ kullanılabilir. Tasarım ajanının gerçek tarayıcı ölçüm koşumu: scratchpad/tarayici-olc.mjs (DAR=1 mobil), fixture scratchpad/olcum-fixture.html — kalıcı isteniyorsa repoya taşınabilir."
