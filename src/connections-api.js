@@ -148,7 +148,13 @@ export async function syncProvider(env,provider,input,fetcher=fetch,orderImporte
   let response;try{response=await fetcher(spec.url,{method:'GET',redirect:'manual',signal:AbortSignal.timeout(20000),headers:{Authorization:'Basic '+btoa(credentials.key+':'+credentials.secret),'User-Agent':credentials.user_agent,Accept:'application/json'}});}catch(e){console.error('Sağlayıcı isteği başarısız:',provider,input.kind,spec.url.host,e?.name||'',e?.message||e);fail('Sağlayıcı bağlantısı tamamlanamadı; zaman aşımı veya ağ sorunu olabilir.',502);}
   if(response.status>=300&&response.status<400)fail('Sağlayıcı isteği başka adrese yönlendirdi; kimlik bilgisi izlenmeyen adrese gönderilmez.',502);
   const payload=await safeJSON(response);
-  if(provider==='trendyol'&&input.kind==='orders'&&Array.isArray(payload?.content)&&payload.content.some(r=>r.supplierId!==undefined&&String(r.supplierId)!==connection.seller_id||Array.isArray(r.lines)&&r.lines.some(l=>l.sellerId!==undefined&&String(l.sellerId)!==connection.seller_id)))fail('Kaynak siparişin satıcı kimliği bu bağlantıyla eşleşmiyor.',502);
+  // Yabancı mağazanın verisini almamak için kimlik karşılaştırılır. Uyuşmazlıkta HANGİ değerin
+  // uymadığı log'a yazılır: kimlik numarası gizli bilgi değil ve bu olmadan arıza aramak kör iş.
+  if(provider==='trendyol'&&input.kind==='orders'&&Array.isArray(payload?.content)&&payload.content.some(r=>r.supplierId!==undefined&&String(r.supplierId)!==connection.seller_id||Array.isArray(r.lines)&&r.lines.some(l=>l.sellerId!==undefined&&String(l.sellerId)!==connection.seller_id))){
+   const ilk=payload.content.find(r=>r.supplierId!==undefined&&String(r.supplierId)!==connection.seller_id||Array.isArray(r.lines)&&r.lines.some(l=>l.sellerId!==undefined&&String(l.sellerId)!==connection.seller_id));
+   console.error('Satıcı kimliği uyuşmadı: bağlantı=',connection.seller_id,'supplierId=',ilk?.supplierId,'lines.sellerId=',JSON.stringify((ilk?.lines||[]).map(l=>l.sellerId)));
+   fail('Kaynak siparişin satıcı kimliği bu bağlantıyla eşleşmiyor.',502);
+  }
   const result=provider==='trendyol'?normalizeTY(input.kind,payload,spec.page):normalizeHB(input.kind,payload,spec.page,spec.limit);
   if(new Set(result.records.map(r=>r.external_id)).size!==result.records.length)fail('Aynı sayfada mükerrer kaynak kimliği var; kapsam inceleme gerektiriyor.',502);
   const missingSkus=provider==='hepsiburada'&&input.kind==='commissions'?spec.query.skus.filter(sku=>!result.records.some(r=>r.sku===sku)):[];
