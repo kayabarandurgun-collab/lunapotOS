@@ -51,7 +51,9 @@ function makeRequest(provider,credentials,input){
   window=range(input,kind==='orders'?14:15);query={...query,from:window.from,to:window.to};
   if(kind==='orders')url=new URL('https://apigw.trendyol.com/integration/order/sellers/'+credentials.seller_id+'/v2/orders');
   else {const types={sale:['settlements','Sale'],return:['settlements','Return'],deductions:['otherfinancials','DeductionInvoices'],payments:['otherfinancials','PaymentOrder']};url=new URL('https://apigw.trendyol.com/integration/finance/che/sellers/'+credentials.seller_id+'/'+types[kind][0]);url.searchParams.set('transactionType',types[kind][1]);}
-  for(const [k,v] of Object.entries({startDate:window.start,endDate:window.end,page,size:limit}))url.searchParams.set(k,String(v));
+  // FİNANS UÇLARI size=50 KABUL ETMEZ: "Size değeri 500 ya da 1000 olmalıdır" diye 400 döner ve
+  // komisyon/kesinti hiç çekilemez. Sipariş ucu 50'yi kabul ettiği için hata yalnız burada çıkıyordu.
+  for(const [k,v] of Object.entries({startDate:window.start,endDate:window.end,page,size:kind==='orders'?limit:500}))url.searchParams.set(k,String(v));
   if(kind==='orders'){url.searchParams.set('orderByField','PackageLastModifiedDate');url.searchParams.set('orderByDirection','ASC');}
  }else if(kind==='commissions'){
   // Activated only with the documented query/response contract below.

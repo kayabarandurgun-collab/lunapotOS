@@ -122,3 +122,30 @@ test('Malformed pages, lossy IDs, duplicate lines and cross-seller data never ma
   const missingDate=await syncProvider(f.env,'trendyol',query,async()=>Response.json({content:[order({lastModifiedDate:undefined})],totalPages:1,totalElements:1}));assert.equal(missingDate.orders,null);assert.equal(missingDate.reviewOnlyOrders,1);assert.ok(missingDate.message.includes('inceleme'));
  }finally{f.sqlite.close();}
 });
+
+// TRENDYOL FİNANS UÇLARI size=50 KABUL ETMİYOR: "Size değeri 500 ya da 1000 olmalıdır" diye 400
+// döndürüyor. Sipariş ucu 50'yi kabul ettiği için hata yalnız komisyon/kesinti çekerken çıkıyordu
+// ve entegrasyon hiç çalışamamıştı. Canlı API ile doğrulandı (2026-09-24).
+test('TY finans uçları 500 sayfa boyutuyla çağrılır; sipariş ucu 50 kalır', async () => {
+ const f = fixture(); try {
+  await f.call('/trendyol/configure', credentials);
+  const cagrilar = [];
+  const fetcher = async url => {
+   cagrilar.push({yol: url.pathname, size: url.searchParams.get('size'), tip: url.searchParams.get('transactionType')});
+   return Response.json({content: [], totalPages: 0, totalElements: 0});
+  };
+  for (const kind of ['sale', 'return', 'deductions', 'payments'])
+   await syncProvider(f.env, 'trendyol', {kind, from: '2026-09-09', to: '2026-09-23'}, fetcher, async () => ({created: 0}));
+
+  assert.equal(cagrilar.length, 4, 'dört finans türü de çağrılmalı');
+  for (const c of cagrilar) assert.equal(c.size, '500', c.yol + ' / ' + c.tip + ' için size 500 olmalı');
+  assert.deepEqual(cagrilar.map(c => c.tip), ['Sale', 'Return', 'DeductionInvoices', 'PaymentOrder']);
+
+  // Sipariş ucu 50 kabul ediyor; gereksiz yere büyütülmedi.
+  const siparis = [];
+  await syncProvider(f.env, 'trendyol', {kind: 'orders', from: '2026-09-09', to: '2026-09-20'},
+   async url => { siparis.push(url.searchParams.get('size')); return Response.json({content: [], totalPages: 0, totalElements: 0}); },
+   async () => ({created: 0}));
+  assert.deepEqual(siparis, ['50'], 'sipariş ucunun sayfa boyutu değişmemeli');
+ } finally { f.sqlite.close(); }
+});
