@@ -11,7 +11,6 @@ Son güncelleme: 2026-09-24
 ## Açık işler
 
 - [ ] **Ay sonu — Seçkin TS1 / Plug Mix**: 2 adet Plug Mix iadesi + yeni TS1 faturası. Alış faturaları → YSK2026000000402 → "Tedarikçiye iade" 2 adet. SONRA `urun-duzeltme:plugmix-ts1-2026-09-23` referanslı stok hareketleri ters kayıtla geri alınmalı, yoksa 2 adet çift sayılır.
-- [ ] **Satış kayıtları sayfasına sayfalama** — canlıda ölçüldü: 1255 satır, 20.137 DOM öğesi, 2509 düğme tek seferde basılıyor, sayfalama yok. Sayfa ağır açılıyor.
 - [ ] **Komisyon farkı 514,96 TL** (278 siparişte, hepsi aynı yönde). %47'si paketten çıkarılan satırlar, %31'i indirim farkı, %21'i tek kalıba oturmuyor. Birkaç hafta sonra aynı siparişlere tekrar bak: Trendyol çıkarılan satırların komisyonunu iade ederse fark kapanır.
 - [ ] **HB kargo tarifesi**: 400–599,99 bandı 139,19 → 130,39; 1000 TL+ bandı 268,79 → 230,99 (126 teslim paketten ölçüldü). Onay verilmedi.
 - [ ] **Bütün tarifeler 31.12.2026'da bitiyor** — sonrasında fiyat hesaplanamaz. Aralık'ta hatırlat.
@@ -46,6 +45,9 @@ Genel gider, cari, ürün kartı, kasa/banka hesabı, ürün ailesi: hepsi düze
 - Açık borç listesinde tek ödeme etiketi
 - **Güvenlik açığı**: banka uçları yetki haritasında yoktu, yönetici dışı herkese 403 dönüyordu; menü ise ekranı gösteriyordu
 - **Arayüz ölçeği**: düğme köşe 7–11px → 8px, yazı 10–14px → 13px, kalınlık 500–600 → 600, kart köşe 11–18px → 12px. Renk ve yazı tipi birebir korundu. `font` kısayolu tuzağı yedi yerde temizlendi.
+
+### Satış kayıtları ekranına sayfalama
+1255 satır tek seferde basılıyordu (20.137 DOM öğesi, 2509 düğme). Artık 50'şer satır, altta "← Önceki / Sonraki →". Sayfa değişimi sunucuya gitmiyor. Genel durum toplamları ve satır işlemleri tüm kayıtları görmeye devam ediyor; hesap değişmedi. Sayfa hesabı ayrı sınandı (kayıt kaybolmuyor, numara liste dışına taşmıyor, boş liste çökmüyor).
 
 ### Bilinmesi gerekenler
 - Hepsiburada aday üretmiyor: mevcut HB bağlayıcısı finans kaydında ödeme emri numarası döndürmüyor. Ekran bunu açıkça yazıyor, uydurma eşleşme üretmiyor.
