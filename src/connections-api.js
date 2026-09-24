@@ -121,6 +121,11 @@ function normalizeTY(kind,payload,page,size=50){
 // Sağlayıcı yanıtı beklenen şemaya uymadığında hangi alanların geldiğini log'a yazar. DEĞER YAZILMAZ,
 // yalnız alan adları ve iç nesnelerin alan adları: sağlayıcı alanı yeniden adlandırdığında tek
 // çalıştırmayla görülür, aksi hâlde hata mesajı genel kalıyor ve sebep hiç öğrenilemiyor.
+// HB PARA ALANLARI NESNEDİR: {value,currencyCode}. Eski okuyucu {amount,currency} arıyordu, bu yüzden
+// her finans kaydı "tutarı yok" sayılıyor ve tek kayıt bile geçemediği için bütün sorgu düşüyordu.
+// Canlı yanıttan ölçüldü (2026-09-25): amount, taxAmount ve netAmount üçü de bu biçimde geliyor.
+const hbTutar=v=>numeric(v?.value??v?.amount??v);
+const hbParaBirimi=v=>short(v?.currencyCode??v?.currency??'');
 const hbSema=(kind,r,mesaj)=>{
  const ic=Object.fromEntries(Object.entries(r||{}).filter(([,v])=>v&&typeof v==='object'&&!Array.isArray(v)).map(([k,v])=>[k,Object.keys(v)]));
  console.error('HB şema doğrulanamadı:',kind,'alanlar=',JSON.stringify(Object.keys(r||{})),'iç alanlar=',JSON.stringify(ic));
@@ -129,7 +134,7 @@ const hbSema=(kind,r,mesaj)=>{
 function normalizeHB(kind,payload,page,limit){
  if(!payload||typeof payload!=='object')fail('Hepsiburada yanıt şeması doğrulanamadı.',502);
  const list=Array.isArray(payload)?payload:Array.isArray(payload.items)?payload.items:Array.isArray(payload.data)?payload.data:null;
- if(!list||list.length>limit)fail('Hepsiburada yanıt şeması doğrulanamadı; kayıt oluşturulmadı.',502);
+ if(!list||list.length>limit){console.error('HB liste bulunamadı:',kind,'yanıt alanları=',JSON.stringify(Object.keys(payload||{})));fail('Hepsiburada yanıt şeması doğrulanamadı; kayıt oluşturulmadı.',502);}
  const records=list.map(r=>{
   if(kind==='commissions'){
    const sku=externalID(r.hepsiburadaSku??r.sku),commission=numeric(r.commissionRate);if(commission===null||commission<0||commission>100)hbSema(kind,r,'HB komisyon yanıtı ürün/oran eşleşmesi doğrulanamadı.');
@@ -137,10 +142,12 @@ function normalizeHB(kind,payload,page,limit){
   }
   if(kind==='orders'){
    const id=externalID(r.id??r.lineItemId);if(!id)hbSema(kind,r,'HB sipariş kalem kimliği eksik.');
-   return {external_id:id,order_no:short(r.orderNumber),package_id:short(r.packageId),sku:short(r.merchantSKU??r.merchantSku),hb_sku:short(r.sku),quantity:numeric(r.quantity),total_price:numeric(r.totalPrice?.amount),currency:short(r.totalPrice?.currency),commission:numeric(r.commission?.amount),vat:numeric(r.vat),external_status:short(r.status),source_updated_at:iso(r.lastUpdatedDate??r.orderDate),customer:customerFacts(r,'hepsiburada'),interpretation:'pending_order_line_requires_package_mapping'};
+   return {external_id:id,order_no:short(r.orderNumber),package_id:short(r.packageId),sku:short(r.merchantSKU??r.merchantSku),hb_sku:short(r.sku),quantity:numeric(r.quantity),total_price:hbTutar(r.totalPrice),currency:hbParaBirimi(r.totalPrice),commission:hbTutar(r.commission),vat:numeric(r.vat),external_status:short(r.status),source_updated_at:iso(r.lastUpdatedDate??r.orderDate),customer:customerFacts(r,'hepsiburada'),interpretation:'pending_order_line_requires_package_mapping'};
   }
-  const id=externalID(r.id??r.transactionId);if(!short(r.transactionType??r.type)||numeric(r.amount?.amount??r.amount)===null)hbSema(kind,r,'HB finans kaydının kimlik/tür/tutar şeması doğrulanamadı.');
-  return {external_id:id,type:short(r.transactionType??r.type),order_no:short(r.orderNumber),package_no:short(r.packageNumber),sku:short(r.sku),amount:numeric(r.amount?.amount??r.amount),currency:short(r.amount?.currency??r.currency),payment_status:short(r.paymentStatus),source_updated_at:iso(r.transactionDate??r.date),interpretation:'unreconciled_financial_record_not_bank_transfer'};
+  const id=externalID(r.id??r.transactionId);if(!short(r.transactionType??r.type)||hbTutar(r.amount)===null)hbSema(kind,r,'HB finans kaydının kimlik/tür/tutar şeması doğrulanamadı.');
+  // HB kendi değiştirme zamanını vermiyor; source_updated_at UYDURULMAZ, null kalır. Kaydın taşıdığı
+  // dört tarih (sipariş, fatura, vade, ödeme) ayrı ayrı saklanır, hiçbiri "kaydın güncellenme anı" değildir.
+  return {external_id:id,type:short(r.transactionType??r.type),type_category:short(r.transactionTypeCategory),order_no:short(r.orderNumber),package_no:short(r.packageNumber),invoice_no:short(r.invoiceNumber),sku:short(r.sku),product_name:short(r.productName),quantity:numeric(r.quantity),amount:hbTutar(r.amount),currency:hbParaBirimi(r.amount)||short(r.currency),tax_amount:hbTutar(r.taxAmount),net_amount:hbTutar(r.netAmount),payment_status:short(r.status??r.paymentStatus),is_income:typeof r.isIncome==='boolean'?r.isIncome:null,is_invoice:typeof r.isInvoice==='boolean'?r.isInvoice:null,order_date:iso(r.orderDate),invoice_date:iso(r.invoiceDate),due_date:iso(r.dueDate),payment_date:iso(r.paymentDate),source_updated_at:iso(r.transactionDate??r.date),interpretation:'unreconciled_financial_record_not_bank_transfer'};
  });
  const total=Number.isInteger(payload.totalCount)?payload.totalCount:null;
  if(total!==null&&(total<0||list.length&&total<page*limit+list.length))fail('Hepsiburada toplam kayıt ve sayfa içeriği tutarsız.',502);
