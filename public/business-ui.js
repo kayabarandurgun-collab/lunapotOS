@@ -58,6 +58,18 @@ export function borcDurumu(entry) {
 /** "Bunu şu tarihte ödeyeceğim" notu. */
 export function planMetni(entry) { return entry?.planned_on ? 'Ödeyeceğim: ' + gun(entry.planned_on) : ''; }
 
+/**
+ * ÖDEME GÜNÜ TEK ETİKETLE. Liste eskiden plan varsa "Ödeyeceğim", yoksa "Vade" yazıyordu: aynı gün
+ * iki ayrı etiketle görünüyor, yan yana duran iki fatura tutarsız okunuyordu. İkisi de kullanıcının
+ * tek bir sorusunu yanıtlıyor — bu para ne zaman çıkacak. Ayrım yine de kaybolmasın diye günü
+ * kullanıcı kendi koyduysa küçük bir not düşülür; faturanın kendi vadesi sade kalır.
+ */
+export function odemeGunu(entry) {
+  const gunu = entry?.planned_on || entry?.due_on;
+  if (!gunu) return 'Ödeme günü yok';
+  return 'Ödeme: ' + (gun(gunu) || gunu) + (entry.planned_on ? ' · planım' : '');
+}
+
 /** Cari kartındaki son ödeme: "12.09.2026 · Kart · Garanti Bonus". Ödeme yoksa açıkça söylenir. */
 export function sonOdemeMetni(party) {
   const payment = party?.last_payment;
@@ -290,7 +302,7 @@ export function mountBusiness(root, namespace, view, user = null) {
       const actions = `<div class="ac-actions">${button(seciliSayi === rows.length ? 'Seçimi kaldır' : 'Tümünü seç · ' + rows.length + ' fatura','pay-all',id,true)}${seciliSayi ? button('Seçilenleri öde · ' + seciliSayi,'pay-open',id) : ''}</div>`;
       return card(name + ' · borcum ' + money(borc), table(['Fatura / irsaliye','Tarih / planlanan ödeme','Toplam · KDV dahil','Kalan','İşlem'], rows.map(row => [
         `<label class="pay-pick"><input type="checkbox" data-pay-pick="${esc(row.entry_id)}" data-party="${esc(row.party_id)}" ${state.selected.has(row.entry_id) ? 'checked' : ''} aria-label="${esc(row.invoice_no)} faturasını seç"> <strong>${esc(row.invoice_no)}</strong></label>${row.faturasiz ? '<br>' + badge('Faturası bekleniyor', 'warning') : ''}`,
-        `${esc(row.occurred_on)}<small>${row.planned_on ? 'Ödeyeceğim: ' + esc(gun(row.planned_on) || row.planned_on) : row.due_on ? 'Vade: ' + esc(gun(row.due_on) || row.due_on) : 'Planlanan ödeme yok'}</small>`,
+        `${esc(row.occurred_on)}<small>${esc(odemeGunu(row))}</small>`,
         `${money(row.debt_cents)}<small>Ödenen ${money(row.paid_cents)}</small>`,
         `<strong>${money(row.remaining_cents)}</strong><small>KDV dahil</small>`,
         `${payStatus(row)} ${button('Öde','pay-one',row.entry_id,true)} ${button(row.planned_on || row.due_on ? 'Tarihi değiştir' : 'Ay sonunda öderim','plan',row.entry_id,true)}`
