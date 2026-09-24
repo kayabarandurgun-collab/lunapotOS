@@ -251,3 +251,25 @@ test('Sağlayıcı isteği yönlendirmeyi izlemez: 3xx reddedilir, kimlik ikinci
   assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ec_provider_records').get().n, 0);
  } finally { f.sqlite.close(); }
 });
+
+// Trendyol V2 supplierId alanını kullanmıyor ve 0 gönderiyor. Ham karşılaştırmada '0' hiçbir zaman
+// satıcı kimliğine eşit olmadığı için HER sipariş yabancı mağaza sanılıyor ve senkron hiç
+// çalışamıyordu. Dolu olmayan alan karşılaştırmaya girmemeli; gerçekten yabancı kimlik hâlâ durdurmalı.
+test('Boş satıcı alanı (0) siparişi yabancı saymaz; gerçekten yabancı kimlik durdurulur', async () => {
+ const f = fixture(); try {
+  await f.call('/trendyol/configure', credentials);
+  const sahte = (paket) => async () => Response.json({content: [paket], totalPages: 1, totalElements: 1});
+  // supplierId:0 + doğru lines.sellerId → kabul edilmeli
+  const kabul = await syncProvider(f.env, 'trendyol', query,
+   sahte({...order(), supplierId: 0, lines: [{...order().lines[0], sellerId: Number(credentials.seller_id)}]}),
+   async () => ({created: 1}));
+  assert.equal(kabul.records.length, 1);
+  // Gerçekten başka mağazanın kimliği → reddedilmeli
+  await assert.rejects(() => syncProvider(f.env, 'trendyol', {...query, page: 1},
+   sahte({...order(), shipmentPackageId: 99, supplierId: 0, lines: [{...order().lines[0], sellerId: 9999999}]}),
+   async () => ({created: 0})), /eşleşmiyor/);
+  await assert.rejects(() => syncProvider(f.env, 'trendyol', {...query, page: 1},
+   sahte({...order(), shipmentPackageId: 98, supplierId: 9999999}),
+   async () => ({created: 0})), /eşleşmiyor/);
+ } finally { f.sqlite.close(); }
+});

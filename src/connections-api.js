@@ -148,10 +148,14 @@ export async function syncProvider(env,provider,input,fetcher=fetch,orderImporte
   let response;try{response=await fetcher(spec.url,{method:'GET',redirect:'manual',signal:AbortSignal.timeout(20000),headers:{Authorization:'Basic '+btoa(credentials.key+':'+credentials.secret),'User-Agent':credentials.user_agent,Accept:'application/json'}});}catch(e){console.error('Sağlayıcı isteği başarısız:',provider,input.kind,spec.url.host,e?.name||'',e?.message||e);fail('Sağlayıcı bağlantısı tamamlanamadı; zaman aşımı veya ağ sorunu olabilir.',502);}
   if(response.status>=300&&response.status<400)fail('Sağlayıcı isteği başka adrese yönlendirdi; kimlik bilgisi izlenmeyen adrese gönderilmez.',502);
   const payload=await safeJSON(response);
-  // Yabancı mağazanın verisini almamak için kimlik karşılaştırılır. Uyuşmazlıkta HANGİ değerin
-  // uymadığı log'a yazılır: kimlik numarası gizli bilgi değil ve bu olmadan arıza aramak kör iş.
-  if(provider==='trendyol'&&input.kind==='orders'&&Array.isArray(payload?.content)&&payload.content.some(r=>r.supplierId!==undefined&&String(r.supplierId)!==connection.seller_id||Array.isArray(r.lines)&&r.lines.some(l=>l.sellerId!==undefined&&String(l.sellerId)!==connection.seller_id))){
-   const ilk=payload.content.find(r=>r.supplierId!==undefined&&String(r.supplierId)!==connection.seller_id||Array.isArray(r.lines)&&r.lines.some(l=>l.sellerId!==undefined&&String(l.sellerId)!==connection.seller_id));
+  // Yabancı mağazanın verisini almamak için kimlik karşılaştırılır. DOLU OLMAYAN alan karşılaştırmaya
+  // girmez: Trendyol V2 supplierId'yi kullanmıyor ve 0 gönderiyor; ham hâliyle '0'!=='1168131' çıkıp
+  // HER sipariş yabancı mağaza sanılıyordu. Gerçek kimlik lines[].sellerId'de geliyor ve doğrulanıyor.
+  // Uyuşmazlıkta hangi değerin uymadığı log'a yazılır; kimlik numarası gizli bilgi değil.
+  const magazaKimligi=v=>v===undefined||v===null||v===''||String(v)==='0'?null:String(v);
+  const kimlikUymaz=r=>magazaKimligi(r.supplierId)&&magazaKimligi(r.supplierId)!==connection.seller_id||Array.isArray(r.lines)&&r.lines.some(l=>magazaKimligi(l.sellerId)&&magazaKimligi(l.sellerId)!==connection.seller_id);
+  if(provider==='trendyol'&&input.kind==='orders'&&Array.isArray(payload?.content)&&payload.content.some(kimlikUymaz)){
+   const ilk=payload.content.find(kimlikUymaz);
    console.error('Satıcı kimliği uyuşmadı: bağlantı=',connection.seller_id,'supplierId=',ilk?.supplierId,'lines.sellerId=',JSON.stringify((ilk?.lines||[]).map(l=>l.sellerId)));
    fail('Kaynak siparişin satıcı kimliği bu bağlantıyla eşleşmiyor.',502);
   }
