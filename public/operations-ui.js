@@ -155,7 +155,7 @@ export function mountOperations(root,namespace,view){
   if(abort.signal.aborted)return;
   if(r.status!=='complete')resumeSync={...input,page:r.page};
   await load();
-  notice((r.status==='complete'?'Seçilen kapsamın kaynak sayfaları alındı. ':r.status==='error'?'Veri alımı durdu. ':'Veri alımı duraklatıldı. ')+r.pages+' sayfa · '+r.records+' kaynak kaydı · '+r.created+' yeni taslak. '+r.error+' '+r.warnings.join(' ')+' Finans kayıtları henüz muhasebeye işlenmedi.');
+  notice((r.status==='complete'?'Seçilen kapsamın kaynak sayfaları alındı. ':r.status==='error'?'Veri alımı durdu. ':'Veri alımı duraklatıldı. ')+r.pages+' sayfa · '+r.records+' kaynak kaydı · '+r.created+' yeni taslak'+(r.delivered?' · '+r.delivered+' paket teslim edildi':'')+'. '+r.error+' '+r.warnings.join(' ')+' Finans kayıtları henüz muhasebeye işlenmedi.');
   if(resumeSync)$('#op-error').insertAdjacentHTML('beforeend','<p><button type="button" class="secondary" data-op="resume-sync">Kaldığım yerden devam et</button></p>');
  }
  async function records(){const r=await api('/connections/records?provider='+encodeURIComponent(recordProvider)+'&kind='+encodeURIComponent(recordKind)+'&page='+recordPage);$('#op-records').innerHTML='<p class="pad muted">Sayfa '+(recordPage+1)+' · Kaynak kayıtları henüz mali sonuç değildir.</p>'+table(['Kaynak kimliği','Son görülme','İçerik'],r.records.map(r=>[esc(r.external_id),esc(r.last_seen_at),'<details><summary>Kaydı incele</summary><pre>'+esc(JSON.stringify(r.payload,null,2))+'</pre></details>']))+(r.hasMore?'<button class="secondary" data-op="next-records">Sonraki sayfa</button>':'');}

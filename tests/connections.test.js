@@ -290,3 +290,129 @@ test('Finans yanıtı istenen sayfa boyutu kadar satır taşıyabilir; sipariş 
    async () => ({created: 0})), /sayfa boyutu/);
  } finally { f.sqlite.close(); }
 });
+
+// TESLİM ONAYI (PAZARYERİ API). Kâr yalnız teslim edilmiş pakette hesaplanıyor; Trendyol paketi
+// teslim ettiği hâlde defterde 'shipped' kalan paket sessizce kârın dışında kalıyordu. Rapor
+// tarafındaki aynı iş (report-inbox-api.js) burada API kaynağı için tekrarlanıyor.
+// Trendyol V2 sipariş yanıtında AYRI bir teslim tarihi alanı YOKTUR: gerçekleşen teslim yalnız
+// packageHistories içindeki {status:'Delivered',createdDate} satırında durur. Gün TR saatiyle (+03)
+// hesaplanır, occurred_on ile aynı kural.
+const teslimGecmisi = (t = Date.parse('2026-09-20T21:30:00Z')) => [
+ {status: 'Created', createdDate: 1788901200000},
+ {status: 'Shipped', createdDate: Date.parse('2026-09-18T06:00:00Z')},
+ {status: 'Delivered', createdDate: t}
+];
+const teslimEdilmis = (overrides = {}) => order({status: 'Delivered', shipmentPackageStatus: 'Delivered', packageHistories: teslimGecmisi(), ...overrides});
+// Durum makinesi tetiği draft→shipped geçişine izin vermez (draft→reserved→shipped yolu ayırma
+// ister); kargodaki paket bu yüzden doğrudan o durumda yazılır.
+const paketYaz = (f, externalID, status, delivered_on = null, source_changed = 0) => f.sqlite.prepare(
+ "INSERT INTO ec_order_packages(id,channel,external_id,order_no,occurred_on,status,external_status,source_fingerprint,delivered_on,source_changed) VALUES(?,'trendyol',?,?,'2026-09-05',?,'',?,?,?)"
+).run('pkt-' + externalID, String(externalID), 'ORD-' + externalID, status, 'fp-' + externalID, delivered_on, source_changed);
+const paketOku = (f, externalID) => f.sqlite.prepare('SELECT * FROM ec_order_packages WHERE external_id=?').get(String(externalID));
+
+// DEĞİŞMEYEN KAYITLARA DA BAKILMALI: syncProvider parmak izi aynı olan paketi 'continue' ile atlar ve
+// importOrders yalnız yeni/değişen paketler için çalışır. Teslim onayı o atlamanın ARKASINDA kalırsa
+// tam olarak sorunlu paketler (teslim edilmiş ama defterde kargoda duranlar) hiç taranmaz.
+test('Trendyol teslim ettiyse kargodaki paket teslim işaretlenir; tarih Trendyol\'dan gelir, değişmeyen kayıtta da çalışır', async () => {
+ const f = fixture(); try {
+  await f.call('/trendyol/configure', credentials);
+  const fetcher = async () => Response.json({content: [teslimEdilmis()], totalPages: 1, totalElements: 1});
+
+  // 1) Kaynak kaydı alınır. Paket henüz defterde yok: işaretlenecek bir şey de yok.
+  const ilk = await syncProvider(f.env, 'trendyol', query, fetcher, async () => ({created: 1}));
+  assert.equal(ilk.deliveredMarked, 0);
+
+  // 2) Paket kargoya verilmiş. Trendyol onu çoktan teslim ettiği için kaynak kaydı ARTIK DEĞİŞMİYOR:
+  //    her çekişte 'aynı' sayılıp atlanıyor ve paket sonsuza kadar kargoda kalıyordu.
+  paketYaz(f, 11, 'shipped');
+
+  const ikinci = await syncProvider(f.env, 'trendyol', query, fetcher, async () => ({created: 0}));
+  assert.equal(ikinci.unchanged, 1, 'kaynak kaydı değişmedi: atlanan (continue) yol');
+  assert.equal(ikinci.deliveredMarked, 1, 'değişmeyen kayıt da teslim onayına girmeli');
+  const teslim = paketOku(f, 11);
+  assert.equal(teslim.status, 'delivered');
+  assert.equal(teslim.delivered_on, '2026-09-21', 'teslim günü Trendyol\'un verdiği gündür (TR saati)');
+  assert.equal(ikinci.undatedDeliveries, 0);
+  assert.ok(ikinci.warnings.some(w => w.includes('teslim')), 'teslim onayı sonuçta bildirilmeli: ' + JSON.stringify(ikinci.warnings));
+
+  // 3) Aynı sayfa bir daha çekilirse paket artık kargoda değil: ikinci kez işlenmez.
+  const ucuncu = await syncProvider(f.env, 'trendyol', query, fetcher, async () => ({created: 0}));
+  assert.equal(ucuncu.deliveredMarked, 0, 'zaten teslim edilmiş paket tekrar işlenmez');
+  assert.equal(paketOku(f, 11).delivered_on, '2026-09-21');
+
+  // 4) Kaynak sonradan değişirse taslak aktarımı gerçek importOrders ile çalışır; teslim durumu geri alınmaz.
+  await syncProvider(f.env, 'trendyol', query, async () => Response.json({content: [teslimEdilmis({lastModifiedDate: 1789939900000})], totalPages: 1, totalElements: 1}));
+  assert.equal(paketOku(f, 11).status, 'delivered', 'taslak aktarımı teslim durumunu geri almamalı');
+  assert.equal(paketOku(f, 11).delivered_on, '2026-09-21');
+ } finally { f.sqlite.close(); }
+});
+
+// TEK YÖN: yalnız 'shipped' → 'delivered'. Durum makinesi (ec_order_transition tetiği) başka geçişi
+// ABORT eder ve bütün parti geri alınır; bu yüzden eleme WHERE ile yapılır, zorlanmaz.
+test('Teslim onayı yalnız kargodaki paketi ilerletir: draft/reserved/iptal/zaten teslim edilmiş değişmez', async () => {
+ const f = fixture(); try {
+  await f.call('/trendyol/configure', credentials);
+  paketYaz(f, 201, 'draft'); paketYaz(f, 202, 'reserved'); paketYaz(f, 203, 'cancelled');
+  paketYaz(f, 204, 'delivered', '2026-01-01'); paketYaz(f, 205, 'shipped');
+  // Kaynağı değişmiş (source_changed=1) kargodaki paket de teslim edilebilmeli: durum makinesi bu
+  // bayrağı yalnız 'reserved'/'shipped' HEDEFİ için engeller, teslim için değil.
+  paketYaz(f, 206, 'shipped', null, 1);
+  const content = [201, 202, 203, 204, 205, 206].map((p, i) => teslimEdilmis({shipmentPackageId: p, orderNumber: 'ORD-' + p, lines: [{...order().lines[0], lineId: 900 + i}]}));
+
+  const sonuc = await syncProvider(f.env, 'trendyol', query, async () => Response.json({content, totalPages: 1, totalElements: 6}), async () => ({created: 0}));
+  assert.equal(sonuc.deliveredMarked, 2, 'yalnız kargodaki paketler teslim işaretlenir');
+  assert.equal(paketOku(f, 206).status, 'delivered', 'kaynağı değişmiş kargodaki paket de teslim edilir');
+  assert.equal(paketOku(f, 201).status, 'draft');
+  assert.equal(paketOku(f, 202).status, 'reserved');
+  assert.equal(paketOku(f, 203).status, 'cancelled');
+  assert.equal(paketOku(f, 204).delivered_on, '2026-01-01', 'zaten teslim edilmiş paketin tarihi ezilmez');
+  assert.equal(paketOku(f, 205).status, 'delivered');
+  assert.equal(paketOku(f, 205).delivered_on, '2026-09-21');
+  // Geçersiz bir geçiş denenseydi tetik partiyi geri alırdı: kaynak kayıtları yazılmış olmalı.
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ec_provider_records').get().n, 6, 'parti geri alınmamalı');
+ } finally { f.sqlite.close(); }
+});
+
+// ÖNİZLEME YAZMAZ: sayı görünür, paket kargoda kalır.
+test('Önizlemede teslim onayı yazılmaz ama kaç paketin işaretleneceği doğru döner', async () => {
+ const f = fixture(); try {
+  await f.call('/trendyol/configure', credentials);
+  paketYaz(f, 11, 'shipped');
+  const fetcher = async () => Response.json({content: [teslimEdilmis()], totalPages: 1, totalElements: 1});
+
+  const onizleme = await syncProvider(f.env, 'trendyol', {...query, preview: true}, fetcher, async () => ({created: 0}));
+  assert.equal(onizleme.deliveredMarked, 1, 'önizleme kaç paketin teslim işaretleneceğini söylemeli');
+  assert.equal(paketOku(f, 11).status, 'shipped', 'önizleme paketi değiştirmemeli');
+  assert.equal(paketOku(f, 11).delivered_on, null);
+
+  const gercek = await syncProvider(f.env, 'trendyol', query, fetcher, async () => ({created: 0}));
+  assert.equal(gercek.deliveredMarked, onizleme.deliveredMarked, 'sayı önizlemeyle gerçek senkronda aynı olmalı');
+  assert.equal(paketOku(f, 11).status, 'delivered');
+  assert.equal(paketOku(f, 11).delivered_on, '2026-09-21');
+ } finally { f.sqlite.close(); }
+});
+
+// TARİH UYDURULMAZ. estimatedDeliveryStartDate/EndDate TAHMİN, agreedDeliveryDate TAAHHÜTTÜR;
+// ikisi de gerçekleşen teslim günü değildir. Geçmiş satırı gelmeyen paket işaretlenmez, sayılır.
+test('Teslim tarihi gelmeyen paket işaretlenmez; tahmini/taahhüt tarihler teslim tarihi sayılmaz', async () => {
+ const f = fixture(); try {
+  await f.call('/trendyol/configure', credentials);
+  paketYaz(f, 11, 'shipped'); paketYaz(f, 12, 'shipped');
+  const tarihsiz = teslimEdilmis({packageHistories: [{status: 'Created', createdDate: 1788901200000}],
+   estimatedDeliveryStartDate: Date.parse('2026-09-19T00:00:00Z'), estimatedDeliveryEndDate: Date.parse('2026-09-25T00:00:00Z'), agreedDeliveryDate: Date.parse('2026-09-22T00:00:00Z')});
+  const gecmissiz = teslimEdilmis({shipmentPackageId: 12, orderNumber: 'ORD-2', packageHistories: undefined, lines: [{...order().lines[0], lineId: 33}]});
+
+  const sonuc = await syncProvider(f.env, 'trendyol', query, async () => Response.json({content: [tarihsiz, gecmissiz], totalPages: 1, totalElements: 2}), async () => ({created: 0}));
+  assert.equal(sonuc.deliveredMarked, 0, 'güvenilir teslim tarihi yoksa paket işaretlenmez');
+  assert.equal(sonuc.undatedDeliveries, 2, 'tarihsiz kalan paket sayısı bildirilmeli');
+  for (const p of [11, 12]) { assert.equal(paketOku(f, p).status, 'shipped'); assert.equal(paketOku(f, p).delivered_on, null); }
+  assert.ok(sonuc.warnings.some(w => w.includes('teslim tarihi')), JSON.stringify(sonuc.warnings));
+
+  // Teslim edilmemiş paket (kargoda) hiçbir sayıya girmez.
+  paketYaz(f, 13, 'shipped');
+  const yolda = await syncProvider(f.env, 'trendyol', query, async () => Response.json({content: [order({shipmentPackageId: 13, orderNumber: 'ORD-3', status: 'Shipped', lines: [{...order().lines[0], lineId: 44}]})], totalPages: 1, totalElements: 1}), async () => ({created: 0}));
+  assert.equal(yolda.deliveredMarked, 0);
+  assert.equal(yolda.undatedDeliveries, 0);
+  assert.equal(paketOku(f, 13).status, 'shipped');
+ } finally { f.sqlite.close(); }
+});

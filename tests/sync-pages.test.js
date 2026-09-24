@@ -20,3 +20,12 @@ test('Pull stops for cancellation, malformed pagination, no progress or request 
  r=await pullSourcePages({maxRequests:2,requestPage:async page=>response(page,true)});assert.equal(r.status,'paused');assert.equal(r.page,2);
  r=await pullSourcePages({requestPage:async page=>response(page,false,{orderImportWarning:'Taslak aktarımı eksik'})});assert.equal(r.status,'error');assert.equal(r.page,0);
 });
+// Teslim onayı sayfa sayfa birikmeli: tek bir paket iki kez teslim edilemeyeceği için toplam güvenli,
+// ücretsiz işlem sınırı yüzünden AYNI sayfa tekrar çekildiğinde de kaybolmamalı. Uyarı metinleri
+// duraklatılan (deferred) sayfada toplanmıyor; teslim sayısı kullanıcının asıl beklediği rakam.
+test('Teslim edilmiş işaretlenen paket sayısı bütün sayfalardan toplanır',async()=>{
+ let first=true;
+ const r=await pullSourcePages({requestPage:async page=>{if(first){first=false;return response(page,true,{deferredOrders:2,orders:{created:3},deliveredMarked:4});}return response(page,page===0,{deliveredMarked:2});}});
+ assert.equal(r.status,'complete');assert.equal(r.delivered,8,'duraklatılan sayfadaki teslim onayı da sayılmalı');
+ const bos=await pullSourcePages({requestPage:async page=>response(page,false)});assert.equal(bos.delivered,0);
+});

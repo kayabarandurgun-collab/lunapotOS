@@ -15,6 +15,9 @@ const text=(v,label,max=500)=>{if(typeof v!=='string'||!v.trim()||v.length>max||
 const day=v=>{if(typeof v!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(v)||!Number.isFinite(Date.parse(v))||new Date(v).toISOString().slice(0,10)!==v)fail('Tarih geçersiz.');return v;};
 const integer=(v,max=10000)=>{if(!Number.isInteger(v)||v<0||v>max)fail('Sayfa/limit geçersiz.');return v;};
 const iso=v=>{if(typeof v==='number'&&Number.isFinite(v)||typeof v==='string'&&v.length<=40){const date=new Date(v);if(Number.isFinite(date.getTime()))return date.toISOString();}return null;};
+// Pazaryeri damgaları UTC gelir, defterdeki gün TÜRKİYE günüdür (+03): gece yarısından önceki bir
+// teslim UTC'de bir önceki güne düşer ve paket yanlış güne yazılırdı. occurred_on da aynı kuralı kullanır.
+const gunTR=v=>{const t=iso(v);return t?new Date(Date.parse(t)+3*3600000).toISOString().slice(0,10):null;};
 const personalText=(value,max=300)=>typeof value==='string'?value.trim().slice(0,max):'';
 function postalAddress(value={}){
  if(!value||typeof value!=='object')return {};
@@ -72,6 +75,19 @@ function makeRequest(provider,credentials,input){
  }
  return {url,query,page,limit,size};
 }
+// TRENDYOL TESLİM GÜNÜ. V2 sipariş yanıtında ayrı bir "teslim edildi" tarihi alanı YOKTUR:
+// gerçekleşen teslim yalnız packageHistories içindeki {status:'Delivered',createdDate} satırında
+// durur (Trendyol "Sipariş Paketlerini Çekme" dokümanının yanıt şeması, 2026-09-24).
+// estimatedDeliveryStartDate/EndDate TAHMİN, agreedDeliveryDate TAAHHÜTTÜR; onlarla teslim
+// işaretlemek tarih uydurmaktır ve kârı yanlış güne yazar. Paketin GÜNCEL durumu da 'Delivered'
+// olmalı: UnDelivered/Returned paketi geri dönmüştür, teslim sayılmaz. Geçmiş satırı gelmeyen
+// pakete tarih UYDURULMAZ, null döner; çağıran o paketi hiç işaretlemez, yalnız sayar.
+const teslimEdildi=v=>String(v||'').toLowerCase()==='delivered';
+function teslimGunu(record){
+ if(!teslimEdildi(record.shipmentPackageStatus??record.status))return null;
+ const gunler=(Array.isArray(record.packageHistories)?record.packageHistories:[]).filter(h=>h&&teslimEdildi(h.status)).map(h=>gunTR(h.createdDate)).filter(Boolean).sort();
+ return gunler[0]??null;
+}
 function normalizeTY(kind,payload,page,size=50){
  if(!payload||typeof payload!=='object')fail('Trendyol yanıt şeması doğrulanamadı.',502);
  // SINIR, İSTENEN SAYFA BOYUTUYLA AYNI OLMALI. Sabit 50 kaldığı için finans uçları size=500 ile
@@ -85,12 +101,14 @@ function normalizeTY(kind,payload,page,size=50){
  const records=payload.content.map(r=>{
   if(kind==='orders'){
    if(!Array.isArray(r.lines)||!r.lines.length||r.lines.length>80)fail('Sipariş paketi 1–80 kalem içermeli; kaynak kapsamı inceleme gerektiriyor.',502);
-   const updated=iso(r.lastModifiedDate),created=iso(r.orderDate),currency=short(r.currencyCode);
+   const updated=iso(r.lastModifiedDate),occurred=gunTR(r.orderDate),delivered=teslimGunu(r),currency=short(r.currencyCode);
    // SATIR DURUMU saklanır: paket 'teslim edildi' görünürken tek tek satırlar iade/iptal olabiliyor ve
    // komisyon farkının bir kısmı buradan geliyor. Paket düzeyindeki durum bunu göstermiyor.
    const lines=r.lines.map(l=>{if(!Number.isInteger(l.quantity)||l.quantity<=0||l.quantity>10000)fail('Sipariş satır miktarı geçersiz.',502);const unit=numeric(l.lineUnitPrice),platformDiscount=numeric(l.lineTyDiscount);return {external_id:externalID(l.lineId),sku:short(l.stockCode),barcode:short(l.barcode),name:short(l.productName),quantity_milli:l.quantity*1000,gross_cents:unit===null||platformDiscount!==0?null:money(unit*l.quantity),vat_bps:rate(l.vatRate),commission_bps:rate(l.commission),currency:short(l.currencyCode||currency),seller_discount:numeric(l.lineSellerDiscount),platform_discount:platformDiscount,line_status:short(l.orderLineItemStatusName),amounts_need_review:platformDiscount!==0};});
    if(new Set(lines.map(l=>l.external_id)).size!==lines.length)fail('Siparişte aynı satır kimliği tekrar ediyor.',502);
-   return {external_id:externalID(r.shipmentPackageId??r.id),order_no:externalID(r.orderNumber),occurred_on:created?new Date(Date.parse(created)+3*3600000).toISOString().slice(0,10):null,external_status:short(r.shipmentPackageStatus??r.status),source_updated_at:updated,currency,carrier:short(r.cargoProviderName),package_gross: numeric(r.packageGrossAmount),package_price:numeric(r.packageTotalPrice),package_seller_discount:numeric(r.packageSellerDiscount),package_platform_discount:numeric(r.packageTyDiscount),customer:customerFacts(r,'trendyol'),invoice:invoiceFacts(r),lines};
+   // delivered_on YALNIZ dolu olduğunda yazılır: teslim edilmemiş paketlerin parmak izi böylece
+   // değişmez ve bu alan yüzünden bütün kaynak kayıtları "değişti" sayılıp yeniden aktarılmaz.
+   return {external_id:externalID(r.shipmentPackageId??r.id),order_no:externalID(r.orderNumber),occurred_on:occurred,external_status:short(r.shipmentPackageStatus??r.status),...(delivered?{delivered_on:delivered}:{}),source_updated_at:updated,currency,carrier:short(r.cargoProviderName),package_gross: numeric(r.packageGrossAmount),package_price:numeric(r.packageTotalPrice),package_seller_discount:numeric(r.packageSellerDiscount),package_platform_discount:numeric(r.packageTyDiscount),customer:customerFacts(r,'trendyol'),invoice:invoiceFacts(r),lines};
   }
   if(!short(r.id))fail('Finans kaydında dış kimlik yok.',502);
   return {external_id:externalID(r.id),reference:short(r.orderNumber||r.receiptId),order_no:short(r.orderNumber),barcode:short(r.barcode),type:short(r.transactionType),credit:numeric(r.credit),debt:numeric(r.debt),commission:numeric(r.commissionAmount),seller_revenue:numeric(r.sellerRevenue),payment_order_id:short(r.paymentOrderId),source_updated_at:iso(r.lastModifiedDate||r.transactionDate),currency:short(r.currency),interpretation:'source_financial_record'};
@@ -170,15 +188,24 @@ export async function syncProvider(env,provider,input,fetcher=fetch,orderImporte
   const missingSkus=provider==='hepsiburada'&&input.kind==='commissions'?spec.query.skus.filter(sku=>!result.records.some(r=>r.sku===sku)):[];
   const prior=result.records.length?await rows(stmt(db,'SELECT external_id,fingerprint,source_updated_at FROM (SELECT external_id,fingerprint,source_updated_at,ROW_NUMBER() OVER(PARTITION BY external_id ORDER BY source_updated_at DESC,last_seen_at DESC,rowid DESC) rn FROM provider_records WHERE provider=? AND seller_id=? AND kind=? AND external_id IN (SELECT value FROM json_each(?))) WHERE rn=1',[provider,connection.seller_id,input.kind,JSON.stringify(result.records.map(r=>r.external_id))])):[];
   const priorMap=new Map(prior.map(r=>[r.external_id,r]));
-  const localOrders=provider==='trendyol'&&input.kind==='orders'&&result.records.length?await rows(stmt(db,'SELECT external_id FROM order_packages WHERE channel=? AND external_id IN (SELECT value FROM json_each(?))',[provider,JSON.stringify(result.records.map(r=>r.external_id))])):[];
+  // Yerel paketin DURUMU da aynı sorguda okunur: teslim onayı için ikinci bir SELECT açılmaz,
+  // ücretsiz D1 sorgu bütçesi bu sayede değişmez.
+  const localOrders=provider==='trendyol'&&input.kind==='orders'&&result.records.length?await rows(stmt(db,'SELECT external_id,status FROM order_packages WHERE channel=? AND external_id IN (SELECT value FROM json_each(?))',[provider,JSON.stringify(result.records.map(r=>r.external_id))])):[];
   const localOrderIDs=new Set(localOrders.map(r=>r.external_id));
-  const statements=[],sourceRows=[],newOrders=[];let unchanged=0,changed=0,reviewOnlyOrders=0,deferredOrders=0,oversizedOrders=0,importQueryBudget=35;
+  const shippedLocally=new Set(localOrders.filter(r=>r.status==='shipped').map(r=>r.external_id));
+  const statements=[],sourceRows=[],newOrders=[],deliveredDays=new Map();let unchanged=0,changed=0,reviewOnlyOrders=0,deferredOrders=0,oversizedOrders=0,undatedDeliveries=0,importQueryBudget=35;
   for(const r of result.records){
    const json=JSON.stringify(r),fingerprint=await hash(json),existing=priorMap.get(r.external_id);
    if(existing?.fingerprint===fingerprint)unchanged++;else if(existing)changed++;
    const outdated=existing?.source_updated_at&&(!r.source_updated_at||r.source_updated_at<existing.source_updated_at);
    sourceRows.push({id:crypto.randomUUID(),external_id:r.external_id,fingerprint,payload_json:json,source_updated_at:r.source_updated_at});
    if(provider==='trendyol'&&input.kind==='orders'){
+    // TESLİM ONAYI BÜTÜN PAKETLERDE, aşağıdaki 'continue' SATIRINDAN ÖNCE toplanır. Kâr yalnız
+    // teslim edilmiş pakette hesaplanır; paket teslim edildikten sonra kaynak kaydı bir daha
+    // değişmediği için tam olarak sorunlu paketler "değişmedi" diye atlanıyor ve kârın dışında
+    // kalmaya devam ediyordu. Aynı tuzak rapor tarafında da görülmüştü (report-inbox-api.js).
+    // Aday yalnız KARGODA duran pakettir: durum makinesi zorlanmaz, tek yön shipped→delivered.
+    if(shippedLocally.has(r.external_id)){if(r.delivered_on)deliveredDays.set(r.external_id,r.delivered_on);else if(teslimEdildi(r.external_status))undatedDeliveries++;}
     if(existing?.fingerprint===fingerprint&&localOrderIDs.has(r.external_id))continue;
     const queriesNeeded=4+2*r.lines.length;
     if(!outdated&&r.source_updated_at&&r.currency==='TRY'&&r.occurred_on&&r.lines.every(l=>l.currency==='TRY')){
@@ -188,21 +215,27 @@ export async function syncProvider(env,provider,input,fetcher=fetch,orderImporte
     else reviewOnlyOrders++;
    }
   }
-  // ÖNİZLEMEDE TEK BİR YAZMA YOK: kaynak kaydı, imleç, bağlantı damgası ve çalışma kaydı atlanır.
-  // Hesabın tamamı yukarıda aynen yapıldı; burada yalnızca kalıcı hale getirme adımı kapatılıyor.
+  const deliveredMarked=deliveredDays.size,deliveredJSON=JSON.stringify([...deliveredDays]);
+  // ÖNİZLEMEDE TEK BİR YAZMA YOK: kaynak kaydı, teslim onayı, imleç, bağlantı damgası ve çalışma
+  // kaydı atlanır. Hesabın tamamı yukarıda aynen yapıldı; yalnızca kalıcı hale getirme kapatılıyor.
   if(!preview){
+   // TEK TOPLU GÜNCELLEME (json_each): paket başına ayrı UPDATE ücretsiz D1 sorgu sınırını yerdi.
+   // Her pakete KENDİ günü yazılır; tarih Trendyol'dan gelir, burada üretilmez. WHERE ikinci kez
+   // eler: okuma ile yazma arasında durumu değişen paket ilerletilmez, böylece durum makinesi
+   // tetiği (shipped→delivered dışı geçiş ABORT eder) bütün partiyi geri almaz.
+   if(deliveredMarked)statements.push(stmt(db,"UPDATE order_packages SET status='delivered',delivered_on=(SELECT json_extract(value,'$[1]') FROM json_each(?) WHERE json_extract(value,'$[0]')=order_packages.external_id) WHERE channel=? AND status='shipped' AND external_id IN (SELECT json_extract(value,'$[0]') FROM json_each(?))",[deliveredJSON,provider,deliveredJSON]));
    if(sourceRows.length)statements.push(stmt(db,"INSERT INTO provider_records(id,provider,seller_id,kind,external_id,fingerprint,payload_json,source_updated_at) SELECT json_extract(value,'$.id'),?,?,?,json_extract(value,'$.external_id'),json_extract(value,'$.fingerprint'),json_extract(value,'$.payload_json'),json_extract(value,'$.source_updated_at') FROM json_each(?) WHERE 1 ON CONFLICT(provider,seller_id,kind,external_id,fingerprint) DO UPDATE SET last_seen_at=CURRENT_TIMESTAMP",[provider,connection.seller_id,input.kind,JSON.stringify(sourceRows)]));
    statements.push(stmt(db,'INSERT INTO provider_cursors(provider,seller_id,kind,query_key,query_json,next_page,has_more) VALUES(?,?,?,?,?,?,?) ON CONFLICT(provider,seller_id,kind,query_key) DO UPDATE SET has_more=CASE WHEN excluded.next_page>=provider_cursors.next_page THEN excluded.has_more ELSE provider_cursors.has_more END,next_page=MAX(provider_cursors.next_page,excluded.next_page),last_success_at=CURRENT_TIMESTAMP',[provider,connection.seller_id,input.kind,queryKey,queryJSON,spec.page+1,result.hasMore?1:0]));
    statements.push(stmt(db,'UPDATE provider_connections SET last_success_at=CURRENT_TIMESTAMP,last_error=NULL WHERE provider=?',[provider]));
-   statements.push(stmt(db,'INSERT INTO integration_runs(id,provider,kind,status,record_count,message) VALUES(?,?,?,?,?,?)',[crypto.randomUUID(),provider,input.kind,'inbox',result.records.length,'Kaynak kayıtları alındı; finans ve stok işlemleri otomatik yapılmadı.']));
+   statements.push(stmt(db,'INSERT INTO integration_runs(id,provider,kind,status,record_count,message) VALUES(?,?,?,?,?,?)',[crypto.randomUUID(),provider,input.kind,'inbox',result.records.length,'Kaynak kayıtları alındı; finans ve stok işlemleri otomatik yapılmadı.'+(deliveredMarked?' '+deliveredMarked+' paket Trendyol teslim kaydıyla teslim edilmiş işaretlendi.':'')]));
    await db.batch(statements);
   }
   let orders=null,orderImportWarning=null;
   // Önizleme sipariş taslağı ÜRETMEZ: importOrders hiç çağrılmaz, orders null kalır; kaç taslak
   // oluşacağını kullanıcı importableOrders alanından görür.
   if(!preview&&newOrders.length){try{const importer=orderImporter||(await import('./orders-api.js')).importOrders;orders=await importer(env,provider,newOrders);}catch{orderImportWarning='Kaynaklar saklandı; sipariş taslaklarına aktarım tamamlanamadı. Aynı sayfayı yeniden çekebilirsiniz.';}}
-  const warnings=[...(orderImportWarning?[orderImportWarning]:[]),...(reviewOnlyOrders?[reviewOnlyOrders+' sipariş kaynak kutusunda kaldı; paket büyüklüğü, tarih, para birimi veya kaynak sürümü inceleme gerektiriyor.']:[]),...(oversizedOrders?[oversizedOrders+' paket 10 satır sınırını aşıyor; bunları yeniden çekmek taslak oluşturmaz.']:[]),...(deferredOrders?[deferredOrders+' paket ücretsiz işlem sınırı nedeniyle kaynak kutusunda. Aynı sayfayı yeniden çekerek sıradaki taslakları aktarın.']:[]),...(missingSkus.length?[missingSkus.length+' istenen SKU için komisyon yanıtı yok; eksik oran sıfır kabul edilmedi.']:[])];
-  return {...result,records:result.records.map(sourcePreview),page:spec.page,next_page:spec.page+1,unchanged,changed,orders,orderImportWarning,reviewOnlyOrders,deferredOrders,oversizedOrders,importableOrders:newOrders.length,preview,missing_skus:missingSkus,warnings,message:(preview?'ÖNİZLEME — hiçbir şey yazılmadı: kaynak kaydı saklanmadı, sipariş taslağı oluşturulmadı, imleç ilerlemedi. Gerçek senkronda '+newOrders.length+' sipariş taslağı oluşacak. ':'')+'Kaynak kayıtlarıdır. Finans/kargo/komisyon henüz muhasebeyle mutabık değildir. Fiyat veya stok pazaryerine gönderilmedi.'+(warnings.length?' '+warnings.join(' '):'')};
+  const warnings=[...(orderImportWarning?[orderImportWarning]:[]),...(reviewOnlyOrders?[reviewOnlyOrders+' sipariş kaynak kutusunda kaldı; paket büyüklüğü, tarih, para birimi veya kaynak sürümü inceleme gerektiriyor.']:[]),...(oversizedOrders?[oversizedOrders+' paket 10 satır sınırını aşıyor; bunları yeniden çekmek taslak oluşturmaz.']:[]),...(deferredOrders?[deferredOrders+' paket ücretsiz işlem sınırı nedeniyle kaynak kutusunda. Aynı sayfayı yeniden çekerek sıradaki taslakları aktarın.']:[]),...(deliveredMarked?[preview?deliveredMarked+' kargodaki paket Trendyol tarafında teslim edilmiş görünüyor; gerçek senkronda teslim tarihiyle işaretlenecek.':deliveredMarked+' kargodaki paket Trendyol teslim tarihiyle teslim edilmiş işaretlendi; kâr yalnız teslim edilen pakette hesaplanır.']:[]),...(undatedDeliveries?[undatedDeliveries+' paket Trendyol tarafında teslim edilmiş görünüyor ama teslim tarihi gelmedi; tarih uydurulmadığı için teslim işaretlenmedi.']:[]),...(missingSkus.length?[missingSkus.length+' istenen SKU için komisyon yanıtı yok; eksik oran sıfır kabul edilmedi.']:[])];
+  return {...result,records:result.records.map(sourcePreview),page:spec.page,next_page:spec.page+1,unchanged,changed,orders,orderImportWarning,reviewOnlyOrders,deferredOrders,oversizedOrders,importableOrders:newOrders.length,deliveredMarked,undatedDeliveries,preview,missing_skus:missingSkus,warnings,message:(preview?'ÖNİZLEME — hiçbir şey yazılmadı: kaynak kaydı saklanmadı, sipariş taslağı oluşturulmadı, teslim onayı işlenmedi, imleç ilerlemedi. Gerçek senkronda '+newOrders.length+' sipariş taslağı oluşacak'+(deliveredMarked?' ve '+deliveredMarked+' paket teslim edilmiş işaretlenecek':'')+'. ':'')+'Kaynak kayıtlarıdır. Finans/kargo/komisyon henüz muhasebeyle mutabık değildir. Fiyat veya stok pazaryerine gönderilmedi.'+(warnings.length?' '+warnings.join(' '):'')};
  }catch(error){
   const safe=error.status?error.message:'Bağlantı işleme hatası; kaynak sayfa tamamlanmadı.';
   // Hata yolunda da önizleme iz bırakmaz: last_error damgası ve çalışma kaydı gerçek senkronun
