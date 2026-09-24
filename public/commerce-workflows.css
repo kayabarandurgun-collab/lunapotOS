@@ -245,7 +245,10 @@ dialog.workflow-dialog .history-movement :is(code,p){white-space:normal;overflow
 .pro-row label{display:flex;flex-direction:column;gap:2px;font-size:0;margin:0}
 .pro-row input{width:100%;font-size:14px}
 .pro-row .pro-adet input,.pro-row .pro-maliyet input,.pro-row .pro-kdv input{text-align:right}
-.pro-row .pro-sil{padding:0;width:36px;height:36px;line-height:1;font-size:18px;display:flex;align-items:center;justify-content:center}
+/* Satır alta hizalı (align-items:end) ama kutuların global alt marjı var, silme düğmesinin yok:
+   düğme tam o marj kadar aşağı kayıp kutuların hizasından düşüyordu. Aynı boşluk düğmeye de
+   verilir ki alt kenarlar çakışsın. */
+.pro-row .pro-sil{padding:0;width:36px;height:36px;line-height:1;font-size:18px;display:flex;align-items:center;justify-content:center;margin-bottom:20px}
 /* Dar ekranda başlık şeridi gizlenir, alanlar kendi etiketiyle alt alta geçer. */
 @media (max-width:760px){
  .pro-basliklar{display:none}
