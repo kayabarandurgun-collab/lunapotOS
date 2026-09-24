@@ -495,3 +495,115 @@ test('Siparişin çekilen paketlerinden biri teslim edilmemişse işaretlenmez; 
   assert.equal(paketOku(f, yerel).delivered_on, '2026-09-23', 'siparişin en geç teslim günü (TR saati)');
  } finally { f.sqlite.close(); }
 });
+
+// MÜKERRER PAKET AÇMA. Canlıda ölçüldü: yerel Trendyol paketlerinin external_id'si rapor/fatura
+// yolundan geliyor ('RPT-…' 392, 'TEA…' 176), API ise sayısal paket kimliği veriyor; KESİŞİM SIFIR.
+// syncProvider "bu paket zaten aktarılmış mı" kontrolünü external_id ile yaptığı için API'den gelen
+// HER paket 'yeni' sayılıyor, importOrders → createPackage aynı sipariş için İKİNCİ bir paket açıyor
+// ve üstüne mükerrer stok bileşeni ile satış kaydı üretiyordu (canlı önizlemede ~65 mükerrer paket).
+// Ortak olan tek alan order_no'dur: o siparişin yerelde paketi varsa sipariş zaten sistemdedir.
+test('Yerel paket kimliği tamamen farklı olsa da aynı sipariş numarası için ikinci paket açılmaz', async () => {
+ const f = fixture(); try {
+  await f.call('/trendyol/configure', credentials);
+  const yerel = 'RPT-abc';
+  paketYaz(f, yerel, 'draft', null, 0, 'ORD-1');
+
+  // Gerçek importOrders çalışsın: mükerrer paketi ancak yazma yolunun tamamı ölçülürse yakalarız.
+  const sonuc = await syncProvider(f.env, 'trendyol', query, async () => Response.json({content: [order()], totalPages: 1, totalElements: 1}));
+
+  assert.equal(sonuc.alreadyKnownOrders, 1, 'sipariş zaten sistemde olduğu için tanınmalı');
+  assert.equal(sonuc.importableOrders, 0, 'tanınan sipariş taslak listesine hiç girmemeli');
+  assert.equal(sonuc.orders, null, 'aktarılacak paket kalmadığı için importOrders hiç çağrılmaz');
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ec_order_packages').get().n, 1, 'mükerrer paket açılmamalı');
+  // Kaynak kaydı YİNE saklanır: tanımak, kaynağı atmak demek değildir.
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ec_provider_records').get().n, 1, 'kaynak kaydı saklanmalı');
+  // Var olan paketin kimliğine DOKUNULMAZ: UNIQUE(channel,external_id) kısıtı ve rapor bağlantısı
+  // (report_link_hash/report_linked) bu kimliğe dayanıyor; güncellemek ikisini birden bozar.
+  assert.equal(paketOku(f, yerel).external_id, yerel, 'var olan paketin kimliği değişmemeli');
+  assert.equal(paketOku(f, yerel).order_no, 'ORD-1');
+  assert.ok(sonuc.warnings.some(w => w.includes('zaten sistemde')), JSON.stringify(sonuc.warnings));
+ } finally { f.sqlite.close(); }
+});
+
+// GERİYE DÖNÜK KIRILMA YOK: yerelde o siparişin hiç paketi yoksa sipariş gerçekten yenidir ve taslak
+// eskisi gibi açılır. Aynı çağrıda tanınan ve yeni sipariş birlikte gelirse ikisi de doğru işlenir.
+test('Yerelde paketi olmayan sipariş eskisi gibi taslak açar; tanınan ve yeni sipariş aynı çağrıda ayrışır', async () => {
+ const f = fixture(); try {
+  await f.call('/trendyol/configure', credentials);
+  paketYaz(f, 'RPT-abc', 'draft', null, 0, 'ORD-1');
+
+  const sonuc = await syncProvider(f.env, 'trendyol', query, async () => Response.json({
+   content: [order(), order({shipmentPackageId: 12, orderNumber: 'ORD-2'})], totalPages: 1, totalElements: 2}));
+
+  assert.equal(sonuc.alreadyKnownOrders, 1, 'yalnız ORD-1 tanınmalı');
+  assert.equal(sonuc.importableOrders, 1, 'ORD-2 gerçekten yeni: taslak açılmalı');
+  assert.equal(sonuc.orders.created, 1);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ec_order_packages').get().n, 2, 'yalnız bir paket eklenmeli');
+  assert.ok(paketOku(f, 12), 'yeni sipariş için paket açılmalı');
+  assert.equal(paketOku(f, 12).order_no, 'ORD-2');
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ec_provider_records').get().n, 2, 'iki kaynak kaydı da saklanır');
+ } finally { f.sqlite.close(); }
+});
+
+// CANLIDAKİ ASIL SENARYO: sipariş hem zaten sistemde hem de Trendyol tarafında teslim edilmiş.
+// Taslak açılmamalı AMA teslim onayı çalışmaya devam etmeli. Teslim onayı 'continue' satırından
+// ÖNCE toplandığı için tanıma bu sırayı bozmamalıdır.
+test('Tanınan sipariş için taslak açılmaz ama paket yine teslim işaretlenir', async () => {
+ const f = fixture(); try {
+  await f.call('/trendyol/configure', credentials);
+  const yerel = 'RPT-abc';
+  paketYaz(f, yerel, 'shipped', null, 0, 'ORD-1');
+
+  const sonuc = await syncProvider(f.env, 'trendyol', query, async () => Response.json({content: [teslimEdilmis()], totalPages: 1, totalElements: 1}));
+
+  assert.equal(sonuc.alreadyKnownOrders, 1);
+  assert.equal(sonuc.importableOrders, 0);
+  assert.equal(sonuc.deliveredMarked, 1, 'taslak açılmasa da teslim onayı çalışmalı');
+  assert.equal(sonuc.ambiguousDeliveries, 0);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ec_order_packages').get().n, 1, 'mükerrer paket açılmamalı');
+  assert.equal(paketOku(f, yerel).status, 'delivered');
+  assert.equal(paketOku(f, yerel).delivered_on, '2026-09-21');
+  assert.equal(paketOku(f, yerel).external_id, yerel, 'teslim yazarken de kimlik değişmez');
+ } finally { f.sqlite.close(); }
+});
+
+// PAKETİN KENDİ KİMLİĞİ YERELDE VARSA TANIMA DEVREYE GİRMEZ: createPackage o paketi external_id ile
+// bulup günceller (kaynak değişikliği/çakışma bayrağı bu yolda işlenir). Tanıma bu yolu da kapatsaydı
+// değişen kaynak bir daha hiç işlenmezdi.
+test('Kimliği yerelde olan paket tanınan sipariş sayılmaz; kaynak değişikliği yine aktarılır', async () => {
+ const f = fixture(); try {
+  await f.call('/trendyol/configure', credentials);
+  paketYaz(f, 11, 'draft', null, 0, 'ORD-1');
+  let aktarilan = null;
+  const sonuc = await syncProvider(f.env, 'trendyol', query, async () => Response.json({content: [order()], totalPages: 1, totalElements: 1}),
+   async (env, provider, records) => {aktarilan = records; return {created: 0, existing: 1};});
+
+  assert.equal(sonuc.alreadyKnownOrders, 0, 'paketin kendi kimliği yerelde: bu tanıma değil güncellemedir');
+  assert.equal(sonuc.importableOrders, 1);
+  assert.equal(aktarilan.length, 1, 'kaynak güncellemesi importOrders ile işlenmeli');
+  assert.equal(aktarilan[0].external_id, '11');
+ } finally { f.sqlite.close(); }
+});
+
+// ÖNİZLEME YAZMAZ: tanıma sayısı görünür ama tek satır bile yazılmaz.
+test('Önizlemede tanınan sipariş sayılır, hiçbir şey yazılmaz', async () => {
+ const f = fixture(); try {
+  await f.call('/trendyol/configure', credentials);
+  paketYaz(f, 'RPT-abc', 'draft', null, 0, 'ORD-1');
+  const tablolar = ['ec_provider_records', 'ec_provider_cursors', 'ec_integration_runs', 'ec_order_packages'];
+  const goruntu = () => JSON.stringify(tablolar.map(t => f.sqlite.prepare('SELECT * FROM ' + t).all()));
+  const fetcher = async () => Response.json({content: [order(), order({shipmentPackageId: 12, orderNumber: 'ORD-2'})], totalPages: 1, totalElements: 2});
+  let aktarim = 0; const importer = async (env, provider, records) => {aktarim++; return {created: records.length};};
+
+  const oncesi = goruntu();
+  const onizleme = await syncProvider(f.env, 'trendyol', {...query, preview: true}, fetcher, importer);
+  assert.equal(goruntu(), oncesi, 'önizleme hiçbir satır yazmamalı');
+  assert.equal(aktarim, 0, 'önizlemede taslak aktarımı hiç çağrılmaz');
+  assert.equal(onizleme.alreadyKnownOrders, 1);
+  assert.equal(onizleme.importableOrders, 1);
+
+  const gercek = await syncProvider(f.env, 'trendyol', query, fetcher, importer);
+  assert.equal(gercek.alreadyKnownOrders, onizleme.alreadyKnownOrders, 'sayı önizlemeyle gerçek senkronda aynı olmalı');
+  assert.equal(gercek.importableOrders, onizleme.importableOrders);
+ } finally { f.sqlite.close(); }
+});
