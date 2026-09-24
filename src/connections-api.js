@@ -122,11 +122,20 @@ export async function syncProvider(env,provider,input,fetcher=fetch,orderImporte
  if(env.WORKSPACE!=='ec')fail('Bu bağlantılar yalnızca e-ticaret alanında kullanılabilir.',403);
  if(!providers.includes(provider))fail('Sağlayıcı bulunamadı.',404);
  if(provider==='edm')fail('EDM üretim SOAP adresi ve servis yetkisi doğrulanmadı. Şimdilik UBL XML içe aktarımını kullanın.',409);
+ // ÖNİZLEME BAYRAĞI yalnız gerçek boolean kabul eder. Form gövdeleri her alanı METİN taşır
+ // (operations-ui.js all_pages için 'on' metnini elle boolean'a çeviriyor); 'false'/'on' gibi bir
+ // metni tahmin edip YAZMA moduna düşmek geri alınamaz iş üretir: sipariş taslağı açılır, imleç
+ // ilerler. Ters yön (yazmak isterken önizlemek) yalnız bir isteği boşa çıkarır ve kullanıcı
+ // mesajdan anlar. Bu yüzden belirsiz değer yorumlanmaz, reddedilir; alan hiç gelmezse
+ // (undefined/null) eski davranış korunur ve normal senkron yazar.
+ const previewFlag=input.preview??false;if(typeof previewFlag!=='boolean')fail('Önizleme değeri yalnız true/false olabilir; belirsiz değerle senkron çalıştırılmaz.');const preview=previewFlag;
  const db=env.DB,connection=await stmt(db,'SELECT * FROM provider_connections WHERE provider=?',[provider]).first();if(!connection)fail('Önce güvenli bağlantı ayarlarını kaydedin.',409);
  const credentials=await decryptCredentials(env,provider,connection.seller_id,connection.encrypted_credentials),spec=makeRequest(provider,credentials,input);
  const queryJSON=JSON.stringify({...spec.query,page:undefined}),queryKey=await hash(queryJSON);
  const cursor=await stmt(db,'SELECT next_page FROM provider_cursors WHERE provider=? AND seller_id=? AND kind=? AND query_key=?',[provider,connection.seller_id,input.kind,queryKey]).first();
- if(spec.page>(cursor?.next_page??0))fail('Sayfaları sırayla çekin; önceki kaynak sayfaları henüz alınmadı.',409);
+ // Sıra kuralı SAKLANAN sayfaların sürekliliğini korur; önizleme imleci yazmadığı için boşluk
+ // oluşturamaz. Kullanıcı istediği sayfaya/aralığa yazmadan bakabilsin diye önizlemede atlanır.
+ if(!preview&&spec.page>(cursor?.next_page??0))fail('Sayfaları sırayla çekin; önceki kaynak sayfaları henüz alınmadı.',409);
  try{
   let response;try{response=await fetcher(spec.url,{method:'GET',redirect:'error',signal:AbortSignal.timeout(20000),headers:{Authorization:'Basic '+btoa(credentials.key+':'+credentials.secret),'User-Agent':credentials.user_agent,Accept:'application/json'}});}catch{fail('Sağlayıcı bağlantısı tamamlanamadı; zaman aşımı veya ağ sorunu olabilir.',502);}
   const payload=await safeJSON(response);
@@ -154,19 +163,29 @@ export async function syncProvider(env,provider,input,fetcher=fetch,orderImporte
     else reviewOnlyOrders++;
    }
   }
-  if(sourceRows.length)statements.push(stmt(db,"INSERT INTO provider_records(id,provider,seller_id,kind,external_id,fingerprint,payload_json,source_updated_at) SELECT json_extract(value,'$.id'),?,?,?,json_extract(value,'$.external_id'),json_extract(value,'$.fingerprint'),json_extract(value,'$.payload_json'),json_extract(value,'$.source_updated_at') FROM json_each(?) WHERE 1 ON CONFLICT(provider,seller_id,kind,external_id,fingerprint) DO UPDATE SET last_seen_at=CURRENT_TIMESTAMP",[provider,connection.seller_id,input.kind,JSON.stringify(sourceRows)]));
-  statements.push(stmt(db,'INSERT INTO provider_cursors(provider,seller_id,kind,query_key,query_json,next_page,has_more) VALUES(?,?,?,?,?,?,?) ON CONFLICT(provider,seller_id,kind,query_key) DO UPDATE SET has_more=CASE WHEN excluded.next_page>=provider_cursors.next_page THEN excluded.has_more ELSE provider_cursors.has_more END,next_page=MAX(provider_cursors.next_page,excluded.next_page),last_success_at=CURRENT_TIMESTAMP',[provider,connection.seller_id,input.kind,queryKey,queryJSON,spec.page+1,result.hasMore?1:0]));
-  statements.push(stmt(db,'UPDATE provider_connections SET last_success_at=CURRENT_TIMESTAMP,last_error=NULL WHERE provider=?',[provider]));
-  statements.push(stmt(db,'INSERT INTO integration_runs(id,provider,kind,status,record_count,message) VALUES(?,?,?,?,?,?)',[crypto.randomUUID(),provider,input.kind,'inbox',result.records.length,'Kaynak kayıtları alındı; finans ve stok işlemleri otomatik yapılmadı.']));
-  await db.batch(statements);
+  // ÖNİZLEMEDE TEK BİR YAZMA YOK: kaynak kaydı, imleç, bağlantı damgası ve çalışma kaydı atlanır.
+  // Hesabın tamamı yukarıda aynen yapıldı; burada yalnızca kalıcı hale getirme adımı kapatılıyor.
+  if(!preview){
+   if(sourceRows.length)statements.push(stmt(db,"INSERT INTO provider_records(id,provider,seller_id,kind,external_id,fingerprint,payload_json,source_updated_at) SELECT json_extract(value,'$.id'),?,?,?,json_extract(value,'$.external_id'),json_extract(value,'$.fingerprint'),json_extract(value,'$.payload_json'),json_extract(value,'$.source_updated_at') FROM json_each(?) WHERE 1 ON CONFLICT(provider,seller_id,kind,external_id,fingerprint) DO UPDATE SET last_seen_at=CURRENT_TIMESTAMP",[provider,connection.seller_id,input.kind,JSON.stringify(sourceRows)]));
+   statements.push(stmt(db,'INSERT INTO provider_cursors(provider,seller_id,kind,query_key,query_json,next_page,has_more) VALUES(?,?,?,?,?,?,?) ON CONFLICT(provider,seller_id,kind,query_key) DO UPDATE SET has_more=CASE WHEN excluded.next_page>=provider_cursors.next_page THEN excluded.has_more ELSE provider_cursors.has_more END,next_page=MAX(provider_cursors.next_page,excluded.next_page),last_success_at=CURRENT_TIMESTAMP',[provider,connection.seller_id,input.kind,queryKey,queryJSON,spec.page+1,result.hasMore?1:0]));
+   statements.push(stmt(db,'UPDATE provider_connections SET last_success_at=CURRENT_TIMESTAMP,last_error=NULL WHERE provider=?',[provider]));
+   statements.push(stmt(db,'INSERT INTO integration_runs(id,provider,kind,status,record_count,message) VALUES(?,?,?,?,?,?)',[crypto.randomUUID(),provider,input.kind,'inbox',result.records.length,'Kaynak kayıtları alındı; finans ve stok işlemleri otomatik yapılmadı.']));
+   await db.batch(statements);
+  }
   let orders=null,orderImportWarning=null;
-  if(newOrders.length){try{const importer=orderImporter||(await import('./orders-api.js')).importOrders;orders=await importer(env,provider,newOrders);}catch{orderImportWarning='Kaynaklar saklandı; sipariş taslaklarına aktarım tamamlanamadı. Aynı sayfayı yeniden çekebilirsiniz.';}}
+  // Önizleme sipariş taslağı ÜRETMEZ: importOrders hiç çağrılmaz, orders null kalır; kaç taslak
+  // oluşacağını kullanıcı importableOrders alanından görür.
+  if(!preview&&newOrders.length){try{const importer=orderImporter||(await import('./orders-api.js')).importOrders;orders=await importer(env,provider,newOrders);}catch{orderImportWarning='Kaynaklar saklandı; sipariş taslaklarına aktarım tamamlanamadı. Aynı sayfayı yeniden çekebilirsiniz.';}}
   const warnings=[...(orderImportWarning?[orderImportWarning]:[]),...(reviewOnlyOrders?[reviewOnlyOrders+' sipariş kaynak kutusunda kaldı; paket büyüklüğü, tarih, para birimi veya kaynak sürümü inceleme gerektiriyor.']:[]),...(oversizedOrders?[oversizedOrders+' paket 10 satır sınırını aşıyor; bunları yeniden çekmek taslak oluşturmaz.']:[]),...(deferredOrders?[deferredOrders+' paket ücretsiz işlem sınırı nedeniyle kaynak kutusunda. Aynı sayfayı yeniden çekerek sıradaki taslakları aktarın.']:[]),...(missingSkus.length?[missingSkus.length+' istenen SKU için komisyon yanıtı yok; eksik oran sıfır kabul edilmedi.']:[])];
-  return {...result,records:result.records.map(sourcePreview),page:spec.page,next_page:spec.page+1,unchanged,changed,orders,orderImportWarning,reviewOnlyOrders,deferredOrders,oversizedOrders,missing_skus:missingSkus,warnings,message:'Kaynak kayıtlarıdır. Finans/kargo/komisyon henüz muhasebeyle mutabık değildir. Fiyat veya stok pazaryerine gönderilmedi.'+(warnings.length?' '+warnings.join(' '):'')};
+  return {...result,records:result.records.map(sourcePreview),page:spec.page,next_page:spec.page+1,unchanged,changed,orders,orderImportWarning,reviewOnlyOrders,deferredOrders,oversizedOrders,importableOrders:newOrders.length,preview,missing_skus:missingSkus,warnings,message:(preview?'ÖNİZLEME — hiçbir şey yazılmadı: kaynak kaydı saklanmadı, sipariş taslağı oluşturulmadı, imleç ilerlemedi. Gerçek senkronda '+newOrders.length+' sipariş taslağı oluşacak. ':'')+'Kaynak kayıtlarıdır. Finans/kargo/komisyon henüz muhasebeyle mutabık değildir. Fiyat veya stok pazaryerine gönderilmedi.'+(warnings.length?' '+warnings.join(' '):'')};
  }catch(error){
   const safe=error.status?error.message:'Bağlantı işleme hatası; kaynak sayfa tamamlanmadı.';
-  await stmt(db,'UPDATE provider_connections SET last_error=? WHERE provider=?',[safe,provider]).run();
-  await stmt(db,'INSERT INTO integration_runs(id,provider,kind,status,record_count,message) VALUES(?,?,?,?,?,?)',[crypto.randomUUID(),provider,input.kind||'unknown','error',0,safe]).run();
+  // Hata yolunda da önizleme iz bırakmaz: last_error damgası ve çalışma kaydı gerçek senkronun
+  // geçmişidir; yazmadan denenen sayfa bağlantıyı "hatalı" göstermemeli. Hata yine kullanıcıya döner.
+  if(!preview){
+   await stmt(db,'UPDATE provider_connections SET last_error=? WHERE provider=?',[safe,provider]).run();
+   await stmt(db,'INSERT INTO integration_runs(id,provider,kind,status,record_count,message) VALUES(?,?,?,?,?,?)',[crypto.randomUUID(),provider,input.kind||'unknown','error',0,safe]).run();
+  }
   if(error.status)throw error;fail(safe,502);
  }
 }
@@ -184,7 +203,7 @@ export async function connectionsApi(request,env,path,readBody){
  }
  const match=path.match(/^\/api\/connections\/(trendyol|hepsiburada|edm)\/(configure|sync)$/);if(!match||method!=='POST')return null;
  const provider=match[1],x=await readBody(request);
- if(match[2]==='sync')return syncProvider(env,provider,x);
+ if(match[2]==='sync')return syncProvider(env,provider,x);// preview bayrağı syncProvider içinde doğrulanır: tek nokta, yalnız gerçek boolean.
  if(provider==='edm')fail('EDM üretim SOAP adresi/servis sözleşmesi henüz doğrulanmadı; parola kaydedilmedi. UBL XML içe aktarımını kullanabilirsiniz.',409);
  keyBytes(env.CREDENTIAL_KEY);
  const seller=text(x.seller_id,'Satıcı kimliği',100);if(provider==='trendyol'?!/^\d+$/.test(seller):!/^[a-f\d-]{32,36}$/i.test(seller))fail('Satıcı kimliği biçimi geçersiz.');

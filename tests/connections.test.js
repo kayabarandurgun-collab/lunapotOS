@@ -149,3 +149,86 @@ test('TY finans uçları 500 sayfa boyutuyla çağrılır; sipariş ucu 50 kalı
   assert.deepEqual(siparis, ['50'], 'sipariş ucunun sayfa boyutu değişmemeli');
  } finally { f.sqlite.close(); }
 });
+
+// YAZMADAN DENE (ÖNİZLEME): kullanıcı senkronu hiç çalıştırmadan ne geleceğini görmek istiyor.
+// Ölçtüğümüz şey "hiç yazılmadı"dır: dört tablonun satır sayısı VE içeriği önce/sonra birebir aynı kalmalı.
+test('Önizleme hiçbir şey yazmaz, taslak üretmez ve sayıları gerçek senkronla tutar', async () => {
+ const f = fixture(); try {
+  await f.call('/trendyol/configure', credentials);
+  const tablolar = ['ec_provider_records', 'ec_provider_cursors', 'ec_integration_runs', 'ec_provider_connections'];
+  const goruntu = () => JSON.stringify(tablolar.map(t => f.sqlite.prepare('SELECT * FROM ' + t).all()));
+  const sayfa = {content: [order(), order({shipmentPackageId: 12, orderNumber: 'ORD-2'})], totalPages: 1, totalElements: 2};
+  const fetcher = async () => Response.json(sayfa);
+  let aktarim = 0; const importer = async (env, provider, records) => {aktarim++; return {created: records.length};};
+
+  const oncesi = goruntu();
+  const onizleme = await syncProvider(f.env, 'trendyol', {...query, preview: true}, fetcher, importer);
+  assert.equal(goruntu(), oncesi, 'önizleme hiçbir satır yazmamalı');
+  assert.equal(aktarim, 0, 'önizlemede sipariş taslağı aktarımı hiç çağrılmaz');
+  assert.equal(onizleme.preview, true);
+  assert.equal(onizleme.orders, null, 'önizlemede taslak oluşmadığı için orders null kalır');
+  assert.equal(onizleme.importableOrders, 2, 'gerçek senkronda kaç taslak oluşacağı görünmeli');
+  assert.ok(onizleme.message.startsWith('ÖNİZLEME'), onizleme.message);
+  for (const ibare of ['hiçbir şey yazılmadı', 'sipariş taslağı oluşturulmadı', 'imleç ilerlemedi', 'Kaynak kayıtlarıdır'])
+   assert.ok(onizleme.message.includes(ibare), ibare + ' mesajda yok: ' + onizleme.message);
+  for (const t of tablolar.slice(0, 3).concat('ec_order_packages'))
+   assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ' + t).get().n, 0, t + ' önizlemeden sonra boş kalmalı');
+
+  // Aynı girdiyle gerçek senkron: sayılar birebir tutmalı, ama bu kez YAZMALI.
+  const gercek = await syncProvider(f.env, 'trendyol', query, fetcher, importer);
+  for (const alan of ['records', 'unchanged', 'changed', 'reviewOnlyOrders', 'deferredOrders', 'oversizedOrders', 'importableOrders', 'hasMore', 'page', 'next_page', 'warnings'])
+   assert.deepEqual(onizleme[alan], gercek[alan], alan + ' önizlemede ve gerçek senkronda aynı olmalı');
+  assert.equal(gercek.preview, false);
+  assert.equal(aktarim, 1, 'gerçek senkron taslak aktarımını çağırır');
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ec_provider_records').get().n, 2);
+  assert.equal(f.sqlite.prepare('SELECT next_page FROM ec_provider_cursors').get().next_page, 1);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ec_integration_runs').get().n, 1);
+
+  // Önizleme OKUMAYA devam eder: "kaç değişmiş" sayısı ancak mevcut kayıtlar görülürse anlamlıdır.
+  const degisen = {content: [order(), order({shipmentPackageId: 12, orderNumber: 'ORD-2', status: 'Shipped', lastModifiedDate: 1788902200000})], totalPages: 1, totalElements: 2};
+  const ikinciOncesi = goruntu();
+  const onizleme2 = await syncProvider(f.env, 'trendyol', {...query, preview: true}, async () => Response.json(degisen), importer);
+  assert.equal(goruntu(), ikinciOncesi, 'ikinci önizleme de hiçbir satır değiştirmemeli');
+  assert.equal(onizleme2.unchanged, 1);
+  assert.equal(onizleme2.changed, 1);
+  const gercek2 = await syncProvider(f.env, 'trendyol', query, async () => Response.json(degisen), importer);
+  assert.equal(gercek2.unchanged, onizleme2.unchanged, 'değişmeyen kayıt sayısı önizlemeyle tutmalı');
+  assert.equal(gercek2.changed, onizleme2.changed, 'değişen kayıt sayısı önizlemeyle tutmalı');
+
+  // Sağlayıcı hata döndürdüğünde önizleme last_error ve integration_runs yazmaz; hata yine döner.
+  const hataOncesi = goruntu();
+  await assert.rejects(() => syncProvider(f.env, 'trendyol', {...query, preview: true}, async () => new Response('secret ' + credentials.secret, {status: 401}), importer), /erişimi/);
+  assert.equal(goruntu(), hataOncesi, 'önizleme hata yolunda da iz bırakmamalı');
+  await assert.rejects(() => syncProvider(f.env, 'trendyol', query, async () => new Response('secret ' + credentials.secret, {status: 401}), importer), /erişimi/);
+  assert.ok(f.sqlite.prepare('SELECT last_error FROM ec_provider_connections').get().last_error, 'gerçek senkron hatası iz bırakır (karşı kontrol)');
+  assert.equal(f.sqlite.prepare("SELECT count(*) n FROM ec_integration_runs WHERE status='error'").get().n, 1);
+
+  // İmleç yazılmadığı için sıra kuralı önizlemede uygulanmaz: istenen sayfaya yazmadan bakılabilir.
+  const ileri = await syncProvider(f.env, 'trendyol', {...query, page: 5, preview: true}, async url => {assert.equal(url.searchParams.get('page'), '5'); return Response.json({content: [], totalPages: 9, totalElements: 300});}, importer);
+  assert.equal(ileri.page, 5);
+  assert.equal(ileri.preview, true);
+  await assert.rejects(() => syncProvider(f.env, 'trendyol', {...query, page: 5}, fetcher, importer), /sırayla/, 'gerçek senkronda sıra kuralı aynen durmalı');
+  assert.equal(f.sqlite.prepare('SELECT next_page FROM ec_provider_cursors').get().next_page, 1, 'önizleme imleci ilerletmemeli');
+  assert.equal(aktarim, 2, 'önizlemeler taslak aktarımını hiç çağırmadı');
+ } finally { f.sqlite.close(); }
+});
+
+// Belirsiz bayrak TAHMİN EDİLMEZ: form gövdeleri alanları metin taşır ('on', 'false') ve yanlış
+// yönde okumak (önizleme sanılan istek YAZARSA) geri alınamaz iş üretir. Reddetmek tek güvenli yol.
+test('Belirsiz preview değeri reddedilir; alan yoksa eski davranış yazmaya devam eder', async () => {
+ const f = fixture(); try {
+  await f.call('/trendyol/configure', credentials);
+  for (const deger of ['true', 'false', 'on', 1, 0, {}, []])
+   await assert.rejects(() => syncProvider(f.env, 'trendyol', {...query, preview: deger}, async () => {throw Error('sağlayıcıya hiç gidilmemeli');}, async () => {throw Error('aktarım çağrılmamalı');}), /true\/false/, JSON.stringify(deger) + ' değeri reddedilmeli');
+  await assert.rejects(() => f.call('/trendyol/sync', {...query, preview: 'true'}), /true\/false/, 'uç gövdesindeki metin değer de reddedilmeli');
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ec_provider_records').get().n, 0);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ec_integration_runs').get().n, 0);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ec_provider_cursors').get().n, 0);
+
+  // Alan hiç gelmezse veya açıkça false ise eski davranış korunur: normal senkron yazar.
+  const yazan = await syncProvider(f.env, 'trendyol', {...query, preview: false}, async () => Response.json({content: [order()], totalPages: 1, totalElements: 1}), async () => ({created: 1}));
+  assert.equal(yazan.preview, false);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ec_provider_records').get().n, 1);
+  assert.equal(f.sqlite.prepare('SELECT next_page FROM ec_provider_cursors').get().next_page, 1);
+ } finally { f.sqlite.close(); }
+});
