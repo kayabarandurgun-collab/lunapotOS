@@ -1,7 +1,7 @@
 /* Rapor Kutusu — e-ticaret paneli. Satır içi stil yok (CSP style-src 'self'). */
 .rb{display:grid;gap:16px}
 .rb-tabs{display:flex;flex-wrap:wrap;gap:6px;border-bottom:1px solid var(--line,#d8ded8);padding-bottom:8px}
-.rb-tabs button{border:1px solid var(--line,#d8ded8);background:transparent;border-radius:999px;padding:7px 14px;cursor:pointer;font:inherit}
+.rb-tabs button{border:1px solid var(--line,#d8ded8);background:transparent;border-radius:var(--radius-dugme);padding:7px 14px;cursor:pointer;font:inherit}
 .rb-tabs button.active{background:var(--ink,#1f2a24);color:var(--paper,#fff);border-color:var(--ink,#1f2a24)}
 .rb-intro{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:18px}
 .rb-intro h2{margin:0 0 6px}
@@ -18,7 +18,7 @@
 .rb-alert.ok{background:#e1f0e5;border-color:#b9dcc3;color:#1f5a3a}
 .rb-alert.warn{background:#f7ecd5;border-color:#e6cf9e;color:#6d4a0f}
 .rb-alert.error{background:#f7e0dc;border-color:#e7b3ab;color:#7a2a22}
-.rb-chip{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;background:#e8ece9;color:#44524a;vertical-align:middle}
+.rb-chip{display:inline-block;font-size:var(--yazi-rozet);padding:2px 8px;border-radius:var(--radius-rozet);background:#e8ece9;color:#44524a;vertical-align:middle}
 .rb-chip.warn{background:#f7ecd5;color:#6d4a0f}
 .rb-req{font-size:12px;color:#7a2a22}
 .rb-sample{color:var(--muted,#5e6b63);max-width:260px;overflow-wrap:anywhere}
@@ -43,7 +43,7 @@
 
 /* Codex görsel incelemesi: kart metinleri kenara dayanıyordu; ortak iç boşluk ve başlık ölçeği.
    Mobilde önce YÜKLEME görünsün: açıklamalar açılır kutuya iner. */
-.rb .v2-card{padding:20px 22px}
+.rb .v2-card{padding:var(--dolgu-kart)}
 .rb .v2-card>h2,.rb .v2-card>h3{margin:0 0 8px;font-size:17px;letter-spacing:-.2px}
 .rb .v2-card>h3+.rb-muted,.rb .v2-card>h2+p{margin-top:0}
 .rb .v2-card h4{margin:16px 0 6px;font-size:14px}
@@ -52,7 +52,7 @@
 .rb-help[open] summary{margin-bottom:8px}
 /* Sayılı durum kartları: bekleyen iş görünür olsun. */
 .rb-status{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:0 0 4px}
-.rb-status a,.rb-status button{text-align:left;border:1px solid var(--line,#d8ded8);border-radius:12px;padding:12px 14px;background:#fff;display:grid;gap:3px;font:inherit;cursor:pointer}
+.rb-status a,.rb-status button{text-align:left;border:1px solid var(--line,#d8ded8);border-radius:var(--radius-dugme);padding:12px 14px;background:#fff;display:grid;gap:3px;font:inherit;cursor:pointer}
 .rb-status button:hover{border-color:var(--brand,#4e56a6);background:var(--brand-soft,#eff0fa)}
 .rb-status span{font-size:12px;color:var(--muted,#5e6b63)}
 .rb-status strong{font-size:23px;font-variant-numeric:tabular-nums}
@@ -66,7 +66,7 @@
 @media (max-width:760px){
  .rb .v2-card,.rb-intro{padding:16px}
  .rb-tabs{gap:4px;padding-bottom:6px}
- .rb-tabs button{padding:6px 11px;font-size:13px}
+ .rb-tabs button{padding:6px 11px;font-size:var(--yazi-dugme-kucuk)}
  .rb-drop{padding:22px 14px}
  .rb-grid{gap:10px;margin:8px 0}
  .rb-kv{grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:8px}

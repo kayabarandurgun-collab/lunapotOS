@@ -1,5 +1,21 @@
 /* Lunapot workspace foundation. One set of tokens, surfaces and interaction states. */
 @font-face{font-family:LunapotInter;src:url('/workspace-inter.woff2') format('woff2');font-style:normal;font-weight:100 900;font-display:swap}
+/* ÖLÇEK — bütün arayüz bu ölçülere oturur. Değerler mevcut çoğunluktan türetildi,
+   yeniden tasarım değildir: renk, yazı tipi ve marka kimliği aynı kalır.
+   workspace-design.css beş ekranın tamamında yüklenir; ölçeğin yeri burasıdır. */
+:root{
+ --radius-dugme:8px;      /* düğme, giriş alanı, sekme düğmesi, küçük denetim */
+ --radius-kart:12px;      /* kart, istatistik kutusu, panel, diyalog */
+ --radius-rozet:6px;      /* rozet ve durum etiketi */
+ --yazi-dugme:13px;       /* düğme yazısı — normal kademe */
+ --yazi-dugme-kucuk:12px; /* tablo içi, araç çubuğu, sekme, metin düğmesi */
+ --yazi-rozet:11px;       /* rozet yazısı */
+ --kalinlik-dugme:600;    /* düğme yazı kalınlığı — tek kademe */
+ --dolgu-dugme:10px 15px;
+ --dolgu-dugme-kucuk:8px 12px;
+ --dolgu-kart:20px;       /* kart iç boşluğu — geniş ekran */
+ --dolgu-kart-dar:16px;   /* kart iç boşluğu — dar ekran */
+}
 body.workspace-redesign{
  --brand:#315c45;--brand-dark:#234633;--brand-soft:#eaf0e6;--brand-border:#ccd9c5;
  --green:var(--brand);--accent:#e9c979;--ink:#20342f;--muted:#65736a;--line:#dfe5dc;
@@ -19,17 +35,17 @@ body.workspace-redesign{
 .workspace-redesign .eyebrow{font-size:10px;letter-spacing:1.3px;line-height:1.5;font-weight:600;color:var(--muted)}
 .workspace-redesign :is(p,.help){line-height:1.65}
 .workspace-redesign .help{font-size:12px;color:var(--muted)}
-.workspace-redesign :is(.primary,.secondary,.danger-button){min-height:42px;padding:10px 15px;border-radius:8px;font-size:13px;line-height:1.4;font-weight:600;gap:8px;box-shadow:none;text-align:center}
+.workspace-redesign :is(.primary,.secondary,.danger-button){min-height:42px;padding:var(--dolgu-dugme);border-radius:var(--radius-dugme);font-size:var(--yazi-dugme);line-height:1.4;font-weight:var(--kalinlik-dugme);gap:8px;box-shadow:none;text-align:center}
 .workspace-redesign .primary{background:var(--brand);border:1px solid var(--brand);color:#fff}
 .workspace-redesign .primary:hover{background:var(--brand-dark)}
 .workspace-redesign .secondary{background:#fff;color:var(--ink);border:1px solid #d5dfd0}
 .workspace-redesign .secondary:hover{background:#f0f4ec;border-color:#afc1a6}
 .workspace-redesign .danger-button{background:#a63d36;border-color:#a63d36;color:#fff}
-.workspace-redesign .text-button{color:var(--brand);font-size:12px;font-weight:550;min-height:40px}
-.workspace-redesign .icon-button{border:1px solid transparent;min-width:40px;min-height:40px;border-radius:8px;color:var(--muted);background:transparent}
+.workspace-redesign .text-button{color:var(--brand);font-size:var(--yazi-dugme-kucuk);font-weight:var(--kalinlik-dugme);min-height:40px}
+.workspace-redesign .icon-button{border:1px solid transparent;min-width:40px;min-height:40px;border-radius:var(--radius-dugme);color:var(--muted);background:transparent}
 .workspace-redesign .icon-button:hover{background:var(--brand-soft);color:var(--brand)}
 .workspace-redesign button:disabled{opacity:.5}
-.workspace-redesign :is(input,select,textarea){border:1px solid #d7ded2;box-shadow:none;border-radius:8px;min-height:42px;background:#fff;color:var(--ink);font-size:14px;padding:10px 12px;max-width:100%}
+.workspace-redesign :is(input,select,textarea){border:1px solid #d7ded2;box-shadow:none;border-radius:var(--radius-dugme);min-height:42px;background:#fff;color:var(--ink);font-size:14px;padding:10px 12px;max-width:100%}
 .workspace-redesign :is(input,select,textarea):focus{border-color:#6e8b60;box-shadow:0 0 0 3px #eaf0e6}
 .workspace-redesign :is(input,select,textarea):focus-visible{outline:2px solid #315c45;outline-offset:2px}
 .workspace-redesign :is(input[type=checkbox],input[type=radio]){width:17px;min-height:17px;height:17px;accent-color:var(--brand);display:inline-block;margin:0 7px 0 0;vertical-align:middle;flex-shrink:0}
@@ -66,11 +82,11 @@ body.workspace-redesign .workspace main{width:100%;max-width:1640px;min-width:0;
 .workspace-redesign .page-heading h1{margin:5px 0 8px}
 .workspace-redesign .page-heading p{font-size:13px;max-width:720px;color:var(--muted)}
 .workspace-redesign :is(.page-heading,.card-heading,.v2-card-head) :is(.ac-actions,.v2-actions){flex-shrink:0}
-.workspace-redesign :is(.card,.v2-card,.pn-card){background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 2px 3px #223c2d03;min-width:0}
-.workspace-redesign :is(.card-heading,.v2-card-head){padding:19px 22px;border-bottom:1px solid #e9ede5;gap:12px}
+.workspace-redesign :is(.card,.v2-card,.pn-card){background:#fff;border:1px solid var(--line);border-radius:var(--radius-kart);box-shadow:0 2px 3px #223c2d03;min-width:0}
+.workspace-redesign :is(.card-heading,.v2-card-head){padding:var(--dolgu-kart);border-bottom:1px solid #e9ede5;gap:12px}
 .workspace-redesign :is(.card-heading,.v2-card-head) h2{font-size:16px;font-weight:600}
 .workspace-redesign :is(.stats,.v2-stats){gap:14px;margin-bottom:24px}
-.workspace-redesign .stat{padding:21px 22px;border:1px solid var(--line);border-radius:11px;background:#fff;box-shadow:none}
+.workspace-redesign .stat{padding:var(--dolgu-kart);border:1px solid var(--line);border-radius:var(--radius-kart);background:#fff;box-shadow:none}
 .workspace-redesign .stat>span{font-size:11px;color:#73806d;letter-spacing:.15px}
 .workspace-redesign .stat>strong{font-size:30px;letter-spacing:-1.1px;font-weight:550;color:var(--ink);margin:10px 0 6px;font-variant-numeric:tabular-nums}
 .workspace-redesign .stat small{font-size:10px;color:#75806e}
@@ -79,7 +95,7 @@ body.workspace-redesign .workspace main{width:100%;max-width:1640px;min-width:0;
 .workspace-redesign :is(.toolbar,.list-tools){background:#fafbf8;border-color:var(--line);gap:12px}
 .workspace-redesign .toolbar{padding:16px 20px}
 .workspace-redesign :is(.v2-tabs,.ac-tabs){background:transparent;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:0;gap:18px;margin-bottom:22px;flex-wrap:wrap}
-.workspace-redesign :is(.v2-tabs,.ac-tabs) :is(button,a){border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;box-shadow:none;padding:12px 2px;color:var(--muted);min-height:44px;font-size:12px}
+.workspace-redesign :is(.v2-tabs,.ac-tabs) :is(button,a){border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;box-shadow:none;padding:12px 2px;color:var(--muted);min-height:44px;font-size:var(--yazi-dugme-kucuk)}
 .workspace-redesign :is(.v2-tabs,.ac-tabs) .active{background:transparent;color:var(--brand);border-bottom-color:var(--brand);box-shadow:none;font-weight:600}
 .workspace-redesign table{white-space:normal}
 .workspace-redesign :is(table th,.v2-table th){background:#f7f9f3;color:#5f6e58;font-size:12px;font-weight:550;padding:12px 18px;letter-spacing:.25px}
@@ -91,7 +107,7 @@ body.workspace-redesign .workspace main{width:100%;max-width:1640px;min-width:0;
 .workspace-redesign table.lt-stack td{font-size:13px}
 .workspace-redesign table.lt-stack td:first-child{flex:1 1 100%;font-size:13px}
 .workspace-redesign table.lt-stack td::before{font-size:11px;color:#87917d}
-.workspace-redesign :is(.pill,.rb-chip){background:#edf2e7;color:#577043;border:1px solid #dfe8d4;border-radius:5px;font-size:10px;line-height:1.5;font-weight:500;padding:3px 7px}
+.workspace-redesign :is(.pill,.rb-chip){background:#edf2e7;color:#577043;border:1px solid #dfe8d4;border-radius:var(--radius-rozet);font-size:var(--yazi-rozet);line-height:1.5;font-weight:500;padding:3px 7px}
 .workspace-redesign .pill.neutral{background:#f1f3ee;color:#76816c;border-color:#e5e9e0}
 .workspace-redesign .notice{border:1px solid #e6dcba;border-left:3px solid #cbaa57;background:#faf7eb;color:#78663b;padding:13px 16px;font-size:12px;border-radius:7px}
 .workspace-redesign .notice.subtle{background:#f3f6ef;border-color:#dee6d5;color:#66735b}
@@ -160,13 +176,13 @@ body.workspace-redesign .workspace main{width:100%;max-width:1640px;min-width:0;
  .workspace-redesign .header-actions .workspace-switch{padding:7px;min-width:44px;gap:0}
  .workspace-redesign .header-actions .workspace-switch>span{display:none}
  .workspace-redesign .ui-quick-nav{height:36px;width:36px;min-width:36px}
- .workspace-redesign .header-actions>.text-button{font-size:10px;min-height:36px;padding:6px}
+ .workspace-redesign .header-actions>.text-button{font-size:var(--yazi-dugme-kucuk);min-height:36px;padding:6px}
  .workspace-redesign .page-heading{align-items:flex-start;flex-wrap:wrap;margin-bottom:20px;gap:14px}
  .workspace-redesign .page-heading h1{font-size:27px;letter-spacing:-.8px}
  .workspace-redesign .page-heading p{font-size:12px}
  .workspace-redesign :is(.page-heading,.card-heading,.v2-card-head) .ac-actions{flex-wrap:wrap;flex-shrink:1}
- .workspace-redesign :is(.card-heading,.v2-card-head){padding:16px}
- .workspace-redesign .stat{padding:16px}
+ body.workspace-redesign :is(.card-heading,.v2-card-head){padding:var(--dolgu-kart-dar)}
+ .workspace-redesign .stat{padding:var(--dolgu-kart-dar)}
  .workspace-redesign .stat>strong{font-size:25px;overflow-wrap:anywhere}
  .workspace-redesign :is(.v2-tabs,.ac-tabs){gap:14px}
  .workspace-redesign .workspace>footer{padding:16px 16px 92px;font-size:11px}
@@ -190,7 +206,9 @@ body.workspace-redesign .workspace main{width:100%;max-width:1640px;min-width:0;
 @media(max-width:420px){
  .workspace-redesign :is(.field-grid,.calculator-grid){grid-template-columns:1fr}
  .workspace-redesign :is(.ac-filters,.toolbar,.list-tools){flex-wrap:wrap}
- .workspace-redesign .primary,.workspace-redesign .secondary{font-size:12px;padding:10px 12px}
+ /* Dar ekranda yalnız dolgu daralır; yazı boyutu her ekranda aynı kalsın diye küçültülmez.
+    Uzun etiketler white-space:normal ile alt satıra iner, taşma olmaz. */
+ .workspace-redesign :is(.primary,.secondary,.danger-button){padding:var(--dolgu-dugme-kucuk)}
  .workspace-redesign table.lt-stack tr:not([hidden]){padding:13px;gap:8px 14px}
 }
 @media(prefers-reduced-motion:no-preference){
@@ -207,9 +225,9 @@ body.workspace-redesign .workspace main{width:100%;max-width:1640px;min-width:0;
 
 
 /* Pricing workbench: input decisions and transparent result stay together. */
-.workspace-redesign .fh-workbench{overflow:hidden}.workspace-redesign .fh-workbench>.v2-card-head{padding:24px 28px}.workspace-redesign .fh-workbench h2{font-size:24px;margin:8px 0}.workspace-redesign .fh-workbench .v2-card-head p{font-size:12px;max-width:680px;color:var(--muted)}.workspace-redesign .fh-workbench-body{display:grid;grid-template-columns:minmax(260px,.78fr) minmax(0,1.22fr)}.workspace-redesign .fh-workbench .fh-form{display:flex;flex-direction:column;gap:20px;padding:26px 28px;margin:0;background:#f7f9f3;border-right:1px solid var(--line)}.workspace-redesign .fh-workbench .fh-form label{display:flex;flex-direction:column;gap:8px;font-size:11px}.workspace-redesign .fh-workbench .fh-form input,.workspace-redesign .fh-workbench .fh-form select{width:100%;min-width:0}.workspace-redesign .fh-results-panel{padding:26px 28px;min-width:0}.workspace-redesign .fh-step{display:flex;align-items:flex-start;gap:12px;margin-bottom:5px}.workspace-redesign .fh-step>span{display:grid;place-items:center;border:1px solid #dce4d3;border-radius:50%;width:30px;height:30px;font-size:10px;color:var(--brand);flex-shrink:0}.workspace-redesign .fh-step h3{font-size:15px;margin:1px 0 4px;font-weight:550}.workspace-redesign .fh-step p{font-size:11px;margin:0;color:var(--muted)}.workspace-redesign .fh-workbench .fh-kanal>span{font-size:11px;display:block;margin-bottom:8px}.workspace-redesign .fh-workbench .ol-seg{display:flex;width:100%}.workspace-redesign .fh-workbench .ol-seg button{flex:1}.workspace-redesign .fh-workbench .fh-sonuc{padding:18px 0 0}.workspace-redesign .fh-workbench .fh-kartlar{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px}.workspace-redesign .fh-workbench .fh-kart{background:#f5f7f0;border:1px solid var(--line);padding:18px;border-radius:10px}.workspace-redesign .fh-workbench .fh-kart span{font-size:10px;color:var(--muted)}.workspace-redesign .fh-workbench .fh-kart strong{font-size:25px;font-weight:550;display:block;margin:10px 0;letter-spacing:-.7px}.workspace-redesign .fh-workbench .fh-kart small{font-size:10px;line-height:1.5;display:block;color:var(--muted)}.workspace-redesign .fh-workbench .fh-kart.kar{background:#e9f0e2}.workspace-redesign .fh-workbench .fh-kart.zarar{background:#faf0e9;border-color:#e7d0c3}.workspace-redesign .fh-workbench .fh-kart.hedef{background:#f7f2de;border-color:#e8ddad}.workspace-redesign .fh-workbench .fh-baslik{font-size:13px;font-weight:550;margin:25px 0 12px}.workspace-redesign .fh-workbench .fh-dokum{width:100%;border-collapse:collapse}.workspace-redesign .fh-workbench .fh-dokum th{background:none;text-align:left;color:var(--ink);font-size:11px;font-weight:400;border-top:1px solid var(--line);padding:11px 0}.workspace-redesign .fh-workbench .fh-dokum th small{display:block;color:var(--muted);font-size:10px;margin-top:3px}.workspace-redesign .fh-workbench .fh-dokum td{text-align:right;padding:11px 0;white-space:nowrap;font-size:12px}.workspace-redesign .fh-workbench .fh-toplam th,.workspace-redesign .fh-workbench .fh-toplam td{font-size:14px;font-weight:550;padding-top:18px}.workspace-redesign .fh-workbench .v2-empty{display:flex;flex-direction:column;justify-content:center;min-height:290px;text-align:center}.workspace-redesign .fh-workbench .v2-empty p{margin:0 auto}
+.workspace-redesign .fh-workbench{overflow:hidden}.workspace-redesign .fh-workbench>.v2-card-head{padding:var(--dolgu-kart)}.workspace-redesign .fh-workbench h2{font-size:24px;margin:8px 0}.workspace-redesign .fh-workbench .v2-card-head p{font-size:12px;max-width:680px;color:var(--muted)}.workspace-redesign .fh-workbench-body{display:grid;grid-template-columns:minmax(260px,.78fr) minmax(0,1.22fr)}.workspace-redesign .fh-workbench .fh-form{display:flex;flex-direction:column;gap:20px;padding:26px 28px;margin:0;background:#f7f9f3;border-right:1px solid var(--line)}.workspace-redesign .fh-workbench .fh-form label{display:flex;flex-direction:column;gap:8px;font-size:11px}.workspace-redesign .fh-workbench .fh-form input,.workspace-redesign .fh-workbench .fh-form select{width:100%;min-width:0}.workspace-redesign .fh-results-panel{padding:26px 28px;min-width:0}.workspace-redesign .fh-step{display:flex;align-items:flex-start;gap:12px;margin-bottom:5px}.workspace-redesign .fh-step>span{display:grid;place-items:center;border:1px solid #dce4d3;border-radius:50%;width:30px;height:30px;font-size:10px;color:var(--brand);flex-shrink:0}.workspace-redesign .fh-step h3{font-size:15px;margin:1px 0 4px;font-weight:550}.workspace-redesign .fh-step p{font-size:11px;margin:0;color:var(--muted)}.workspace-redesign .fh-workbench .fh-kanal>span{font-size:11px;display:block;margin-bottom:8px}.workspace-redesign .fh-workbench .ol-seg{display:flex;width:100%}.workspace-redesign .fh-workbench .ol-seg button{flex:1}.workspace-redesign .fh-workbench .fh-sonuc{padding:18px 0 0}.workspace-redesign .fh-workbench .fh-kartlar{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px}.workspace-redesign .fh-workbench .fh-kart{background:#f5f7f0;border:1px solid var(--line);padding:18px;border-radius:10px}.workspace-redesign .fh-workbench .fh-kart span{font-size:10px;color:var(--muted)}.workspace-redesign .fh-workbench .fh-kart strong{font-size:25px;font-weight:550;display:block;margin:10px 0;letter-spacing:-.7px}.workspace-redesign .fh-workbench .fh-kart small{font-size:10px;line-height:1.5;display:block;color:var(--muted)}.workspace-redesign .fh-workbench .fh-kart.kar{background:#e9f0e2}.workspace-redesign .fh-workbench .fh-kart.zarar{background:#faf0e9;border-color:#e7d0c3}.workspace-redesign .fh-workbench .fh-kart.hedef{background:#f7f2de;border-color:#e8ddad}.workspace-redesign .fh-workbench .fh-baslik{font-size:13px;font-weight:550;margin:25px 0 12px}.workspace-redesign .fh-workbench .fh-dokum{width:100%;border-collapse:collapse}.workspace-redesign .fh-workbench .fh-dokum th{background:none;text-align:left;color:var(--ink);font-size:11px;font-weight:400;border-top:1px solid var(--line);padding:11px 0}.workspace-redesign .fh-workbench .fh-dokum th small{display:block;color:var(--muted);font-size:10px;margin-top:3px}.workspace-redesign .fh-workbench .fh-dokum td{text-align:right;padding:11px 0;white-space:nowrap;font-size:12px}.workspace-redesign .fh-workbench .fh-toplam th,.workspace-redesign .fh-workbench .fh-toplam td{font-size:14px;font-weight:550;padding-top:18px}.workspace-redesign .fh-workbench .v2-empty{display:flex;flex-direction:column;justify-content:center;min-height:290px;text-align:center}.workspace-redesign .fh-workbench .v2-empty p{margin:0 auto}
 @media(max-width:1000px){.workspace-redesign .fh-workbench-body{grid-template-columns:1fr}.workspace-redesign .fh-workbench .fh-form{display:grid;grid-template-columns:1fr 1fr;border-right:0;border-bottom:1px solid var(--line)}.workspace-redesign .fh-workbench .fh-step,.workspace-redesign .fh-workbench .fh-urun{grid-column:1/-1}}
-@media(max-width:520px){.workspace-redesign .fh-workbench>.v2-card-head,.workspace-redesign .fh-workbench .fh-form,.workspace-redesign .fh-results-panel{padding:20px}.workspace-redesign .fh-workbench .fh-form{grid-template-columns:1fr}.workspace-redesign .fh-workbench .fh-kartlar{grid-template-columns:1fr}.workspace-redesign .fh-workbench h2{font-size:22px}}
+@media(max-width:520px){.workspace-redesign .fh-workbench>.v2-card-head,.workspace-redesign .fh-workbench .fh-form,.workspace-redesign .fh-results-panel{padding:var(--dolgu-kart-dar)}.workspace-redesign .fh-workbench .fh-form{grid-template-columns:1fr}.workspace-redesign .fh-workbench .fh-kartlar{grid-template-columns:1fr}.workspace-redesign .fh-workbench h2{font-size:22px}}
 
 /* Keep the new editorial layout independent of legacy launch-page polish. */
 .launchpad.workspace-redesign :is(.topbar,main,footer){width:min(1232px,calc(100% - 80px))}.launchpad.workspace-redesign .topbar{padding:0;height:96px}.launchpad.workspace-redesign h1{font-size:clamp(38px,4.3vw,58px);letter-spacing:-2.6px;font-weight:500}.launchpad.workspace-redesign .application{background:#fff;border-radius:14px;padding:24px}.launchpad.workspace-redesign .application h2{font-size:24px;font-weight:550}.launchpad.workspace-redesign .application p{font-size:13px;line-height:1.75}.launchpad.workspace-redesign .welcome p{font-size:14px}.launchpad.workspace-redesign .workspace-bottom p{font-size:11px}.launchpad.workspace-redesign .workspace-note strong{font-size:12px}.launchpad.workspace-redesign .features li{font-size:10px}.launchpad.workspace-redesign .brand-caption{font-size:8px}
