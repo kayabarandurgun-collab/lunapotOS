@@ -1,14 +1,16 @@
 # Yapılacaklar
 
-Son güncelleme: 2026-09-24
+Son güncelleme: 2026-09-25
 
 ## SENDE — panelden yapman gerekenler
 
-- [ ] **Hepsiburada bağlantısını kur** — Bağlantılar → Hepsiburada → "Bağlantı kur". Satıcı kimliği, API kullanıcı/anahtar, API şifresi, User-Agent (`lunapot_dev`). Kurunca haber ver, test edeyim. Sorgu aralığı hatası düzeltildi (24 saat sınırı).
+- [ ] **Şifre yenile (ÖNCELİKLİ)** — HB servis anahtarı sohbet geçmişine iki kez düştü. Bağlantı kuruldu ve çalışıyor; anahtarı Hepsiburada panelinden yenile, sonra Bağlantılar → Hepsiburada → "Bağlantıyı güncelle" ile yenisini gir.
 - [ ] **Banka ekstresi yükle** — Trendyol ödemelerinin yattığı hesabın ekstresi. Banka ekstresi → "Ekstre yükle". CSV/Excel, sütunları panel kendisi tanıyor (test edildi). Sonra "Hakediş eşleştirme" sekmesinden onayla; para ancak o zaman kasaya girer. **Ana Kasa'nın eksi görünmesi bununla çözülecek.**
-- [ ] **Şifre yenile** — HB servis anahtarı sohbet geçmişine düştü, iş bitince Hepsiburada panelinden yenile.
 
 ## Açık işler
+
+- [ ] **HB sipariş ucu boş dönüyor** — kimlik doğru (finans ucu aynı kimlikle 667 kayıt getirdi), ama `oms-external…/orders` beş ayrı günde de 200 + boş liste döndü. Sebep ölçülmedi: bu uç büyük ihtimalle yalnız işlem bekleyen siparişleri veriyor, teslim edilmişler başka uçtan geliyor olabilir. HB sipariş dokümanına bakılmalı. Sipariş verisi bu yüzden hâlâ rapor yolundan geliyor.
+- [ ] **HB hakediş adayı** — eski not "paymentOrderId dönmüyor" diyordu; gerçek şemada o alan yok ama `Payment` (150) ve `TotalPayment` (2) türünde kayıtlar VAR ve `paymentDate` taşıyorlar. Banka ekstresi yüklenince bunlarla eşleştirme denenebilir. Henüz denenmedi.
 
 - [ ] **Ay sonu — Seçkin TS1 / Plug Mix**: 2 adet Plug Mix iadesi + yeni TS1 faturası. Alış faturaları → YSK2026000000402 → "Tedarikçiye iade" 2 adet. SONRA `urun-duzeltme:plugmix-ts1-2026-09-23` referanslı stok hareketleri ters kayıtla geri alınmalı, yoksa 2 adet çift sayılır.
 - [ ] **Komisyon farkı 514,96 TL** (278 siparişte, hepsi aynı yönde). %47'si paketten çıkarılan satırlar, %31'i indirim farkı, %21'i tek kalıba oturmuyor. Birkaç hafta sonra aynı siparişlere tekrar bak: Trendyol çıkarılan satırların komisyonunu iade ederse fark kapanır.
@@ -45,6 +47,11 @@ Genel gider, cari, ürün kartı, kasa/banka hesabı, ürün ailesi: hepsi düze
 - Açık borç listesinde tek ödeme etiketi
 - **Güvenlik açığı**: banka uçları yetki haritasında yoktu, yönetici dışı herkese 403 dönüyordu; menü ise ekranı gösteriyordu
 - **Arayüz ölçeği**: düğme köşe 7–11px → 8px, yazı 10–14px → 13px, kalınlık 500–600 → 600, kart köşe 11–18px → 12px. Renk ve yazı tipi birebir korundu. `font` kısayolu tuzağı yedi yerde temizlendi.
+
+### Hepsiburada bağlandı ve ilk veri çekildi (25.09)
+Bağlantı kuruldu, ilk gerçek testte finans ucu veri döndürdü ama tek kayıt bile geçmedi: para alanları `{value,currencyCode}` nesnesi olarak geliyor, okuyucu `{amount,currency}` arıyordu. Hata mesajı genel olduğu için "bağlantı çalışmıyor" sanılabilirdi; şema hatasında gelen alan adlarını log'a yazan teşhis eklendi, sebep canlı log'dan okundu. Düzeltildi, iki biçim de kabul ediliyor. Durum alanı da yanlış okunuyordu (`paymentStatus` değil `status`).
+
+11–25 Eylül çekildi, **667 kaynak kaydı**: Stoppage 150, Payment 150, ShipmentCostSharingExpense 121, PaymentServiceCostReflection 119, Commission 119, ProcessingFeeExpense 5, TotalPayment 2, CampaignDiscount 1. Mükerrer yok. Bunlar kaynak kayıtlarıdır; deftere işlenmedi.
 
 ### Satış kayıtları ekranına sayfalama
 1255 satır tek seferde basılıyordu (20.137 DOM öğesi, 2509 düğme). Artık 50'şer satır, altta "← Önceki / Sonraki →". Sayfa değişimi sunucuya gitmiyor. Genel durum toplamları ve satır işlemleri tüm kayıtları görmeye devam ediyor; hesap değişmedi. Sayfa hesabı ayrı sınandı (kayıt kaybolmuyor, numara liste dışına taşmıyor, boş liste çökmüyor).
