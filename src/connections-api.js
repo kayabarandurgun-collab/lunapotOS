@@ -68,7 +68,10 @@ function makeRequest(provider,credentials,input){
   if(page!==0)fail('SKU komisyon sorgusu tek sayfadır. Başka SKU grubu seçin.');
   url.searchParams.set('skuList',query.skus.join(','));
  }else{
-  window=range(input,14);query={...query,from:window.from,to:window.to};
+  // HEPSİBURADA SORGU ARALIĞI EN FAZLA 24 SAAT. Satıcı dokümanı ve canlı kullanım böyle diyor;
+  // 14 günlük pencere istendiğinde uç isteği reddediyor, yani entegrasyon hiç çalışamazdı.
+  // Tarih biçimi de 'yyyy-MM-dd HH:mm' olmak zorunda, aşağıdaki begindate/enddate buna uygun.
+  window=range(input,1);query={...query,from:window.from,to:window.to};
   url=new URL((kind==='orders'?'https://oms-external.hepsiburada.com/orders/merchantid/':'https://mpfinance-external.hepsiburada.com/transactions/merchantid/')+credentials.seller_id);
   if(kind==='orders'){url.searchParams.set('begindate',window.from+' 00:00');url.searchParams.set('enddate',window.to+' 23:59');url.searchParams.set('offset',String(page*limit));url.searchParams.set('limit',String(limit));}
   else {url.searchParams.set('RecordDateStart',window.from+'T00:00:00');url.searchParams.set('RecordDateEnd',window.to+'T23:59:59');url.searchParams.set('Offset',String(page*limit));url.searchParams.set('Limit',String(limit));}

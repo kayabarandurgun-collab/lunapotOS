@@ -41,7 +41,8 @@ const gunTR = ms => new Date(ms + 3 * 3600000).toISOString().slice(0, 10);
 export const SENKRON_KAYNAKLARI = {
   trendyol: [{kind: 'orders', saat: 4, enGeri: 13}, {kind: 'sale', saat: 12, enGeri: 14}, {kind: 'return', saat: 12, enGeri: 14},
     {kind: 'deductions', saat: 24, enGeri: 14}, {kind: 'payments', saat: 24, enGeri: 14}],
-  hepsiburada: [{kind: 'orders', saat: 4, enGeri: 13}, {kind: 'finance', saat: 12, enGeri: 13}]
+  // HEPSİBURADA 24 SAATTEN UZUN ARALIK KABUL ETMİYOR: enGeri 0, yani pencere tek gündür.
+  hepsiburada: [{kind: 'orders', saat: 4, enGeri: 0}, {kind: 'finance', saat: 12, enGeri: 0}]
 };
 // Tur başına sağlayıcı isteği sınırı: 50 sipariş/sayfa ile 8 sayfa iki günlük hacmi rahat alır.
 // Sınır hem sağlayıcı nezaketi hem de tek turda yazılacak satır sayısı için üst kapaktır.
@@ -84,7 +85,11 @@ async function pazaryeriSenkronu(ec, db, {simdi, vakitVar, getir, ozet}) {
         // ilerlemiş) pencere sürdürülür: panelden haftalar önce yarım bırakılmış geniş bir aralık
         // otomatik bakımı sonsuza kadar geçmişte tutmasın, o iş ekrandan elle sürdürülür.
         const yarim = imlecler.find(c => c.has_more && simdi - damga(c.last_success_at) < 2 * 86400000);
-        const geri = gecen === null ? SENKRON_ILK_GUN : Math.min(Math.max(Math.ceil(gecen / 86400000) + 1, 2), k.enGeri);
+        // UÇ SINIRI HER DURUMDA ÜST KAPAKTIR: ilk senkronun geniş penceresi de, en az iki günlük
+        // taban da bu sınırı aşamaz. Hepsiburada aralığı en fazla 24 saat kabul ettiği için
+        // (enGeri:0) aşan her pencere uçtan geri dönerdi; sınır dışarı alınmazsa ilk tur 3 gün,
+        // sonraki turlar 2 gün isteyip hiç veri çekemezdi.
+        const geri = Math.min(gecen === null ? SENKRON_ILK_GUN : Math.max(Math.ceil(gecen / 86400000) + 1, 2), k.enGeri);
         const to = yarim ? yarim.q.to : gunTR(simdi), from = yarim ? yarim.q.from : gunTR(simdi - geri * 86400000);
         const imlec = yarim ?? imlecler.find(c => c.q.from === from && c.q.to === to);
         let sayfa = imlec?.has_more ? imlec.next_page : 0;

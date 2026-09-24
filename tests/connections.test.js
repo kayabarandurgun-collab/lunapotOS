@@ -61,7 +61,8 @@ test('HB exact finance query casing, SKU bound, fail-closed unknown response and
  const f=fixture();try{
   const hb={...credentials,seller_id:'11111111-1111-1111-1111-111111111111',user_agent:'Lunapot-SelfIntegration'};
   await f.call('/hepsiburada/configure',hb);
-  const financial=await syncProvider(f.env,'hepsiburada',{...query,kind:'finance'},async(url,options)=>{
+  // HB sorgu aralığı en fazla 24 saat: tek günlük pencere kurulur.
+  const financial=await syncProvider(f.env,'hepsiburada',{...query,kind:'finance',to:'2026-09-01'},async(url,options)=>{
    assert.equal(url.origin,'https://mpfinance-external.hepsiburada.com');assert.equal(url.searchParams.get('Offset'),'0');assert.equal(url.searchParams.get('Limit'),'50');assert.equal(url.searchParams.get('RecordDateStart'),'2026-09-01T00:00:00');assert.equal(url.searchParams.has('begindate'),false);assert.equal(options.method,'GET');
    return Response.json({items:[{id:'HB-F1',transactionType:'Payment',amount:120,orderNumber:'HB-O1',customerName:'PRIVATE'}],totalCount:1});
   });assert.equal(financial.records[0].interpretation,'unreconciled_financial_record_not_bank_transfer');assert.equal(financial.orders,null);
@@ -69,7 +70,9 @@ test('HB exact finance query casing, SKU bound, fail-closed unknown response and
    assert.equal(url.origin,'https://listing-external.hepsiburada.com');assert.equal(url.searchParams.get('skuList'),'HB-SKU-1');assert.equal(url.searchParams.has('offset'),false);return Response.json([{hepsiburadaSku:'HB-SKU-1',commissionRate:18}]);
   });assert.equal(commission.records[0].tax_basis,'unverified');assert.equal(commission.records[0].commission_bps,1800);assert.equal(commission.hasMore,false);
   await assert.rejects(()=>syncProvider(f.env,'hepsiburada',{kind:'commissions',skus:Array(51).fill('SKU')},async()=>{}),/1–50/);
-  await assert.rejects(()=>syncProvider(f.env,'hepsiburada',{...query,kind:'finance'},async()=>Response.json({UnknownEnvelope:[{secret:'PRIVATE'}]})),/şeması/);
+  await assert.rejects(()=>syncProvider(f.env,'hepsiburada',{...query,kind:'finance',to:'2026-09-01'},async()=>Response.json({UnknownEnvelope:[{secret:'PRIVATE'}]})),/şeması/);
+  // 24 saati aşan aralık uca hiç gitmeden reddedilir.
+  await assert.rejects(()=>syncProvider(f.env,'hepsiburada',{...query,kind:'finance'},async()=>{throw new Error('uca gidilmemeliydi');}),/en fazla 1 gün/);
   assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ec_sale_entries').get().n,0);
  }finally{f.sqlite.close();}
 });
