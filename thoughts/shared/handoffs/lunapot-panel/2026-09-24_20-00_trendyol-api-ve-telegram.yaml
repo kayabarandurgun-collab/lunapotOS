@@ -1,0 +1,76 @@
+---
+session: lunapot-panel
+date: 2026-09-24
+status: partial
+outcome: SUCCEEDED_WITH_OPEN_WORK
+---
+
+goal: "Trendyol API'sinin neden çalışmadığı bulundu ve düzeltildi; API verisi canlı veriyle karşılaştırıldı; bağlantı kuruldu. Telegram bildirimi için secret'lar kuruldu ama KOD YAZILMADI."
+now: "SIRADAKİ İŞ: Telegram bildirimi kodunu yaz (aşağıda 'telegram_gorevi' bölümünde tam tarif var). Secret'lar canlıda hazır, sadece kod eksik."
+test: "npm test   # 866 test, 851 pass, 15 atlanan, 0 fail. Yayın: npm test > out; grep -q '^ℹ fail 0' out && git push origin main"
+
+ortam:
+  repo: "C:/Users/baran/Desktop/site/lunapot-panel (main, HEAD 197d546). Documents/Codex kopyası ESKİ, dokunma."
+  canli: "https://muhasebe.lunapot.com · CACHE lunapot-shell-v131-vade-goster · migration 0054 ve 0055 uygulandı."
+  yayin: "Migration varsa önce npm run db:remote, sonra git push (Cloudflare ~2-3 dk). UI değiştiyse public/sw.js CACHE'ini artır."
+  canli_okuma: "wrangler d1 execute --remote --command ... --json. Geçici 7403 gelirse 3 denemelik döngüyle tekrar et."
+  tarayici: "mcp__Claude_Browser__ ile panel açılıyor: https://muhasebe.lunapot.com/ecommerce#ledger?tab=odemeler. OTURUM DÜŞEBİLİR (401) — şifreyi giremezsin, kullanıcıdan giriş yapmasını iste. Ekran işini kullanıcıya vermeden ÖNCE kendin dene."
+  onbellek: "Yayın sonrası sayfa eski modülü tutabilir. Tarayıcıda serviceWorker.getRegistrations().unregister() + caches.delete(), sonra ?t=<yeni> ile aç. DİKKAT: bu oturumu düşürüyor."
+  kullanici_terminali: "PowerShell 5.1. '&&' YOK (';' kullan), 'npx' engelli ('npx.cmd' yaz), Windows yolu. Bash blokları uygulamada Run düğmesiyle çalışıyor."
+  worker_secretlari: "CREDENTIAL_KEY, SETUP_TOKEN, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ORDERS, TELEGRAM_CHAT_ERRORS (son üçü BU OTURUMDA kuruldu, değerleri prosaksierp/.env'den alındı)."
+
+kullanici:
+  - "TEKNİK ANLATMA, KISA YAZ. Uzun/tablo dolu cevap okumuyor ('üşendim', 'ne dedin anlamadım'). Ondan ne beklediğini tek cümleyle söyle."
+  - "Tam yetki verdi: 'istersen tarayıcıdan gir istersen koddan, her şeye tam yetki'. Yine de canlı VERİ yazan işi önce anlat."
+  - "İddialarını sorguluyor ve HAKLI ÇIKIYOR. Bu oturumda 'bunlar teslim edilmeyen gönderilerin komisyonu mu' ve 'biz komisyonu elle girmiyorduk ki' diyerek iki kez teşhisimi düzeltti. Kestirip atma, ölç."
+
+done_this_session:
+  - task: "TRENDYOL API HATASI BULUNDU VE DÜZELTİLDİ (197d546). Finans uçları size=50 kabul etmiyor: 'Size değeri 500 ya da 1000 olmalıdır' diye 400 dönüyor. Sipariş ucu 50'yi kabul ettiği için hata yalnız komisyon/kesinti çekerken çıkıyordu; entegrasyon bu yüzden HİÇ çalışamamış. src/connections-api.js'te size artık kind==='orders'?50:500. Testi var (tests/connections.test.js)."
+  - task: "Trendyol bağlantısı KURULDU (canlıda). seller 1168131, beş yetenek açık: orders, sale, return, deductions, payments. Henüz senkron ÇALIŞTIRILMADI."
+  - task: "Telegram secret'ları canlı worker'a kuruldu: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ORDERS, TELEGRAM_CHAT_ERRORS. Kod YAZILMADI."
+  - task: "API ↔ canlı veri karşılaştırması yapıldı (SADECE OKUNDU, hiçbir şey yazılmadı). Scriptler scratchpad'de."
+
+api_karsilastirma_sonucu:
+  - "Aralık 2026-09-09..23. Trendyol ekstresinde 247 sipariş; HEPSİ bizim sistemde var (eksik sipariş YOK). 246 kıyaslanabildi: 212 birebir tutuyor (%86), 34 sapıyor."
+  - "Komisyon toplamı: TY 19.845,18 TL · bizde 19.146,59 TL · fark 698,59 TL. Sapmaların HEPSİ aynı yönde (bizimki düşük), hiçbiri ters yönde."
+  - "SAPMA SEBEBİ 1 — İNDİRİM: fark çoğu siparişte tam olarak indirimin %20'si. Örnek: 11585282409 indirim 80 TL, fark 16,00 (=80×0,20). 11604820106 indirim 60, fark 12,00. Beş örnekte kuruşu kuruşuna tuttu."
+  - "SAPMA SEBEBİ 2 — TESLİM EDİLMEYEN SATIR: 11590920604 (15 paket, 7 satır teslim edilmemiş, fark 198) ve 11612956349 (1 satır, fark 43) indirim hesabıyla TUTMUYOR. Kullanıcının tahmini buydu ve azınlıkta ama tutarca ciddi."
+  - "SAPMA SEBEBİ 3 — HEDİYE: 11617217215 (fark 269,75) bilinen Pina saksı hediyesi, kasıtlı."
+  - "KRİTİK BULGU: kullanıcı 'komisyonu elle girmiyoruz ki, raporu yüklüyoruz' dedi ve haklıydı. Aynı sipariş için iki Trendyol kaynağı FARKLI diyor: API settlements komisyon 210,00 (ciro 1050, sellerRevenue 840); yüklenen rapor komisyon 194,00 + other_fee 80,00. Yani bizim sistem yanlış değil, raporu doğru okumuş. Hangi kaynağın gerçek olduğu ÜÇÜNCÜ KANIT (banka girişi) olmadan bilinmiyor. Kullanıcı 'API'yi doğru kabul edelim' dedi."
+  - "Doğrulanması gereken: birkaç hafta sonra aynı siparişlerin ekstresine tekrar bak. Teslim edilmeyenlerin komisyonu iade edildiyse fark kapanır; kapanmayan kısım gerçek indirim farkıdır."
+
+telegram_gorevi:
+  - "AMAÇ: her rapor yüklemesi/işlemesi sonrası Telegram kanalına ne olup bittiğini yaz. Kullanıcı onayladı: normal özet TELEGRAM_CHAT_ORDERS, hatalar TELEGRAM_CHAT_ERRORS."
+  - "SECRET'LAR HAZIR, canlıda kurulu. Kodda env.TELEGRAM_BOT_TOKEN / env.TELEGRAM_CHAT_ORDERS / env.TELEGRAM_CHAT_ERRORS olarak okunur."
+  - "HAZIR KALIP: C:/Users/baran/Desktop/site/prosaksierp/functions/index.js:2655 sendTelegram(). POST https://api.telegram.org/bot<TOKEN>/sendMessage, gövde {chat_id, text, parse_mode:'Markdown'}."
+  - "BAĞLANACAK YER: src/report-inbox-api.js, apply ucu (satır ~1519 'if (action === \"apply\"'). applyStep() {done, applied_row, counts} döndürüyor; counts özet için kullanılır. done===true olduğunda bildirim gönder."
+  - "ZORUNLU KURAL: bildirim BAŞARISIZ OLURSA rapor işleme DÜŞMEMELİ. try/catch ile yut, hatayı loglama dışında yayma. Testi de bunu doğrulamalı."
+  - "Kullanıcının istediği mesaj biçimi: '📥 Trendyol raporu işlendi / 496 satır · 12 yeni sipariş · 34 kesinti güncellendi / ⚠️ 2 satır inceleme bekliyor'. Takılan varsa özellikle belirtsin."
+  - "Cloudflare Worker'dan dışarı fetch serbest, ek ayar gerekmiyor."
+
+acik_isler:
+  - "TELEGRAM KODU YAZILMADI — sıradaki iş bu."
+  - "Trendyol senkronu hiç ÇALIŞTIRILMADI. Bağlantı kurulu ama veri çekilmedi. Kullanıcı 'önce bir gün izleyelim, yazmadan karşılaştıralım' dedi; yazmaya geçmeden onayını al."
+  - "AY SONU: Seçkin'e 2 adet Plug Mix iadesi + yeni TS1 faturası. Panelde Alış faturaları → YSK2026000000402 → 'Tedarikçiye iade' 2 adet. SONRA 'urun-duzeltme:plugmix-ts1-2026-09-23' referanslı stok hareketleri ters kayıtla geri alınmalı, yoksa 2 adet çift sayılır. Hafızada da var."
+  - "HB kargo tarifesinde iki bant gerçekte daha ucuz (126 teslim paketten ölçüldü): 400-599,99 bandı 139,19 → 130,39; 1000 TL+ bandı 268,79 → 230,99. Kullanıcı onay vermedi."
+  - "BÜTÜN tarifeler (kargo + komisyon) 31.12.2026'da bitiyor; sonrasında 'kaça satmalıyım' hiç fiyat vermez. Aralık'ta hatırlat."
+  - "Ürün ölçüleri SAHTE: 27 HB ürününün hepsi 10x10x10 cm / 1 kg. HB fiyata göre kargo aldığı için şimdilik zarar vermiyor."
+  - "Genel giderler girilmedi (canlıda 1 kayıt/152,45 TL). Sabit gider aracı hazır; girilene kadar 'kâr' brüt katkıdır."
+  - "Hepsiburada API'si hiç denenmedi; kimlik bilgisi de alınmadı."
+  - "Sipariş listesinde iadeli pakette komisyon oranının paydası yanındaki 'Tutar' değil; nasıl gösterileceği kullanıcının tercihi, soruldu, cevap gelmedi."
+  - "Güvenlik G10/G11 bilerek açık."
+
+failed:
+  - "Bu oturumda karşılaştırmayı yaparken 'biz komisyonu az yazıyoruz' diye ERKEN sonuç açıkladım. Kullanıcı iki kez düzeltti: (a) teslim edilmeyen satırlar da sebep, (b) veri zaten Trendyol'dan geliyor, bizim hatamız değil. Tek sebep varsaymadan önce grupla ve ölç."
+  - "Tarayıcıda önbellek temizlerken oturumu düşürdüm; şifre giremediğim için kullanıcıdan tekrar giriş istemek zorunda kaldım. Temizlemeden önce bunu hesaba kat."
+  - "GEÇMİŞ OTURUM DERSİ (hâlâ geçerli): canlı veriye elle SQL yazma. Uygulamanın kendi ucunu kullan (tarayıcıdan fetch ile çağrılabilir) ya da düğmesini yap."
+
+next:
+  - "1) Telegram bildirimini yaz (telegram_gorevi bölümü tam tarif)."
+  - "2) Kullanıcı onaylarsa Trendyol senkronunu ÖNİZLEME olarak çalıştır, yazmadan karşılaştır."
+  - "3) Sonuç iyiyse otomatik akışa geç; zamanlanmış çalıştırma ekle."
+
+files:
+  created: [thoughts/shared/handoffs/lunapot-panel/2026-09-24_20-00_trendyol-api-ve-telegram.yaml]
+  modified: [src/connections-api.js, tests/connections.test.js]
+  scratchpad: "ty-karsilastir.mjs, ty-komisyon.mjs, ty-dok.mjs, kiyas.mjs, sapma.mjs, ty-durum.mjs — hepsi SALT OKUR karşılaştırma scriptleri, tekrar kullanılabilir."
