@@ -97,9 +97,21 @@ test('Trendyol önizlemesi sabit resmî adrese salt okunur istek yapar; kimlik b
  const f=await fixture();try{
   const env={DB:{prepare:()=>({bind(){return this;},run:async()=>{}})},WORKSPACE:'ec',TRENDYOL_SELLER_ID:'123',TRENDYOL_API_KEY:'test-key',TRENDYOL_API_SECRET:'test-secret'};
   let count=0;
-  const response=await previewIntegration(env,'trendyol',{from:'2026-09-01',to:'2026-09-08',kind:'sale',page:0},async(url,options)=>{count++;assert.equal(url.origin,'https://apigw.trendyol.com');assert.equal(options.method,'GET');assert.equal(options.redirect,'error');assert.equal(options.headers['User-Agent'],'123 - SelfIntegration');return Response.json({totalPages:2,content:[{id:'1',orderNumber:'O-1',credit:100,commissionAmount:12,customerName:'Private customer',address:'Private address'}]});});
+  const response=await previewIntegration(env,'trendyol',{from:'2026-09-01',to:'2026-09-08',kind:'sale',page:0},async(url,options)=>{count++;assert.equal(url.origin,'https://apigw.trendyol.com');assert.equal(options.method,'GET');assert.equal(options.redirect,'manual');assert.equal(options.headers['User-Agent'],'123 - SelfIntegration');return Response.json({totalPages:2,content:[{id:'1',orderNumber:'O-1',credit:100,commissionAmount:12,customerName:'Private customer',address:'Private address'}]});});
   assert.equal(count,1);assert.equal(response.hasMore,true);assert.equal(response.records.length,1);assert.ok(!JSON.stringify(response).includes('Private'));assert.ok(!JSON.stringify(response).includes('test-secret'));
   await assert.rejects(()=>previewIntegration({...env,WORKSPACE:'lp'},'trendyol',{},async()=>{throw new Error('Should not request');}),/yalnızca/);
   await assert.rejects(()=>previewIntegration(env,'trendyol',{from:'2026-08-01',to:'2026-09-08',kind:'sale'},async()=>{throw new Error('Should not request');}),/15 gün/);
  }finally{f.close();}
+});
+
+test('Trendyol önizlemesi yönlendirmeyi izlemez: 3xx reddedilir', async () => {
+ const f = await fixture(); try {
+  const env = {DB: {prepare: () => ({bind() { return this; }, run: async () => {}})}, WORKSPACE: 'ec', TRENDYOL_SELLER_ID: '123', TRENDYOL_API_KEY: 'test-key', TRENDYOL_API_SECRET: 'test-secret'};
+  let count = 0;
+  await assert.rejects(() => previewIntegration(env, 'trendyol', {from: '2026-09-01', to: '2026-09-08', kind: 'sale', page: 0}, async (url, options) => {
+   count++; assert.equal(options.redirect, 'manual');
+   return new Response(null, {status: 301, headers: {Location: 'https://baska-adres.example/'}});
+  }), /yönlendirdi/);
+  assert.equal(count, 1);
+ } finally { f.close(); }
 });

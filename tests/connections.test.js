@@ -33,7 +33,7 @@ test('AES-GCM random IV, provider/account binding, missing key failure and redac
 test('TY V2 one-page source sync strips unrelated PII, imports drafts, stores cursor and preserves changed revisions',async()=>{
  const f=fixture();try{
   await f.call('/trendyol/configure',credentials);let fetchCount=0,imports=0;
-  const fetcher=async(url,options)=>{fetchCount++;assert.equal(url.origin,'https://apigw.trendyol.com');assert.equal(url.pathname,'/integration/order/sellers/1234/v2/orders');assert.equal(url.searchParams.get('size'),'50');assert.equal(options.method,'GET');assert.equal(options.redirect,'error');assert.ok(options.headers.Authorization.startsWith('Basic '));return Response.json({content:[order()],totalPages:2,totalElements:80});};
+  const fetcher=async(url,options)=>{fetchCount++;assert.equal(url.origin,'https://apigw.trendyol.com');assert.equal(url.pathname,'/integration/order/sellers/1234/v2/orders');assert.equal(url.searchParams.get('size'),'50');assert.equal(options.method,'GET');assert.equal(options.redirect,'manual');assert.ok(options.headers.Authorization.startsWith('Basic '));return Response.json({content:[order()],totalPages:2,totalElements:80});};
   const importer=async(env,provider,records)=>{imports++;assert.equal(provider,'trendyol');assert.equal(records[0].lines[0].gross_cents,20000);assert.equal(records[0].lines[0].vat_bps,2000);return {created:1};};
   const result=await syncProvider(f.env,'trendyol',query,fetcher,importer);assert.equal(fetchCount,1);assert.equal(imports,1);assert.equal(result.hasMore,true);assert.equal(result.next_page,1);
   await syncProvider(f.env,'trendyol',query,fetcher,importer);assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ec_provider_records').get().n,1);assert.equal(f.sqlite.prepare('SELECT next_page FROM ec_provider_cursors').get().next_page,1);
@@ -230,5 +230,24 @@ test('Belirsiz preview değeri reddedilir; alan yoksa eski davranış yazmaya de
   assert.equal(yazan.preview, false);
   assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ec_provider_records').get().n, 1);
   assert.equal(f.sqlite.prepare('SELECT next_page FROM ec_provider_cursors').get().next_page, 1);
+ } finally { f.sqlite.close(); }
+});
+
+// Cloudflare Workers redirect:'error' değerini kabul etmiyor: istek daha ağa çıkmadan TypeError ile
+// düşüyordu ve HER sağlayıcı çağrısı canlıda başarısızdı. Node bu değeri desteklediği için hata ne
+// testlerde ne yerel denemede görünüyordu. Bayrak 'manual'; yönlendirmeyi izlememe amacı korunmalı.
+test('Sağlayıcı isteği yönlendirmeyi izlemez: 3xx reddedilir, kimlik ikinci adrese gitmez', async () => {
+ const f = fixture(); try {
+  await f.call('/trendyol/configure', credentials);
+  let cagri = 0;
+  const fetcher = async (url, options) => {
+   cagri++;
+   assert.equal(options.redirect, 'manual');
+   assert.equal(url.origin, 'https://apigw.trendyol.com');
+   return new Response(null, {status: 302, headers: {Location: 'https://baska-adres.example/kimlik-topla'}});
+  };
+  await assert.rejects(() => syncProvider(f.env, 'trendyol', query, fetcher, async () => ({created: 0})), /yönlendirdi/);
+  assert.equal(cagri, 1);
+  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ec_provider_records').get().n, 0);
  } finally { f.sqlite.close(); }
 });

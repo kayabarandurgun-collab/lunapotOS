@@ -20,7 +20,11 @@ export async function previewIntegration(env,provider,input,fetcher=fetch){
  const url=new URL(`https://apigw.trendyol.com/integration/finance/che/sellers/${env.TRENDYOL_SELLER_ID}/${service}`);
  for(const [key,value] of Object.entries({startDate:start,endDate:end,page,size:500,transactionType:type}))url.searchParams.set(key,String(value));
  let response;
- try{response=await fetcher(url,{method:'GET',redirect:'error',signal:AbortSignal.timeout(20000),headers:{Authorization:'Basic '+btoa(env.TRENDYOL_API_KEY+':'+env.TRENDYOL_API_SECRET),'User-Agent':env.TRENDYOL_SELLER_ID+' - SelfIntegration',Accept:'application/json'}});}catch{fail('Trendyol bağlantısı tamamlanamadı. Daha sonra tekrar deneyin.',502);}
+ // redirect:'manual' ZORUNLU: Cloudflare Workers 'error' değerini kabul etmiyor ve isteği daha ağa
+ // çıkmadan TypeError ile düşürüyor. Node bu değeri desteklediği için hata yalnız canlıda görülür.
+ // Yönlendirmeyi izlememe amacı korunuyor: 'manual' takip etmez, 3xx aşağıda reddedilir.
+ try{response=await fetcher(url,{method:'GET',redirect:'manual',signal:AbortSignal.timeout(20000),headers:{Authorization:'Basic '+btoa(env.TRENDYOL_API_KEY+':'+env.TRENDYOL_API_SECRET),'User-Agent':env.TRENDYOL_SELLER_ID+' - SelfIntegration',Accept:'application/json'}});}catch(e){console.error('Trendyol isteği başarısız:',input.kind,e?.name||'',e?.message||e);fail('Trendyol bağlantısı tamamlanamadı. Daha sonra tekrar deneyin.',502);}
+ if(response.status>=300&&response.status<400)fail('Trendyol isteği başka adrese yönlendirdi; kimlik bilgisi izlenmeyen adrese gönderilmez.',502);
  if([401,403].includes(response.status))fail('Trendyol API erişimi doğrulanamadı.',502);
  if(response.status===429)fail('Trendyol istek sınırı doldu. Daha sonra tekrar deneyin.',429);
  if(!response.ok)fail('Trendyol verileri şu anda alınamıyor.',502);
