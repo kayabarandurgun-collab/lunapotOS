@@ -13,12 +13,32 @@ const sayi=x=>{if(typeof x==='number')return x;if(typeof x!=='string'||!x.trim()
 const costCents=x=>{const v=sayi(x);if(!Number.isFinite(v))fail('Birim maliyeti kontrol edin.');let n;try{n=cents(v);}catch{fail('Birim maliyeti kontrol edin.');}if(!Number.isSafeInteger(n)||n<0||n>100000000000)fail('Birim maliyet geçersiz.');return n;};
 const vatBps=x=>{const n=x===undefined||x===null||x===''?2000:Number(x);if(!Number.isSafeInteger(n)||n<0||n>10000)fail('KDV oranı geçersiz.');return n;};
 const positive=x=>{const n=money(x);if(n<0)fail('Tutar pozitif olmalı.');return n;};
-async function execute(db,items){try{return await db.batch(items);}catch(error){const m=String(error.message);if(/CHEQUE_DUE_REQUIRED/.test(m))fail('Çek için vade tarihi girin.');if(/INVALID_DUE_DATE|INVALID_PLAN_DATE/.test(m))fail('Geçerli tarih girin.');if(/PAYMENT_ENTRY_REQUIRED/.test(m))fail('Ödeme yöntemi yalnızca ödeme hareketine yazılabilir.',409);if(/DEBT_ENTRY_REQUIRED/.test(m))fail('Planlanan ödeme tarihi yalnızca açık borca eklenebilir.',409);if(/OVER_ALLOCATION/.test(m))fail('Kapama tutarı belgenin kalan tutarını aşıyor.',409);if(/ENTRY_ALLOCATED/.test(m))fail('Önce bu hareketin belge kapamalarını geri alın.',409);if(/INVALID_ALLOCATION/.test(m))fail('Aynı cariye ait bir alacak ve bir borç hareketini seçin.',409);if(/REVERSAL|REVERSED_ENTRY/.test(m))fail('Bu hareket için ters kayıt oluşturulamaz.',409);if(/UNIQUE constraint/.test(m))fail('Bu referans veya kayıt daha önce işlendi.',409);if(/FOREIGN KEY/.test(m))fail('Seçilen kayıt bu çalışma alanında bulunamadı.',404);throw error;}}
+async function execute(db,items){try{return await db.batch(items);}catch(error){const m=String(error.message);if(/CHEQUE_DUE_REQUIRED/.test(m))fail('Çek için vade tarihi girin.');if(/INVALID_DUE_DATE|INVALID_PLAN_DATE/.test(m))fail('Geçerli tarih girin.');if(/PAYMENT_ENTRY_REQUIRED/.test(m))fail('Ödeme yöntemi yalnızca ödeme hareketine yazılabilir.',409);if(/DEBT_ENTRY_REQUIRED/.test(m))fail('Planlanan ödeme tarihi yalnızca açık borca eklenebilir.',409);if(/OVER_ALLOCATION/.test(m))fail('Kapama tutarı belgenin kalan tutarını aşıyor.',409);if(/ENTRY_ALLOCATED/.test(m))fail('Önce bu hareketin belge kapamalarını geri alın.',409);if(/INVALID_ALLOCATION/.test(m))fail('Aynı cariye ait bir alacak ve bir borç hareketini seçin.',409);if(/INVALID_CASH_ENTRY/.test(m))fail('Kasa/banka hareketi bağlandığı cari hareketiyle eşleşmiyor.',409);if(/REVERSAL|REVERSED_ENTRY/.test(m))fail('Bu hareket için ters kayıt oluşturulamaz.',409);if(/UNIQUE constraint/.test(m))fail('Bu referans veya kayıt daha önce işlendi.',409);if(/FOREIGN KEY/.test(m))fail('Seçilen kayıt bu çalışma alanında bulunamadı.',404);throw error;}}
 async function requireParty(db,key){if(!await stmt(db,'SELECT id FROM suppliers WHERE id=?',[key]).first())fail('Cari bu çalışma alanında bulunamadı.',404);}
+// ARŞİVLİ KART YENİ KAYITTA SEÇİLEMEZ, GEÇMİŞTE GÖRÜNÜR. Okuma yollarında (süzgeç, ekstre, geçmiş
+// hareket) arşiv sorulmaz; yalnız YENİ hareket, ödeme ve mal girişi yazarken sorulur. Bu yüzden
+// requireParty olduğu gibi kalır ve arşiv denetimi ayrı bir kapıdır.
+async function livingParty(db,key){const row=await stmt(db,'SELECT id,name,archived_at FROM suppliers WHERE id=?',[key]).first();if(!row)fail('Cari bu çalışma alanında bulunamadı.',404);if(row.archived_at)fail(row.name+' arşivlenmiş bir caridir; yeni kayıt yazılamaz. Cari listesinden “Arşivden geri al” deyip yeniden deneyin.',409);return row;}
+async function livingAccount(db,key){const row=await stmt(db,'SELECT id,name,archived_at FROM cash_accounts WHERE id=?',[key]).first();if(!row)fail('Kasa/banka hesabı bulunamadı.',404);if(row.archived_at)fail(row.name+' arşivlenmiş bir hesaptır; yeni para hareketi yazılamaz. Kasa ve banka ekranından “Arşivden geri al” deyip yeniden deneyin.',409);return row;}
+// SİLME ENGELLERİ. Hangi bağlantının engellediği tahmin edilmez: cariye ve hesaba bakan yabancı
+// anahtarların tamamı (artı yabancı anahtarı olmayan alış eşleştirme kuralı) tek tek sorulur.
+// Bir tanesi bile doluysa kayıt defterde iz bırakmıştır; silinmez, arşivlenir.
+const PARTY_LINKS=[['party_entries','party_id','cari hesap hareketi'],['purchase_invoices','supplier_id','alış faturası'],['supplier_payments','supplier_id','eski tedarikçi ödemesi'],['party_statements','party_id','mutabakat belgesi'],['offers','party_id','teklif/sipariş belgesi'],['purchase_family_links','supplier_id','ürün ailesi alış bağlantısı'],['catalog_mappings','supplier_id','alış eşleştirme kuralı']];
+// Ürün kartı tedarikçisi, banka ekstresi ve faturasız mal girişi yalnız e-ticaret alanında vardır.
+const EC_PARTY_LINKS=[['products','supplier_id','ürün kartı'],['bank_lines','matched_party_id','banka ekstresi eşleşmesi'],['provisional_receipts','supplier_id','faturasız mal girişi']];
+const ACCOUNT_LINKS=[['cash_transactions','account_id','kasa/banka hareketi']];
+const EC_ACCOUNT_LINKS=[['bank_files','account_id','banka ekstresi dosyası'],['bank_lines','account_id','banka ekstresi satırı']];
+const cardLinks=(ns,party)=>party?[...PARTY_LINKS,...(ns==='ec'?EC_PARTY_LINKS:[])]:[...ACCOUNT_LINKS,...(ns==='ec'?EC_ACCOUNT_LINKS:[])];
+async function usedBy(db,links,key){const found=[];for(const [table,column,label] of links)if(await stmt(db,`SELECT 1 used FROM ${table} WHERE ${column}=? LIMIT 1`,[key]).first())found.push(label);return found;}
 const entryInsert=(db,e)=>stmt(db,'INSERT INTO party_entries(id,party_id,amount_cents,occurred_on,due_on,reference,description,source_key,source,reversal_of) VALUES(?,?,?,?,?,?,?,?,?,?)',[e.id,e.party_id,e.amount_cents,e.occurred_on,e.due_on||null,e.reference,e.description,e.source_key,e.source,e.reversal_of||null]);
 
 // Ödeme yöntemleri: hangi bankadan ödendiği DEĞİL, nasıl ödendiği sorulur. Kart/banka ayrıntısı serbest nottur.
 const METHODS={nakit:'Nakit',kart:'Kart',havale:'Havale / EFT',cek:'Çek'};
+// PARASI ANINDA ÇIKAN YÖNTEMLER: hesap seçilmeden kaydedilemez, yoksa borç kapanır ama kasa
+// fazla görünür. Kart da buraya dahil: kullanıcı kart ödemelerini fiilen ödeme günü kasadan
+// düşüyor (canlıdaki dört kart ödemesi de Ana Kasa'ya yazılmış). Çek dışarıda kalır; çekte
+// para vade gününde çıkar, o gün 'var olan ödemeye bağla' ile yazılır.
+const CASH_NOW=new Set(['nakit','havale','kart']);
 const lira=value=>new Intl.NumberFormat('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(value/100)+' TL';
 // Hareketin ters kaydı yazılmışsa o hareket artık hesapta değildir; kapama ve ödeme için seçilemez.
 const live=alias=>`${alias}.reversal_of IS NULL AND NOT EXISTS(SELECT 1 FROM party_entries x WHERE x.reversal_of=${alias}.id)`;
@@ -68,8 +88,8 @@ export async function ledgerApi(request,env,path,readBody){
   const countRow=await stmt(db,`SELECT COUNT(*) total FROM party_entries e JOIN suppliers s ON s.id=e.party_id${where}`,args).first();
   const results=await db.batch([
    // Cari kartı: bakiyenin yanında toplam borç, kapatılan (ödenen) ve kalan da okunur.
-   db.prepare(`SELECT s.*,COALESCE(SUM(e.amount_cents),0) balance_cents,(SELECT COALESCE(SUM(-d.amount_cents),0) FROM party_entries d WHERE d.party_id=s.id AND d.amount_cents<0 AND ${live('d')}) debt_cents,(SELECT COALESCE(SUM(a.amount_cents),0) FROM payment_allocations a JOIN party_entries d ON d.id=a.negative_entry_id WHERE d.party_id=s.id AND ${live('d')} AND NOT EXISTS(SELECT 1 FROM allocation_reversals r WHERE r.allocation_id=a.id)) paid_cents FROM suppliers s LEFT JOIN party_entries e ON e.party_id=s.id GROUP BY s.id ORDER BY s.name`),
-   db.prepare('SELECT a.*,COALESCE(SUM(t.amount_cents),0) balance_cents FROM cash_accounts a LEFT JOIN cash_transactions t ON t.account_id=a.id GROUP BY a.id ORDER BY a.name'),
+   db.prepare(`SELECT s.*,COALESCE(SUM(e.amount_cents),0) balance_cents,(SELECT COALESCE(SUM(-d.amount_cents),0) FROM party_entries d WHERE d.party_id=s.id AND d.amount_cents<0 AND ${live('d')}) debt_cents,(SELECT COALESCE(SUM(a.amount_cents),0) FROM payment_allocations a JOIN party_entries d ON d.id=a.negative_entry_id WHERE d.party_id=s.id AND ${live('d')} AND NOT EXISTS(SELECT 1 FROM allocation_reversals r WHERE r.allocation_id=a.id)) paid_cents FROM suppliers s LEFT JOIN party_entries e ON e.party_id=s.id GROUP BY s.id ORDER BY s.archived_at IS NOT NULL,s.name`),
+   db.prepare('SELECT a.*,COALESCE(SUM(t.amount_cents),0) balance_cents FROM cash_accounts a LEFT JOIN cash_transactions t ON t.account_id=a.id GROUP BY a.id ORDER BY a.archived_at IS NOT NULL,a.name'),
    stmt(db,`SELECT e.*,s.name party_name,COALESCE((SELECT SUM(a.amount_cents) FROM payment_allocations a WHERE (a.positive_entry_id=e.id OR a.negative_entry_id=e.id) AND NOT EXISTS(SELECT 1 FROM allocation_reversals r WHERE r.allocation_id=a.id)),0) allocated_cents,(SELECT id FROM party_entries r WHERE r.reversal_of=e.id) reversed_by,${PLANNED} planned_on,(SELECT m.method FROM party_payment_methods m WHERE m.entry_id=e.id) payment_method,(SELECT m.note FROM party_payment_methods m WHERE m.entry_id=e.id) payment_note,(SELECT m.due_on FROM party_payment_methods m WHERE m.entry_id=e.id) payment_due_on FROM party_entries e JOIN suppliers s ON s.id=e.party_id${where} ORDER BY e.occurred_on DESC,e.created_at DESC,e.rowid DESC LIMIT ? OFFSET ?`,[...args,limit,(page-1)*limit]),
    db.prepare('SELECT a.*,p.party_id,r.id reversed_by,r.reason reversal_reason FROM payment_allocations a JOIN party_entries p ON p.id=a.positive_entry_id LEFT JOIN allocation_reversals r ON r.allocation_id=a.id ORDER BY a.created_at DESC,a.rowid DESC LIMIT 501'),
    db.prepare('SELECT t.*,a.name account_name,e.party_id,s.name party_name,(SELECT id FROM cash_transactions r WHERE r.reversal_of=t.id) reversed_by FROM cash_transactions t JOIN cash_accounts a ON a.id=t.account_id LEFT JOIN party_entries e ON e.id=t.party_entry_id LEFT JOIN suppliers s ON s.id=e.party_id ORDER BY t.occurred_on DESC,t.created_at DESC,t.rowid DESC LIMIT 501'),
@@ -112,12 +132,76 @@ export async function ledgerApi(request,env,path,readBody){
    return row;
   }),entry_pagination:{page,limit,total:countRow.total,pages:Math.max(1,Math.ceil(countRow.total/limit)),has_more:page*limit<countRow.total},entry_filters:{q,from,to,due,kind,party_id:party||''},allocations:allocations.slice(0,500),cash_transactions:cash.slice(0,500),open_invoices:openInvoices,cheques,due_soon:dueSoon,payment_methods:Object.entries(METHODS).map(([key,label])=>({key,label})),truncated:{entries:false,allocations:allocations.length>500,cash_transactions:cash.length>500,open_invoices:invoiceRows.length>500,cheques:chequeRows.length>200},currency:'TRY',balance_note:'Pozitif cari bakiye alacağınız; negatif bakiye borcunuzdur.',cheque_note:'Verilen çek cari borcunu kapatır; para hesabınızdan vadesinde çıkar, henüz tahsil edilmemiştir.'};
  }
+ // CARİ ve KASA/BANKA KARTININ DÜZELTİLMESİ. Defterde kayıt eklemek yetmiyordu: yanlış yazılan
+ // cari adı, VKN, telefon, adres ya da hesap adı asla düzeltilemiyordu.
+ // KULLANIMDA OLAN KAYIT SİLİNMEZ: hareketi, faturası ya da belgesi olan cari ve hareketi olan
+ // hesap arşivlenir. Arşiv geçmişi gizlemez; kayıt yerinde kalır, yalnız yeni seçim listelerinden
+ // ve yeni yazma yollarından düşer. Hiçbir yerde kullanılmayan kart gerçekten silinir.
+ // Silme DELETE ile yapılır: ekran yetkisine ek olarak "kalıcı kayıt silme" onayı gerekir
+ // (permission-policy.js). Düzeltme ve arşivleme ekranın kendi yazma yetkisiyledir.
+ const card=path.match(/^\/api\/ledger\/(parties|accounts)\/([\w:.-]{1,120})(?:\/(archive|restore))?$/);
+ if(card&&['POST','DELETE'].includes(method)){
+  const [,group,cardId,step]=card,isParty=group==='parties',table=isParty?'suppliers':'cash_accounts';
+  const row=await stmt(db,`SELECT * FROM ${table} WHERE id=?`,[cardId]).first();
+  if(!row)fail(isParty?'Cari bu çalışma alanında bulunamadı.':'Kasa/banka hesabı bulunamadı.',404);
+  if(method==='DELETE'){
+   if(step)fail('Bu adres yalnızca kaydın kendisini siler.',405);
+   const used=await usedBy(db,cardLinks(env.WORKSPACE,isParty),cardId);
+   if(used.length)fail(row.name+' kaydı kullanımda: '+used.join(', ')+' var. Defterde iz bırakan kayıt silinmez; bunun yerine arşivleyin. Arşivlenen kayıt geçmiş hareketlerde görünmeye devam eder, yalnız yeni seçim listelerinden düşer.',409);
+   // Sayılamayan bir bağ kalmışsa yabancı anahtar son durağımızdır: sessiz kayıp olmaz.
+   try{await db.batch([stmt(db,`DELETE FROM ${table} WHERE id=?`,[cardId])]);}
+   catch(error){if(/FOREIGN KEY/.test(String(error.message)))fail(row.name+' kaydı başka bir kayda bağlı olduğu için silinemedi. Bunun yerine arşivleyin.',409);throw error;}
+   return {id:cardId,deleted:true};
+  }
+  if(step==='archive'){
+   if(row.archived_at)fail('Bu kayıt zaten arşivde.',409);
+   await execute(db,[stmt(db,`UPDATE ${table} SET archived_at=CURRENT_TIMESTAMP WHERE id=? AND archived_at IS NULL`,[cardId])]);
+   return {id:cardId,archived:true,note:'Arşivlenen kayıt yeni seçim listelerinde çıkmaz; geçmiş hareketlerde, bakiyede ve ekstrede görünmeye devam eder.'};
+  }
+  if(step==='restore'){
+   if(!row.archived_at)fail('Bu kayıt zaten kullanımda; arşivde değil.',409);
+   await execute(db,[stmt(db,`UPDATE ${table} SET archived_at=NULL WHERE id=?`,[cardId])]);
+   return {id:cardId,archived:false};
+  }
+  const x=await readBody(request);
+  if(row.archived_at)fail('Arşivlenmiş kayıt düzeltilemez. Önce “Arşivden geri al” deyin.',409);
+  if(isParty){
+   const kind=x.kind===undefined||x.kind===null||x.kind===''?row.kind:x.kind;if(!['supplier','customer','marketplace','other'].includes(kind))fail('Cari türü geçersiz.');
+   const name=text(x.name,'Cari adı',200),tax=optional(x.tax_id,11);
+   if(tax&&!/^\d{10,11}$/.test(tax))fail('VKN/TCKN 10 veya 11 rakam olmalı.');
+   if(tax){const clash=await stmt(db,'SELECT id,name FROM suppliers WHERE tax_id=? AND id!=?',[tax,cardId]).first();if(clash)fail('Bu VKN/TCKN '+clash.name+' carisinde kayıtlı. Aynı numara iki caride olamaz; önce doğru kaydı seçin.',409);}
+   // KİMLİK ALANI DEĞİŞİYORSA KULLANICI UYARILIR, KAYIT ENGELLENMEZ.
+   // Ad ile VKN geçmiş hareketlerde saklanmaz (kayıtlar id ile bağlıdır), bu yüzden ekstre ve
+   // hesap hareketleri yeni bilgiyle çıkar; bu normaldir. İki yeri etkiler:
+   //  * Aynı alış faturasının ikinci kez işlenmesini önleyen belge anahtarı fatura KAYDEDİLİRKEN
+   //    o günkü VKN'den türetilir (accounting.js). Eski faturaların anahtarı eski numarada kalır.
+   //    Aynı cariye aynı fatura numarası yine yazılamaz (purchase_invoices tekilliği), ama aynı
+   //    belgenin başka bir cari kaydı üzerinden ikinci kez girilmesi artık yakalanmayabilir.
+   //  * Kaydedilmiş mutabakat belgesi kendi anlık görüntüsünü taşır (0023) ve değişmez.
+   const warnings=[],kimlik=row.name!==name||(row.tax_id||'')!==tax;
+   if((row.tax_id||'')!==tax){
+    const invoices=await stmt(db,"SELECT COUNT(*) n FROM purchase_invoices WHERE supplier_id=? AND status!='cancelled'",[cardId]).first();
+    if(invoices.n)warnings.push('VKN/TCKN değişti. Bu carinin '+invoices.n+' alış faturası eski numarayla kayıtlı; aynı belgenin ikinci kez işlenmesini önleyen denetim eski numaradan yapılmıştı. Eski faturaları yeniden yüklemeyin.');
+   }
+   if(kimlik){
+    const documents=await stmt(db,'SELECT COUNT(*) n FROM party_statements WHERE party_id=?',[cardId]).first();
+    if(documents.n)warnings.push('Kaydedilmiş '+documents.n+' mutabakat belgesi eski ad ve VKN ile durur; belge görüntüsü değişmez. Yeni ekstre ve mutabakatlar yeni bilgiyle çıkar.');
+   }
+   await execute(db,[stmt(db,'UPDATE suppliers SET name=?,kind=?,tax_id=?,contact=?,email=?,phone=?,address=? WHERE id=?',[name,kind,tax||null,optional(x.contact),optional(x.email,200),optional(x.phone,50),optional(x.address,1000),cardId])]);
+   return {id:cardId,warnings};
+  }
+  const kind=x.kind===undefined||x.kind===null||x.kind===''?row.kind:x.kind;if(!['cash','bank'].includes(kind))fail('Hesap türü kasa veya banka olmalı.');
+  const name=text(x.name,'Hesap adı',200);
+  if(await stmt(db,'SELECT id FROM cash_accounts WHERE name=? AND id!=?',[name,cardId]).first())fail('Bu adla başka bir kasa/banka hesabı var. Hesap adları benzersizdir.',409);
+  await execute(db,[stmt(db,'UPDATE cash_accounts SET name=?,kind=? WHERE id=?',[name,kind,cardId])]);
+  return {id:cardId,warnings:[]};
+ }
  if(method!=='POST')return null;
  const x=await readBody(request),key=id();
  if(path==='/api/ledger/parties'){
   const kind=x.kind||'supplier';if(!['supplier','customer','marketplace','other'].includes(kind))fail('Cari türü geçersiz.');
   const tax=optional(x.tax_id,11);if(tax&&!/^\d{10,11}$/.test(tax))fail('VKN/TCKN 10 veya 11 rakam olmalı.');
-  if(tax){const existing=await stmt(db,'SELECT id FROM suppliers WHERE tax_id=?',[tax]).first();if(existing)return {id:existing.id,existing:true};}
+  if(tax){const existing=await stmt(db,'SELECT id,archived_at FROM suppliers WHERE tax_id=?',[tax]).first();if(existing)return {id:existing.id,existing:true,archived:!!existing.archived_at};}
   await execute(db,[stmt(db,'INSERT INTO suppliers(id,name,kind,tax_id,contact,email,phone,address) VALUES(?,?,?,?,?,?,?,?)',[key,text(x.name,'Cari adı',200),kind,tax||null,optional(x.contact),optional(x.email,200),optional(x.phone,50),optional(x.address,1000)])]);return {id:key};
  }
  if(path==='/api/ledger/accounts'){
@@ -125,30 +209,53 @@ export async function ledgerApi(request,env,path,readBody){
   await execute(db,[stmt(db,'INSERT INTO cash_accounts(id,name,kind) VALUES(?,?,?)',[key,text(x.name,'Hesap adı',200),x.kind])]);return {id:key};
  }
  if(path==='/api/ledger/entries'){
-  const party=text(x.party_id,'Cari');await requireParty(db,party);
+  const party=text(x.party_id,'Cari');await livingParty(db,party);
   const reference=text(x.reference,'Referans',200),kind=x.kind||'manual';if(!['manual','opening'].includes(kind))fail('Hareket türü geçersiz.');
   await execute(db,[entryInsert(db,{id:key,party_id:party,amount_cents:money(x.amount),occurred_on:day(x.occurred_on),due_on:x.due_on?day(x.due_on):null,reference,description:text(x.description,'Açıklama',2000),source_key:'manual:'+optional(x.source_key||reference,200),source:kind})]);return {id:key};
  }
  if(path==='/api/ledger/cash'){
   if(!['receipt','payment'].includes(x.direction))fail('Tahsilat veya ödeme seçin.');
   const amount=positive(x.amount)*(x.direction==='receipt'?1:-1),account=text(x.account_id,'Kasa/banka'),reference=text(x.reference,'Referans',200),description=text(x.description,'Açıklama',2000),date=day(x.occurred_on);
-  if(!await stmt(db,'SELECT id FROM cash_accounts WHERE id=?',[account]).first())fail('Kasa/banka hesabı bulunamadı.',404);
-  const party=optional(x.party_id),entry=party?id():null,items=[];
-  if(party){await requireParty(db,party);items.push(entryInsert(db,{id:entry,party_id:party,amount_cents:-amount,occurred_on:date,reference,description,source_key:'cash:'+reference,source:'cash'}));}
+  await livingAccount(db,account);
+  // İki ayrı iş: CARİ seçilirse yeni cari hareketi de açılır; VAR OLAN hareket bağlanırsa (çek
+  // vadesinde ödendi, hesapsız yazılmış eski ödemenin parası kasadan düşecek) yalnız kasa satırı
+  // yazılır, cari borcu ikinci kez kapanmaz. İkisi birlikte gelirse hangisi olduğu belirsizdir.
+  const party=optional(x.party_id),linked=optional(x.party_entry_id,200),items=[];
+  if(party&&linked)fail('Ya yeni hareket için cari seçin ya da var olan cari hareketine bağlayın; ikisi birlikte olmaz.');
+  let entry=party?id():null;
+  if(linked){
+   const row=await stmt(db,`SELECT e.*,(SELECT r.id FROM party_entries r WHERE r.reversal_of=e.id) reversed_by,(SELECT t.id FROM cash_transactions t WHERE t.party_entry_id=e.id AND NOT EXISTS(SELECT 1 FROM cash_transactions v WHERE v.reversal_of=t.id)) live_cash,(SELECT t.id FROM cash_transactions t WHERE t.party_entry_id=e.id) any_cash FROM party_entries e WHERE e.id=?`,[linked]).first();
+   if(!row)fail('Bağlanacak cari hareketi bulunamadı.',404);
+   if(row.reversal_of||row.reversed_by)fail('Ters kaydedilmiş harekete kasa/banka hareketi bağlanamaz.',409);
+   if(row.live_cash)fail('Bu cari hareketine bağlı kasa/banka hareketi zaten var; ikincisi yazılmaz, kasadan iki kez para çıkmaz.',409);
+   // Bağ tekildir: ters kaydedilmiş kasa hareketi de o hareketin üzerinde durur, yerine yenisi yazılamaz.
+   if(row.any_cash)fail('Bu cari hareketinin kasa/banka hareketi ters kaydedilmiş; yerine yenisi bağlanamaz, ödemeyi yeniden girin.',409);
+   if(!['cash','reversal'].includes(row.source))fail('Kasa/banka hareketi yalnız ödeme ve tahsilat hareketine bağlanabilir.',409);
+   // Yön ve tutar hareketin kendisinden gelir: ödemeye (borcu azaltan artı hareket) ÇIKIŞ, tahsilata GİRİŞ bağlanır.
+   if(row.amount_cents>0&&amount>0)fail('Bu cari hareketi bir ödemedir; kasa/banka hareketi çıkış (ödeme) olmalı.');
+   if(row.amount_cents<0&&amount<0)fail('Bu cari hareketi bir tahsilattır; kasa/banka hareketi giriş (tahsilat) olmalı.');
+   if(amount!==-row.amount_cents)fail('Kasa/banka tutarı cari hareketiyle aynı olmalı: hareket '+lira(Math.abs(row.amount_cents))+', girilen '+lira(Math.abs(amount))+'.');
+   entry=row.id;
+  }else if(party){await livingParty(db,party);items.push(entryInsert(db,{id:entry,party_id:party,amount_cents:-amount,occurred_on:date,reference,description,source_key:'cash:'+reference,source:'cash'}));}
   items.push(stmt(db,'INSERT INTO cash_transactions(id,account_id,party_entry_id,amount_cents,occurred_on,reference,description) VALUES(?,?,?,?,?,?,?)',[key,account,entry,amount,date,reference,description]));
   await execute(db,items);return {id:key,party_entry_id:entry};
  }
- // Fatura ödemesi. Kasa/banka hesabı ZORUNLU DEĞİLDİR: ödemenin nasıl yapıldığı (nakit/kart/havale/çek)
- // ve serbest not ("hangi kart, hangi banka") yeterlidir. Hesap verilirse kasa hareketi de aynı yazma
- // kümesinde oluşur. Ödeme ve kapamaları tek db.batch: ya hepsi yazılır ya hiçbiri.
+ // Fatura ödemesi. Kasa/banka hesabı parası ANINDA çıkan yöntemlerde (nakit, havale, kart)
+ // ZORUNLUDUR: hesapsız yazılan ödeme borcu kapatıp parayı hiçbir hesaptan düşmüyor, kasayı fazla
+ // gösteriyordu. Yalnız çekte para sonra çıkar; çekte hesap isteğe bağlıdır, para vade gününde
+ // '/cash' ucuna party_entry_id ile bağlanır. Hesap verilen ödemenin kasa hareketi aynı yazma
+ // kümesinde oluşur.
+ // Ödemenin nasıl yapıldığı ve serbest notu ("hangi kart, hangi banka") her yöntemde sorulur.
+ // Ödeme ve kapamaları tek db.batch: ya hepsi yazılır ya hiçbiri.
  if(path==='/api/ledger/payments'){
-  const party=text(x.party_id,'Cari');await requireParty(db,party);
+  const party=text(x.party_id,'Cari');await livingParty(db,party);
   const amount=positive(x.amount),date=day(x.occurred_on),method=x.method;
   if(!Object.hasOwn(METHODS,method))fail('Ödemeyi nasıl yaptığınızı seçin: nakit, kart, havale veya çek.');
   const note=optional(typeof x.note==='string'?x.note.trim():x.note,200);
   const due=x.due_on===undefined||x.due_on===null||x.due_on===''?null:day(x.due_on);
   if(method==='cek'&&!due)fail('Çek için vade tarihi girin; çek vadesinde ödenecek.');
   const account=optional(x.account_id,200);
+  if(!account&&CASH_NOW.has(method))fail('Parayı hangi kasadan/bankadan ödediğinizi seçin: '+METHODS[method]+' ödemede para anında çıkar, hesap seçmeden kaydedilemez.');
   if(x.invoice_ids!==undefined&&x.invoice_ids!==null&&!Array.isArray(x.invoice_ids))fail('Fatura seçimi geçersiz.');
   const invoiceIds=Array.isArray(x.invoice_ids)?x.invoice_ids.filter(v=>v!==undefined&&v!==null&&v!=='').map(String):[];
   if(invoiceIds.length>100)fail('Tek ödemede en fazla 100 fatura kapatılabilir.');
@@ -182,7 +289,7 @@ export async function ledgerApi(request,env,path,readBody){
   ];
   picks.forEach((pick,index)=>items.push(stmt(db,'INSERT INTO payment_allocations(id,positive_entry_id,negative_entry_id,amount_cents,reference) VALUES(?,?,?,?,?)',[id(),key,pick.row.id,pick.take,reference+'#'+(index+1)])));
   if(account){
-   if(!await stmt(db,'SELECT id FROM cash_accounts WHERE id=?',[account]).first())fail('Kasa/banka hesabı bulunamadı.',404);
+   await livingAccount(db,account);
    items.push(stmt(db,'INSERT INTO cash_transactions(id,account_id,party_entry_id,amount_cents,occurred_on,reference,description) VALUES(?,?,?,?,?,?,?)',[id(),account,key,-amount,date,reference,description]));
   }
   await execute(db,items);
@@ -224,7 +331,7 @@ export async function ledgerApi(request,env,path,readBody){
  if(path==='/api/ledger/provisional'){
   // Gövde ve key yukarıda bir kez okunur (satır 113); ikinci readBody isteği kilitler.
   const party=text(x.supplier_id,'Tedarikçi');
-  await requireParty(db,party);
+  await livingParty(db,party);
   const date=day(x.occurred_on),reference=text(x.reference,'İrsaliye referansı',200),notes=optional(x.notes,1000);
   // ÖDEME VADESİ isteğe bağlıdır: girilirse cari hareketine yazılır, ekranda "Vade" olarak görünür
   // ve vadesi geçenler işaretlenir. Malın geliş tarihinden önce olamaz.

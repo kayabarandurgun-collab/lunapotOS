@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {appFixture} from './helpers/app-fixture.js';
 
-// Alış faturası cari borcu oluşturur; ödeme banka hesabı seçmeye zorlamadan girilir.
-// Nakit, kart, havale ve çek ayrı ayrı kaydedilir; çek vadesiyle beklemeye alınır.
+// Alış faturası cari borcu oluşturur; ödeme nakit, kart, havale ve çek olarak ayrı ayrı kaydedilir.
+// Parası ANINDA çıkan nakit, kart ve havalede kasa/banka hesabı zorunludur. Yalnız çek vadelidir;
+// çekte hesap sonradan bağlanır (bkz. cari-odeme-kasa.test.js). Çek vadesiyle beklemeye alınır.
 // Ödeme ile kapama tek yazma kümesindedir: ya ikisi birden yazılır ya hiçbiri.
 
 const TARIH = '2026-09-09';
@@ -18,7 +19,8 @@ async function seed() {
   lines: [{description: 'Torf', external_code: 'T', invoice_quantity: 1, invoice_unit: 'adet', product_id: product, stock_quantity: 1, net, tax}]
  })).id;
  const fatura = async (...args) => {const id = await taslak(...args); await f.ok('/ec/invoices/' + id + '/post', {}); return id;};
- return {f, supplier, other, product, taslak, fatura};
+ const kasa = await f.ok('/ec/ledger/accounts', {name: 'Ana Kasa', kind: 'cash'});
+ return {f, supplier, other, product, kasa, taslak, fatura};
 }
 
 const borc = (f, invoiceId) => f.sqlite.prepare('SELECT * FROM ec_party_entries WHERE source_key=?').get('invoice:' + invoiceId) || null;
@@ -62,15 +64,15 @@ test('Muhasebeleşen alış faturası tam olarak bir kez cari borcu yazar; tamam
  } finally {f.close();}
 });
 
-test('Kısmi ödeme kalanı açık bırakır; banka hesabı seçmek zorunlu değildir', async () => {
- const {f, supplier, fatura} = await seed(); try {
+test('Kısmi ödeme kalanı açık bırakır; nakit ödenen para kasadan düşer', async () => {
+ const {f, supplier, kasa, fatura} = await seed(); try {
   const invoice = await fatura('F-10', 1000, 200);
   const odeme = await f.ok('/ec/ledger/payments', {
-   party_id: supplier.id, amount: 500, occurred_on: TARIH, method: 'nakit', note: 'Kasadan elden verdim'
+   party_id: supplier.id, amount: 500, occurred_on: TARIH, method: 'nakit', note: 'Kasadan elden verdim', account_id: kasa.id
   });
   assert.ok(odeme.id, 'ödeme kaydı oluşmalı');
   assert.equal(odeme.allocated_cents, 50000, 'ödeme açık borca yazılmalı');
-  assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_cash_transactions').get().n, 0, 'hesap seçilmediyse kasa hareketi yazılmamalı');
+  assert.equal(f.sqlite.prepare('SELECT amount_cents n FROM ec_cash_transactions WHERE party_entry_id=?').get(odeme.id).n, -50000, 'nakit ödemede para kasadan çıkmalı');
   const detay = f.sqlite.prepare('SELECT * FROM ec_party_payment_methods WHERE entry_id=?').get(odeme.id);
   assert.equal(detay.method, 'nakit');
   assert.equal(detay.note, 'Kasadan elden verdim');
@@ -84,16 +86,16 @@ test('Kısmi ödeme kalanı açık bırakır; banka hesabı seçmek zorunlu değ
   assert.equal(row.status, 'partial');
   assert.equal(f.sqlite.prepare('SELECT COALESCE(SUM(amount_cents),0) n FROM ec_party_entries WHERE party_id=?').get(supplier.id).n, -70000);
 
-  const kalan = await f.ok('/ec/ledger/payments', {party_id: supplier.id, amount: 700, occurred_on: TARIH, method: 'havale', note: 'Ziraat'});
+  const kalan = await f.ok('/ec/ledger/payments', {party_id: supplier.id, amount: 700, occurred_on: TARIH, method: 'havale', note: 'Ziraat', account_id: kasa.id});
   assert.equal(kalan.allocated_cents, 70000);
   assert.equal(acik(await f.ok('/ec/ledger'), invoice), null, 'tamamen ödenen fatura açık listede kalmamalı');
  } finally {f.close();}
 });
 
 test('Seçilen faturalar tek ödemeyle kapanır; seçilmeyen fatura açık kalır ve çift tıklama ikinci ödeme yazmaz', async () => {
- const {f, supplier, fatura} = await seed(); try {
+ const {f, supplier, kasa, fatura} = await seed(); try {
   const bir = await fatura('F-20', 100, 0), iki = await fatura('F-21', 200, 0), uc = await fatura('F-22', 300, 0);
-  const govde = {party_id: supplier.id, amount: 300, occurred_on: TARIH, method: 'kart', note: 'Garanti Bonus kart', invoice_ids: [bir, iki]};
+  const govde = {party_id: supplier.id, amount: 300, occurred_on: TARIH, method: 'kart', note: 'Garanti Bonus kart', account_id: kasa.id, invoice_ids: [bir, iki]};
   const ilk = await f.ok('/ec/ledger/payments', govde);
   assert.equal(ilk.allocated_cents, 30000);
   assert.deepEqual([...ilk.closed_invoice_ids].sort(), [bir, iki].sort());
@@ -112,18 +114,18 @@ test('Seçilen faturalar tek ödemeyle kapanır; seçilmeyen fatura açık kalı
 });
 
 test('Açık borcu aşan ödeme Türkçe uyarıyla reddedilir ve hiçbir kayıt bırakmaz', async () => {
- const {f, supplier, other, fatura} = await seed(); try {
+ const {f, supplier, other, kasa, fatura} = await seed(); try {
   const invoice = await fatura('F-30', 100, 0);
-  const fazla = await f.req('/ec/ledger/payments', {party_id: supplier.id, amount: 150, occurred_on: TARIH, method: 'nakit', note: ''});
+  const fazla = await f.req('/ec/ledger/payments', {party_id: supplier.id, amount: 150, occurred_on: TARIH, method: 'nakit', note: '', account_id: kasa.id});
   assert.ok(fazla.status >= 400, 'fazla ödeme kabul edilmemeli, gelen ' + fazla.status);
   assert.match(fazla.data.error, /borc/i, 'uyarı Türkçe ve borçtan bahsetmeli: ' + fazla.data.error);
   assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_party_entries WHERE amount_cents>0').get().n, 0, 'reddedilen ödeme kayıt bırakmamalı');
   assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_party_payment_methods').get().n, 0);
 
-  const secili = await f.req('/ec/ledger/payments', {party_id: supplier.id, amount: 120, occurred_on: TARIH, method: 'nakit', note: '', invoice_ids: [invoice]});
+  const secili = await f.req('/ec/ledger/payments', {party_id: supplier.id, amount: 120, occurred_on: TARIH, method: 'nakit', note: '', invoice_ids: [invoice], account_id: kasa.id});
   assert.ok(secili.status >= 400, 'seçili faturanın kalanını aşan ödeme reddedilmeli');
 
-  const bos = await f.req('/ec/ledger/payments', {party_id: other.id, amount: 10, occurred_on: TARIH, method: 'nakit', note: ''});
+  const bos = await f.req('/ec/ledger/payments', {party_id: other.id, amount: 10, occurred_on: TARIH, method: 'nakit', note: '', account_id: kasa.id});
   assert.ok(bos.status >= 400, 'açık borcu olmayan cariye ödeme yazılmamalı');
  } finally {f.close();}
 });
@@ -171,7 +173,9 @@ test('Ödeme yapmadan planlanan ödeme tarihi işaretlenir ve vadesi gelen liste
 test('Ödeme geri alındığında fatura yeniden açık duruma döner', async () => {
  const {f, supplier, fatura} = await seed(); try {
   const invoice = await fatura('F-60', 250, 0);
-  const odeme = await f.ok('/ec/ledger/payments', {party_id: supplier.id, amount: 250, occurred_on: TARIH, method: 'havale', note: 'Yanlış cariye'});
+  // Çek seçilir: parası henüz çıkmadığı için hesaba bağlı değildir, hareketin kendisi geri alınabilir.
+  // Kasa hareketi bağlı ödemeler ('nakit', 'havale', 'kart') kasa kaydı üzerinden geri alınır.
+  const odeme = await f.ok('/ec/ledger/payments', {party_id: supplier.id, amount: 250, occurred_on: TARIH, method: 'cek', note: 'Yanlış cariye', due_on: '2026-10-31'});
   assert.equal(acik(await f.ok('/ec/ledger'), invoice), null);
 
   const kapama = f.sqlite.prepare('SELECT id FROM ec_payment_allocations WHERE positive_entry_id=?').get(odeme.id);
@@ -227,10 +231,10 @@ test('Cari yetkisi olmayan personel ödeme giremez; tutar yetkisi kapalıysa tut
 });
 
 test('Alış faturası listesi ödeme durumunu ve planlanan tarihi taşır', async () => {
- const {f, supplier, fatura} = await seed(); try {
+ const {f, supplier, kasa, fatura} = await seed(); try {
   const odenen = await fatura('F-90', 100, 0), kismi = await fatura('F-91', 200, 0), acikFatura = await fatura('F-92', 300, 0);
-  await f.ok('/ec/ledger/payments', {party_id: supplier.id, amount: 100, occurred_on: TARIH, method: 'nakit', note: '', invoice_ids: [odenen]});
-  await f.ok('/ec/ledger/payments', {party_id: supplier.id, amount: 50, occurred_on: TARIH, method: 'kart', note: 'Bonus', invoice_ids: [kismi]});
+  await f.ok('/ec/ledger/payments', {party_id: supplier.id, amount: 100, occurred_on: TARIH, method: 'nakit', note: '', invoice_ids: [odenen], account_id: kasa.id});
+  await f.ok('/ec/ledger/payments', {party_id: supplier.id, amount: 50, occurred_on: TARIH, method: 'kart', note: 'Bonus', account_id: kasa.id, invoice_ids: [kismi]});
   await f.ok('/ec/ledger/plans', {invoice_id: acikFatura, planned_on: '2026-09-30', note: 'Ay sonu'});
 
   const liste = await f.ok('/ec/purchases?status=posted');
@@ -245,9 +249,9 @@ test('Alış faturası listesi ödeme durumunu ve planlanan tarihi taşır', asy
 });
 
 test('Cari ekranının okuduğu alanlar yanıtta birebir bulunur', async () => {
- const {f, supplier, fatura} = await seed(); try {
+ const {f, supplier, kasa, fatura} = await seed(); try {
   const invoice = await fatura('F-95', 500, 0);
-  await f.ok('/ec/ledger/payments', {party_id: supplier.id, amount: 100, occurred_on: TARIH, method: 'kart', note: 'Bonus'});
+  await f.ok('/ec/ledger/payments', {party_id: supplier.id, amount: 100, occurred_on: TARIH, method: 'kart', note: 'Bonus', account_id: kasa.id});
   await f.ok('/ec/ledger/plans', {invoice_id: invoice, planned_on: '2026-09-30', note: 'Ay sonu'});
   const cekFatura = await fatura('F-96', 200, 0);
   await f.ok('/ec/ledger/payments', {party_id: supplier.id, amount: 200, occurred_on: TARIH, method: 'cek', note: 'Çek 1', due_on: '2026-12-31', invoice_ids: [cekFatura]});

@@ -19,6 +19,9 @@ async function seed() {
  const supplier = await f.ok('/ec/suppliers', {name: 'Torf Tedarikçisi', tax_id: '1234567890', contact: ''});
  const other = await f.ok('/ec/suppliers', {name: 'Ambalaj Tedarikçisi', tax_id: '1234567891', contact: ''});
  const product = (await f.ok('/ec/products', {name: 'Torf', sku: 'T-1', stock_unit: 'adet', min_stock: 0})).id;
+ // Nakit, havale ve kartta para ANINDA çıkar: kasa/banka hesabı zorunludur. Yalnız çek vadelidir;
+ // çekte hesap sonradan, para gerçekten çıktığı gün bağlanır.
+ const kasa = await f.ok('/ec/ledger/accounts', {name: 'Ana Kasa', kind: 'cash'});
  const fatura = async (no, net, tax = 0, party = supplier.id) => {
   const id = (await f.ok('/ec/invoices', {
    supplier_id: party, invoice_no: no, invoice_date: FATURA_TARIHI, currency: 'TRY',
@@ -36,11 +39,11 @@ async function seed() {
  const digerFatura = await fatura('F-9', 300, 0, other.id);
 
  const cek = await f.ok('/ec/ledger/payments', {party_id: supplier.id, amount: 500, occurred_on: CEK_TARIHI, method: 'cek', note: 'Ziraat çeki 123456', due_on: '2026-10-31', invoice_ids: [cekli]});
- const nakit = await f.ok('/ec/ledger/payments', {party_id: supplier.id, amount: 300, occurred_on: NAKIT_TARIHI, method: 'nakit', note: 'Kasadan elden', invoice_ids: [kismi]});
- const kart = await f.ok('/ec/ledger/payments', {party_id: supplier.id, amount: 2000, occurred_on: KART_TARIHI, method: 'kart', note: 'Garanti Bonus', invoice_ids: [bir, iki]});
+ const nakit = await f.ok('/ec/ledger/payments', {party_id: supplier.id, amount: 300, occurred_on: NAKIT_TARIHI, method: 'nakit', note: 'Kasadan elden', invoice_ids: [kismi], account_id: kasa.id});
+ const kart = await f.ok('/ec/ledger/payments', {party_id: supplier.id, amount: 2000, occurred_on: KART_TARIHI, method: 'kart', note: 'Garanti Bonus', invoice_ids: [bir, iki], account_id: kasa.id});
  await f.ok('/ec/ledger/plans', {invoice_id: kismi, planned_on: '2026-09-30', note: 'Kalanını ay sonunda öderim'});
 
- return {f, supplier, other, bir, iki, cekli, kismi, digerFatura, cek, nakit, kart};
+ return {f, supplier, other, kasa, bir, iki, cekli, kismi, digerFatura, cek, nakit, kart};
 }
 
 const ekstre = (f, party, auth) => f.req('/ec/statement?party_id=' + party + '&from=2026-09-01&to=2026-09-30', undefined, auth);
@@ -250,9 +253,9 @@ test('Dar ekranda satır taşmaz: uzun not ve çok fatura kısaltılır, hiçbir
 });
 
 test('Her carinin son ödemesi kendi hesabından gelir; başka carinin ödemesi karışmaz', async () => {
- const {f, other, digerFatura} = await seed(); try {
+ const {f, other, kasa, digerFatura} = await seed(); try {
   // Bu cariye ötekilerden ESKİ tarihli tek bir ödeme yazılır.
-  await f.ok('/ec/ledger/payments', {party_id: other.id, amount: 100, occurred_on: '2026-09-01', method: 'havale', note: 'Ziraat EFT', invoice_ids: [digerFatura]});
+  await f.ok('/ec/ledger/payments', {party_id: other.id, amount: 100, occurred_on: '2026-09-01', method: 'havale', note: 'Ziraat EFT', invoice_ids: [digerFatura], account_id: kasa.id});
   const parties = (await f.ok('/ec/ledger')).parties;
   const ikinci = parties.find(p => p.id === other.id);
   assert.equal(ikinci.last_payment.occurred_on, '2026-09-01', 'eski tarihli ödeme kendi carisinde görünmeli');
