@@ -10,8 +10,12 @@ const onHand=p=>known(p.on_hand_milli===undefined?p.quantity_milli:p.on_hand_mil
 const reserved=p=>known(p.reserved_milli);
 const available=p=>p.available_milli===undefined?(onHand(p)===null||reserved(p)===null?null:onHand(p)-reserved(p)):known(p.available_milli);
 const supplierName=p=>p.supplier_name||p.last_supplier_name||'';
+// ARŞİVLENEN ÜRÜN KARTI listede gösterilmez; ama arşiv GERÇEK STOĞU GİZLEMEZ: karta iade gelip
+// depoya mal döndüyse (miktar ya da değer sıfırdan farklıysa) kart yeniden görünür, arşiv rozetiyle.
+// Miktarı bilinmeyen kart da gizlenmez: eksik bilgi, kaybolmuş kart demek değildir.
+export const archivedHidden=p=>!!p.archived_at&&onHand(p)===0&&p.value_cents===0;
 export function selectProducts(products,state,stats=null){
- const result=products.filter(p=>(!state.stockQuery||norm([p.name,p.sku,p.brand,p.category,supplierName(p)].join(' ')).includes(norm(state.stockQuery)))&&(!state.stockBrand||p.brand===state.stockBrand)&&(!state.stockCategory||p.category===state.stockCategory)&&(!state.stockSupplier||p.supplier_id===state.stockSupplier||(!p.supplier_id&&p.last_supplier_id===state.stockSupplier))&&(!state.stockFilter||(state.stockFilter==='empty'?onHand(p)===0:available(p)!==null&&available(p)<=p.min_stock_milli)));
+ const result=products.filter(p=>!archivedHidden(p)).filter(p=>(!state.stockQuery||norm([p.name,p.sku,p.brand,p.category,supplierName(p)].join(' ')).includes(norm(state.stockQuery)))&&(!state.stockBrand||p.brand===state.stockBrand)&&(!state.stockCategory||p.category===state.stockCategory)&&(!state.stockSupplier||p.supplier_id===state.stockSupplier||(!p.supplier_id&&p.last_supplier_id===state.stockSupplier))&&(!state.stockFilter||(state.stockFilter==='empty'?onHand(p)===0:available(p)!==null&&available(p)<=p.min_stock_milli)));
  // Legacy profit sort values no longer rank allocated component profit as intrinsic profit.
  const sort=['profit','unitprofit'].includes(state.stockSort)?'name':state.stockSort||'brand';
  const descending=(a,b)=>(b??-Infinity)-(a??-Infinity);
@@ -33,7 +37,12 @@ export function productList(products,data,state,helpers){
  const gross=(p,v)=>v==null||p.vat_bps==null?null:Math.round(v*(10000+p.vat_bps)/10000);
  const pair=(p,v)=>'<strong>'+money(gross(p,v))+'</strong><small>'+money(v)+' KDV hariç'+(p.vat_bps==null?' · KDV oranı eksik':'')+'</small>';
  const cost=p=>onHand(p)>0&&p.value_cents!=null?Math.round(p.value_cents*1000/onHand(p)):null;
- const actions=p=>(helpers.editable===false?'':'<button type="button" class="text-button" data-ac="edit-product" data-id="'+esc(p.id)+'">Düzenle</button>')+'<button type="button" class="text-button" data-ac="stock-history" data-id="'+esc(p.id)+'">Hareketler →</button>';
+ // Kart kaldırma iki ayrı işlemdir: ARŞİVLE geçmişi olan kartı listeden düşürür, SİL yalnız hiç
+ // kullanılmamış kartta çalışır (sunucu bağlantıları tek tek denetler). İkisi de onay ister.
+ const removal=p=>p.archived_at
+  ? '<button type="button" class="text-button" data-ac="restore-product" data-id="'+esc(p.id)+'">Arşivden geri al</button>'
+  : '<button type="button" class="text-button" data-ac="archive-product" data-id="'+esc(p.id)+'">Arşivle</button><button type="button" class="text-button danger" data-ac="delete-product" data-id="'+esc(p.id)+'">Sil</button>';
+ const actions=p=>(helpers.editable===false?'':'<button type="button" class="text-button" data-ac="edit-product" data-id="'+esc(p.id)+'">Düzenle</button>'+removal(p))+'<button type="button" class="text-button" data-ac="stock-history" data-id="'+esc(p.id)+'">Hareketler →</button>';
  const st=p=>data.productStats?.get(p.id)||null;
  // TEK SATIŞTAN / SET İÇİNDEN. Aynı ürünün iki ayrı sonucu ayrı gösterilir; karışık tek rakam yoktur.
  // Bilinmeyen sıfır yazılmaz, nedeni yazılır. Tutarlar KDV dahil cebine kalandır.
@@ -76,7 +85,8 @@ export function productList(products,data,state,helpers){
  };
  const transit=p=>'<strong>'+quantity(p.in_transit_milli)+'</strong>'+(p.in_transit_status==='incomplete'&&known(p.in_transit_known_milli)!==null?'<small>Doğrulanabilen '+quantity(p.in_transit_known_milli)+' · toplam eksik</small>':'')+(p.in_transit_notes||[]).map(n=>'<small class="stock-transit-note">'+esc(n)+'</small>').join('');
  const physical=p=>'<dl class="stock-physical"><div><dt>Depoda · kayıtlı</dt><dd>'+quantity(onHand(p))+'</dd></div><div><dt>Ayrılan · depoda</dt><dd>'+quantity(reserved(p))+'</dd></div><div><dt>Kargoda · depodan çıktı</dt><dd>'+transit(p)+'</dd></div></dl>';
- const status=p=>onHand(p)===null||available(p)===null?'Stok bilgisi eksik':onHand(p)<0?'Eksi stok':onHand(p)===0?'Stok yok':available(p)<=p.min_stock_milli?'Kritik stok':'Stokta';
+ // Arşivli kart yalnız deposunda mal kaldığı için listededir; durumu bunu açıkça söyler.
+ const status=p=>p.archived_at?'Arşivli · depoda mal var':onHand(p)===null||available(p)===null?'Stok bilgisi eksik':onHand(p)<0?'Eksi stok':onHand(p)===0?'Stok yok':available(p)<=p.min_stock_milli?'Kritik stok':'Stokta';
  const costDetails=p=>'<details class="product-details"><summary>Maliyet ayrıntıları · KDV dahil</summary><dl><div><dt>Ort. alış fiyatı</dt><dd>'+pair(p,p.average_purchase_cents)+'</dd></div><div><dt>Ort. satış payı · defter satırlarından</dt><dd>'+pair(p,saleAverage(data.sales||[],p.id))+'</dd></div><div><dt>Birim stok maliyeti</dt><dd>'+pair(p,cost(p))+'</dd></div><div><dt>Güncel stok değeri</dt><dd>'+pair(p,p.value_cents)+'</dd></div></dl><p class="help">Satış payı, set ve çoklu paket dağılımlarını içerebilir; tekli satış fiyatı değildir.</p></details>';
  if(!products.length)return '<div class="card product-empty"><h2>Bu seçimde ürün bulunamadı</h2><p>Filtreleri temizleyebilir veya ürün listesini içe aktarmak için hazırlayabilirsin.</p></div>';
  const groups=new Map();
@@ -89,7 +99,7 @@ export function productList(products,data,state,helpers){
   return '<div class="brand-head"><h2>'+esc(b||'Markası belirtilmemiş')+'</h2><span>'+list.length+' ürün · depoda kayıtlı '+balances+'</span></div>';
  };
  const introduction='<div class="stock-model-note"><p><strong>Fiziksel ürün stoğu</strong> · Kullanılabilir = depoda kayıtlı − ayrılan. Ayrılan ürünler hâlâ depodadır. Kargodakiler sevkiyatta stoktan çıktı; tekrar düşülmez.</p><p>Setleri değil, içindeki stok ürünlerini tek tek sayın. Bu miktarlar günceldir; satış dönemi filtresinden etkilenmez.</p></div>';
- const tableRows=list=>list.map(p=>'<tr><td class="product-table-name"><strong>'+esc(p.name)+'</strong><small>'+esc(p.sku)+' · '+esc(supplier(p))+'</small></td><td><strong class="'+(available(p)!==null&&available(p)<0?'ol-neg':'')+'">'+quantity(available(p))+' '+esc(p.stock_unit)+'</strong></td><td>'+quantity(onHand(p))+'</td><td>'+quantity(reserved(p))+'</td><td>'+transit(p)+'</td><td>'+costDetails(p)+sales(p)+'</td><td>'+actions(p)+'</td></tr>').join('');
+ const tableRows=list=>list.map(p=>'<tr><td class="product-table-name"><strong>'+esc(p.name)+'</strong><small>'+esc(p.sku)+' · '+esc(supplier(p))+'</small>'+(p.archived_at?'<small>Arşivli kart · deposunda mal kaldığı için listede</small>':'')+'</td><td><strong class="'+(available(p)!==null&&available(p)<0?'ol-neg':'')+'">'+quantity(available(p))+' '+esc(p.stock_unit)+'</strong></td><td>'+quantity(onHand(p))+'</td><td>'+quantity(reserved(p))+'</td><td>'+transit(p)+'</td><td>'+costDetails(p)+sales(p)+'</td><td>'+actions(p)+'</td></tr>').join('');
  if(state.stockView==='table')return introduction+keys.map(b=>'<section class="brand-group">'+head(b,groups.get(b))+'<div class="card table-wrap"><table class="ac-table product-table" data-list-sort="server"><thead><tr>'+['Ürün / Tedarikçi','Kullanılabilir','Depoda · kayıtlı','Ayrılan · depoda','Kargoda · depodan çıktı','Ayrıntılar','İşlem'].map(x=>'<th>'+x+'</th>').join('')+'</tr></thead><tbody>'+tableRows(groups.get(b))+'</tbody></table></div></section>').join('');
  const tile=p=>'<article class="card product-tile stock-physical-card"><div class="product-eyebrow"><span>'+esc(p.category||'Kategorisiz')+'</span><span class="pill '+(available(p)===null||available(p)<=p.min_stock_milli?'warning':'success')+'">'+status(p)+'</span></div><h3>'+esc(p.name)+'</h3><p class="product-code">'+esc(p.sku)+'</p><p class="product-supplier">'+esc(supplier(p))+'</p><div class="product-available '+(available(p)!==null&&available(p)<0?'ol-neg':'')+'"><span>Kullanılabilir fiziksel stok</span><strong>'+quantity(available(p))+' <small>'+esc(p.stock_unit)+'</small></strong></div>'+physical(p)+costDetails(p)+sales(p)+'<div class="product-actions">'+actions(p)+'</div></article>';
  return introduction+keys.map(b=>'<section class="brand-group">'+head(b,groups.get(b))+'<div class="product-grid">'+groups.get(b).map(tile).join('')+'</div></section>').join('');

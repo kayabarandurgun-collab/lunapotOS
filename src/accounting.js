@@ -36,8 +36,30 @@ async function batch(db,items){try{return await db.batch(items);}catch(e){
  if(message.includes('RECEIPT_'))fail('Teslim miktarı faturayı aşıyor veya fatura henüz muhasebeleştirilmedi.',409);
  if(message.includes('UNIQUE constraint'))fail('Bu referans veya fatura zaten kaydedilmiş. Aynı kayıt ikinci kez işlenmedi.',409);
  if(message.includes('INVOICE_ALREADY_HANDLED')||message.includes('IMMUTABLE_INVOICE'))fail('Bu fatura daha önce işlendi.',409);
+ // Son emniyet: uçta tek tek denetlenmemiş bir bağlantı kalsa bile kart yarım silinmez.
+ if(message.includes('FOREIGN KEY constraint'))fail('Bu kayıt başka kayıtlarla bağlantılı; silinemez. Kartı arşivleyin.',409);
  throw e;
 }}
+// ÜRÜN KARTINI BAĞLAYAN KAYITLAR. Hepsi değiştirilemez defter satırı ya da bağlantı tanımıdır;
+// kart silinseydi geçmiş okunamaz hale gelirdi. Sıra kullanıcıya en anlaşılır nedeni verir.
+// ws_variant_components web mağaza ilanının stok kartı bileşenidir; çalışma alanına göre
+// adlandırılmaz, bu yüzden adı olduğu gibi yazılır.
+const PRODUCT_LINKS=[
+ ['stock_movements','Stok hareketi'],
+ ['sale_entries','Satış veya iade kaydı'],
+ ['purchase_lines','Alış faturası satırı'],
+ ['catalog_mapping_components','İlan veya alış eşleşmesi'],
+ ['order_line_components','Sipariş satırı bileşeni'],
+ ['order_lines','Sipariş satırı'],
+ ['order_reservations','Siparişe ayrılmış stok'],
+ ['product_family_members','Ürün ailesi üyeliği'],
+ ['provisional_receipt_lines','Faturasız mal girişi'],
+ ['ws_variant_components','Web mağaza ilan bileşeni']
+];
+// Gider tetikleyiciden doğmuşsa elle düzeltilmez: sayım farkı stok hareketine, hammadde sayımı
+// üretim deposuna, 'invoice-' önekli satır alış faturasının gider satırına bağlıdır. Düzeltme
+// kaynağından yapılır, yoksa defter ile kaynak belge ayrışır.
+const derivedExpense=reference=>/^(count:|material-count:|invoice-)/.test(String(reference));
 // GEÇİCİ SAYIM KENDİLİĞİNDEN KAPANIR. Tedarikçi faturayı ay sonunda keser; mal ondan önce gelir
 // ve rafta sayılır. Böyle bir mal "GECICI-SAYIM-..." referanslı sayımla girilmişse, faturası gelip
 // mal teslimi yapıldığında AYNI mal ikinci kez stoğa girmiş olur. Teslimle birlikte o ürünün
@@ -93,14 +115,51 @@ export async function accountingApi(request,env,path,readBody){
   if(old.stock_unit!==x.stock_unit&&(await statement(db,'SELECT id FROM stock_movements WHERE product_id=? LIMIT 1',[key]).first()||await statement(db,'SELECT id FROM purchase_lines WHERE product_id=? LIMIT 1',[key]).first()||await statement(db,'SELECT id FROM catalog_mapping_components WHERE product_id=? LIMIT 1',[key]).first()||await statement(db,'SELECT id FROM order_line_components WHERE product_id=? LIMIT 1',[key]).first()))fail('Hareketi, fatura veya ilan bağlantısı olan ürünün stok birimi değiştirilemez.',409);
   await batch(db,[statement(db,'UPDATE products SET name=?,sku=?,stock_unit=?,min_stock_milli=?,category=?,brand=?,supplier_id=? WHERE id=?',[text(x.name,'Ürün adı'),text(x.sku,'Ürün kodu'),x.stock_unit,x.min_stock===0?0:milli(x.min_stock),x.category===undefined?old.category:optional(x.category).slice(0,100),x.brand===undefined?old.brand:optional(x.brand).slice(0,100),x.supplier_id===undefined?old.supplier_id:x.supplier_id||null,key]),log(db,'E-ticaret ürünü güncellendi')]);return {id:key};
  }
+ // ÜRÜN KARTININ KALDIRILMASI (e-ticaret). İki ayrı işlem, iki ayrı gerekçe:
+ //  * SİL (DELETE): yalnız HİÇBİR YERDE kullanılmamış kart. Boşuna açılan, yanlış yazılan kart
+ //    izsiz kaldırılır. Kullanımda olan kart silinmez; hangi kaydın bağladığı Türkçe söylenir.
+ //    Yetki: silme, ekran yetkisinin üstüne ayrıca "kalıcı silme" onayı ister (permission-policy).
+ //  * ARŞİVLE (POST .../archive): geçmişi olan kart listeden ve seçim kutularından düşer, bütün
+ //    hareketleri yerinde kalır. Yalnız DEPOSU BOŞ kart arşivlenir: arşiv gerçek stoğu gizlemez.
+ //    Arşivlenen karta iade gelip stok geri dönerse arayüz kartı yeniden gösterir.
+ //  * GERİ AL (POST .../restore): yanlışlıkla arşivlenen kart tek adımda geri gelir.
+ const productActionMatch=path.match(/^\/api\/accounting\/products\/([\w-]+)\/(archive|restore)$/);
+ if((productMatch&&method==='DELETE'||productActionMatch&&method==='POST')&&env.WORKSPACE==='ec'){
+  const key=productActionMatch?productActionMatch[1]:productMatch[1],action=productActionMatch?productActionMatch[2]:'delete';
+  const product=await statement(db,'SELECT * FROM products WHERE id=?',[key]).first();if(!product)fail('Ürün bulunamadı.',404);
+  if(action==='restore'){
+   const result=await batch(db,[statement(db,'UPDATE products SET archived_at=NULL WHERE id=? AND archived_at IS NOT NULL RETURNING id',[key]),log(db,'Arşivlenen e-ticaret ürün kartı geri alındı')]);
+   if(!result[0].results.length)fail('Bu ürün kartı arşivde değil.',409);
+   return {id:key,archived:false};
+  }
+  if(action==='archive'){
+   const balance=await statement(db,'SELECT quantity_milli,value_cents FROM stock_balances WHERE product_id=?',[key]).first();
+   if(!balance||balance.quantity_milli!==0||balance.value_cents!==0)fail('Deposunda kayıtlı stoğu olan kart arşivlenemez. Önce sayım veya çıkışla stoğu sıfırlayın.',409);
+   if(await statement(db,'SELECT id FROM order_reservations WHERE product_id=? AND released_on IS NULL LIMIT 1',[key]).first()||await statement(db,'SELECT id FROM ws_stock_reservations WHERE product_id=? AND released_on IS NULL LIMIT 1',[key]).first())fail('Bu ürün açık siparişlere ayrılmış. Önce siparişleri tamamlayın ya da ayırmayı serbest bırakın.',409);
+   const result=await batch(db,[statement(db,"UPDATE products SET archived_at=datetime('now') WHERE id=? AND archived_at IS NULL RETURNING id",[key]),log(db,'E-ticaret ürün kartı arşivlendi')]);
+   if(!result[0].results.length)fail('Bu ürün kartı zaten arşivlenmiş.',409);
+   return {id:key,archived:true};
+  }
+  for(const [table,label] of PRODUCT_LINKS)
+   if(await statement(db,'SELECT rowid FROM '+table+' WHERE product_id=? LIMIT 1',[key]).first())
+    fail(label+' bu ürüne bağlı olduğu için kart silinemez. Kartı arşivleyin: geçmiş kayıtlar yerinde kalır, ürün listeden düşer.',409);
+  // Kalan iki satır kartın KENDİ yan kayıtlarıdır: bakiye satırı kart açılınca tetikleyiciyle
+  // oluşur, fiyat profili kartın fiyat ayarıdır. İkisi de defter hareketi değildir.
+  await batch(db,[
+   statement(db,'DELETE FROM price_profiles WHERE product_id=?',[key]),
+   statement(db,'DELETE FROM stock_balances WHERE product_id=? AND quantity_milli=0 AND value_cents=0',[key]),
+   statement(db,'DELETE FROM products WHERE id=?',[key]),
+   log(db,'Kullanılmayan e-ticaret ürün kartı silindi')]);
+  return {id:key,deleted:true};
+ }
  if(path==='/api/accounting/integrations'&&method==='GET')return {providers:integrationStatus(env),runs:(await db.prepare('SELECT * FROM integration_runs ORDER BY created_at DESC LIMIT 20').all()).results};
  if(path.startsWith('/api/accounting/integrations/')&&method==='POST')return previewIntegration(env,path.split('/').at(-1),await readBody(request));
  if(path==='/api/accounting'&&method==='GET'){
   const from=day(url.searchParams.get('from')||localDay(Date.now()-30*86400000)),to=day(url.searchParams.get('to')||localDay());if(from>to)fail('Başlangıç tarihi bitişten sonra olamaz.');
   const queries=[
-   db.prepare(`SELECT p.id,p.name,p.sku,${env.WORKSPACE==='ec'?"p.category,p.brand,p.supplier_id,":"'' category,'' brand,NULL supplier_id,"}${env.WORKSPACE==='ec'?"(SELECT CAST(ROUND(SUM(v.effective_net-v.closed_net)*1000.0/NULLIF(SUM(l.quantity_milli-v.closed_milli),0)) AS INTEGER) FROM purchase_lines l JOIN purchase_invoices i ON i.id=l.invoice_id JOIN purchase_line_limits v ON v.id=l.id WHERE l.product_id=p.id AND l.line_type='product' AND i.status='posted' AND l.quantity_milli>v.closed_milli)":'NULL'} average_purchase_cents,${env.WORKSPACE==='ec'?"(SELECT s.name FROM purchase_lines pl JOIN purchase_invoices pi ON pi.id=pl.invoice_id JOIN suppliers s ON s.id=pi.supplier_id WHERE pl.product_id=p.id AND pl.line_type='product' AND pi.status!='cancelled' ORDER BY pi.invoice_date DESC,pi.rowid DESC LIMIT 1)":'NULL'} last_supplier_name,${env.WORKSPACE==='ec'?"(SELECT pi.supplier_id FROM purchase_lines pl JOIN purchase_invoices pi ON pi.id=pl.invoice_id WHERE pl.product_id=p.id AND pl.line_type='product' AND pi.status!='cancelled' ORDER BY pi.invoice_date DESC,pi.rowid DESC LIMIT 1)":'NULL'} last_supplier_id,p.stock_unit,p.min_stock_milli,b.quantity_milli,b.value_cents,${env.WORKSPACE==='ec'?"COALESCE((SELECT SUM(r.quantity_milli) FROM order_reservations r WHERE r.product_id=p.id AND r.released_on IS NULL),0)":'0'} reserved_milli,${env.WORKSPACE==='ec'?"COALESCE((SELECT vat_bps FROM price_profiles WHERE product_id=p.id),(SELECT CAST(ROUND(pl.tax_cents*10000.0/pl.net_cents) AS INTEGER) FROM purchase_lines pl JOIN purchase_invoices pi ON pi.id=pl.invoice_id WHERE pl.product_id=p.id AND pl.line_type='product' AND pi.status='posted' AND pl.net_cents>0 ORDER BY pi.invoice_date DESC,pi.rowid DESC LIMIT 1))":'NULL'} vat_bps FROM products p JOIN stock_balances b ON b.product_id=p.id ORDER BY p.name`),
+   db.prepare(`SELECT p.id,p.name,p.sku,${env.WORKSPACE==='ec'?"p.category,p.brand,p.supplier_id,":"'' category,'' brand,NULL supplier_id,"}${env.WORKSPACE==='ec'?"(SELECT CAST(ROUND(SUM(v.effective_net-v.closed_net)*1000.0/NULLIF(SUM(l.quantity_milli-v.closed_milli),0)) AS INTEGER) FROM purchase_lines l JOIN purchase_invoices i ON i.id=l.invoice_id JOIN purchase_line_limits v ON v.id=l.id WHERE l.product_id=p.id AND l.line_type='product' AND i.status='posted' AND l.quantity_milli>v.closed_milli)":'NULL'} average_purchase_cents,${env.WORKSPACE==='ec'?"(SELECT s.name FROM purchase_lines pl JOIN purchase_invoices pi ON pi.id=pl.invoice_id JOIN suppliers s ON s.id=pi.supplier_id WHERE pl.product_id=p.id AND pl.line_type='product' AND pi.status!='cancelled' ORDER BY pi.invoice_date DESC,pi.rowid DESC LIMIT 1)":'NULL'} last_supplier_name,${env.WORKSPACE==='ec'?"(SELECT pi.supplier_id FROM purchase_lines pl JOIN purchase_invoices pi ON pi.id=pl.invoice_id WHERE pl.product_id=p.id AND pl.line_type='product' AND pi.status!='cancelled' ORDER BY pi.invoice_date DESC,pi.rowid DESC LIMIT 1)":'NULL'} last_supplier_id,p.stock_unit,p.min_stock_milli,p.archived_at,b.quantity_milli,b.value_cents,${env.WORKSPACE==='ec'?"COALESCE((SELECT SUM(r.quantity_milli) FROM order_reservations r WHERE r.product_id=p.id AND r.released_on IS NULL),0)":'0'} reserved_milli,${env.WORKSPACE==='ec'?"COALESCE((SELECT vat_bps FROM price_profiles WHERE product_id=p.id),(SELECT CAST(ROUND(pl.tax_cents*10000.0/pl.net_cents) AS INTEGER) FROM purchase_lines pl JOIN purchase_invoices pi ON pi.id=pl.invoice_id WHERE pl.product_id=p.id AND pl.line_type='product' AND pi.status='posted' AND pl.net_cents>0 ORDER BY pi.invoice_date DESC,pi.rowid DESC LIMIT 1))":'NULL'} vat_bps FROM products p JOIN stock_balances b ON b.product_id=p.id ORDER BY p.name`),
    statement(db,'SELECT s.*,p.name product_name,p.sku FROM sale_entries s JOIN products p ON p.id=s.product_id WHERE s.occurred_on BETWEEN ? AND ? ORDER BY s.occurred_on DESC,s.created_at DESC LIMIT 5001',[from,to]),
-   statement(db,'SELECT * FROM expenses WHERE occurred_on BETWEEN ? AND ? ORDER BY occurred_on DESC LIMIT 5001',[from,to]),
+   statement(db,'SELECT * FROM expenses WHERE occurred_on BETWEEN ? AND ? AND archived_at IS NULL ORDER BY occurred_on DESC LIMIT 5001',[from,to]),
    db.prepare('SELECT s.*,COALESCE((SELECT SUM(l.net_cents+l.tax_cents) FROM purchase_lines l JOIN purchase_invoices i ON i.id=l.invoice_id WHERE i.supplier_id=s.id AND i.status=\'posted\'),0) purchase_cents,COALESCE((SELECT SUM(amount_cents) FROM supplier_payments WHERE supplier_id=s.id),0) paid_cents,COALESCE((SELECT SUM(amount_cents) FROM party_entries WHERE party_id=s.id),0) balance_cents FROM suppliers s ORDER BY name'),
    db.prepare('SELECT i.*,s.name supplier_name,COALESCE(SUM(l.net_cents),0) net_cents,COALESCE(SUM(l.tax_cents),0) tax_cents,COUNT(l.id) line_count FROM purchase_invoices i JOIN suppliers s ON s.id=i.supplier_id LEFT JOIN purchase_lines l ON l.invoice_id=i.id GROUP BY i.id ORDER BY i.created_at DESC LIMIT 200'),
    db.prepare(`SELECT m.*,p.name product_name,p.stock_unit${env.WORKSPACE==='lp'?',p.inventory_kind':''} FROM stock_movements m JOIN products p ON p.id=m.product_id ORDER BY m.created_at DESC,m.rowid DESC LIMIT 200`),
@@ -184,7 +243,42 @@ export async function accountingApi(request,env,path,readBody){
   const x=await readBody(request),key=id();if(!['shipping','commission','advertising','rent','packaging','other'].includes(x.category))fail('Gider kategorisi geçersiz.');
   await batch(db,[statement(db,'INSERT INTO expenses(id,reference,category,amount_cents,occurred_on,paid,notes,label) VALUES(?,?,?,?,?,?,?,?)',[key,text(x.reference,'Gider referansı'),x.category,amount(x.amount),day(x.occurred_on),x.paid===true?1:0,optional(x.notes).slice(0,2000),optional(x.label).slice(0,200)]),log(db,'Genel gider kaydedildi')]);return {id:key};
  }
- 
+ // GENEL GİDERİN DÜZELTİLMESİ, ARŞİVİ VE GERİ ALINMASI.
+ // Yanlış tutar, yanlış tarih, yanlış kategori ya da "ödenmedi" kaydedilip sonra fiilen ödenen
+ // gider buradan düzeltilir. REFERANS DEĞİŞMEZ: defterin tekil anahtarıdır ve sabit gider
+ // üretiminin "bu ay yazıldı mı" ölçüsüdür; değişseydi aynı ay ikinci kez üretilebilirdi.
+ // SİLME, ARŞİVDİR (DELETE → archived_at). Kayıt yerinde kalır, listeden ve kâr hesabından düşer.
+ // Satır gerçekten silinseydi referans boşalır, "eksik ayları oluştur" gideri sessizce geri
+ // getirirdi. Arşiv geri alınabilir; yanlış arşivleme tek adımda düzeltilir.
+ // ARŞİVLENEN GİDERLER ayrı uçtan okunur: ana defter yanıtı yalnız ETKİN giderleri taşır, böylece kâr
+ // hesabı ve sabit gider üretimi arşivden etkilenmez. Uç, ekranın kendi yetkisinden geçer
+ // (permission-policy: 'expenses'); ayrıca bir süzgeç gerekmez.
+ if(path==='/api/accounting/expenses/archived'&&method==='GET')
+  return {expenses:(await statement(db,'SELECT * FROM expenses WHERE archived_at IS NOT NULL ORDER BY archived_at DESC LIMIT 200',[]).all()).results};
+ const expenseMatch=path.match(/^\/api\/accounting\/expenses\/([\w-]+)(?:\/(restore))?$/);
+ if(expenseMatch&&(method==='POST'||method==='DELETE'&&!expenseMatch[2])){
+  const [,key,action]=expenseMatch;
+  const old=await statement(db,'SELECT * FROM expenses WHERE id=?',[key]).first();
+  if(!old)fail('Gider kaydı bulunamadı. Alış iadesi maliyet farkı ve fatura düzeltmesi gibi satırlar kendi belgesinden düzeltilir.',404);
+  if(derivedExpense(old.reference))fail('Bu gider stok sayımından ya da alış faturasından doğdu. Düzeltmeyi kaynak kaydından yapın; gider satırı ona göre yeniden oluşur.',409);
+  if(action==='restore'){
+   const result=await batch(db,[statement(db,'UPDATE expenses SET archived_at=NULL WHERE id=? AND archived_at IS NOT NULL RETURNING id',[key]),log(db,'Arşivlenen genel gider geri alındı')]);
+   if(!result[0].results.length)fail('Bu gider arşivde değil.',409);
+   return {id:key,archived:false};
+  }
+  if(method==='DELETE'){
+   const result=await batch(db,[statement(db,"UPDATE expenses SET archived_at=datetime('now') WHERE id=? AND archived_at IS NULL RETURNING id",[key]),log(db,'Genel gider arşivlendi')]);
+   if(!result[0].results.length)fail('Gider bulunamadı veya zaten arşivlenmiş.',404);
+   return {id:key,archived:true};
+  }
+  if(old.archived_at)fail('Arşivlenen gider düzeltilemez. Önce arşivden geri alın.',409);
+  const x=await readBody(request);
+  if(!['shipping','commission','advertising','rent','packaging','other'].includes(x.category))fail('Gider kategorisi geçersiz.');
+  await batch(db,[statement(db,'UPDATE expenses SET category=?,amount_cents=?,occurred_on=?,paid=?,notes=?,label=? WHERE id=? AND archived_at IS NULL',
+   [x.category,amount(x.amount),day(x.occurred_on),x.paid===true?1:0,x.notes===undefined?old.notes:optional(x.notes).slice(0,2000),x.label===undefined?old.label:optional(x.label).slice(0,200),key]),log(db,'Genel gider düzeltildi')]);
+  return {id:key};
+ }
+
  // SABİT (TEKRARLI) GENEL GİDER. Kira, elektrik, yakıt her ay aynı tutarla tekrarlıyor; kullanıcı
  // her ay elle girmesin diye bir kez tanımlanır. Üretim TEKRAR GÜVENLİDİR: gider referansı
  // 'GIDER-PLAN-<plan>-<YYYY-MM>' tekildir, aynı ay ikinci kez yazılmaz. Bu yüzden planda ayrıca
