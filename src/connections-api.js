@@ -137,7 +137,10 @@ export async function syncProvider(env,provider,input,fetcher=fetch,orderImporte
  // oluşturamaz. Kullanıcı istediği sayfaya/aralığa yazmadan bakabilsin diye önizlemede atlanır.
  if(!preview&&spec.page>(cursor?.next_page??0))fail('Sayfaları sırayla çekin; önceki kaynak sayfaları henüz alınmadı.',409);
  try{
-  let response;try{response=await fetcher(spec.url,{method:'GET',redirect:'error',signal:AbortSignal.timeout(20000),headers:{Authorization:'Basic '+btoa(credentials.key+':'+credentials.secret),'User-Agent':credentials.user_agent,Accept:'application/json'}});}catch{fail('Sağlayıcı bağlantısı tamamlanamadı; zaman aşımı veya ağ sorunu olabilir.',502);}
+  // Hatanın GERÇEK adı yalnız log'a yazılır: kullanıcıya giden metin değişmez (adres, header ya da
+  // kimlik parçası sızdırmaz). Bu satır her ağ arızasını aynı cümleye çeviriyordu; zaman aşımı mı,
+  // yönlendirme mi, DNS/TLS mi olduğu ayırt edilemediği için arıza aramak kör iş oluyordu.
+  let response;try{response=await fetcher(spec.url,{method:'GET',redirect:'error',signal:AbortSignal.timeout(20000),headers:{Authorization:'Basic '+btoa(credentials.key+':'+credentials.secret),'User-Agent':credentials.user_agent,Accept:'application/json'}});}catch(e){console.error('Sağlayıcı isteği başarısız:',provider,input.kind,spec.url.host,e?.name||'',e?.message||e);fail('Sağlayıcı bağlantısı tamamlanamadı; zaman aşımı veya ağ sorunu olabilir.',502);}
   const payload=await safeJSON(response);
   if(provider==='trendyol'&&input.kind==='orders'&&Array.isArray(payload?.content)&&payload.content.some(r=>r.supplierId!==undefined&&String(r.supplierId)!==connection.seller_id||Array.isArray(r.lines)&&r.lines.some(l=>l.sellerId!==undefined&&String(l.sellerId)!==connection.seller_id)))fail('Kaynak siparişin satıcı kimliği bu bağlantıyla eşleşmiyor.',502);
   const result=provider==='trendyol'?normalizeTY(input.kind,payload,spec.page):normalizeHB(input.kind,payload,spec.page,spec.limit);
