@@ -46,14 +46,15 @@ function range(input,maxDays){const from=day(input.from),to=day(input.to),start=
 function makeRequest(provider,credentials,input){
  const kind=input.kind,page=integer(input.page??0,provider==='trendyol'&&kind==='orders'?199:10000),limit=50;
  if(!caps[provider]?.includes(kind))fail(provider==='edm'?'EDM canlı SOAP adresi ve servis hakkı doğrulanmadı. Alış faturalarında UBL XML içe aktarımı kullanılabilir.':'Bu veri türü desteklenmiyor.',409);
- let url,query={kind,page},window;
+ let url,query={kind,page},window,size=limit;
  if(provider==='trendyol'){
   window=range(input,kind==='orders'?14:15);query={...query,from:window.from,to:window.to};
   if(kind==='orders')url=new URL('https://apigw.trendyol.com/integration/order/sellers/'+credentials.seller_id+'/v2/orders');
   else {const types={sale:['settlements','Sale'],return:['settlements','Return'],deductions:['otherfinancials','DeductionInvoices'],payments:['otherfinancials','PaymentOrder']};url=new URL('https://apigw.trendyol.com/integration/finance/che/sellers/'+credentials.seller_id+'/'+types[kind][0]);url.searchParams.set('transactionType',types[kind][1]);}
   // FİNANS UÇLARI size=50 KABUL ETMEZ: "Size değeri 500 ya da 1000 olmalıdır" diye 400 döner ve
   // komisyon/kesinti hiç çekilemez. Sipariş ucu 50'yi kabul ettiği için hata yalnız burada çıkıyordu.
-  for(const [k,v] of Object.entries({startDate:window.start,endDate:window.end,page,size:kind==='orders'?limit:500}))url.searchParams.set(k,String(v));
+  size=kind==='orders'?limit:500;
+  for(const [k,v] of Object.entries({startDate:window.start,endDate:window.end,page,size}))url.searchParams.set(k,String(v));
   if(kind==='orders'){url.searchParams.set('orderByField','PackageLastModifiedDate');url.searchParams.set('orderByDirection','ASC');}
  }else if(kind==='commissions'){
   // Activated only with the documented query/response contract below.
@@ -69,11 +70,14 @@ function makeRequest(provider,credentials,input){
   if(kind==='orders'){url.searchParams.set('begindate',window.from+' 00:00');url.searchParams.set('enddate',window.to+' 23:59');url.searchParams.set('offset',String(page*limit));url.searchParams.set('limit',String(limit));}
   else {url.searchParams.set('RecordDateStart',window.from+'T00:00:00');url.searchParams.set('RecordDateEnd',window.to+'T23:59:59');url.searchParams.set('Offset',String(page*limit));url.searchParams.set('Limit',String(limit));}
  }
- return {url,query,page,limit};
+ return {url,query,page,limit,size};
 }
-function normalizeTY(kind,payload,page){
+function normalizeTY(kind,payload,page,size=50){
  if(!payload||typeof payload!=='object')fail('Trendyol yanıt şeması doğrulanamadı.',502);
- if(!Array.isArray(payload.content)||!Number.isInteger(payload.totalPages)||payload.totalPages<0||payload.content.length>50)fail('Trendyol yanıt şeması veya sayfa boyutu doğrulanamadı.',502);
+ // SINIR, İSTENEN SAYFA BOYUTUYLA AYNI OLMALI. Sabit 50 kaldığı için finans uçları size=500 ile
+ // çağrıldığı hâlde 50'den fazla satır dönen her yanıt reddediliyordu: hakediş (komisyonun geldiği
+ // uç) hiç geçemiyor, kesinti yalnız az satırlı dönemlerde tesadüfen geçiyordu.
+ if(!Array.isArray(payload.content)||!Number.isInteger(payload.totalPages)||payload.totalPages<0||payload.content.length>size)fail('Trendyol yanıt şeması veya sayfa boyutu doğrulanamadı.',502);
  if(payload.content.length&&(payload.totalPages===0||page>=payload.totalPages)||payload.page!==undefined&&payload.page!==page)fail('Trendyol sayfa bilgileri tutarsız; kapsam tamamlandı kabul edilmedi.',502);
  if(kind==='orders'&&payload.totalElements>10000)fail('Trendyol 10.000 paket sınırı aşıldı. Tarih aralığını daraltın; bu sayfa kaydedilmedi.',409);
  if(kind==='orders'&&(!Number.isInteger(payload.totalElements)||payload.totalElements<0||payload.totalPages>200))fail('Trendyol toplam kayıt kapsamı doğrulanamadı. Tarih aralığını daraltın.',502);
@@ -159,7 +163,7 @@ export async function syncProvider(env,provider,input,fetcher=fetch,orderImporte
    console.error('Satıcı kimliği uyuşmadı: bağlantı=',connection.seller_id,'supplierId=',ilk?.supplierId,'lines.sellerId=',JSON.stringify((ilk?.lines||[]).map(l=>l.sellerId)));
    fail('Kaynak siparişin satıcı kimliği bu bağlantıyla eşleşmiyor.',502);
   }
-  const result=provider==='trendyol'?normalizeTY(input.kind,payload,spec.page):normalizeHB(input.kind,payload,spec.page,spec.limit);
+  const result=provider==='trendyol'?normalizeTY(input.kind,payload,spec.page,spec.size):normalizeHB(input.kind,payload,spec.page,spec.limit);
   if(new Set(result.records.map(r=>r.external_id)).size!==result.records.length)fail('Aynı sayfada mükerrer kaynak kimliği var; kapsam inceleme gerektiriyor.',502);
   const missingSkus=provider==='hepsiburada'&&input.kind==='commissions'?spec.query.skus.filter(sku=>!result.records.some(r=>r.sku===sku)):[];
   const prior=result.records.length?await rows(stmt(db,'SELECT external_id,fingerprint,source_updated_at FROM (SELECT external_id,fingerprint,source_updated_at,ROW_NUMBER() OVER(PARTITION BY external_id ORDER BY source_updated_at DESC,last_seen_at DESC,rowid DESC) rn FROM provider_records WHERE provider=? AND seller_id=? AND kind=? AND external_id IN (SELECT value FROM json_each(?))) WHERE rn=1',[provider,connection.seller_id,input.kind,JSON.stringify(result.records.map(r=>r.external_id))])):[];

@@ -273,3 +273,20 @@ test('Boş satıcı alanı (0) siparişi yabancı saymaz; gerçekten yabancı ki
    async () => ({created: 0})), /eşleşmiyor/);
  } finally { f.sqlite.close(); }
 });
+
+// size=500 düzeltmesi yapıldığında yanıt doğrulaması sabit 50'de kalmıştı: finans uçları 500 satır
+// isteyip 50'den fazlasını reddediyordu. Hakediş (komisyonun geldiği uç) bu yüzden hiç geçemiyordu.
+test('Finans yanıtı istenen sayfa boyutu kadar satır taşıyabilir; sipariş ucu 50 sınırında kalır', async () => {
+ const f = fixture(); try {
+  await f.call('/trendyol/configure', credentials);
+  const satis = (n) => ({content: Array.from({length: n}, (_, i) => ({id: 'S' + i, orderNumber: 'O' + i, transactionType: 'Sale', credit: 10, commissionAmount: 1})), totalPages: 1});
+  // Finans: 500 satır gelebilmeli (istenen size ile aynı)
+  const fin = await syncProvider(f.env, 'trendyol', {kind: 'sale', from: '2026-09-01', to: '2026-09-09', page: 0},
+   async (url) => { assert.equal(url.searchParams.get('size'), '500'); return Response.json(satis(500)); }, async () => ({created: 0}));
+  assert.equal(fin.records.length, 500);
+  // Sipariş ucu 50 istiyor: 51 satır dönerse yanıt hâlâ reddedilmeli
+  await assert.rejects(() => syncProvider(f.env, 'trendyol', query,
+   async (url) => { assert.equal(url.searchParams.get('size'), '50'); return Response.json({content: Array.from({length: 51}, () => order()), totalPages: 1}); },
+   async () => ({created: 0})), /sayfa boyutu/);
+ } finally { f.sqlite.close(); }
+});
