@@ -188,12 +188,21 @@ export async function syncProvider(env,provider,input,fetcher=fetch,orderImporte
   const missingSkus=provider==='hepsiburada'&&input.kind==='commissions'?spec.query.skus.filter(sku=>!result.records.some(r=>r.sku===sku)):[];
   const prior=result.records.length?await rows(stmt(db,'SELECT external_id,fingerprint,source_updated_at FROM (SELECT external_id,fingerprint,source_updated_at,ROW_NUMBER() OVER(PARTITION BY external_id ORDER BY source_updated_at DESC,last_seen_at DESC,rowid DESC) rn FROM provider_records WHERE provider=? AND seller_id=? AND kind=? AND external_id IN (SELECT value FROM json_each(?))) WHERE rn=1',[provider,connection.seller_id,input.kind,JSON.stringify(result.records.map(r=>r.external_id))])):[];
   const priorMap=new Map(prior.map(r=>[r.external_id,r]));
-  // Yerel paketin DURUMU da aynı sorguda okunur: teslim onayı için ikinci bir SELECT açılmaz,
-  // ücretsiz D1 sorgu bütçesi bu sayede değişmez.
-  const localOrders=provider==='trendyol'&&input.kind==='orders'&&result.records.length?await rows(stmt(db,'SELECT external_id,status FROM order_packages WHERE channel=? AND external_id IN (SELECT value FROM json_each(?))',[provider,JSON.stringify(result.records.map(r=>r.external_id))])):[];
+  // Yerel paketin DURUMU ve SİPARİŞ NUMARASI da aynı sorguda okunur: teslim onayı için ikinci bir
+  // SELECT açılmaz, ücretsiz D1 sorgu bütçesi bu sayede değişmez (tek sorgu, iki anahtar listesi).
+  // TESLİM EŞLEŞMESİ order_no ÜZERİNDEN KURULUR. Yerel paketlerin external_id'si rapor/fatura
+  // yolundan geldiği için API'nin verdiği sayısal paket kimliğiyle örtüşmüyor (canlıda 568 paketin
+  // 392'si rapor özeti 'RPT-…', 176'sı fatura numarası 'TEA…'; kesişim SIFIR) ve paket kimliğine
+  // bakan onay hiçbir paketi işaretleyemiyordu. Her iki tarafta da aynı olan tek alan order_no'dur.
+  // external_id yine okunur: aşağıdaki "bu paket zaten aktarılmış mı" kontrolü ona dayanır.
+  // KAPSAM DIŞI TEHLİKE: orders-api.js'teki createPackage hâlâ channel+external_id ile eşleştiriyor,
+  // yani gerçek senkron çalıştırılırsa API'den gelen paket "yeni" sayılıp aynı sipariş için MÜKERRER
+  // paket üretir. Bu ayrı bir iştir; burada teslim onayı dışındaki eşleşme DEĞİŞTİRİLMEDİ.
+  const localOrders=provider==='trendyol'&&input.kind==='orders'&&result.records.length?await rows(stmt(db,'SELECT external_id,order_no,status FROM order_packages WHERE channel=? AND (external_id IN (SELECT value FROM json_each(?)) OR order_no IN (SELECT value FROM json_each(?)))',[provider,JSON.stringify(result.records.map(r=>r.external_id)),JSON.stringify(result.records.map(r=>r.order_no))])):[];
   const localOrderIDs=new Set(localOrders.map(r=>r.external_id));
-  const shippedLocally=new Set(localOrders.filter(r=>r.status==='shipped').map(r=>r.external_id));
-  const statements=[],sourceRows=[],newOrders=[],deliveredDays=new Map();let unchanged=0,changed=0,reviewOnlyOrders=0,deferredOrders=0,oversizedOrders=0,undatedDeliveries=0,importQueryBudget=35;
+  // Sipariş numarası → o siparişin KARGODAKİ yerel paket kimlikleri. Tam olarak bir tane varsa aday odur.
+  const shippedByOrder=new Map();for(const r of localOrders)if(r.status==='shipped')shippedByOrder.set(r.order_no,[...(shippedByOrder.get(r.order_no)??[]),r.external_id]);
+  const statements=[],sourceRows=[],newOrders=[],deliveredDays=new Map(),siparisTeslim=new Map();let unchanged=0,changed=0,reviewOnlyOrders=0,deferredOrders=0,oversizedOrders=0,undatedDeliveries=0,ambiguousDeliveries=0,importQueryBudget=35;
   for(const r of result.records){
    const json=JSON.stringify(r),fingerprint=await hash(json),existing=priorMap.get(r.external_id);
    if(existing?.fingerprint===fingerprint)unchanged++;else if(existing)changed++;
@@ -205,7 +214,9 @@ export async function syncProvider(env,provider,input,fetcher=fetch,orderImporte
     // değişmediği için tam olarak sorunlu paketler "değişmedi" diye atlanıyor ve kârın dışında
     // kalmaya devam ediyordu. Aynı tuzak rapor tarafında da görülmüştü (report-inbox-api.js).
     // Aday yalnız KARGODA duran pakettir: durum makinesi zorlanmaz, tek yön shipped→delivered.
-    if(shippedLocally.has(r.external_id)){if(r.delivered_on)deliveredDays.set(r.external_id,r.delivered_on);else if(teslimEdildi(r.external_status))undatedDeliveries++;}
+    // Karar PAKET BAŞINA VERİLEMEZ: bir sipariş birden çok pakete bölünebiliyor, o yüzden siparişin
+    // çekilen bütün paketleri burada toplanır ve karar döngüden sonra verilir.
+    if(shippedByOrder.has(r.order_no)){const s=siparisTeslim.get(r.order_no)??{paket:0,teslim:0,gunler:[]};s.paket++;if(teslimEdildi(r.external_status)){s.teslim++;if(r.delivered_on)s.gunler.push(r.delivered_on);}siparisTeslim.set(r.order_no,s);}
     if(existing?.fingerprint===fingerprint&&localOrderIDs.has(r.external_id))continue;
     const queriesNeeded=4+2*r.lines.length;
     if(!outdated&&r.source_updated_at&&r.currency==='TRY'&&r.occurred_on&&r.lines.every(l=>l.currency==='TRY')){
@@ -214,6 +225,27 @@ export async function syncProvider(env,provider,input,fetcher=fetch,orderImporte
     }
     else reviewOnlyOrders++;
    }
+  }
+  // BELİRSİZSE DOKUNMA. order_no paket kimliği kadar kesin değildir: bir sipariş birden çok pakete
+  // bölünebiliyor (canlıda 548 sipariş / 568 paket). Yanlış paketi teslim işaretlemek kârı yanlış
+  // pakete ve yanlış güne yazar, bu yüzden işaretleme YALNIZ iki koşul birlikte tutarsa yapılır:
+  //  (1) yerelde o siparişin KARGODA tam olarak bir paketi var — aday tek,
+  //  (2) siparişin bu sayfada çekilen BÜTÜN paketleri teslim edilmiş — sipariş tamamlanmış.
+  // Biri tutmuyorsa paket atlanır ve ayrıca sayılır (ambiguousDeliveries): kullanıcı elle onaylasın.
+  // Aynı "tek aday yoksa bağlama" kuralı rapor tarafında da var (report-inbox-api.js erpMatch /
+  // ambiguous_twin). Siparişin hiçbir paketi teslim edilmemişse sipariş yalnızca yoldadır: bu
+  // olağan hâl belirsizlik sayılmaz, hiç bildirilmez.
+  for(const [orderNo,s] of siparisTeslim){
+   if(!s.teslim)continue;
+   const yerel=shippedByOrder.get(orderNo);
+   if(yerel.length!==1||s.teslim!==s.paket){ambiguousDeliveries++;continue;}
+   if(s.gunler.length!==s.teslim){undatedDeliveries++;continue;}
+   // EN GEÇ TESLİM GÜNÜ. Çok paketli siparişte yereldeki tek kayıt siparişin tamamını temsil ediyor;
+   // mal ancak SON paket ulaştığında müşterinin elindedir ve kâr o gün doğar. En erken günü seçmek
+   // kârı mal hâlâ yoldayken yazardı. Tek paketli siparişte (olağan hâl) iki seçim de aynıdır.
+   // Not: paketin KENDİ geçmişinde ilk 'Delivered' satırı kullanılır (teslimGunu); oradaki "en erken"
+   // aynı paketin tekrar eden kayıtları içindir, burada ayrı paketler karşılaştırılıyor.
+   deliveredDays.set(yerel[0],s.gunler.sort().at(-1));
   }
   const deliveredMarked=deliveredDays.size,deliveredJSON=JSON.stringify([...deliveredDays]);
   // ÖNİZLEMEDE TEK BİR YAZMA YOK: kaynak kaydı, teslim onayı, imleç, bağlantı damgası ve çalışma
@@ -234,8 +266,8 @@ export async function syncProvider(env,provider,input,fetcher=fetch,orderImporte
   // Önizleme sipariş taslağı ÜRETMEZ: importOrders hiç çağrılmaz, orders null kalır; kaç taslak
   // oluşacağını kullanıcı importableOrders alanından görür.
   if(!preview&&newOrders.length){try{const importer=orderImporter||(await import('./orders-api.js')).importOrders;orders=await importer(env,provider,newOrders);}catch{orderImportWarning='Kaynaklar saklandı; sipariş taslaklarına aktarım tamamlanamadı. Aynı sayfayı yeniden çekebilirsiniz.';}}
-  const warnings=[...(orderImportWarning?[orderImportWarning]:[]),...(reviewOnlyOrders?[reviewOnlyOrders+' sipariş kaynak kutusunda kaldı; paket büyüklüğü, tarih, para birimi veya kaynak sürümü inceleme gerektiriyor.']:[]),...(oversizedOrders?[oversizedOrders+' paket 10 satır sınırını aşıyor; bunları yeniden çekmek taslak oluşturmaz.']:[]),...(deferredOrders?[deferredOrders+' paket ücretsiz işlem sınırı nedeniyle kaynak kutusunda. Aynı sayfayı yeniden çekerek sıradaki taslakları aktarın.']:[]),...(deliveredMarked?[preview?deliveredMarked+' kargodaki paket Trendyol tarafında teslim edilmiş görünüyor; gerçek senkronda teslim tarihiyle işaretlenecek.':deliveredMarked+' kargodaki paket Trendyol teslim tarihiyle teslim edilmiş işaretlendi; kâr yalnız teslim edilen pakette hesaplanır.']:[]),...(undatedDeliveries?[undatedDeliveries+' paket Trendyol tarafında teslim edilmiş görünüyor ama teslim tarihi gelmedi; tarih uydurulmadığı için teslim işaretlenmedi.']:[]),...(missingSkus.length?[missingSkus.length+' istenen SKU için komisyon yanıtı yok; eksik oran sıfır kabul edilmedi.']:[])];
-  return {...result,records:result.records.map(sourcePreview),page:spec.page,next_page:spec.page+1,unchanged,changed,orders,orderImportWarning,reviewOnlyOrders,deferredOrders,oversizedOrders,importableOrders:newOrders.length,deliveredMarked,undatedDeliveries,preview,missing_skus:missingSkus,warnings,message:(preview?'ÖNİZLEME — hiçbir şey yazılmadı: kaynak kaydı saklanmadı, sipariş taslağı oluşturulmadı, teslim onayı işlenmedi, imleç ilerlemedi. Gerçek senkronda '+newOrders.length+' sipariş taslağı oluşacak'+(deliveredMarked?' ve '+deliveredMarked+' paket teslim edilmiş işaretlenecek':'')+'. ':'')+'Kaynak kayıtlarıdır. Finans/kargo/komisyon henüz muhasebeyle mutabık değildir. Fiyat veya stok pazaryerine gönderilmedi.'+(warnings.length?' '+warnings.join(' '):'')};
+  const warnings=[...(orderImportWarning?[orderImportWarning]:[]),...(reviewOnlyOrders?[reviewOnlyOrders+' sipariş kaynak kutusunda kaldı; paket büyüklüğü, tarih, para birimi veya kaynak sürümü inceleme gerektiriyor.']:[]),...(oversizedOrders?[oversizedOrders+' paket 10 satır sınırını aşıyor; bunları yeniden çekmek taslak oluşturmaz.']:[]),...(deferredOrders?[deferredOrders+' paket ücretsiz işlem sınırı nedeniyle kaynak kutusunda. Aynı sayfayı yeniden çekerek sıradaki taslakları aktarın.']:[]),...(deliveredMarked?[preview?deliveredMarked+' kargodaki paket Trendyol tarafında teslim edilmiş görünüyor; gerçek senkronda teslim tarihiyle işaretlenecek.':deliveredMarked+' kargodaki paket Trendyol teslim tarihiyle teslim edilmiş işaretlendi; kâr yalnız teslim edilen pakette hesaplanır.']:[]),...(undatedDeliveries?[undatedDeliveries+' paket Trendyol tarafında teslim edilmiş görünüyor ama teslim tarihi gelmedi; tarih uydurulmadığı için teslim işaretlenmedi.']:[]),...(ambiguousDeliveries?[ambiguousDeliveries+' siparişte teslim eşleşmesi kesin olmadığı için hiçbir paket işaretlenmedi: aynı siparişin kargoda birden çok paketi var ya da siparişin bütün paketleri teslim edilmemiş. Bu siparişlerin teslimini elle onaylayın.']:[]),...(missingSkus.length?[missingSkus.length+' istenen SKU için komisyon yanıtı yok; eksik oran sıfır kabul edilmedi.']:[])];
+  return {...result,records:result.records.map(sourcePreview),page:spec.page,next_page:spec.page+1,unchanged,changed,orders,orderImportWarning,reviewOnlyOrders,deferredOrders,oversizedOrders,importableOrders:newOrders.length,deliveredMarked,undatedDeliveries,ambiguousDeliveries,preview,missing_skus:missingSkus,warnings,message:(preview?'ÖNİZLEME — hiçbir şey yazılmadı: kaynak kaydı saklanmadı, sipariş taslağı oluşturulmadı, teslim onayı işlenmedi, imleç ilerlemedi. Gerçek senkronda '+newOrders.length+' sipariş taslağı oluşacak'+(deliveredMarked?' ve '+deliveredMarked+' paket teslim edilmiş işaretlenecek':'')+'. ':'')+'Kaynak kayıtlarıdır. Finans/kargo/komisyon henüz muhasebeyle mutabık değildir. Fiyat veya stok pazaryerine gönderilmedi.'+(warnings.length?' '+warnings.join(' '):'')};
  }catch(error){
   const safe=error.status?error.message:'Bağlantı işleme hatası; kaynak sayfa tamamlanmadı.';
   // Hata yolunda da önizleme iz bırakmaz: last_error damgası ve çalışma kaydı gerçek senkronun
