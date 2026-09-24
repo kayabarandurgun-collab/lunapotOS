@@ -12,6 +12,8 @@
 //   GET  /api/invoices/families                  ürün aileleri + üyeleri + tedarikçi hatırlatmaları
 //   POST /api/invoices/families                  {name,size_label,stock_unit,product_ids}
 //   POST /api/invoices/families/link             tedarikçi satırı → aile (ADETLER hatırlanmaz)
+//   POST /api/invoices/families/:id/archive      yanlış kurulmuş aileyi kullanımdan kaldırır (SİLMEZ)
+//   POST /api/invoices/families/:id/restore      arşivlenen aileyi kullanıma geri alır
 //
 // Bu dosya STOK, BORÇ, SEVKİYAT veya RESMÎ FATURA oluşturmaz. Yükleme ve taslak aşaması hiçbir
 // mali kayıt yazmaz; borç faturanın muhasebeleştirilmesiyle, stok mal teslimiyle oluşur.
@@ -48,13 +50,18 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
   // Aile yalnızca ADAY kartları ve birim dönüşümünü hatırlar. Çeşit adetleri ASLA hatırlanmaz:
   // her faturada gerçek teslim bilgisiyle yeniden girilir.
   if (path === '/api/invoices/families' && method === 'GET') {
+    // Arşivlenen aile LİSTEDEN düşer ama yok olmaz: ayrı `archived` dizisinde durur ki
+    // yanlışlıkla arşivlenen geri alınabilsin. Tedarikçi hatırlatması da arşivliyken
+    // uygulanmaz: yoksa satır seçilemeyen bir aileye yönlendirilip kaydetmede patlardı.
     const [families, members, links] = await Promise.all([
-      db.prepare('SELECT * FROM product_families WHERE archived_at IS NULL ORDER BY name,size_label').all(),
+      db.prepare('SELECT * FROM product_families ORDER BY name,size_label').all(),
       db.prepare('SELECT m.family_id,m.product_id,p.name,p.sku,p.stock_unit FROM product_family_members m JOIN products p ON p.id=m.product_id ORDER BY p.name').all(),
-      db.prepare('SELECT * FROM purchase_family_links ORDER BY created_at DESC LIMIT 500').all()
+      db.prepare('SELECT l.* FROM purchase_family_links l JOIN product_families f ON f.id=l.family_id WHERE f.archived_at IS NULL ORDER BY l.created_at DESC LIMIT 500').all()
     ]);
+    const withMembers = f => ({...f, members: members.results.filter(m => m.family_id === f.id)});
     return {
-      families: families.results.map(f => ({...f, members: members.results.filter(m => m.family_id === f.id)})),
+      families: families.results.filter(f => !f.archived_at).map(withMembers),
+      archived: families.results.filter(f => f.archived_at).map(withMembers),
       links: links.results,
       notice: 'Aile yalnız aday çeşitleri ve birim dönüşümünü hatırlar. Adetler her faturada yeniden girilir.'
     };
@@ -74,7 +81,12 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
         ...products.map(p => db.prepare('INSERT INTO product_family_members(family_id,product_id) VALUES(?,?)').bind(row.id, p.id))
       ]);
     } catch (e) {
-      if (/UNIQUE/.test(e.message)) fail('Bu ad ve boy için bir aile zaten var.', 409);
+      if (/UNIQUE/.test(e.message)) {
+        // Ad + boy tekilliği arşivde de geçerlidir. Sessizce ikinci bir aile açmak yerine
+        // kullanıcıya arşivdekini gösteririz: ya geri alır ya başka bir ad/boy yazar.
+        const clash = await db.prepare('SELECT archived_at FROM product_families WHERE name=? AND size_label=?').bind(row.name, row.size_label).first();
+        fail(clash?.archived_at ? 'Bu ad ve boy arşivdeki bir ailede kullanılıyor. Arşivden geri alın ya da farklı bir ad/boy yazın.' : 'Bu ad ve boy için bir aile zaten var.', 409);
+      }
       if (/FAMILY_UNIT/.test(e.message)) fail('Ailedeki bütün çeşitler aynı stok biriminde olmalı.', 409);
       throw e;
     }
@@ -84,8 +96,9 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
     const x = await readBody(request);
     const supplier = text(x.supplier_id, 'Tedarikçi', 100);
     if (!await db.prepare('SELECT id FROM suppliers WHERE id=?').bind(supplier).first()) fail('Tedarikçi bulunamadı.', 404);
-    const family = await db.prepare('SELECT * FROM product_families WHERE id=? AND archived_at IS NULL').bind(key(x.family_id)).first();
+    const family = await db.prepare('SELECT * FROM product_families WHERE id=?').bind(key(x.family_id)).first();
     if (!family) fail('Ürün ailesi bulunamadı.', 404);
+    if (family.archived_at) fail('Bu ürün ailesi arşivlendi; yeni hatırlatma kurulamaz. Önce arşivden geri alın.', 409);
     const matchBy = x.match_by === 'name' ? 'name' : 'code';
     const row = {id: id(), supplier_id: supplier, match_by: matchBy, match_value: text(x.match_value, 'Tedarikçi ürün kodu veya adı', 300),
       source_unit: text(x.source_unit, 'Fatura birimi', 30), family_id: family.id, units: milliFrom(x.units_per_invoice_unit)};
@@ -97,6 +110,28 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
       throw e;
     }
     return {...row, notice: 'Sonraki faturada bu satır bu aileye yönlendirilir. Çeşit adetleri yine her seferinde sorulur.'};
+  }
+
+  // Yanlış kurulmuş aile (ör. yanlış çeşitler eşlenmiş grup) SİLİNMEZ: arşivlenir. Aile geçmiş
+  // fatura satırı dağılımlarına bağlıdır; silmek kanıtı bozardı. Arşiv yalnızca "bundan sonra
+  // seçilemez" demektir ve geri alınabilir. Geçmiş faturalar, dağılım kayıtları ve stok durur.
+  const familyMatch = path.match(/^\/api\/invoices\/families\/([\w-]{1,100})\/(archive|restore)$/);
+  if (familyMatch && method === 'POST') {
+    const family = await db.prepare('SELECT * FROM product_families WHERE id=?').bind(familyMatch[1]).first();
+    if (!family) fail('Ürün ailesi bulunamadı.', 404);
+    const archive = familyMatch[2] === 'archive';
+    if (archive === !!family.archived_at) fail(archive ? 'Bu ürün ailesi zaten arşivde.' : 'Bu ürün ailesi zaten kullanımda.', 409);
+    const used = await db.prepare(`SELECT (SELECT COUNT(*) FROM purchase_family_links WHERE family_id=?) links,
+      (SELECT COUNT(*) FROM purchase_line_splits WHERE family_id=?) splits`).bind(family.id, family.id).first();
+    await db.prepare('UPDATE product_families SET archived_at=' + (archive ? 'CURRENT_TIMESTAMP' : 'NULL') +
+      ' WHERE id=? AND archived_at IS ' + (archive ? 'NULL' : 'NOT NULL')).bind(family.id).run();
+    return {id: family.id, name: family.name, size_label: family.size_label, archived: archive, links: used.links, splits: used.splits,
+      notice: archive
+        ? 'Aile arşivlendi: yeni fatura satırları bu aileye dağıtılamaz.'
+          + (used.links ? ' ' + used.links + ' tedarikçi hatırlatması artık uygulanmayacak.' : '')
+          + ' Geçmiş faturalar, ' + used.splits + ' çeşit dağılımı ve stok hareketleri olduğu gibi durur. İstersen arşivden geri alabilirsin.'
+        : 'Aile arşivden geri alındı; yeniden seçilebilir'
+          + (used.links ? ' ve ' + used.links + ' tedarikçi hatırlatması yeniden uygulanacak' : '') + '.'};
   }
 
   /* ---------------- belgeler ---------------- */

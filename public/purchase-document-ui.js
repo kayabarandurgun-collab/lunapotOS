@@ -30,7 +30,7 @@ const STEPS = [['document', 'Tedarikçi ve belge'], ['lines', 'Satırlar'], ['al
 export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
   const controller = new AbortController(), signal = controller.signal;
   const state = {step: 'pick', busy: false, message: '', error: '', file: null, bytes: null, kind: 'pdf',
-    extracted: null, warnings: [], header: null, lines: [], totals: null, docId: null, catalog: null, families: [], previewUrl: null,
+    extracted: null, warnings: [], header: null, lines: [], totals: null, docId: null, catalog: null, families: [], archivedFamilies: [], previewUrl: null,
     // TOPLU YUKLEME KUYRUGU. Kullanici 30+ faturayi tek tek yuklemek zorunda kalmasin diye
     // dosyalar siraya alinir. Sistem kendi basina karar verebildigi faturayi otomatik islar,
     // yalnizca GERCEKTEN belirsiz olanda durur. Otomatik islenen TASLAK olusturur: cari borc
@@ -146,10 +146,29 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     </article>`;
   }
 
+  // Yanlış kurulmuş bir aile (ör. yanlış çeşitler eşlenmiş grup) yukarıdaki seçim listesini
+  // sonsuza kadar kirletiyordu. Aile SİLİNMEZ — geçmiş faturalara bağlıdır — arşivlenir:
+  // bundan sonra seçilemez, geçmiş olduğu gibi kalır ve yanlışlıkla arşivlenen geri alınır.
+  function familiesPanel() {
+    const uyeler = fam => (fam.members || []).map(m => esc(m.name)).join(', ') || 'üye yok';
+    const ad = fam => esc(fam.name) + (fam.size_label ? ' · ' + esc(fam.size_label) : '');
+    if (!state.families.length && !state.archivedFamilies.length) return '';
+    return `<details class="workflow-details pd-families"><summary>Ürün ailelerini düzenle (${state.families.length} kullanımda${state.archivedFamilies.length ? ', ' + state.archivedFamilies.length + ' arşivde' : ''})</summary>
+      <p class="pd-muted">Yanlış kurulmuş bir aileyi <b>arşivle</b>: bundan sonra hiçbir satıra seçilemez ve tedarikçi hatırlatması uygulanmaz.
+        Aile silinmez; geçmiş faturalar, çeşit dağılımları ve stok hareketleri olduğu gibi kalır. Yanlışlıkla arşivlediysen geri alabilirsin.</p>
+      ${state.families.length ? `<ul class="pd-list">${state.families.map(fam => `<li><b>${ad(fam)}</b> · <span class="pd-muted">${uyeler(fam)}</span>
+        <button class="text-button danger" type="button" data-pd="archive-family" data-family="${esc(fam.id)}">Arşivle</button></li>`).join('')}</ul>`
+    : '<p class="pd-muted">Kullanımda aile yok.</p>'}
+      ${state.archivedFamilies.length ? `<h3>Arşivdekiler</h3><ul class="pd-list">${state.archivedFamilies.map(fam => `<li><b>${ad(fam)}</b> · <span class="pd-muted">${uyeler(fam)}</span>
+        <button class="text-button" type="button" data-pd="restore-family" data-family="${esc(fam.id)}">Arşivden geri al</button></li>`).join('')}</ul>` : ''}
+    </details>`;
+  }
+
   function linesView() {
     return `<section class="v2-card v2-card-body"><h2>2 · Satırlar</h2>
       <p class="pd-muted">Özgün belgeyi açarak her satırı karşılaştır; eksik okunan alanı kendin doldur.
         Bir satır aynı boyun birkaç çeşidini içeriyorsa (örneğin bitki besini 500 ml) ürün ailesini seç — adetleri sonraki adımda gireceksin.</p>
+      ${familiesPanel()}
       <form data-pd-form="lines">${state.lines.map(lineCard).join('')}
         <div class="pd-actions"><button class="secondary pd-left" type="button" data-pd="add-line">+ Satır ekle</button>
           <button class="secondary" type="button" data-pd="back-document">← Geri</button>
@@ -252,10 +271,18 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
   }
 
   /* ---------------- işlemler ---------------- */
+  // Aile listesi tek yerden tazelenir: seçilebilir aileler, arşivdekiler ve tedarikçi
+  // hatırlatmaları hep birlikte gelir. Arşivli aile seçim listesine ASLA karışmaz.
+  async function aileleriTazele() {
+    const {families, archived, links} = await api('/invoices/families');
+    state.families = families;
+    state.archivedFamilies = archived || [];
+    if (links) state.familyLinks = links;
+  }
+
   async function loadReference() {
     if (!state.catalog) state.catalog = await api('/catalog');
-    const {families} = await api('/invoices/families');
-    state.families = families;
+    await aileleriTazele();
   }
 
   /* ---------------- toplu yukleme kuyrugu ---------------- */
@@ -280,8 +307,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
 
   // Öneri kaynakları: elle hatırlanan bağlar, ürün aileleri ve tedarikçinin geçmiş alışları.
   async function oneriKaynaklari() {
-    const {links, families} = await api('/invoices/families');
-    state.familyLinks = links; state.families = families;
+    await aileleriTazele();
     state.purchaseHistory = state.supplierId ? (await api('/invoices/match-history?' + new URLSearchParams({supplier_id: state.supplierId}))).rows : [];
   }
 
@@ -572,8 +598,15 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
       line.status_text = 'Bağlantı kaydedildi. Aynı tedarikçi ve birimde sonraki alışlar bu karta bağlanacak.';
     }
     state.catalog = await api('/catalog');
-    const {families} = await api('/invoices/families');
-    state.families = families;
+    await aileleriTazele();
+  }
+
+  /** Aileyi arşivler ya da arşivden geri alır. Arşivlenen aile açık satırlardan da düşer. */
+  async function aileyiArsivle(familyId, archive) {
+    const x = await api('/invoices/families/' + familyId + (archive ? '/archive' : '/restore'), {});
+    if (archive) for (const line of state.lines) if (line.family_id === familyId) { line.family_id = null; line.allocations = null; line.status_text = 'Bu satırın ürün ailesi arşivlendi; ürünü yeniden seç.'; }
+    await aileleriTazele();
+    say(x.notice || (archive ? 'Aile arşivlendi.' : 'Aile arşivden geri alındı.'));
   }
 
   /** Taslağı oluşturur, çeşitleri dağıtır ve belgeyi kayda bağlar. Borç/stok YAZMAZ. */
@@ -665,7 +698,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     if (!b) return;
     const a = b.dataset.pd, i = Number(b.dataset.i);
     const lineForm=root.querySelector('[data-pd-form="lines"]');
-    if(lineForm&&['add-line','remove-line','back-document','apply-link','remember-link'].includes(a))collectLines(lineForm);
+    if(lineForm&&['add-line','remove-line','back-document','apply-link','remember-link','archive-family','restore-family'].includes(a))collectLines(lineForm);
     if (a === 'close') { onClose?.({}); return; }
     if (a === 'restart') { Object.assign(state, {step: 'pick', queue: [], queueTotal: 0, queueDone: [], auto: false, message: '', error: ''}); render(); return; }
     if (a === 'restart') { state.step = 'pick'; state.docId = null; state.lines = []; render(); return; }
@@ -684,6 +717,15 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     if (a === 'add-variant') { const l = state.lines[i]; l.allocations = [...(l.allocations || []), {}]; render(); return; }
     if (a === 'apply-link') { run(async () => { applyLink(i); }); return; }
     if (a === 'remember-link') { run(async () => { await rememberLink(i); }); return; }
+    if (a === 'archive-family') {
+      // Arşivleme onay sormadan çalışmaz: liste kirli diye ailesini yanlışlıkla düşüren
+      // kullanıcı, geçmişe dokunulmadığını ve geri alınabileceğini burada okur.
+      const fam = state.families.find(f => f.id === b.dataset.family);
+      if (!confirm((fam ? '"' + fam.name + (fam.size_label ? ' · ' + fam.size_label : '') + '"' : 'Bu') + ' ürün ailesi arşivlensin mi? Bundan sonra hiçbir fatura satırına seçilemez ve tedarikçi hatırlatması uygulanmaz. Geçmiş faturalar, çeşit dağılımları ve stok hareketleri değişmez; istersen arşivden geri alabilirsin.')) return;
+      run(() => aileyiArsivle(b.dataset.family, true));
+      return;
+    }
+    if (a === 'restore-family') { run(() => aileyiArsivle(b.dataset.family, false)); return; }
     if (a === 'save-draft') { run(saveDraft); return; }
   }, {signal});
 

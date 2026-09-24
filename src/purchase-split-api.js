@@ -16,8 +16,10 @@ export async function purchaseSplitApi(request,env,path,readBody){
   if(products.length!==x.allocations.length||new Set(products.map(p=>p.stock_unit)).size!==1)fail('Çeşitler bu çalışma alanında ve aynı stok biriminde olmalı.');
   let family=null;
   if(x.family_id!==undefined&&x.family_id!==null&&x.family_id!==''){
-   family=await db.prepare('SELECT * FROM product_families WHERE id=? AND archived_at IS NULL').bind(String(x.family_id).slice(0,100)).first();
+   family=await db.prepare('SELECT * FROM product_families WHERE id=?').bind(String(x.family_id).slice(0,100)).first();
    if(!family)fail('Ürün ailesi bulunamadı.',404);
+   // Arşivlenmiş aile YENİ dağılımda kullanılamaz; geçmiş dağılımlar aileye bağlı kalır.
+   if(family.archived_at)fail('Bu ürün ailesi arşivlendi; yeni çeşit dağılımı yapılamaz. Doğru aileyi seçin ya da arşivden geri alın.',409);
    if(family.stock_unit!==products[0].stock_unit)fail('Ailenin stok birimi seçilen çeşitlerle uyuşmuyor.');
   }
   const total=q(x.total_quantity),items=x.allocations.map(a=>({...a,quantity_milli:q(a.quantity)}));if(items.reduce((s,a)=>s+a.quantity_milli,0)!==total)fail('Çeşitlerin toplamı beklenen toplam stok miktarına eşit olmalı.');
