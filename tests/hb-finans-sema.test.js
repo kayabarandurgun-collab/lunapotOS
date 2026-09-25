@@ -205,3 +205,63 @@ test('tarihi gelmeyen paket kaydı yazılır ama tarih uydurulmaz',async()=>{
  assert.equal(sonuc.records[0].source_updated_at,null);
  assert.equal(sonuc.records[0].package_no,'5519711229');
 });
+
+// HB TESLİM ONAYI. Yerel HB paketlerinin kimliği rapor yolundan geliyor (RPT-…) ve HB'nin paket
+// numarasıyla kesişmiyor; eşleşme sipariş numarasından kurulur. Yanlış paketi teslim işaretlemek
+// kârı yanlış pakete ve yanlış güne yazar, o yüzden belirsizlikte hiçbir şey yapılmaz.
+const paketEkle=(f,{id,order_no,status})=>f.sqlite.prepare(
+ "INSERT INTO ec_order_packages(id,channel,external_id,order_no,occurred_on,status,source_fingerprint,shipment_reference,shipped_on) VALUES(?,'hepsiburada',?,?,'2026-09-20',?,'fp-'||?,?,'2026-09-21')")
+ .run(crypto.randomUUID(),id,order_no,status,id,'SVK-'+id);
+
+const teslimSorgu={kind:'delivered',from:'2026-09-23',to:'2026-09-23',page:0,preview:false};
+
+test('siparişin kargoda tek paketi varsa HB teslim tarihiyle işaretlenir',async()=>{
+ const f=fixture();
+ await f.call('/hepsiburada/configure',credentials);
+ paketEkle(f,{id:'RPT-aaa',order_no:'ORD-88',status:'shipped'});
+ const sonuc=await syncProvider(f.env,'hepsiburada',teslimSorgu,async()=>Response.json({items:[hbPaketPascal()],totalCount:1}));
+ assert.equal(sonuc.deliveredMarked,1,JSON.stringify(sonuc.warnings));
+ const p=f.sqlite.prepare("SELECT status,delivered_on FROM ec_order_packages WHERE external_id='RPT-aaa'").get();
+ assert.equal(p.status,'delivered');
+ assert.equal(p.delivered_on,'2026-09-23','teslim günü HB tarihinden gelmeli');
+});
+
+test('aynı siparişin kargoda iki paketi varsa hiçbiri işaretlenmez',async()=>{
+ const f=fixture();
+ await f.call('/hepsiburada/configure',credentials);
+ paketEkle(f,{id:'RPT-bbb',order_no:'ORD-88',status:'shipped'});
+ paketEkle(f,{id:'RPT-ccc',order_no:'ORD-88',status:'shipped'});
+ const sonuc=await syncProvider(f.env,'hepsiburada',teslimSorgu,async()=>Response.json({items:[hbPaketPascal({OrderNumbers:['ORD-88']})],totalCount:1}));
+ assert.equal(sonuc.deliveredMarked,0);
+ assert.ok(sonuc.ambiguousDeliveries>0,'belirsizlik sayılmalı');
+ assert.equal(f.sqlite.prepare("SELECT COUNT(*) n FROM ec_order_packages WHERE status='delivered'").get().n,0);
+});
+
+test('teslim tarihi gelmeyen HB paketi işaretlenmez; tarih uydurulmaz',async()=>{
+ const f=fixture();
+ await f.call('/hepsiburada/configure',credentials);
+ paketEkle(f,{id:'RPT-ddd',order_no:'ORD-88',status:'shipped'});
+ const sonuc=await syncProvider(f.env,'hepsiburada',teslimSorgu,async()=>Response.json({items:[hbPaketPascal({DeliveredDate:null,OrderNumbers:['ORD-88']})],totalCount:1}));
+ assert.equal(sonuc.deliveredMarked,0);
+ assert.ok(sonuc.undatedDeliveries>0);
+ assert.equal(f.sqlite.prepare("SELECT status FROM ec_order_packages WHERE external_id='RPT-ddd'").get().status,'shipped');
+});
+
+test('kargoda olmayan paket zorlanmaz; teslim edilmiş paket ikinci kez işaretlenmez',async()=>{
+ const f=fixture();
+ await f.call('/hepsiburada/configure',credentials);
+ paketEkle(f,{id:'RPT-eee',order_no:'ORD-88',status:'reserved'});
+ const sonuc=await syncProvider(f.env,'hepsiburada',teslimSorgu,async()=>Response.json({items:[hbPaketPascal({OrderNumbers:['ORD-88']})],totalCount:1}));
+ assert.equal(sonuc.deliveredMarked,0,'ayrılmış paket teslim edilmiş sayılmaz');
+ assert.equal(sonuc.ambiguousDeliveries,0,'olağan hâl belirsizlik diye bildirilmez');
+ assert.equal(f.sqlite.prepare("SELECT status FROM ec_order_packages WHERE external_id='RPT-eee'").get().status,'reserved');
+});
+
+test('önizlemede teslim işaretlemesi yazılmaz, yalnız sayılır',async()=>{
+ const f=fixture();
+ await f.call('/hepsiburada/configure',credentials);
+ paketEkle(f,{id:'RPT-fff',order_no:'ORD-88',status:'shipped'});
+ const sonuc=await syncProvider(f.env,'hepsiburada',{...teslimSorgu,preview:true},async()=>Response.json({items:[hbPaketPascal()],totalCount:1}));
+ assert.equal(sonuc.deliveredMarked,1,'önizleme ne olacağını söylemeli');
+ assert.equal(f.sqlite.prepare("SELECT status FROM ec_order_packages WHERE external_id='RPT-fff'").get().status,'shipped','önizlemede yazılmamalı');
+});
