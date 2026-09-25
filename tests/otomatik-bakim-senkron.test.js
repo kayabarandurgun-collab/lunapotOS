@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {appFixture} from './helpers/app-fixture.js';
-import {otomatikBakim, SENKRON_ISTEK} from '../src/otomatik-bakim.js';
+import {otomatikBakim, SENKRON_ISTEK, butceler} from '../src/otomatik-bakim.js';
 
 const KIMLIK = {seller_id: '1234', key: 'ornek-anahtar', secret: 'ornek-parola', user_agent: '1234 - SelfIntegration'};
 // Bağlantı ve imleç damgalarını veritabanı CURRENT_TIMESTAMP ile kendisi atar; aralık ölçümünün
@@ -165,4 +165,28 @@ test('Aralık dolmadan atlandığında da sebep yazılır; süre bitti ile karı
     assert.ok(r.senkronSebep.some(s => /aralık dolmadı/.test(s)), JSON.stringify(r.senkronSebep));
     assert.ok(!r.senkronSebep.some(s => /süre bütçesi/.test(s)), 'süre bitmediği hâlde süre denmemeli');
   } finally { f.close(); }
+});
+
+// BÜTÇE PAYLAŞIMI. Canlıda rapor turu 59,6 saniye sürüyordu: 50 saniyelik bütçe orada bitiyor,
+// pazaryeri senkronuna hiç sıra gelmiyordu. Rapor işleri artık bütçenin yarısında durur.
+test('Rapor işleri bütçenin yarısında durur; senkron payı yenmez', () => {
+  let t = 0; const saat = () => t;
+  const b = butceler(50000, saat);
+  t = 24999; assert.equal(b.raporVakti(), true, 'yarıya gelmeden rapor sürer');
+  t = 25001;
+  assert.equal(b.raporVakti(), false, 'rapor işleri yarıda durmalı');
+  assert.equal(b.senkronVakti(), true, 'senkron payı duruyor olmalı');
+  assert.equal(b.vakitVar(), true);
+  // Canlıda ölçülen rapor süresi: eskiden burada senkron aç kalıyordu.
+  t = 39999; assert.equal(b.senkronVakti(), true, 'sağlayıcı payı bitmeden sayfa istenebilir');
+  t = 40001; assert.equal(b.senkronVakti(), false, 'sağlayıcı payına girilmişken yeni sayfa istenmez');
+  t = 50001; assert.equal(b.vakitVar(), false);
+});
+
+test('Bütçe payı oransaldır; kısa bütçede de senkrona yer kalır', () => {
+  let t = 0; const saat = () => t;
+  const b = butceler(100000, saat);
+  t = 49999; assert.equal(b.raporVakti(), true);
+  t = 50001; assert.equal(b.raporVakti(), false);
+  assert.equal(b.senkronVakti(), true, 'uzun bütçede senkron payı daha geniştir');
 });

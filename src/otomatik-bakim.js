@@ -48,8 +48,26 @@ export const SENKRON_KAYNAKLARI = {
 // Sınır hem sağlayıcı nezaketi hem de tek turda yazılacak satır sayısı için üst kapaktır.
 export const SENKRON_ISTEK = 8;
 const SENKRON_PAY = 10000;   // sağlayıcı isteği için bütçeden ayrılan pay (istek zaman aşımı 20 sn)
+// Rapor işlerinin (dosya, aktarım, iade, kesinti) kullanabileceği bütçe oranı. Kalanı senkronundur.
+export const RAPOR_PAYI = 0.5;
 const SENKRON_ILK_GUN = 3;   // hiç senkron yapılmamış bağlantıda ilk pencere (ilk tam alım elle yapılır)
 const coz = v => { try { return JSON.parse(v); } catch { return null; } };
+
+/**
+ * Tur bütçesinin kapıları. Tek yerde durur ki ölçülebilsin ve sınanabilsin.
+ * RAPOR İŞLERİ BÜTÇENİN TAMAMINI YİYEMEZ. Canlıda ölçüldü (2026-09-25): rapor turu 59,6 saniye
+ * sürüyor, 50 saniyelik bütçe orada bitiyordu ve pazaryeri senkronuna HİÇ sıra gelmiyordu —
+ * Trendyol 22,5 saat çekilmedi, iz kaydı ise "yapılacak iş yoktu" diyordu. Rapor işleri artık
+ * bütçenin RAPOR_PAYI kadarında çalışır; kalanı senkronundur. Yarıda kalan rapor işi kaybolmaz,
+ * sıradaki tur kaldığı yerden sürer (hepsi imleçli/atlamalı döngüler).
+ * Senkron SAĞLAYICIYA ÇIKAR: tek istek zaman aşımına kadar 20 saniye sürebilir, o yüzden ayrıca
+ * SENKRON_PAY ayrılır ve payın içine girilmişken yeni sayfa istenmez.
+ */
+export function butceler(sureMs, saat = Date.now) {
+  const bas = saat(), gecen = () => saat() - bas;
+  return {gecen, vakitVar: () => gecen() < sureMs, raporVakti: () => gecen() < sureMs * RAPOR_PAYI,
+    senkronVakti: () => gecen() + SENKRON_PAY < sureMs};
+}
 
 /**
  * Yapılandırılmış pazaryeri bağlantılarından kaynak sayfalarını çeker. Hiçbir hata yukarı kaçmaz:
@@ -123,12 +141,8 @@ export const senkronBildirimi = ozet => '🔄 Otomatik senkron — pazaryerinden
   [ozet.senkronTaslak && ozet.senkronTaslak + ' yeni sipariş taslağı', ozet.senkronTeslim && ozet.senkronTeslim + ' paket teslim edildi işaretlendi',
     ozet.senkronKayit && ozet.senkronKayit + ' kaynak kaydı tarandı'].filter(Boolean).join(' · ');
 
-export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sakinDakika = 10, senkronGetir = fetch} = {}) {
-  const bas = Date.now(), vakitVar = () => Date.now() - bas < sureMs;
-  // Senkron SAĞLAYICIYA ÇIKAR: tek istek zaman aşımına kadar 20 saniye sürebilir, o yüzden bütçeden
-  // 10 saniyelik pay AYRILIR ve pay içine girilmişken yeni sayfa istenmez. Yarıda kalan pencere bir
-  // sonraki turda kaldığı sayfadan sürer (imleç saklı), yani kesilen iş kaybolmaz.
-  const senkronVakti = () => Date.now() - bas + SENKRON_PAY < sureMs;
+export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sakinDakika = 10, senkronGetir = fetch, saat = Date.now} = {}) {
+  const {gecen, vakitVar, raporVakti, senkronVakti} = butceler(sureMs, saat);
   const ec = {...env, DB: scopedDB(env.DB, 'ec'), ROOT_DB: env.DB, WORKSPACE: 'ec', USER: SISTEM};
   const db = env.DB;
   const son = await db.prepare('SELECT MAX(created_at) t FROM ec_report_files').first();
@@ -139,7 +153,7 @@ export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sa
     ec, yol, async () => govde);
   const ozet = {dosya: 0, siparis: 0, teslim: 0, iade: 0, kesinti: 0, maliyet: 0, senkronKayit: 0, senkronTeslim: 0, senkronTaslak: 0, senkronAtlandi: [], senkronSebep: [], sure: {}, hatalar: []};
   // Aşama damgaları: hangi işin bütçeyi yediği ancak ölçülerek görülür. İz kaydına da yazılır.
-  const asama = ad => { ozet.sure[ad] = Date.now() - bas; };
+  const asama = ad => { ozet.sure[ad] = gecen(); };
   const dene = async (ad, fn) => { try { await fn(); } catch (e) { ozet.hatalar.push(ad + ': ' + e.message); } };
 
   // 1. Yarım kalan dosyalar. Hata veren dosya silinmez ve "işlendi" sayılmaz: deneme sayısı, son hata
@@ -152,7 +166,7 @@ export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sa
     ORDER BY COALESCE(a.attempts,0),f.created_at,f.id LIMIT 10`).bind(zaman(simdi)).all()).results;
   for (const f of yarim) {
     try {
-      for (let i = 0; i < 200 && vakitVar(); i++) { const r = await cagir(reportInboxApi, '/api/reports/files/' + f.id + '/apply', {}); if (r.done) { ozet.dosya++; break; } }
+      for (let i = 0; i < 200 && raporVakti(); i++) { const r = await cagir(reportInboxApi, '/api/reports/files/' + f.id + '/apply', {}); if (r.done) { ozet.dosya++; break; } }
       if (f.last_error) await db.prepare('UPDATE ec_report_file_attempts SET last_error=NULL,next_attempt_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE file_id=?').bind(f.id).run();
     } catch (e) {
       ozet.hatalar.push('dosya: ' + e.message);
@@ -169,7 +183,7 @@ export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sa
   for (const m of magazalar) {
     await dene('aktarım', async () => {
       const skip = [];
-      for (let i = 0; i < 40 && vakitVar(); i++) {
+      for (let i = 0; i < 40 && raporVakti(); i++) {
         const r = await cagir(reportStockLinkApi, '/api/reports/stock-link/auto', {store_id: m.id, skip});
         for (const x of r.results) { if (x.done) ozet.siparis++; else skip.push(x.package_id); }
         if (!r.results.length || (!r.remaining && r.results.length < 5)) break;
@@ -179,11 +193,11 @@ export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sa
   await dene('teslim', async () => { ozet.teslim += (await cagir(reportInboxApi, '/api/reports/sync-deliveries', {confirm: true})).count || 0; });
   for (const m of magazalar) {
     await dene('iade', async () => {
-      for (let i = 0; i < 10 && vakitVar(); i++) { const r = await cagir(reportStockLinkApi, '/api/reports/stock-link/returns-apply', {store_id: m.id, confirm: true}); ozet.iade += r.done.length; if (!r.remaining || !r.done.length) break; }
+      for (let i = 0; i < 10 && raporVakti(); i++) { const r = await cagir(reportStockLinkApi, '/api/reports/stock-link/returns-apply', {store_id: m.id, confirm: true}); ozet.iade += r.done.length; if (!r.remaining || !r.done.length) break; }
     });
     await dene('kesinti', async () => {
       let cursor = 0;
-      for (let i = 0; i < 40 && vakitVar(); i++) {
+      for (let i = 0; i < 40 && raporVakti(); i++) {
         const f = await cagir(reportInboxApi, '/api/reports/apply-fees', {store_id: m.id, confirm: true, cursor});
         ozet.kesinti += f.sale_entries_changed || 0;
         if (!f.next_cursor || f.next_cursor <= cursor) break;
