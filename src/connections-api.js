@@ -151,8 +151,13 @@ function normalizeHB(kind,payload,page,limit){
   if(paketDurumu[kind]){
    // Paket durum kaydı: kimlik ve paket numarası olmadan hiçbir yerel paketle eşleşemez, o yüzden
    // ikisi de zorunlu. Teslim tarihi UYDURULMAZ; gelmezse null kalır ve çağıran o paketi işaretlemez.
-   const id=externalID(r.id??r.packageNumber);
-   const paket=short(r.packageNumber??r.packageNo);if(!paket)hbSema(kind,r,'HB paket numarası eksik; paket eşleştirilemez.');
+   // Alan adlarının büyük/küçük harfi sağlayıcı dokümanında tutarsız (Id, PackageNumber, orderNumber).
+   // Kimlik doğrulaması externalID'ye bırakılırsa hata genel çıkıyor ve hangi alanın geldiği
+   // öğrenilemiyor; burada önce ölçülür, sonra reddedilir.
+   const hamKimlik=r.id??r.Id??r.packageNumber??r.PackageNumber;
+   if(!['number','string'].includes(typeof hamKimlik)||!String(hamKimlik).trim()||String(hamKimlik).length>200||(typeof hamKimlik==='number'&&!Number.isSafeInteger(hamKimlik)))hbSema(kind,r,'HB paket kayıt kimliği okunamadı.');
+   const id=externalID(hamKimlik);
+   const paket=short(r.packageNumber??r.PackageNumber??r.packageNo);if(!paket)hbSema(kind,r,'HB paket numarası eksik; paket eşleştirilemez.');
    return {external_id:id,order_no:short(r.orderNumber),package_no:paket,barcode:short(r.barcode),cargo_company:short(r.cargoCompany??r.cargoCompanyName),package_status:kind,delivered_on:kind==='delivered'?iso(r.deliveredDate??r.deliveryDate):null,shipped_on:iso(r.shippedDate??r.shipmentDate),undelivered_on:kind==='undelivered'?iso(r.undeliveredDate??r.deliveredDate):null,source_updated_at:iso(r.lastStatusUpdateDate??r.deliveredDate??r.shippedDate),interpretation:'package_status_observation_only'};
   }
   if(kind==='orders'){
