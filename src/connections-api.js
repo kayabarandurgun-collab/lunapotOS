@@ -169,9 +169,13 @@ function normalizeHB(kind,payload,page,limit){
   // dört tarih (sipariş, fatura, vade, ödeme) ayrı ayrı saklanır, hiçbiri "kaydın güncellenme anı" değildir.
   return {external_id:id,type:short(r.transactionType??r.type),type_category:short(r.transactionTypeCategory),order_no:short(r.orderNumber),package_no:short(r.packageNumber),invoice_no:short(r.invoiceNumber),sku:short(r.sku),product_name:short(r.productName),quantity:numeric(r.quantity),amount:hbTutar(r.amount),currency:hbParaBirimi(r.amount)||short(r.currency),tax_amount:hbTutar(r.taxAmount),net_amount:hbTutar(r.netAmount),payment_status:short(r.status??r.paymentStatus),is_income:typeof r.isIncome==='boolean'?r.isIncome:null,is_invoice:typeof r.isInvoice==='boolean'?r.isInvoice:null,order_date:iso(r.orderDate),invoice_date:iso(r.invoiceDate),due_date:iso(r.dueDate),payment_date:iso(r.paymentDate),source_updated_at:iso(r.transactionDate??r.date),interpretation:'unreconciled_financial_record_not_bank_transfer'};
  });
+ // ÖNİZLEMEDE GELEN ALAN ADLARI GERİ VERİLİR (değer değil, yalnız ad). Sağlayıcı alan adını
+ // değiştirdiğinde ya da yazımı beklenenden farklı olduğunda kayıt sessizce boş okunuyordu:
+ // kayıt sayısı doğru görünüyor ama içi boş geliyordu. Ad listesi bunu tek bakışta gösterir.
+ const alanlar=list.length?Object.keys(list[0]).slice(0,60):[];
  const total=Number.isInteger(payload.totalCount)?payload.totalCount:null;
  if(total!==null&&(total<0||list.length&&total<page*limit+list.length))fail('Hepsiburada toplam kayıt ve sayfa içeriği tutarsız.',502);
- return {records,hasMore:kind==='commissions'?false:total===null?list.length===limit:(page+1)*limit<total,totalPages:kind==='commissions'?1:total===null?null:Math.ceil(total/limit)};
+ return {records,alanlar,hasMore:kind==='commissions'?false:total===null?list.length===limit:(page+1)*limit<total,totalPages:kind==='commissions'?1:total===null?null:Math.ceil(total/limit)};
 }
 async function safeJSON(response){
  if(!response.ok){if(response.status===429)fail('Sağlayıcı istek sınırı doldu; daha sonra yeniden deneyin.',429);if([401,403].includes(response.status))fail('Sağlayıcı API erişimi doğrulanamadı. Kimlik bilgilerini kontrol edin.',502);fail('Sağlayıcı isteği tamamlayamadı (HTTP '+response.status+').',502);}
