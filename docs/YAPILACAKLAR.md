@@ -9,9 +9,9 @@ Son güncelleme: 2026-09-25
 
 ## Açık işler
 
-- [ ] **HB teslim/kargo verisi henüz kullanılmıyor** — üç uç çalışıyor ve panelden elle çekilebiliyor, ama otomatik senkron listesine (`SENKRON_KAYNAKLARI`) eklenmedi ve teslim işaretlemesine bağlanmadı. Bağlanırsa HB teslimleri de Trendyol'daki gibi API'den onaylanır; şimdilik rapor yolundan geliyor. Karar senin: veri akmaya başlasın mı?
-- [ ] **Rapor turu boşa 60 saniye dönüyor** — bakım turunda rapor işleri hiç iş üretmeden 59,6 saniye sürüyordu (sayaçların hepsi sıfır). Senkron öne alındığı için artık zarar vermiyor ama sebep bulunmadı. Aşama süreleri iz kaydına yazılıyor, oradan izlenebilir.
-- [ ] **TY'de 31 taslak sipariş + 11 "ayrılmış" paket** — takılı duruyorlar, incelenmedi.
+- [ ] **31 ilanın stok kodu Trendyol'da bozuk** — o ilanların stok kodu harfi harfine `merchantSku`; alan ADI değer olarak girilmiş. Barkodlar doğru, o yüzden panelden barkodla bağlanabilirler; ama kalıcı çözüm Trendyol satıcı panelinden stok kodlarını düzeltmek. Düzeltilene kadar her yeni sipariş yine eşleşmesiz gelir.
+- [ ] **Rapor turu boşa 60 saniye dönüyor** — bakım turunda rapor işleri hiç iş üretmeden 59,6 saniye sürüyordu (sayaçların hepsi sıfır). Senkron öne alındığı için artık zarar vermiyor ama sebep bulunmadı. Aşama süreleri artık dolu turda da iz kaydına yazılıyor, oradan izlenebilir.
+- [ ] **HB 'shipped' ve 'undelivered' uçlarını okuyan iş yok** — uçlar çalışıyor, panelden elle alınabiliyor; otomatik çekilmiyorlar çünkü kimse okumuyor. Teslim edilemeyen paket çıkarsa kârdan düşmesi gerekir, o iş yapılmadı.
 - [ ] **HB hakediş adayı** — eski not "paymentOrderId dönmüyor" diyordu; gerçek şemada o alan yok ama `Payment` (150) ve `TotalPayment` (2) türünde kayıtlar VAR ve `paymentDate` taşıyorlar. Banka ekstresi yüklenince bunlarla eşleştirme denenebilir. Henüz denenmedi.
 
 - [ ] **Ay sonu — Seçkin TS1 / Plug Mix**: 2 adet Plug Mix iadesi + yeni TS1 faturası. Alış faturaları → YSK2026000000402 → "Tedarikçiye iade" 2 adet. SONRA `urun-duzeltme:plugmix-ts1-2026-09-23` referanslı stok hareketleri ters kayıtla geri alınmalı, yoksa 2 adet çift sayılır.
@@ -49,6 +49,19 @@ Genel gider, cari, ürün kartı, kasa/banka hesabı, ürün ailesi: hepsi düze
 - Açık borç listesinde tek ödeme etiketi
 - **Güvenlik açığı**: banka uçları yetki haritasında yoktu, yönetici dışı herkese 403 dönüyordu; menü ise ekranı gösteriyordu
 - **Arayüz ölçeği**: düğme köşe 7–11px → 8px, yazı 10–14px → 13px, kalınlık 500–600 → 600, kart köşe 11–18px → 12px. Renk ve yazı tipi birebir korundu. `font` kısayolu tuzağı yedi yerde temizlendi.
+
+### HB teslimleri artık API'den onaylanıyor (25.09)
+HB teslim kaydı paketi teslim edilmiş işaretliyor; eşleşme sipariş numarasından kuruluyor (yerel HB paketlerinin kimliği `RPT-…`, HB'nin paket numarasıyla kesişmiyor). Trendyol'daki kural aynen: aday yalnız kargodaki paket, siparişin kargoda tek paketi varsa işaretlenir, teslim tarihi gelmezse dokunulmaz, gün Türkiye gününe çevrilir.
+
+İlk çalıştırma: **18 paket** teslim edilmiş işaretlendi (24–25 Eylül'ün raporu yüklenmemişti). HB teslim edilmiş paket 173 → **191**, kargoda 25 → 7. Ana ekranda kargoda görünen paket 152 → 134, bekleyen tutar ₺6.327 → ₺3.484.
+
+Otomatik senkron teslim kaydını siparişle aynı sıklıkta (4 saat) çekiyor.
+
+### İlan eşleştirmesinde barkod önceliği (25.09)
+"31 ürün eşleşmesi bekleyen paket" uyarısı incelenirken çıktı: 29 paketin ilan kodu harfi harfine `merchantSku` ve bu ilanlar birbirinden farklı ürünler. Eşleştirme barkodla kodu aynı torbaya atıyordu; o koda açılacak tek bir bağlantı 29 ayrı ürünü aynı stok kartına bağlar, stok ve kâr sessizce yanlış ürüne yazılırdı. Barkod artık önce geliyor.
+
+### "530 kesintisi doğrulanmamış" uyarısı normal çıktı (25.09)
+Ölçüldü: 522'si 18–23 Eylül'ün satışı, yani pazaryeri kesinti belgesini henüz kesmemiş — olağan akış. Gerçekten takılı kalan 8 satış var. Siparişten oluşan satış komisyon/kargo alanları boş ve `pending` doğuyor (tasarım gereği); rapor ya da kesinti eşleştirmesi gelince kesinleşiyor.
 
 ### Otomatik veri çekimi durmuştu — düzeltildi (25.09)
 Trendyol **22,5 saattir** hiç çekilmiyordu. Cron 15 dakikada bir çalışıyor, bağlantıda hata yok, aralık dolmuş, imleçlerde yarım pencere yok — buna rağmen sağlayıcıya hiç çıkılmamıştı. Ekranda tek yazan "yapılacak iş yoktu" idi.
