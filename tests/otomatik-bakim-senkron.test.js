@@ -139,3 +139,30 @@ test('Telegram yalnız kayda değer iş olunca konuşur; değişen bir şey yoks
     assert.equal(tg.mesajlar.length, 1, 'değişen bir şey yokken bildirim gönderilmez');
   } finally { tg.geri(); f.close(); }
 });
+
+// SESSİZ AÇLIK. Rapor işleri süre bütçesini yiyip senkrona hiç sıra gelmediğinde dışarıdan
+// "yapılacak iş yoktu" görünüyordu: ne hata, ne kayıt, ne de sebep. Canlıda Trendyol 22 saat
+// çekilmediği hâlde iz kaydı "iş yoktu" diyordu ve sebep hiçbir yere yazılmıyordu.
+test('Senkrona sıra gelmediğinde sebep iz kaydına yazılır; sessizce "iş yoktu" denmez', async () => {
+  const f = await kur(); try {
+    const ty = saglayici();
+    const r = await otomatikBakim(f.env, {simdi: AN, sureMs: 1, senkronGetir: ty.getir});
+    assert.equal(ty.cagrilar.length, 0, 'bütçe yokken sağlayıcıya gidilmemeli');
+    assert.deepEqual(r.hatalar, []);
+    assert.ok(r.senkronSebep.some(s => /süre bütçesi bitti/.test(s)), 'sebep özete yazılmalı: ' + JSON.stringify(r.senkronSebep));
+    const iz = f.sqlite.prepare("SELECT description d FROM ec_activity WHERE description LIKE 'Otomatik bakım%' ORDER BY created_at DESC, rowid DESC LIMIT 1").get();
+    assert.match(iz.d, /Senkron:/, 'iz kaydı sebebi taşımalı: ' + iz.d);
+    assert.match(iz.d, /süre bütçesi bitti/);
+    assert.match(iz.d, /sn\]/, 'aşama süreleri yazılmalı');
+  } finally { f.close(); }
+});
+
+test('Aralık dolmadan atlandığında da sebep yazılır; süre bitti ile karıştırılmaz', async () => {
+  const f = await kur(); try {
+    const ty = saglayici();
+    await otomatikBakim(f.env, {simdi: AN, senkronGetir: ty.getir});
+    const r = await otomatikBakim(f.env, {simdi: AN + 60000, senkronGetir: ty.getir});
+    assert.ok(r.senkronSebep.some(s => /aralık dolmadı/.test(s)), JSON.stringify(r.senkronSebep));
+    assert.ok(!r.senkronSebep.some(s => /süre bütçesi/.test(s)), 'süre bitmediği hâlde süre denmemeli');
+  } finally { f.close(); }
+});

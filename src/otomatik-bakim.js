@@ -59,21 +59,24 @@ async function pazaryeriSenkronu(ec, db, {simdi, vakitVar, getir, ozet}) {
   const baglantilar = (await db.prepare('SELECT provider,last_success_at,last_error FROM ec_provider_connections ORDER BY provider').all()).results;
   for (const b of baglantilar) {
     const kaynaklar = SENKRON_KAYNAKLARI[b.provider];
-    if (!kaynaklar || !vakitVar()) continue;
+    if (!kaynaklar) continue;
+    // SÜRE BİTTİYSE SESSİZ KALINMAZ. Rapor işleri bütçeyi yiyip senkronu aç bıraktığında dışarıdan
+    // "yapılacak iş yoktu" görünüyordu: sağlayıcıya hiç gidilmediği hâlde hata da kayıt da yok.
+    if (!vakitVar()) { ozet.senkronSebep.push(b.provider + ': süre bütçesi bitti'); continue; }
     // ÇÖZÜLMEMİŞ HATASI OLAN BAĞLANTI OTOMATİK DENENMEZ: kimlik bilgisi bozulmuş ya da mağaza
     // erişimi kapanmışsa her 4 saatte bir aynı hatayı üretmek sağlayıcıya da bize de yük olur.
     // Sessiz kalmıyoruz: hata metni Bağlantılar ekranında kırmızı satır olarak zaten duruyor ve
     // kullanıcı "Verileri al" ile bir kez başarılı çektiğinde last_error silinir, otomatik senkron
     // kendiliğinden geri gelir.
     if (b.last_error) { ozet.senkronAtlandi.push(b.provider); continue; }
-    if (b.last_success_at && simdi - damga(b.last_success_at) < Math.min(...kaynaklar.map(k => k.saat)) * 3600000) continue;
+    if (b.last_success_at && simdi - damga(b.last_success_at) < Math.min(...kaynaklar.map(k => k.saat)) * 3600000) { ozet.senkronSebep.push(b.provider + ': aralık dolmadı'); continue; }
     // Tür başına son başarı zamanı: imleç satırı yalnız YAZILAN sayfada tazelenir, yani bu damga
     // "bu türü en son ne zaman gerçekten çektik" sorusunun cevabıdır.
     const turlar = (await db.prepare('SELECT kind,MAX(last_success_at) son FROM ec_provider_cursors WHERE provider=? GROUP BY kind').bind(b.provider).all()).results;
     let istek = SENKRON_ISTEK;
     try {
       for (const k of kaynaklar) {
-        if (istek <= 0 || !vakitVar()) break;
+        if (istek <= 0 || !vakitVar()) { ozet.senkronSebep.push(b.provider + '/' + k.kind + (istek <= 0 ? ': istek payı bitti' : ': süre bütçesi bitti')); break; }
         const son = turlar.find(t => t.kind === k.kind)?.son, gecen = son ? simdi - damga(son) : null;
         if (gecen !== null && gecen < k.saat * 3600000) continue;
         // İmleç sorgu anahtarı sunucuda hash'lendiği için burada pencere (from/to) ile eşleştirilir.
@@ -134,7 +137,9 @@ export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sa
 
   const cagir = (handler, yol, govde) => handler(new Request('https://internal.invalid/api/ec' + yol.replace(/^\/api/, ''), {method: govde === undefined ? 'GET' : 'POST'}),
     ec, yol, async () => govde);
-  const ozet = {dosya: 0, siparis: 0, teslim: 0, iade: 0, kesinti: 0, maliyet: 0, senkronKayit: 0, senkronTeslim: 0, senkronTaslak: 0, senkronAtlandi: [], hatalar: []};
+  const ozet = {dosya: 0, siparis: 0, teslim: 0, iade: 0, kesinti: 0, maliyet: 0, senkronKayit: 0, senkronTeslim: 0, senkronTaslak: 0, senkronAtlandi: [], senkronSebep: [], sure: {}, hatalar: []};
+  // Aşama damgaları: hangi işin bütçeyi yediği ancak ölçülerek görülür. İz kaydına da yazılır.
+  const asama = ad => { ozet.sure[ad] = Date.now() - bas; };
   const dene = async (ad, fn) => { try { await fn(); } catch (e) { ozet.hatalar.push(ad + ': ' + e.message); } };
 
   // 1. Yarım kalan dosyalar. Hata veren dosya silinmez ve "işlendi" sayılmaz: deneme sayısı, son hata
@@ -158,6 +163,7 @@ export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sa
     }
   }
 
+  asama('dosya');
   // 2–3. Mağaza başına aktarım, iade, kesinti; teslim güncellemesi mağazadan bağımsız.
   const magazalar = (await db.prepare("SELECT id FROM ec_report_stores WHERE provider IN ('trendyol','hepsiburada')").all()).results;
   for (const m of magazalar) {
@@ -190,7 +196,9 @@ export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sa
   // senkron ise YENİ veri getirir ve gerekirse bir sonraki tura kalabilir. FIFO'dan önce durur:
   // senkronun açtığı taslakların maliyeti aynı turda değerlensin ve maliyet kuyruğu bütün bütçeyi
   // yiyip senkronu aç bırakmasın.
+  asama('rapor');
   await pazaryeriSenkronu(ec, db, {simdi, vakitVar: senkronVakti, getir: senkronGetir, ozet});
+  asama('senkron');
 
   // 5. Maliyet (FIFO) kuyruğu.
   await dene('maliyet', async () => {
@@ -213,7 +221,12 @@ export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sa
       + (ozet.hatalar.length ? (is ? '; ' : '') + 'sorun: ' + ozet.hatalar.join(' | ').slice(0, 400) : '')).run();
   // İŞ YOKKEN DE İZ BIRAKILIR (en çok 6 saatte bir): ekranda hiç satır olmayınca bakımın çalışıp
   // çalışmadığı anlaşılmıyordu. Her 15 dakikada yazmak listeyi doldururdu.
-  else await db.prepare("INSERT INTO ec_activity(id,description) SELECT ?,'Otomatik bakım çalıştı; yapılacak iş yoktu.'"
-    + " WHERE NOT EXISTS(SELECT 1 FROM ec_activity WHERE description LIKE 'Otomatik bakım%' AND created_at>datetime('now','-6 hours'))").bind(crypto.randomUUID()).run();
+  // İŞ YOKKEN SEBEP DE YAZILIR: "iş yoktu" ile "senkrona sıra gelmedi" aynı şey değil. Süre bütçesi
+  // rapor işlerine gidip pazaryerine hiç çıkılamadığında bu satır tek kanıttır.
+  else await db.prepare("INSERT INTO ec_activity(id,description) SELECT ?,? "
+    + "WHERE NOT EXISTS(SELECT 1 FROM ec_activity WHERE description LIKE 'Otomatik bakım%' AND created_at>datetime('now','-6 hours'))")
+    .bind(crypto.randomUUID(), ('Otomatik bakım çalıştı; yapılacak iş yoktu.'
+      + (ozet.senkronSebep.length ? ' Senkron: ' + ozet.senkronSebep.join(' | ') : '')
+      + ' [' + Object.entries(ozet.sure).map(([a, ms]) => a + ' ' + Math.round(ms / 100) / 10 + 'sn').join(', ') + ']').slice(0, 480)).run();
   return ozet;
 }
