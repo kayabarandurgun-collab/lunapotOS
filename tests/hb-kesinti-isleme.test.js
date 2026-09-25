@@ -141,3 +141,42 @@ test('önizlemede hiçbir şey yazılmaz', async () => {
  assert.equal(f.sqlite.prepare('SELECT fees_status st FROM ec_sale_entries').get().st, 'pending', 'yazmamalı');
  assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_fee_audit').get().n, 0);
 });
+
+// EŞLEŞME ÖNCE PAKET NUMARASIYLA. Yerel paketlerin bir kısmının kimliği doğrudan pazaryerinin
+// paket numarasıdır ('HB-…'); orada siparişe düşmeye gerek yok. Canlıda 46 paket "belirsiz" diye
+// atlanıyordu, çoğu aslında bir İPTAL + bir teslim paketiydi.
+test('paket numarası birebir tutuyorsa sipariş numarasına düşülmez', async () => {
+ const f = fixture();
+ const paketId = satisliPaket(f, {siparis: 'ORD-7', gelirler: [10000]});
+ f.sqlite.prepare("UPDATE ec_order_packages SET external_id='HB-PKG-7' WHERE id=?").run(paketId);
+ // Aynı siparişin ikinci paketi var: sipariş numarasıyla arasaydık belirsiz sayılırdı.
+ f.sqlite.prepare("INSERT INTO ec_order_packages(id,channel,external_id,order_no,occurred_on,status,source_fingerprint) VALUES(?,'hepsiburada','RPT-ORD-7-B','ORD-7','2026-09-20','draft','fp7b')").run(crypto.randomUUID());
+ finansKaydi(f, {paket: 'PKG-7', siparis: 'ORD-7', tur: 'Commission', tutar: -30});
+ finansKaydi(f, {paket: 'PKG-7', siparis: 'ORD-7', tur: 'ShipmentCostSharingExpense', tutar: -50});
+ const r = await pazaryeriKesintileriniIsle(f.env, {commit: true});
+ assert.equal(r.ambiguous, 0, JSON.stringify(r));
+ assert.equal(r.applied, 1);
+ assert.equal(f.sqlite.prepare('SELECT commission_cents k FROM ec_sale_entries').get().k, 3000);
+});
+
+test('iptal edilmiş paket aday sayılmaz; tek gerçek paket belirsiz olmaz', async () => {
+ const f = fixture();
+ satisliPaket(f, {siparis: 'ORD-8', gelirler: [10000]});
+ f.sqlite.prepare("INSERT INTO ec_order_packages(id,channel,external_id,order_no,occurred_on,status,source_fingerprint,cancel_reason) VALUES(?,'hepsiburada','RPT-ORD-8-IPTAL','ORD-8','2026-09-20','cancelled','fp8','müşteri vazgeçti')").run(crypto.randomUUID());
+ finansKaydi(f, {paket: 'PKG-8', siparis: 'ORD-8', tur: 'Commission', tutar: -30});
+ finansKaydi(f, {paket: 'PKG-8', siparis: 'ORD-8', tur: 'ShipmentCostSharingExpense', tutar: -50});
+ const r = await pazaryeriKesintileriniIsle(f.env, {commit: true});
+ assert.equal(r.ambiguous, 0, JSON.stringify(r));
+ assert.equal(r.applied, 1);
+});
+
+test('iptal dışında gerçekten iki paket varsa hâlâ dokunulmaz', async () => {
+ const f = fixture();
+ satisliPaket(f, {siparis: 'ORD-9', gelirler: [10000]});
+ f.sqlite.prepare("INSERT INTO ec_order_packages(id,channel,external_id,order_no,occurred_on,status,source_fingerprint) VALUES(?,'hepsiburada','RPT-ORD-9-B','ORD-9','2026-09-20','draft','fp9b')").run(crypto.randomUUID());
+ finansKaydi(f, {paket: 'PKG-9', siparis: 'ORD-9', tur: 'Commission', tutar: -30});
+ finansKaydi(f, {paket: 'PKG-9', siparis: 'ORD-9', tur: 'ShipmentCostSharingExpense', tutar: -50});
+ const r = await pazaryeriKesintileriniIsle(f.env, {commit: true});
+ assert.equal(r.applied, 0);
+ assert.equal(r.ambiguous, 1);
+});

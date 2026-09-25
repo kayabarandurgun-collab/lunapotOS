@@ -62,13 +62,20 @@ export async function pazaryeriKesintileriniIsle(env, {provider = 'hepsiburada',
   for (const p of hepsi) {
     if (yazimlar.length >= limit) break;
     if (!kesintiTam(p)) { ozet.incomplete++; continue; }
-    if (!p.order_no) { ozet.unmatched++; continue; }
-    // EŞLEŞME SİPARİŞ NUMARASINDAN. Yerel paketlerin kimliği rapor yolundan geliyor (RPT-…) ve
-    // pazaryerinin paket numarasıyla kesişmiyor. Bir siparişin birden çok paketi varsa hangisinin
-    // kesintisi olduğu bilinemez: dokunulmaz.
-    const yerel = (await db.prepare('SELECT id FROM ec_order_packages WHERE channel=? AND order_no=?')
-      .bind(provider, p.order_no).all()).results;
+    // ÖNCE PAKET NUMARASIYLA BİREBİR. Yerel paketlerin bir kısmının kimliği doğrudan pazaryerinin
+    // paket numarasıdır ('HB-5511370489'); orada eşleşme kesindir, siparişe düşmeye gerek yoktur.
+    let yerel = (await db.prepare("SELECT id FROM ec_order_packages WHERE channel=? AND external_id IN (?, ?)")
+      .bind(provider, 'HB-' + p.paket, p.paket).all()).results;
+    if (!yerel.length) {
+      if (!p.order_no) { ozet.unmatched++; continue; }
+      // SİPARİŞ NUMARASINA DÜŞÜLÜR: rapor yolundan gelen paketlerin kimliği (RPT-…) pazaryerinin
+      // paket numarasıyla kesişmiyor. İPTAL EDİLMİŞ paket aday değildir — iptalin kesintisi olmaz
+      // ve onu saymak tek gerçek paketi "belirsiz" gösterip kesintiyi boşuna engelliyordu.
+      yerel = (await db.prepare("SELECT id FROM ec_order_packages WHERE channel=? AND order_no=? AND status<>'cancelled'")
+        .bind(provider, p.order_no).all()).results;
+    }
     if (!yerel.length) { ozet.unmatched++; continue; }
+    // Hâlâ birden çok aday varsa hangisinin kesintisi olduğu bilinemez: dokunulmaz.
     if (yerel.length > 1) { ozet.ambiguous++; continue; }
     const paketId = yerel[0].id;
     const satislar = (await db.prepare(
