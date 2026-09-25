@@ -9,7 +9,9 @@ Son güncelleme: 2026-09-25
 
 ## Açık işler
 
-- [ ] **31 paketi bir kez eşleştir** — "Ürünleri eşleştir" penceresinde ürünü seç, "barkoduyla kalıcı bağla" işaretli kalsın. Aynı ilanın sonraki siparişleri kendiliğinden eşleşir; ilan kodunun bozuk olması artık engel değil.
+- [ ] **İKİ İLANIN KARŞILIĞINI SÖYLE** — sistem 54 ilanı kendi eşleştirdi, bu ikisinin kayıtlı bağlantısı yok ve UYDURULMADI:
+  1. `Pina Small 2 Litre Ayaklı Fiberglas Saksı, Çıkarılabilir İç Hazneli, Mermer Desenli` · barkod `8685283268006` · kod `PINA-S-BYZ` → hangi stok kartı?
+  2. `Çiçek Vitamin Seti, Çiçek Bakım Seti…` · kod `TYBK5EHXH5F2JST129` · **barkodu yok** → set gibi duruyor; içinde hangi ürünler, hangi adetlerde?
 - [ ] **Rapor turu boşa 60 saniye dönüyor** — bakım turunda rapor işleri hiç iş üretmeden 59,6 saniye sürüyordu (sayaçların hepsi sıfır). Senkron öne alındığı için artık zarar vermiyor ama sebep bulunmadı. Aşama süreleri artık dolu turda da iz kaydına yazılıyor, oradan izlenebilir.
 - [ ] **3 paket: pazaryeri teslim edemediğini söylüyor** — iş listesinde kırmızı satır olarak duruyor. Sipariş **4302703706**'nın İKİ paketi 21 Eylül'de teslim işaretli (kârı sayılıyor) ama HB teslim edilemedi diyor; sipariş **4103383882** hâlâ kargoda görünüyor. Gerçekte ne olduğuna (iade mi, yeniden gönderim mi, pazaryeri kaydı mı yanlış) sen karar vereceksin; sistem kendiliğinden geri almıyor çünkü teslimi geri çevirmek satışı ve stoğu da geri alır.
 - [ ] **HB hakediş adayı** — eski not "paymentOrderId dönmüyor" diyordu; gerçek şemada o alan yok ama `Payment` (150) ve `TotalPayment` (2) türünde kayıtlar VAR ve `paymentDate` taşıyorlar. Banka ekstresi yüklenince bunlarla eşleştirme denenebilir. Henüz denenmedi.
@@ -49,6 +51,16 @@ Genel gider, cari, ürün kartı, kasa/banka hesabı, ürün ailesi: hepsi düze
 - Açık borç listesinde tek ödeme etiketi
 - **Güvenlik açığı**: banka uçları yetki haritasında yoktu, yönetici dışı herkese 403 dönüyordu; menü ise ekranı gösteriyordu
 - **Arayüz ölçeği**: düğme köşe 7–11px → 8px, yazı 10–14px → 13px, kalınlık 500–600 → 600, kart köşe 11–18px → 12px. Renk ve yazı tipi birebir korundu. `font` kısayolu tuzağı yedi yerde temizlendi.
+
+### Eşleştirmeyi artık sistem yapıyor (25.09)
+Ölçüldü: eşleşme bekleyen 21 ilan barkodunun **20'sinin bağlantısı zaten vardı**. Sistem eşleştirmeyi yalnız sipariş içeri girerken bir kez deniyordu; o an tutmadıysa (bozuk ilan kodu) ya da bağlantı sonradan kurulduysa paket elle açılmayı bekliyordu.
+
+Bakım turu artık bekleyen taslakları kendiliğinden yeniden deniyor. İlk turda **54 ilan eşleşti**, bekleyen paket 31 → 2. Kalan ikisinin kayıtlı bağlantısı yok; uydurulmadı, kullanıcıya soruldu.
+
+Yalnız bileşeni de doğrudan ürünü de olmayan satıra dokunuluyor: kullanıcının seçimi değiştirilmiyor.
+
+### HB raporları hâlâ gerekli (25.09)
+Ölçüldü ve dürüstçe yazılıyor: HB'nin sipariş ucu yalnız paketlenmeyi bekleyen siparişleri veriyor, o yüzden **HB siparişleri API'den gelmiyor** — rapor yüklemesi gerekiyor. Çekilen 667 finans kaydı da şu an yalnız kaynak kaydı olarak duruyor; **kesintiler muhasebeye hâlâ rapordan işleniyor**. API finans kayıtlarını kesinti işlemeye bağlamak yapılmadı.
 
 ### Bozuk ilan kodu sorunu çözüldü: kalıcı bağlantı barkodla (25.09)
 Satıcı Trendyol'daki ilan kodunu düzeltemiyor, o yüzden çözüm sistem tarafında kuruldu. İlan barkodu artık sipariş satırında saklanıyor (migration 0059) ve geçmiş taslak satırlar ham kayıttan dolduruldu — canlıda 56 satırın 55'i doldu, eşleşmeyen satıra uydurma yazılmadı.
