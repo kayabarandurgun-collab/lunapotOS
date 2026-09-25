@@ -9,7 +9,7 @@ Son güncelleme: 2026-09-25
 
 ## Açık işler
 
-- [ ] **31 ilanın stok kodu Trendyol'da bozuk** — o ilanların stok kodu harfi harfine `merchantSku`; alan ADI değer olarak girilmiş. Barkodlar doğru, o yüzden panelden barkodla bağlanabilirler; ama kalıcı çözüm Trendyol satıcı panelinden stok kodlarını düzeltmek. Düzeltilene kadar her yeni sipariş yine eşleşmesiz gelir.
+- [ ] **31 paketi bir kez eşleştir** — "Ürünleri eşleştir" penceresinde ürünü seç, "barkoduyla kalıcı bağla" işaretli kalsın. Aynı ilanın sonraki siparişleri kendiliğinden eşleşir; ilan kodunun bozuk olması artık engel değil.
 - [ ] **Rapor turu boşa 60 saniye dönüyor** — bakım turunda rapor işleri hiç iş üretmeden 59,6 saniye sürüyordu (sayaçların hepsi sıfır). Senkron öne alındığı için artık zarar vermiyor ama sebep bulunmadı. Aşama süreleri artık dolu turda da iz kaydına yazılıyor, oradan izlenebilir.
 - [ ] **3 paket: pazaryeri teslim edemediğini söylüyor** — iş listesinde kırmızı satır olarak duruyor. Sipariş **4302703706**'nın İKİ paketi 21 Eylül'de teslim işaretli (kârı sayılıyor) ama HB teslim edilemedi diyor; sipariş **4103383882** hâlâ kargoda görünüyor. Gerçekte ne olduğuna (iade mi, yeniden gönderim mi, pazaryeri kaydı mı yanlış) sen karar vereceksin; sistem kendiliğinden geri almıyor çünkü teslimi geri çevirmek satışı ve stoğu da geri alır.
 - [ ] **HB hakediş adayı** — eski not "paymentOrderId dönmüyor" diyordu; gerçek şemada o alan yok ama `Payment` (150) ve `TotalPayment` (2) türünde kayıtlar VAR ve `paymentDate` taşıyorlar. Banka ekstresi yüklenince bunlarla eşleştirme denenebilir. Henüz denenmedi.
@@ -49,6 +49,13 @@ Genel gider, cari, ürün kartı, kasa/banka hesabı, ürün ailesi: hepsi düze
 - Açık borç listesinde tek ödeme etiketi
 - **Güvenlik açığı**: banka uçları yetki haritasında yoktu, yönetici dışı herkese 403 dönüyordu; menü ise ekranı gösteriyordu
 - **Arayüz ölçeği**: düğme köşe 7–11px → 8px, yazı 10–14px → 13px, kalınlık 500–600 → 600, kart köşe 11–18px → 12px. Renk ve yazı tipi birebir korundu. `font` kısayolu tuzağı yedi yerde temizlendi.
+
+### Bozuk ilan kodu sorunu çözüldü: kalıcı bağlantı barkodla (25.09)
+Satıcı Trendyol'daki ilan kodunu düzeltemiyor, o yüzden çözüm sistem tarafında kuruldu. İlan barkodu artık sipariş satırında saklanıyor (migration 0059) ve geçmiş taslak satırlar ham kayıttan dolduruldu — canlıda 56 satırın 55'i doldu, eşleşmeyen satıra uydurma yazılmadı.
+
+Eşleştirme penceresinde doğrudan ürün seçilince **"bu ilanı barkoduyla kalıcı bağla"** seçeneği çıkıyor (varsayılan işaretli). Bir kez işaretlenince aynı ilanın sonraki siparişleri kendiliğinden eşleşiyor. Sipariş aktarımındaki kendiliğinden eşleşme de barkodu önce deniyor.
+
+Kalıcı bağlantı kurulamazsa ayrıca bildiriliyor; paketin eşleşmesi her hâlükârda kaydediliyor.
 
 ### Teslim edilemeyen paket artık görünüyor (25.09)
 HB'nin "teslim edilemedi" ucunu kimse okumuyordu. Paket teslim edilememişse bizde teslim duran paketin kârı yanlış sayılmış olur ve bunu görmenin yolu yoktu. Artık iş listesinde kırmızı satır çıkıyor ve tıklayınca ilgili paketler süzülüyor. Durum KENDİLİĞİNDEN geri alınmıyor: teslimi geri çevirmek satışı ve stok çıkışını da geri almak demek, o karar kullanıcınındır. İlk taramada 3 paket çıktı.
