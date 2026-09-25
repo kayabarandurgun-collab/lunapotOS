@@ -167,26 +167,35 @@ test('Aralık dolmadan atlandığında da sebep yazılır; süre bitti ile karı
   } finally { f.close(); }
 });
 
-// BÜTÇE PAYLAŞIMI. Canlıda rapor turu 59,6 saniye sürüyordu: 50 saniyelik bütçe orada bitiyor,
-// pazaryeri senkronuna hiç sıra gelmiyordu. Rapor işleri artık bütçenin yarısında durur.
-test('Rapor işleri bütçenin yarısında durur; senkron payı yenmez', () => {
+// BÜTÇE PAYLAŞIMI VE SIRA. Canlıda rapor turu 59,6 saniye sürüyordu: 50 saniyelik bütçe orada
+// bitiyor, en sonda duran pazaryeri senkronuna hiç sıra gelmiyordu (Trendyol 22,5 saat çekilmedi).
+// Senkron artık rapor işlerinden ÖNCE çalışır ve kendi payını aşamaz; ters yönde açlık doğmaz.
+test('Senkron kendi payını aşamaz; rapor işlerine bütçe kalır', () => {
   let t = 0; const saat = () => t;
   const b = butceler(50000, saat);
-  t = 24999; assert.equal(b.raporVakti(), true, 'yarıya gelmeden rapor sürer');
+  t = 24999; assert.equal(b.senkronVakti(), true, 'payı dolmadan sayfa istenebilir');
   t = 25001;
-  assert.equal(b.raporVakti(), false, 'rapor işleri yarıda durmalı');
-  assert.equal(b.senkronVakti(), true, 'senkron payı duruyor olmalı');
+  assert.equal(b.senkronVakti(), false, 'senkron payını aşmamalı');
+  assert.equal(b.raporVakti(), true, 'rapor işlerine bütçe kalmalı');
   assert.equal(b.vakitVar(), true);
-  // Canlıda ölçülen rapor süresi: eskiden burada senkron aç kalıyordu.
-  t = 39999; assert.equal(b.senkronVakti(), true, 'sağlayıcı payı bitmeden sayfa istenebilir');
-  t = 40001; assert.equal(b.senkronVakti(), false, 'sağlayıcı payına girilmişken yeni sayfa istenmez');
-  t = 50001; assert.equal(b.vakitVar(), false);
+  t = 50001; assert.equal(b.raporVakti(), false, 'tur bütçesi bitince rapor da durur');
 });
 
-test('Bütçe payı oransaldır; kısa bütçede de senkrona yer kalır', () => {
+test('Sağlayıcı payı korunur; bütçenin son saniyelerinde yeni sayfa istenmez', () => {
   let t = 0; const saat = () => t;
-  const b = butceler(100000, saat);
-  t = 49999; assert.equal(b.raporVakti(), true);
-  t = 50001; assert.equal(b.raporVakti(), false);
-  assert.equal(b.senkronVakti(), true, 'uzun bütçede senkron payı daha geniştir');
+  const b = butceler(20000, saat);
+  t = 9999; assert.equal(b.senkronVakti(), true);
+  // Bütçenin yarısı 10 sn ama sağlayıcı payı 10 sn: hangisi önce dolarsa senkron durur.
+  t = 10001; assert.equal(b.senkronVakti(), false, 'iki sınırdan sıkı olanı geçerli');
+  assert.equal(b.vakitVar(), true);
+});
+
+test('Senkron rapor işlerinden ÖNCE çalışır: aşama damgası sırayı gösterir', async () => {
+  const f = await kur(); try {
+    const ty = saglayici();
+    const r = await otomatikBakim(f.env, {simdi: AN, senkronGetir: ty.getir});
+    assert.deepEqual(r.hatalar, []);
+    assert.ok(r.sure.senkron <= r.sure.rapor, 'senkron rapordan önce bitmeli: ' + JSON.stringify(r.sure));
+    assert.ok(ty.siparisler().length > 0, 'sağlayıcıya çıkılmalı');
+  } finally { f.close(); }
 });

@@ -48,25 +48,25 @@ export const SENKRON_KAYNAKLARI = {
 // Sınır hem sağlayıcı nezaketi hem de tek turda yazılacak satır sayısı için üst kapaktır.
 export const SENKRON_ISTEK = 8;
 const SENKRON_PAY = 10000;   // sağlayıcı isteği için bütçeden ayrılan pay (istek zaman aşımı 20 sn)
-// Rapor işlerinin (dosya, aktarım, iade, kesinti) kullanabileceği bütçe oranı. Kalanı senkronundur.
-export const RAPOR_PAYI = 0.5;
+// Senkronun kullanabileceği EN BÜYÜK bütçe oranı; kalanı rapor işlerinindir.
+export const SENKRON_PAYI = 0.5;
 const SENKRON_ILK_GUN = 3;   // hiç senkron yapılmamış bağlantıda ilk pencere (ilk tam alım elle yapılır)
 const coz = v => { try { return JSON.parse(v); } catch { return null; } };
 
 /**
  * Tur bütçesinin kapıları. Tek yerde durur ki ölçülebilsin ve sınanabilsin.
- * RAPOR İŞLERİ BÜTÇENİN TAMAMINI YİYEMEZ. Canlıda ölçüldü (2026-09-25): rapor turu 59,6 saniye
- * sürüyor, 50 saniyelik bütçe orada bitiyordu ve pazaryeri senkronuna HİÇ sıra gelmiyordu —
- * Trendyol 22,5 saat çekilmedi, iz kaydı ise "yapılacak iş yoktu" diyordu. Rapor işleri artık
- * bütçenin RAPOR_PAYI kadarında çalışır; kalanı senkronundur. Yarıda kalan rapor işi kaybolmaz,
- * sıradaki tur kaldığı yerden sürer (hepsi imleçli/atlamalı döngüler).
+ * SENKRON RAPOR İŞLERİNDEN ÖNCE ÇALIŞIR VE KENDİ PAYINI AŞMAZ. Canlıda ölçüldü (2026-09-25):
+ * rapor turu 59,6 saniye sürüyor, 50 saniyelik bütçe orada bitiyordu ve pazaryeri senkronuna HİÇ
+ * sıra gelmiyordu — Trendyol 22,5 saat çekilmedi, iz kaydı ise "yapılacak iş yoktu" diyordu.
+ * Sırayı değiştirmek tek başına yetmez, senkron da sınırsız kalamaz: iki taraf da payıyla çalışır.
+ * Yarıda kalan iş kaybolmaz, sıradaki tur kaldığı yerden sürer (hepsi imleçli/atlamalı döngüler).
  * Senkron SAĞLAYICIYA ÇIKAR: tek istek zaman aşımına kadar 20 saniye sürebilir, o yüzden ayrıca
  * SENKRON_PAY ayrılır ve payın içine girilmişken yeni sayfa istenmez.
  */
 export function butceler(sureMs, saat = Date.now) {
-  const bas = saat(), gecen = () => saat() - bas;
-  return {gecen, vakitVar: () => gecen() < sureMs, raporVakti: () => gecen() < sureMs * RAPOR_PAYI,
-    senkronVakti: () => gecen() + SENKRON_PAY < sureMs};
+  const bas = saat(), gecen = () => saat() - bas, vakitVar = () => gecen() < sureMs;
+  return {gecen, vakitVar, raporVakti: vakitVar,
+    senkronVakti: () => gecen() < sureMs * SENKRON_PAYI && gecen() + SENKRON_PAY < sureMs};
 }
 
 /**
@@ -178,7 +178,16 @@ export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sa
   }
 
   asama('dosya');
-  // 2–3. Mağaza başına aktarım, iade, kesinti; teslim güncellemesi mağazadan bağımsız.
+
+  // 2. PAZARYERİ SENKRONU RAPOR İŞLERİNDEN ÖNCE. Eskiden en sonda duruyordu ve rapor işleri bütçeyi
+  // bitirdiği için sağlayıcıya HİÇ çıkılamıyordu (ölçüm: rapor 59,6sn / bütçe 50sn). Senkron YENİ
+  // veri getirir; rapor işleri zaten sistemdeki veriyi tamamlar ve imleçli oldukları için sıradaki
+  // tura kalmaları zararsızdır. Senkron kendi payını aşamaz, yani ters yönde açlık da doğmaz.
+  // Yeni taslakların maliyeti aynı turda değerlenmeye devam eder: FIFO adımı hâlâ en sonda.
+  await pazaryeriSenkronu(ec, db, {simdi, vakitVar: senkronVakti, getir: senkronGetir, ozet});
+  asama('senkron');
+
+  // 3–4. Mağaza başına aktarım, iade, kesinti; teslim güncellemesi mağazadan bağımsız.
   const magazalar = (await db.prepare("SELECT id FROM ec_report_stores WHERE provider IN ('trendyol','hepsiburada')").all()).results;
   for (const m of magazalar) {
     await dene('aktarım', async () => {
@@ -211,8 +220,6 @@ export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sa
   // senkronun açtığı taslakların maliyeti aynı turda değerlensin ve maliyet kuyruğu bütün bütçeyi
   // yiyip senkronu aç bırakmasın.
   asama('rapor');
-  await pazaryeriSenkronu(ec, db, {simdi, vakitVar: senkronVakti, getir: senkronGetir, ozet});
-  asama('senkron');
 
   // 5. Maliyet (FIFO) kuyruğu.
   await dene('maliyet', async () => {
