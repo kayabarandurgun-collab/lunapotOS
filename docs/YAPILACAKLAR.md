@@ -9,7 +9,9 @@ Son güncelleme: 2026-09-25
 
 ## Açık işler
 
-- [ ] **HB sipariş ucu boş dönüyor** — kimlik doğru (finans ucu aynı kimlikle 667 kayıt getirdi), ama `oms-external…/orders` beş ayrı günde de 200 + boş liste döndü. Sebep ölçülmedi: bu uç büyük ihtimalle yalnız işlem bekleyen siparişleri veriyor, teslim edilmişler başka uçtan geliyor olabilir. HB sipariş dokümanına bakılmalı. Sipariş verisi bu yüzden hâlâ rapor yolundan geliyor.
+- [ ] **HB teslim/kargo verisi henüz kullanılmıyor** — üç uç çalışıyor ve panelden elle çekilebiliyor, ama otomatik senkron listesine (`SENKRON_KAYNAKLARI`) eklenmedi ve teslim işaretlemesine bağlanmadı. Bağlanırsa HB teslimleri de Trendyol'daki gibi API'den onaylanır; şimdilik rapor yolundan geliyor. Karar senin: veri akmaya başlasın mı?
+- [ ] **Rapor turu boşa 60 saniye dönüyor** — bakım turunda rapor işleri hiç iş üretmeden 59,6 saniye sürüyordu (sayaçların hepsi sıfır). Senkron öne alındığı için artık zarar vermiyor ama sebep bulunmadı. Aşama süreleri iz kaydına yazılıyor, oradan izlenebilir.
+- [ ] **TY'de 31 taslak sipariş + 11 "ayrılmış" paket** — takılı duruyorlar, incelenmedi.
 - [ ] **HB hakediş adayı** — eski not "paymentOrderId dönmüyor" diyordu; gerçek şemada o alan yok ama `Payment` (150) ve `TotalPayment` (2) türünde kayıtlar VAR ve `paymentDate` taşıyorlar. Banka ekstresi yüklenince bunlarla eşleştirme denenebilir. Henüz denenmedi.
 
 - [ ] **Ay sonu — Seçkin TS1 / Plug Mix**: 2 adet Plug Mix iadesi + yeni TS1 faturası. Alış faturaları → YSK2026000000402 → "Tedarikçiye iade" 2 adet. SONRA `urun-duzeltme:plugmix-ts1-2026-09-23` referanslı stok hareketleri ters kayıtla geri alınmalı, yoksa 2 adet çift sayılır.
@@ -47,6 +49,23 @@ Genel gider, cari, ürün kartı, kasa/banka hesabı, ürün ailesi: hepsi düze
 - Açık borç listesinde tek ödeme etiketi
 - **Güvenlik açığı**: banka uçları yetki haritasında yoktu, yönetici dışı herkese 403 dönüyordu; menü ise ekranı gösteriyordu
 - **Arayüz ölçeği**: düğme köşe 7–11px → 8px, yazı 10–14px → 13px, kalınlık 500–600 → 600, kart köşe 11–18px → 12px. Renk ve yazı tipi birebir korundu. `font` kısayolu tuzağı yedi yerde temizlendi.
+
+### Otomatik veri çekimi durmuştu — düzeltildi (25.09)
+Trendyol **22,5 saattir** hiç çekilmiyordu. Cron 15 dakikada bir çalışıyor, bağlantıda hata yok, aralık dolmuş, imleçlerde yarım pencere yok — buna rağmen sağlayıcıya hiç çıkılmamıştı. Ekranda tek yazan "yapılacak iş yoktu" idi.
+
+Sebep ölçüldü (iz kaydına teşhis eklenerek): `dosya 0.2sn, rapor 59.6sn, senkron 59.7sn`. Rapor işleri 50 saniyelik tur bütçesinin tamamını yiyor, en sonda duran pazaryeri senkronuna sıra hiç gelmiyordu. Bütçenin yarısını ayırmak yetmedi (tek bir uzun çağrı payı aşıyor); **senkron rapor işlerinden öne alındı** ve kendi payını aşamaz hâle getirildi.
+
+Sonuç ölçüldü: `262 pazaryeri kaydı tarandı, 11 yeni sipariş taslağı, 12 paket teslim işaretlendi`. Teslim edilmiş TY paketi 406 → **418**. Senkrona neden sıra gelmediği ve aşama süreleri artık iz kaydına yazılıyor; bir daha sessizce durmaz.
+
+### HB teslim, kargo ve teslim edilemedi paketleri (25.09)
+Sipariş ucunun boş dönmesi hata değilmiş: HB dokümanı "bu metod ödemesi tamamlanmış YENİ siparişleri (Paketlenecek statüdekileri) listeler" diyor. Paketi hemen hazırlayan satıcıda doğal olarak boş kalıyor. Teslim edilen, kargoya verilen ve teslim edilemeyen paketler ayrı uçlarda: `/packages/merchantid/{id}/delivered · /shipped · /undelivered`. Üçü de panele eklendi ve canlıda doğrulandı (23.09: 11 teslim, 8 kargo, 0 teslim edilemedi).
+
+Yol boyunca üç sessiz hata çıktı:
+- Alan adları **PascalCase** geliyor. Kod camelCase arayınca kayıt SAYISI doğru görünüyor ama sipariş numarası, barkod ve **teslim tarihi boş** okunuyordu. Teslim tarihi olmayan paket hiçbir zaman işaretlenemez.
+- Boş sonuçta uç `items` yerine **null** gönderiyor; bu "kayıt yok" demek, şema hatası değil. Sorgunun tamamı reddediliyordu.
+- Kendi kodumda teslim tarihi yerine "kaydın son işlem tarihi" kullanılıyordu — tarih uydurmak olurdu, kârı yanlış güne yazardı. Eski test yakaladı.
+
+Bu uçlar yalnız **son 1 ayı** veriyor ve tek seferde en fazla bir gün.
 
 ### Hepsiburada bağlandı ve ilk veri çekildi (25.09)
 Bağlantı kuruldu, ilk gerçek testte finans ucu veri döndürdü ama tek kayıt bile geçmedi: para alanları `{value,currencyCode}` nesnesi olarak geliyor, okuyucu `{amount,currency}` arıyordu. Hata mesajı genel olduğu için "bağlantı çalışmıyor" sanılabilirdi; şema hatasında gelen alan adlarını log'a yazan teşhis eklendi, sebep canlı log'dan okundu. Düzeltildi, iki biçim de kabul ediliyor. Durum alanı da yanlış okunuyordu (`paymentStatus` değil `status`).
