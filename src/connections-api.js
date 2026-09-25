@@ -396,8 +396,15 @@ export async function connectionsApi(request,env,path,readBody){
   const provider=url.searchParams.get('provider'),kind=url.searchParams.get('kind'),page=integer(Number(url.searchParams.get('page')||0));if(!providers.includes(provider)||!caps[provider].includes(kind))fail('Sağlayıcı/veri türü seçin.');
   const records=await rows(stmt(db,'SELECT id,external_id,payload_json,source_updated_at,first_seen_at,last_seen_at FROM provider_records WHERE provider=? AND kind=? ORDER BY last_seen_at DESC,id LIMIT 51 OFFSET ?',[provider,kind,page*50]));return {records:records.slice(0,50).map(r=>({...r,payload:sourcePreview(JSON.parse(r.payload_json)),payload_json:undefined})),page,hasMore:records.length>50,message:'Her değişen kaynak sürümü saklanır; bu liste muhasebe ekstresi değildir. Müşteri ve fatura adresi yalnızca sipariş ayrıntısında gösterilir.'};
  }
- const match=path.match(/^\/api\/connections\/(trendyol|hepsiburada|edm)\/(configure|sync)$/);if(!match||method!=='POST')return null;
+ const match=path.match(/^\/api\/connections\/(trendyol|hepsiburada|edm)\/(configure|sync|fees)$/);if(!match||method!=='POST')return null;
  const provider=match[1],x=await readBody(request);
+ // KESİNTİ İŞLEME: API'den çekilmiş finans kayıtlarını satışların gider alanlarına yazar.
+ // 'commit' yalnız gerçek boolean kabul eder; senkrondaki 'preview' ile aynı kural.
+ if(match[2]==='fees'){
+  const commit=x.commit??false;if(typeof commit!=='boolean')fail('Yazma değeri yalnız true/false olabilir.');
+  const {pazaryeriKesintileriniIsle}=await import('./pazaryeri-kesinti.js');
+  return pazaryeriKesintileriniIsle(env,{provider,commit,limit:Number.isSafeInteger(x.limit)&&x.limit>0&&x.limit<=500?x.limit:100});
+ }
  if(match[2]==='sync')return syncProvider(env,provider,x);// preview bayrağı syncProvider içinde doğrulanır: tek nokta, yalnız gerçek boolean.
  if(provider==='edm')fail('EDM üretim SOAP adresi/servis sözleşmesi henüz doğrulanmadı; parola kaydedilmedi. UBL XML içe aktarımını kullanabilirsiniz.',409);
  keyBytes(env.CREDENTIAL_KEY);
