@@ -7,6 +7,7 @@ export function attentionItems(data,connections,settings,pendingFees=0){
  add(orders.missing_amounts,'#orders?watch=missing_amounts','Satış tutarı eksik paket','KDV, indirim ve net tutarı kaynak siparişle doğrula.');
  add(orders.reserved,'#orders?status=reserved','Stok ayrıldı, gönderim bekliyor','Depodan çıkan paketleri kaydet; stok bir kez düşsün.');
  add(orders.long_shipping,'#orders?watch=long_shipping','7+ gündür kargoda görünen paket','Teslim durumunu kontrol et. Bu süre uyarı eşiğidir; teslim taahhüdü değildir.');
+ add(orders.undelivered,'#orders?watch=undelivered','Pazaryeri teslim edilemedi diyor','Bizde teslim/kargoda görünüyor. Kâr yanlışlıkla sayılmış olabilir; iadeyi veya gerçek durumu sen onayla.','danger');
  add(stock.low,'#stock?filter=low','Kritik kullanılabilir stok','Siparişlere ayrılan miktar düşüldükten sonra alt sınırda.');
  add(invoices.drafts,'#invoices','İncelenecek alış faturası','Tedarikçiyi, ürün bağlantısını ve tutarları kontrol et.');
  add(invoices.awaiting_receipt,'#invoices','Mal teslimi tamamlanmamış fatura','Borç kaydedilmiş; depoya gelen miktarı ayrıca işle.');

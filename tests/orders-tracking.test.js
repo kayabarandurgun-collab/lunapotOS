@@ -74,3 +74,39 @@ test('İş listesi: bağlanmamış mağazalar tek satırda toplanır, her mağaz
   const hepsi={providers:[{id:'trendyol',name:'Trendyol',configured:true,last_success_at:'2026-09-15',stale:false,last_error:null}]};
   assert.equal(attentionItems(bos,hepsi,{legal_name:'Lunapot',tax_id:'1'}).filter(x=>/bağlı değil|bağlantısı/.test(x.title)).length,0);
 });
+
+// PAZARYERİ "TESLİM EDİLEMEDİ" DİYOR. Hepsiburada paketin teslim edilemediğini bildiriyorsa bizde
+// teslim duran paketin kârı yanlış sayılmış olabilir. Durum KENDİLİĞİNDEN geri alınmaz: teslimi
+// geri çevirmek satışı ve stoğu da geri almak demektir, o karar kullanıcınındır. Yalnız görünür olur.
+test('Pazaryerinde teslim edilemeyen paket iş listesinde uyarıya dönüşür, durumu kendiliğinden değişmez',async()=>{
+ const f=fixture();try{
+  f.add('teslim','hepsiburada','2026-09-20','delivered','SVK-1','2026-09-21');
+  f.add('kargoda','hepsiburada','2026-09-20','shipped','SVK-2','2026-09-21');
+  f.add('baska','hepsiburada','2026-09-20','delivered','SVK-3','2026-09-21');
+  f.add('ty','trendyol','2026-09-20','delivered','SVK-4','2026-09-21');
+  const kayit=(no)=>f.sqlite.prepare("INSERT INTO ec_provider_records(id,provider,seller_id,kind,external_id,fingerprint,payload_json) VALUES(?,'hepsiburada','1','undelivered',?,?,?)")
+   .run('pr-'+no,'ext-'+no,'fp-'+no,JSON.stringify({order_no:no,package_status:'undelivered'}));
+  kayit('order-teslim');kayit('order-kargoda');kayit('order-ty');
+
+  const data=await attentionApi(new Request('https://test.local/api/ec/attention'),f.env,'/api/attention');
+  assert.equal(data.orders.undelivered,2,'yalnız HB paketleri sayılmalı: '+JSON.stringify(data.orders));
+
+  const liste=await f.query({watch:'undelivered'});
+  assert.deepEqual(liste.packages.map(p=>p.id).sort(),['kargoda','teslim']);
+  assert.equal(f.sqlite.prepare("SELECT status FROM ec_order_packages WHERE id='teslim'").get().status,'delivered','durum kendiliğinden geri alınmamalı');
+
+  const items=attentionItems(data,{providers:[]},{tax_id:'123',legal_name:'Test'});
+  const kart=items.find(i=>i.href==='#orders?watch=undelivered');
+  assert.equal(kart.count,2);
+  assert.equal(kart.tone,'danger','kâr yanlış sayılmış olabilir, dikkat çekmeli');
+ }finally{f.close();}
+});
+
+test('Teslim edilemedi kaydı olmayan paket uyarıya girmez',async()=>{
+ const f=fixture();try{
+  f.add('temiz','hepsiburada','2026-09-20','delivered','SVK-9','2026-09-21');
+  const data=await attentionApi(new Request('https://test.local/api/ec/attention'),f.env,'/api/attention');
+  assert.equal(data.orders.undelivered,0);
+  assert.equal(attentionItems(data,{providers:[]},{tax_id:'1',legal_name:'T'}).some(i=>i.href==='#orders?watch=undelivered'),false,'sıfırken kart çıkmamalı');
+ }finally{f.close();}
+});

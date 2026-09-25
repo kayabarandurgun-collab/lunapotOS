@@ -20,7 +20,7 @@ export function ordersQuery(url,today=new Date().toLocaleDateString('sv-SE',{tim
  if(q.length>200)fail('Arama en fazla 200 karakter olmalı.');
  if(channel&&!['trendyol','hepsiburada','other'].includes(channel))fail('Kanal geçersiz.');
  if(status&&!['draft','reserved','shipped','delivered','cancelled'].includes(status))fail('Sipariş durumu geçersiz.');
- if(watch&&!['source_changed','unmapped','missing_amounts','long_shipping'].includes(watch))fail('Takip filtresi geçersiz.');
+ if(watch&&!['source_changed','unmapped','missing_amounts','long_shipping','undelivered'].includes(watch))fail('Takip filtresi geçersiz.');
  if(q){const term='%'+q.replace(/[\\%_]/g,c=>'\\'+c)+'%';add("(external_id LIKE ? ESCAPE '\\' OR order_no LIKE ? ESCAPE '\\' OR shipment_reference LIKE ? ESCAPE '\\')",term,term,term);}
  if(channel)add('channel=?',channel);if(status)add('status=?',status);
  if(from)add('occurred_on>=?',date(from));if(to)add('occurred_on<=?',date(to));if(from&&to&&from>to)fail('Başlangıç tarihi bitişten sonra olamaz.');
@@ -28,6 +28,10 @@ export function ordersQuery(url,today=new Date().toLocaleDateString('sv-SE',{tim
  if(watch==='unmapped')add("status='draft' AND EXISTS(SELECT 1 FROM order_lines l WHERE l.package_id=order_packages.id AND (SELECT COALESCE(SUM(c.revenue_share_bps),0) FROM order_line_components c WHERE c.line_id=l.id)!=10000)");
  if(watch==='missing_amounts')add("status='draft' AND EXISTS(SELECT 1 FROM order_lines l WHERE l.package_id=order_packages.id AND (l.net_revenue_cents IS NULL OR l.gross_cents IS NULL OR l.vat_bps IS NULL))");
  if(watch==='long_shipping')add("status='shipped' AND shipped_on<=?",new Date(Date.parse(date(today))-7*86400000).toISOString().slice(0,10));
+ // Pazaryeri "teslim edilemedi" diyor ama bizde teslim/kargoda duruyor. Durum KENDİLİĞİNDEN
+ // geri alınmaz: teslim kaydını geri çevirmek satışı ve stoğu da geri almak demektir, o karar
+ // kullanıcınındır. Burada yalnız görünür kılınır.
+ if(watch==='undelivered')add("channel='hepsiburada' AND status IN ('delivered','shipped') AND order_no!='' AND EXISTS(SELECT 1 FROM provider_records pr WHERE pr.provider='hepsiburada' AND pr.kind='undelivered' AND json_extract(pr.payload_json,'$.order_no')=order_packages.order_no)");
  const page=Number(p.get('page')||1),limit=Number(p.get('limit')||500);
  if(!Number.isSafeInteger(page)||page<1||page>1000000||!Number.isSafeInteger(limit)||limit<1||limit>500)fail('Sayfa bilgisi geçersiz.');
  return {scope:clauses.length?' WHERE '+clauses.map(c=>'('+c+')').join(' AND '):'',args,page,limit,offset:(page-1)*limit,sort,sonuc};

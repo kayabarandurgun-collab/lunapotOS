@@ -44,9 +44,11 @@ export const SENKRON_KAYNAKLARI = {
   // HEPSİBURADA 24 SAATTEN UZUN ARALIK KABUL ETMİYOR: enGeri 0, yani pencere tek gündür.
   // HB teslim kaydı siparişle AYNI sıklıkta çekilir: kâr yalnız teslim edilen pakette doğuyor ve
   // HB'nin sipariş ucu yalnız paketlenmeyi bekleyenleri verdiği için teslim bilgisi ancak buradan
-  // geliyor. 'shipped' ve 'undelivered' uçları da var ama onları okuyan bir iş henüz yok; boşuna
-  // kayıt yazmamak için otomatik çekilmiyorlar, panelden elle alınabiliyorlar.
-  hepsiburada: [{kind: 'orders', saat: 4, enGeri: 0}, {kind: 'delivered', saat: 4, enGeri: 0}, {kind: 'finance', saat: 12, enGeri: 0}]
+  // geliyor. 'undelivered' kâr için ters yönde aynı derecede önemli: pazaryeri teslim edemediğini
+  // söylüyorsa bizde teslim duran paketin kârı yanlış sayılmış olabilir, iş listesinde uyarıya
+  // dönüşüyor. 'shipped' paketin yolda olduğunu doğruluyor, günde iki kez yeter.
+  hepsiburada: [{kind: 'orders', saat: 4, enGeri: 0}, {kind: 'delivered', saat: 4, enGeri: 0},
+    {kind: 'undelivered', saat: 4, enGeri: 0}, {kind: 'shipped', saat: 12, enGeri: 0}, {kind: 'finance', saat: 12, enGeri: 0}]
 };
 // Tur başına sağlayıcı isteği sınırı: 50 sipariş/sayfa ile 8 sayfa iki günlük hacmi rahat alır.
 // Sınır hem sağlayıcı nezaketi hem de tek turda yazılacak satır sayısı için üst kapaktır.
