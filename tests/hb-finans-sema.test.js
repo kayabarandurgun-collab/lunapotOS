@@ -171,14 +171,30 @@ test('kargo ucu kendi tarih alanını kullanır; teslim günü yazılmaz',async(
  assert.equal(r.has_invoice,null,'gelmeyen bayrak false değil, bilinmiyor');
 });
 
-test('paket uçlarına sayfalama parametreleri iki yazımla da gider',async()=>{
+test('kayıt yokken items null gelir; bu şema hatası değil boş sonuçtur',async()=>{
+ const f=fixture();
+ await f.call('/hepsiburada/configure',credentials);
+ // Canlı yanıt (2026-09-25): teslim edilemeyen paket yokken uç items yerine null gönderiyor.
+ const sonuc=await syncProvider(f.env,'hepsiburada',paketSorgu('undelivered'),async()=>Response.json({totalCount:0,limit:50,offset:0,pageCount:0,items:null}));
+ assert.deepEqual(sonuc.records,[],'boş sonuç kabul edilmeli');
+ assert.equal(sonuc.hasMore,false);
+});
+
+test('totalCount demeden gelen bozuk yanıt hâlâ reddedilir',async()=>{
+ const f=fixture();
+ await f.call('/hepsiburada/configure',credentials);
+ for(const bozuk of [{items:null},{items:'liste'},{beklenmeyen:1}])
+  await assert.rejects(()=>syncProvider(f.env,'hepsiburada',paketSorgu('undelivered'),async()=>Response.json(bozuk)),/şeması doğrulanamadı/,JSON.stringify(bozuk));
+});
+
+test('paket uçlarına tarih ve sayfalama parametreleri gider',async()=>{
  const f=fixture();
  await f.call('/hepsiburada/configure',credentials);
  let istenen=null;
- await syncProvider(f.env,'hepsiburada',paketSorgu('undelivered'),async(url)=>{istenen=new URL(url);return Response.json({items:[],totalCount:0});});
- for(const ad of ['limit','Limit','offset','Offset','begindate','beginDate','enddate','endDate'])
+ await syncProvider(f.env,'hepsiburada',paketSorgu('undelivered'),async(url)=>{istenen=new URL(url);return Response.json({totalCount:0,items:null});});
+ for(const ad of ['limit','offset','begindate','enddate'])
   assert.ok(istenen.searchParams.has(ad),ad+' gönderilmeli');
- assert.equal(istenen.searchParams.get('Limit'),istenen.searchParams.get('limit'));
+ assert.equal(istenen.searchParams.get('limit'),'50');
 });
 
 test('tarihi gelmeyen paket kaydı yazılır ama tarih uydurulmaz',async()=>{

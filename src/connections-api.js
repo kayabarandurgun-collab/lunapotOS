@@ -79,14 +79,9 @@ function makeRequest(provider,credentials,input){
   // döndürür — satıcı paketini hemen hazırlıyorsa boş liste gelir ve bu hata değildir. Teslim edilen,
   // kargodaki ve teslim edilemeyen paketler ayrı uçlardadır (HB sipariş dokümanı, 2026-09-25).
   // Bu üç uç yalnız SON 1 AYI verir; daha eski tarih istenirse kayıp olur, çağıran bunu bilmeli.
-  // SAYFALAMA PARAMETRESİ İKİ YAZIMLA DA GÖNDERİLİR. Ölçüldü (2026-09-25): teslim ve kargo uçları
-  // küçük harfli 'limit' ile çalışırken teslim edilemedi ucu onu yutup 50'den fazla kayıt döndürdü,
-  // yanıt sınırımızı aştığı için tek kayıt bile okunamıyordu. Sağlayıcı bilmediği parametreyi zaten
-  // yok sayıyor; iki yazımı da göndermek en ucuz güvence.
   if(paketDurumu[kind]){
    url=new URL('https://oms-external.hepsiburada.com/packages/merchantid/'+credentials.seller_id+'/'+paketDurumu[kind]);
-   for(const [k,v] of Object.entries({begindate:window.from+' 00:00',enddate:window.to+' 23:59',offset:page*limit,limit,
-     beginDate:window.from+' 00:00',endDate:window.to+' 23:59',Offset:page*limit,Limit:limit}))url.searchParams.set(k,String(v));
+   for(const [k,v] of Object.entries({begindate:window.from+' 00:00',enddate:window.to+' 23:59',offset:page*limit,limit}))url.searchParams.set(k,String(v));
    return {url,query,page,limit,size};
   }
   url=new URL((kind==='orders'?'https://oms-external.hepsiburada.com/orders/merchantid/':'https://mpfinance-external.hepsiburada.com/transactions/merchantid/')+credentials.seller_id);
@@ -150,7 +145,12 @@ const hbSema=(kind,r,mesaj)=>{
 };
 function normalizeHB(kind,payload,page,limit){
  if(!payload||typeof payload!=='object')fail('Hepsiburada yanıt şeması doğrulanamadı.',502);
- const list=Array.isArray(payload)?payload:Array.isArray(payload.items)?payload.items:Array.isArray(payload.data)?payload.data:null;
+ // BOŞ SONUÇTA 'items' DİZİ DEĞİL null GELİYOR. Ölçüldü (2026-09-25): teslim edilemeyen paket
+ // olmadığında uç {totalCount:0, limit:50, offset:0, pageCount:0, items:null} döndürüyor. Bu
+ // GEÇERLİ bir "hiç kayıt yok" yanıtıdır; şema hatası sanılıp sorgunun tamamı reddediliyordu.
+ // Boş sayılması için sağlayıcının kendisi totalCount:0 demiş olmalı; sessiz null kabul edilmez.
+ const bosYanit=payload&&payload.totalCount===0&&('items' in payload||'data' in payload);
+ const list=Array.isArray(payload)?payload:Array.isArray(payload.items)?payload.items:Array.isArray(payload.data)?payload.data:bosYanit?[]:null;
  if(!list||list.length>limit){console.error('HB liste sınırı:',kind,'yanıt alanları=',JSON.stringify(Object.keys(payload||{})),'gelen=',list?list.length:'(liste yok)','beklenen sınır=',limit,'sayfalama=',JSON.stringify({totalCount:payload?.totalCount,limit:payload?.limit,offset:payload?.offset,pageCount:payload?.pageCount}));fail('Hepsiburada yanıt şeması doğrulanamadı; kayıt oluşturulmadı.',502);}
  const records=list.map(r=>{
   if(kind==='commissions'){
