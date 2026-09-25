@@ -82,3 +82,58 @@ test('önizlemede hiçbir kaynak kaydı yazılmaz',async()=>{
  await syncProvider(f.env,'hepsiburada',sorgu,async()=>Response.json({items:[hbFinansKaydi()],totalCount:1}));
  assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ec_provider_records').get().n,0);
 });
+
+// PAKET DURUM UÇLARI. /orders yalnız paketlenmeyi bekleyenleri döndürdüğü için teslim edilen
+// paketler oradan HİÇ gelmiyordu; teslim/kargo/teslim edilemedi ayrı uçlardadır.
+const hbPaket=(overrides={})=>({
+ id:'DLV-1',orderNumber:'ORD-77',packageNumber:'PKG-77',barcode:'BRK-77',
+ merchantId:'11111111-2222-3333-4444-555555555555',deliveredDate:'2026-09-23T14:20:00',
+ lastStatusUpdateDate:'2026-09-23T14:25:00',...overrides});
+
+const paketSorgu=durum=>({kind:durum,from:'2026-09-23',to:'2026-09-23',page:0,preview:true});
+
+test('teslim edilen paketler kendi ucundan okunur; paket numarası ve teslim günü saklanır',async()=>{
+ const f=fixture();
+ await f.call('/hepsiburada/configure',credentials);
+ let istenen=null;
+ const sonuc=await syncProvider(f.env,'hepsiburada',paketSorgu('delivered'),async(url)=>{istenen=String(url);return Response.json({items:[hbPaket()],totalCount:1});});
+ assert.match(istenen,/oms-external\.hepsiburada\.com\/packages\/merchantid\/[^/]+\/delivered/,'teslim ucu çağrılmalı');
+ assert.doesNotMatch(istenen,/-sit\./,'canlı adres kullanılmalı, test ortamı değil');
+ const r=sonuc.records[0];
+ assert.equal(r.package_no,'PKG-77');
+ assert.equal(r.order_no,'ORD-77');
+ assert.equal(r.package_status,'delivered');
+ assert.match(r.delivered_on,/^2026-09-23/);
+});
+
+test('kargoya verilen ve teslim edilemeyen paketler ayrı uçlara gider',async()=>{
+ const f=fixture();
+ await f.call('/hepsiburada/configure',credentials);
+ for(const [durum,yol] of [['shipped','shipped'],['undelivered','undelivered']]){
+  let istenen=null;
+  const sonuc=await syncProvider(f.env,'hepsiburada',paketSorgu(durum),async(url)=>{istenen=String(url);return Response.json({items:[hbPaket()],totalCount:1});});
+  assert.match(istenen,new RegExp('/packages/merchantid/[^/]+/'+yol),durum);
+  assert.equal(sonuc.records[0].package_status,durum);
+  assert.equal(sonuc.records[0].delivered_on,null,durum+': teslim günü yalnız teslim ucunda yazılır');
+ }
+});
+
+test('teslim tarihi gelmeyen paket için tarih uydurulmaz',async()=>{
+ const f=fixture();
+ await f.call('/hepsiburada/configure',credentials);
+ const sonuc=await syncProvider(f.env,'hepsiburada',paketSorgu('delivered'),async()=>Response.json({items:[hbPaket({deliveredDate:null,deliveryDate:null})],totalCount:1}));
+ assert.equal(sonuc.records[0].delivered_on,null);
+ assert.equal(sonuc.records[0].package_no,'PKG-77','tarih yoksa bile paket kaydı düşmez');
+});
+
+test('paket numarası olmayan kayıt reddedilir; eşleşmesiz paket yazılmaz',async()=>{
+ const f=fixture();
+ await f.call('/hepsiburada/configure',credentials);
+ await assert.rejects(()=>syncProvider(f.env,'hepsiburada',paketSorgu('delivered'),async()=>Response.json({items:[hbPaket({packageNumber:null,packageNo:null})],totalCount:1})),/paket numarası/i);
+});
+
+test('HB tarih aralığı bir günü aşamaz; paket uçlarında da aynı sınır',async()=>{
+ const f=fixture();
+ await f.call('/hepsiburada/configure',credentials);
+ await assert.rejects(()=>syncProvider(f.env,'hepsiburada',{...paketSorgu('delivered'),to:'2026-09-25'},async()=>Response.json({items:[],totalCount:0})),/en fazla 1 gün/);
+});

@@ -3,7 +3,10 @@ const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status
 const stmt=(db,sql,args=[])=>db.prepare(sql).bind(...args);
 const rows=async statement=>(await statement.all()).results;
 const providers=['trendyol','hepsiburada','edm'];
-const caps={trendyol:['orders','sale','return','deductions','payments'],hepsiburada:['orders','finance','commissions'],edm:[]};
+// HB paket durum uçları: panel adı → uç yolu. Hepsi /packages/merchantid/{id}/<yol> altında ve
+// yalnız son 1 ayı verir.
+const paketDurumu={delivered:'delivered',shipped:'shipped',undelivered:'undelivered'};
+const caps={trendyol:['orders','sale','return','deductions','payments'],hepsiburada:['orders','finance','commissions','delivered','shipped','undelivered'],edm:[]};
 const names={trendyol:'Trendyol',hepsiburada:'Hepsiburada',edm:'EDM'};
 const encoder=new TextEncoder(),decoder=new TextDecoder();
 const short=v=>typeof v==='string'||typeof v==='number'?String(v).slice(0,200):'';
@@ -72,6 +75,11 @@ function makeRequest(provider,credentials,input){
   // 14 günlük pencere istendiğinde uç isteği reddediyor, yani entegrasyon hiç çalışamazdı.
   // Tarih biçimi de 'yyyy-MM-dd HH:mm' olmak zorunda, aşağıdaki begindate/enddate buna uygun.
   window=range(input,1);query={...query,from:window.from,to:window.to};
+  // PAKET DURUM UÇLARI. /orders ucu YALNIZ "Open ve Unpacked" (paketlenmeyi bekleyen) siparişleri
+  // döndürür — satıcı paketini hemen hazırlıyorsa boş liste gelir ve bu hata değildir. Teslim edilen,
+  // kargodaki ve teslim edilemeyen paketler ayrı uçlardadır (HB sipariş dokümanı, 2026-09-25).
+  // Bu üç uç yalnız SON 1 AYI verir; daha eski tarih istenirse kayıp olur, çağıran bunu bilmeli.
+  if(paketDurumu[kind]){url=new URL('https://oms-external.hepsiburada.com/packages/merchantid/'+credentials.seller_id+'/'+paketDurumu[kind]);url.searchParams.set('begindate',window.from+' 00:00');url.searchParams.set('enddate',window.to+' 23:59');url.searchParams.set('offset',String(page*limit));url.searchParams.set('limit',String(limit));return {url,query,page,limit,size};}
   url=new URL((kind==='orders'?'https://oms-external.hepsiburada.com/orders/merchantid/':'https://mpfinance-external.hepsiburada.com/transactions/merchantid/')+credentials.seller_id);
   if(kind==='orders'){url.searchParams.set('begindate',window.from+' 00:00');url.searchParams.set('enddate',window.to+' 23:59');url.searchParams.set('offset',String(page*limit));url.searchParams.set('limit',String(limit));}
   else {url.searchParams.set('RecordDateStart',window.from+'T00:00:00');url.searchParams.set('RecordDateEnd',window.to+'T23:59:59');url.searchParams.set('Offset',String(page*limit));url.searchParams.set('Limit',String(limit));}
@@ -139,6 +147,13 @@ function normalizeHB(kind,payload,page,limit){
   if(kind==='commissions'){
    const sku=externalID(r.hepsiburadaSku??r.sku),commission=numeric(r.commissionRate);if(commission===null||commission<0||commission>100)hbSema(kind,r,'HB komisyon yanıtı ürün/oran eşleşmesi doğrulanamadı.');
    return {external_id:sku,sku,merchant_sku:short(r.merchantSku),commission_rate:commission,commission_bps:rate(commission),source_updated_at:null,tax_basis:'unverified',validity:'current_observation_only'};
+  }
+  if(paketDurumu[kind]){
+   // Paket durum kaydı: kimlik ve paket numarası olmadan hiçbir yerel paketle eşleşemez, o yüzden
+   // ikisi de zorunlu. Teslim tarihi UYDURULMAZ; gelmezse null kalır ve çağıran o paketi işaretlemez.
+   const id=externalID(r.id??r.packageNumber);
+   const paket=short(r.packageNumber??r.packageNo);if(!paket)hbSema(kind,r,'HB paket numarası eksik; paket eşleştirilemez.');
+   return {external_id:id,order_no:short(r.orderNumber),package_no:paket,barcode:short(r.barcode),cargo_company:short(r.cargoCompany??r.cargoCompanyName),package_status:kind,delivered_on:kind==='delivered'?iso(r.deliveredDate??r.deliveryDate):null,shipped_on:iso(r.shippedDate??r.shipmentDate),undelivered_on:kind==='undelivered'?iso(r.undeliveredDate??r.deliveredDate):null,source_updated_at:iso(r.lastStatusUpdateDate??r.deliveredDate??r.shippedDate),interpretation:'package_status_observation_only'};
   }
   if(kind==='orders'){
    const id=externalID(r.id??r.lineItemId);if(!id)hbSema(kind,r,'HB sipariş kalem kimliği eksik.');
