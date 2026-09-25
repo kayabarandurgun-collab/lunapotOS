@@ -63,6 +63,16 @@ Bakım turu artık bekleyen taslakları kendiliğinden yeniden deniyor. İlk tur
 
 Yalnız bileşeni de doğrudan ürünü de olmayan satıra dokunuluyor: kullanıcının seçimi değiştirilmiyor.
 
+### Pazaryeri kesintisi API kayıtlarından işlenebiliyor (25.09)
+HB'nin API finans kayıtları artık satışların gider alanlarına yazılabiliyor; bakım turu her tur deniyor. Uç: `POST connections/hepsiburada/fees` ({commit:false} önizleme).
+
+**Bugün 0 satır yazıyor** ve bu doğru sonuç: kesintisi tam olan 103 paketin hepsinin gideri zaten rapordan işlenmiş. Değeri ileriye dönük — kesinti raporu yüklenmezse boşluğu bu kapatır.
+
+Kurallar: bir pakete kesinti yazılması için hem komisyonunun hem kargo payının gelmiş olması gerekir (ölçüldü: kesintiler ayrı günlerde geliyor, 167 paketin 59'unda ödeme var ama komisyon/kargo yok — "ödeme geldi ⇒ tamam" kabul edilmiyor). Stopaj gider değil, kampanya indirimi anlamı ölçülmediği için dışarıda. Defterde kesinleşmiş kayda ve faturaya bağlı gidere dokunulmuyor.
+
+### Trendyol kesintisi API'den işlenemiyor — ölçüldü (25.09)
+Bekleyen 535 satışın **506'sı Trendyol**. Trendyol satış finans kaydı komisyonu sipariş bazında veriyor, ama **kargo yalnız fatura düzeyinde**: "Kargo Fatura 425,88 TL" kaleminde sipariş numarası ve barkod BOŞ, hangi siparişe ne düştüğü yok. Komisyonu yazıp kargoyu sıfır saymak ev kuralına aykırı olduğu için yapılmadı. Bu dağıtım "Kesinti eşleştirme" ekranının işi ve kullanıcı kararı gerektiriyor.
+
 ### HB raporları hâlâ gerekli (25.09)
 Ölçüldü ve dürüstçe yazılıyor: HB'nin sipariş ucu yalnız paketlenmeyi bekleyen siparişleri veriyor, o yüzden **HB siparişleri API'den gelmiyor** — rapor yüklemesi gerekiyor. Çekilen 667 finans kaydı da şu an yalnız kaynak kaydı olarak duruyor; **kesintiler muhasebeye hâlâ rapordan işleniyor**. API finans kayıtlarını kesinti işlemeye bağlamak yapılmadı.
 
