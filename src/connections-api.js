@@ -151,7 +151,7 @@ const hbSema=(kind,r,mesaj)=>{
 function normalizeHB(kind,payload,page,limit){
  if(!payload||typeof payload!=='object')fail('Hepsiburada yanıt şeması doğrulanamadı.',502);
  const list=Array.isArray(payload)?payload:Array.isArray(payload.items)?payload.items:Array.isArray(payload.data)?payload.data:null;
- if(!list||list.length>limit){console.error('HB liste bulunamadı:',kind,'yanıt alanları=',JSON.stringify(Object.keys(payload||{})));fail('Hepsiburada yanıt şeması doğrulanamadı; kayıt oluşturulmadı.',502);}
+ if(!list||list.length>limit){console.error('HB liste sınırı:',kind,'yanıt alanları=',JSON.stringify(Object.keys(payload||{})),'gelen=',list?list.length:'(liste yok)','beklenen sınır=',limit,'sayfalama=',JSON.stringify({totalCount:payload?.totalCount,limit:payload?.limit,offset:payload?.offset,pageCount:payload?.pageCount}));fail('Hepsiburada yanıt şeması doğrulanamadı; kayıt oluşturulmadı.',502);}
  const records=list.map(r=>{
   if(kind==='commissions'){
    const sku=externalID(r.hepsiburadaSku??r.sku),commission=numeric(r.commissionRate);if(commission===null||commission<0||commission>100)hbSema(kind,r,'HB komisyon yanıtı ürün/oran eşleşmesi doğrulanamadı.');
