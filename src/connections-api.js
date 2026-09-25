@@ -79,7 +79,16 @@ function makeRequest(provider,credentials,input){
   // döndürür — satıcı paketini hemen hazırlıyorsa boş liste gelir ve bu hata değildir. Teslim edilen,
   // kargodaki ve teslim edilemeyen paketler ayrı uçlardadır (HB sipariş dokümanı, 2026-09-25).
   // Bu üç uç yalnız SON 1 AYI verir; daha eski tarih istenirse kayıp olur, çağıran bunu bilmeli.
-  if(paketDurumu[kind]){url=new URL('https://oms-external.hepsiburada.com/packages/merchantid/'+credentials.seller_id+'/'+paketDurumu[kind]);url.searchParams.set('begindate',window.from+' 00:00');url.searchParams.set('enddate',window.to+' 23:59');url.searchParams.set('offset',String(page*limit));url.searchParams.set('limit',String(limit));return {url,query,page,limit,size};}
+  // SAYFALAMA PARAMETRESİ İKİ YAZIMLA DA GÖNDERİLİR. Ölçüldü (2026-09-25): teslim ve kargo uçları
+  // küçük harfli 'limit' ile çalışırken teslim edilemedi ucu onu yutup 50'den fazla kayıt döndürdü,
+  // yanıt sınırımızı aştığı için tek kayıt bile okunamıyordu. Sağlayıcı bilmediği parametreyi zaten
+  // yok sayıyor; iki yazımı da göndermek en ucuz güvence.
+  if(paketDurumu[kind]){
+   url=new URL('https://oms-external.hepsiburada.com/packages/merchantid/'+credentials.seller_id+'/'+paketDurumu[kind]);
+   for(const [k,v] of Object.entries({begindate:window.from+' 00:00',enddate:window.to+' 23:59',offset:page*limit,limit,
+     beginDate:window.from+' 00:00',endDate:window.to+' 23:59',Offset:page*limit,Limit:limit}))url.searchParams.set(k,String(v));
+   return {url,query,page,limit,size};
+  }
   url=new URL((kind==='orders'?'https://oms-external.hepsiburada.com/orders/merchantid/':'https://mpfinance-external.hepsiburada.com/transactions/merchantid/')+credentials.seller_id);
   if(kind==='orders'){url.searchParams.set('begindate',window.from+' 00:00');url.searchParams.set('enddate',window.to+' 23:59');url.searchParams.set('offset',String(page*limit));url.searchParams.set('limit',String(limit));}
   else {url.searchParams.set('RecordDateStart',window.from+'T00:00:00');url.searchParams.set('RecordDateEnd',window.to+'T23:59:59');url.searchParams.set('Offset',String(page*limit));url.searchParams.set('Limit',String(limit));}
@@ -158,7 +167,26 @@ function normalizeHB(kind,payload,page,limit){
    if(!['number','string'].includes(typeof hamKimlik)||!String(hamKimlik).trim()||String(hamKimlik).length>200||(typeof hamKimlik==='number'&&!Number.isSafeInteger(hamKimlik)))hbSema(kind,r,'HB paket kayıt kimliği okunamadı.');
    const id=externalID(hamKimlik);
    const paket=short(r.packageNumber??r.PackageNumber??r.packageNo);if(!paket)hbSema(kind,r,'HB paket numarası eksik; paket eşleştirilemez.');
-   return {external_id:id,order_no:short(r.orderNumber),package_no:paket,barcode:short(r.barcode),cargo_company:short(r.cargoCompany??r.cargoCompanyName),package_status:kind,delivered_on:kind==='delivered'?iso(r.deliveredDate??r.deliveryDate):null,shipped_on:iso(r.shippedDate??r.shipmentDate),undelivered_on:kind==='undelivered'?iso(r.undeliveredDate??r.deliveredDate):null,source_updated_at:iso(r.lastStatusUpdateDate??r.deliveredDate??r.shippedDate),interpretation:'package_status_observation_only'};
+   // ALAN ADLARI PascalCase GELİYOR (canlı yanıttan ölçüldü, 2026-09-25):
+   //   teslim  → Id, Barcode, PackageNumber, OrderNumber, OrderNumbers, MerchantId, DeliveredDate, EtgbNo, HasInvoice
+   //   kargo   → Id, Barcode, PackageNumber, OrderNumber, OrderNumbers, MerchantId, ShippedDate, Deci, EtgbNo
+   // Kod camelCase arıyordu: kayıt sayısı doğru görünüyor ama sipariş numarası, barkod ve teslim
+   // tarihi BOŞ okunuyordu. Boş teslim tarihiyle hiçbir paket işaretlenemez, yani sessizce işe
+   // yaramaz veri üretiliyordu. İki yazım da kabul edilir.
+   const al=(...adlar)=>{for(const ad of adlar){const v=r[ad];if(v!==undefined&&v!==null&&v!=='')return v;}return undefined;};
+   // DURUM TARİHİ YALNIZ KENDİ ALANINDAN OKUNUR. "Kaydın en son işlem gördüğü tarih" teslim anı
+   // DEĞİLDİR; onu teslim günü yerine yazmak tarih uydurmaktır ve kârı yanlış güne taşır.
+   const durumAlani={delivered:['DeliveredDate','deliveredDate'],shipped:['ShippedDate','shippedDate'],undelivered:['UndeliveredDate','undeliveredDate','UnDeliveredDate']}[kind];
+   const tarih=iso(al(...durumAlani));
+   // Bir paket birden çok siparişi taşıyabiliyor: OrderNumbers listesi de saklanır, tekil alan
+   // listenin ilkiyle karıştırılmaz.
+   const coklu=al('OrderNumbers','orderNumbers');
+   return {external_id:id,order_no:short(al('OrderNumber','orderNumber')),order_numbers:Array.isArray(coklu)?coklu.map(x=>short(x)).filter(Boolean).slice(0,50):[],
+    package_no:paket,barcode:short(al('Barcode','barcode')),deci:numeric(al('Deci','deci'))??null,has_invoice:typeof al('HasInvoice','hasInvoice')==='boolean'?al('HasInvoice','hasInvoice'):null,
+    package_status:kind,delivered_on:kind==='delivered'?tarih:null,shipped_on:kind==='shipped'?tarih:null,undelivered_on:kind==='undelivered'?tarih:null,
+    // Kaydın güncellenme damgası ayrı alandır; yoksa durum tarihine düşer. Bu damga yalnız
+    // "hangi kayıt daha yeni" karşılaştırması içindir, teslim/kargo günü olarak KULLANILMAZ.
+    source_updated_at:iso(al('LastStatusUpdateDate','lastStatusUpdateDate'))??tarih,interpretation:'package_status_observation_only'};
   }
   if(kind==='orders'){
    const id=externalID(r.id??r.lineItemId);if(!id)hbSema(kind,r,'HB sipariş kalem kimliği eksik.');

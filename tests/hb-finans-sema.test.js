@@ -89,6 +89,11 @@ const hbPaket=(overrides={})=>({
  id:'DLV-1',orderNumber:'ORD-77',packageNumber:'PKG-77',barcode:'BRK-77',
  merchantId:'11111111-2222-3333-4444-555555555555',deliveredDate:'2026-09-23T14:20:00',
  lastStatusUpdateDate:'2026-09-23T14:25:00',...overrides});
+// CANLI YANIT BİÇİMİ (2026-09-25): sağlayıcı bu uçlarda PascalCase gönderiyor.
+const hbPaketPascal=(overrides={})=>({
+ Id:'6ab0dcf6-3e36-9905-de51-b36906060606',Barcode:'BRK-88',PackageNumber:'5519711229',
+ OrderNumber:'ORD-88',OrderNumbers:['ORD-88','ORD-89'],MerchantId:'11111111-2222-3333-4444-555555555555',
+ DeliveredDate:'2026-09-23T14:20:00',EtgbNo:'',HasInvoice:true,...overrides});
 
 const paketSorgu=durum=>({kind:durum,from:'2026-09-23',to:'2026-09-23',page:0,preview:true});
 
@@ -136,4 +141,51 @@ test('HB tarih aralığı bir günü aşamaz; paket uçlarında da aynı sınır
  const f=fixture();
  await f.call('/hepsiburada/configure',credentials);
  await assert.rejects(()=>syncProvider(f.env,'hepsiburada',{...paketSorgu('delivered'),to:'2026-09-25'},async()=>Response.json({items:[],totalCount:0})),/en fazla 1 gün/);
+});
+
+// SESSİZ BOŞ OKUMA. Sağlayıcı bu uçlarda PascalCase gönderiyor; kod camelCase arayınca kayıt
+// SAYISI doğru görünüyor ama sipariş numarası, barkod ve teslim tarihi boş okunuyordu. Teslim
+// tarihi boş olan paket hiçbir zaman işaretlenemez: veri geldi sanılıp işe yaramaz kayıt yazılırdı.
+test('PascalCase alan adları okunur; teslim tarihi ve sipariş numarası boş kalmaz',async()=>{
+ const f=fixture();
+ await f.call('/hepsiburada/configure',credentials);
+ const sonuc=await syncProvider(f.env,'hepsiburada',paketSorgu('delivered'),async()=>Response.json({items:[hbPaketPascal()],totalCount:1}));
+ const r=sonuc.records[0];
+ assert.equal(r.package_no,'5519711229');
+ assert.equal(r.order_no,'ORD-88','sipariş numarası boş kalmamalı');
+ assert.equal(r.barcode,'BRK-88','barkod boş kalmamalı');
+ assert.match(r.delivered_on,/^2026-09-23/,'teslim tarihi okunmalı');
+ assert.equal(r.has_invoice,true);
+ assert.deepEqual(r.order_numbers,['ORD-88','ORD-89'],'paketteki bütün siparişler saklanmalı');
+});
+
+test('kargo ucu kendi tarih alanını kullanır; teslim günü yazılmaz',async()=>{
+ const f=fixture();
+ await f.call('/hepsiburada/configure',credentials);
+ const kargo=hbPaketPascal({DeliveredDate:undefined,ShippedDate:'2026-09-22T09:00:00',Deci:3,HasInvoice:undefined});
+ const sonuc=await syncProvider(f.env,'hepsiburada',paketSorgu('shipped'),async()=>Response.json({items:[kargo],totalCount:1}));
+ const r=sonuc.records[0];
+ assert.match(r.shipped_on,/^2026-09-22/);
+ assert.equal(r.delivered_on,null,'kargo kaydı teslim sayılmaz');
+ assert.equal(r.deci,3);
+ assert.equal(r.has_invoice,null,'gelmeyen bayrak false değil, bilinmiyor');
+});
+
+test('paket uçlarına sayfalama parametreleri iki yazımla da gider',async()=>{
+ const f=fixture();
+ await f.call('/hepsiburada/configure',credentials);
+ let istenen=null;
+ await syncProvider(f.env,'hepsiburada',paketSorgu('undelivered'),async(url)=>{istenen=new URL(url);return Response.json({items:[],totalCount:0});});
+ for(const ad of ['limit','Limit','offset','Offset','begindate','beginDate','enddate','endDate'])
+  assert.ok(istenen.searchParams.has(ad),ad+' gönderilmeli');
+ assert.equal(istenen.searchParams.get('Limit'),istenen.searchParams.get('limit'));
+});
+
+test('tarihi gelmeyen paket kaydı yazılır ama tarih uydurulmaz',async()=>{
+ const f=fixture();
+ await f.call('/hepsiburada/configure',credentials);
+ const sonuc=await syncProvider(f.env,'hepsiburada',paketSorgu('delivered'),async()=>Response.json({items:[hbPaketPascal({DeliveredDate:null})],totalCount:1}));
+ assert.equal(sonuc.records[0].delivered_on,null);
+ assert.equal(sonuc.records[0].source_updated_at,null);
+ assert.equal(sonuc.records[0].package_no,'5519711229');
 });
