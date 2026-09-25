@@ -101,12 +101,18 @@ async function erpMatch(db, provider, data) {
 }
 
 /** Barkod/SKU → sipariş tarihinde geçerli set tanımı → gerçek ürünler (anlık görüntü). */
-async function componentsFor(db, provider, data) {
+export async function componentsFor(db, provider, data) {
   const codes = [data.barcode, data.sku].filter(Boolean);
   if (!codes.length) return null;
   const at = (data.order_date || '9999-12-31').slice(0, 10) + ' 23:59:59';
+  // BARKOD SKU'DAN ÖNCE GELİR. İlan kodu ilana özgü OLMAYABİLİYOR: canlıda 29 Trendyol ilanının
+  // stok kodu harfi harfine "merchantSku" (satıcı panelinde alan adı değer olarak girilmiş) ve o
+  // ilanlar birbirinden farklı ürünler. O koda açılacak TEK bir bağlantı 29 ayrı ürünü aynı stok
+  // kartına bağlar, stok ve kâr sessizce yanlış ürüne yazılırdı. Barkod ilana özgüdür; varsa o
+  // kazanır, kod yalnız barkod bağlantısı yokken kullanılır.
+  const barkodOnce = m => (data.barcode && m.match_value === data.barcode ? 0 : 1);
   const maps = (await db.prepare("SELECT * FROM ec_catalog_mappings WHERE source=? AND match_by='code' AND match_value IN (SELECT value FROM json_each(?)) ORDER BY created_at DESC")
-    .bind(provider, JSON.stringify(codes)).all()).results;
+    .bind(provider, JSON.stringify(codes)).all()).results.sort((a, b) => barkodOnce(a) - barkodOnce(b));
   const valid = maps.find(m => m.created_at <= at && (!m.archived_at || m.archived_at > at));
   const chosen = valid || maps.find(m => m.active === 1);
   if (!chosen) return null;
