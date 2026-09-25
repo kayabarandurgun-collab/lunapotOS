@@ -54,6 +54,11 @@ export const SENKRON_ISTEK = 8;
 const SENKRON_PAY = 10000;   // sağlayıcı isteği için bütçeden ayrılan pay (istek zaman aşımı 20 sn)
 // Senkronun kullanabileceği EN BÜYÜK bütçe oranı; kalanı rapor işlerinindir.
 export const SENKRON_PAYI = 0.5;
+/** Aşama süreleri, iz kaydının sonuna eklenen kısa özet: [dosya 0.2sn, senkron 3.1sn, rapor 59.6sn]. */
+const sureOzeti = ozet => {
+  const parcalar = Object.entries(ozet.sure).map(([ad, ms]) => ad + ' ' + Math.round(ms / 100) / 10 + 'sn');
+  return parcalar.length ? ' [' + parcalar.join(', ') + ']' : '';
+};
 const SENKRON_ILK_GUN = 3;   // hiç senkron yapılmamış bağlantıda ilk pencere (ilk tam alım elle yapılır)
 const coz = v => { try { return JSON.parse(v); } catch { return null; } };
 
@@ -243,7 +248,10 @@ export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sa
         ozet.iade && ozet.iade + ' iade', ozet.kesinti && ozet.kesinti + ' satışa kesinti yazıldı', ozet.maliyet && ozet.maliyet + ' maliyet düzeltmesi',
         ozet.senkronKayit && ozet.senkronKayit + ' pazaryeri kaydı tarandı', ozet.senkronTaslak && ozet.senkronTaslak + ' yeni sipariş taslağı',
         ozet.senkronTeslim && ozet.senkronTeslim + ' paket teslim işaretlendi'].filter(Boolean).join(', ')
-      + (ozet.hatalar.length ? (is ? '; ' : '') + 'sorun: ' + ozet.hatalar.join(' | ').slice(0, 400) : '')).run();
+      + (ozet.hatalar.length ? (is ? '; ' : '') + 'sorun: ' + ozet.hatalar.join(' | ').slice(0, 400) : '')
+      // Aşama süreleri İŞ YAPILAN turda da yazılır: bütçeyi hangi adımın yediği yalnız boş turlarda
+      // görülebiliyordu, oysa asıl merak edilen dolu turdur.
+      + sureOzeti(ozet)).run();
   // İŞ YOKKEN DE İZ BIRAKILIR (en çok 6 saatte bir): ekranda hiç satır olmayınca bakımın çalışıp
   // çalışmadığı anlaşılmıyordu. Her 15 dakikada yazmak listeyi doldururdu.
   // İŞ YOKKEN SEBEP DE YAZILIR: "iş yoktu" ile "senkrona sıra gelmedi" aynı şey değil. Süre bütçesi
@@ -252,6 +260,6 @@ export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sa
     + "WHERE NOT EXISTS(SELECT 1 FROM ec_activity WHERE description LIKE 'Otomatik bakım%' AND created_at>datetime('now','-6 hours'))")
     .bind(crypto.randomUUID(), ('Otomatik bakım çalıştı; yapılacak iş yoktu.'
       + (ozet.senkronSebep.length ? ' Senkron: ' + ozet.senkronSebep.join(' | ') : '')
-      + ' [' + Object.entries(ozet.sure).map(([a, ms]) => a + ' ' + Math.round(ms / 100) / 10 + 'sn').join(', ') + ']').slice(0, 480)).run();
+      + sureOzeti(ozet)).slice(0, 480)).run();
   return ozet;
 }

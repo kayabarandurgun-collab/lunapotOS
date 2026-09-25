@@ -199,3 +199,17 @@ test('Senkron rapor işlerinden ÖNCE çalışır: aşama damgası sırayı gös
     assert.ok(ty.siparisler().length > 0, 'sağlayıcıya çıkılmalı');
   } finally { f.close(); }
 });
+
+// Aşama süreleri iş yapılan turda da yazılır: bütçeyi hangi adımın yediği yalnız boş turlarda
+// görülebiliyordu, oysa asıl merak edilen dolu tur (canlıda rapor turu 59,6 saniye sürüyordu).
+test('Dolu turun iz kaydı da aşama sürelerini taşır', async () => {
+  const f = await kur(); try {
+    const ty = saglayici();
+    const r = await otomatikBakim(f.env, {simdi: AN, senkronGetir: ty.getir});
+    assert.ok(r.senkronKayit > 0, 'tur iş yapmalı');
+    const iz = f.sqlite.prepare("SELECT description d FROM ec_activity WHERE description LIKE 'Otomatik bakım:%' ORDER BY created_at DESC, rowid DESC LIMIT 1").get();
+    assert.match(iz.d, /\[.*sn\]$/, 'süreler iz kaydının sonunda olmalı: ' + iz.d);
+    assert.match(iz.d, /senkron /);
+    assert.match(iz.d, /rapor /);
+  } finally { f.close(); }
+});
