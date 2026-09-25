@@ -57,6 +57,34 @@ async function createPackage(env,channel,record){
  if(components.length)items.push(componentInsert(db,components));
  await execute(db,items);return {id:key,status:'draft',existing:false,conflict:false};
 }
+/**
+ * TASLAKLARIN EŞLEŞMESİNİ YENİDEN DENER. İçe aktarma anında bağlantı bulunamamış olabilir: ilan
+ * kodu ilana özgü değilse (canlıda 29 ilanın kodu harfi harfine "merchantSku") ya da kullanıcı
+ * bağlantıyı sipariş geldikten SONRA kurduysa paket eşleşmesiz kalıyordu ve elle açılması
+ * gerekiyordu. Bu iş onu kullanıcı beklemeden kapatır.
+ *
+ * YALNIZ BOŞ SATIRA DOKUNUR: bileşeni de doğrudan ürünü de olmayan satırlar. Kullanıcının kendi
+ * seçimi asla değiştirilmez, silinmez, üzerine yazılmaz. Eşleşme UYDURULMAZ: yalnız kayıtlı ve
+ * etkin bağlantılar kullanılır, bulunamayan satır olduğu gibi bırakılır ve iş listesinde kalır.
+ */
+export async function rematchDrafts(env,{limit=20}={}){
+ const db=env.DB;
+ const bosSatirlar=(await statement(db,
+  "SELECT l.id,l.package_id,l.external_id,l.sku,l.barcode,l.name,l.quantity_milli,p.channel FROM order_lines l"
+  +" JOIN order_packages p ON p.id=l.package_id"
+  +" WHERE p.status='draft' AND l.product_id IS NULL"
+  +" AND NOT EXISTS(SELECT 1 FROM order_line_components c WHERE c.line_id=l.id)"
+  +" AND (l.barcode<>'' OR l.sku<>'') ORDER BY p.occurred_on,l.rowid LIMIT ?",[limit]).all()).results;
+ let eslesen=0,kalan=0;const items=[];
+ for(const l of bosSatirlar){
+  const rows=await mappedComponents(db,l.channel,l,{},true);
+  if(!rows.length){kalan++;continue;}
+  eslesen++;items.push(componentInsert(db,rows));
+  if(rows.length===1)items.push(statement(db,'UPDATE order_lines SET product_id=? WHERE id=?',[rows[0].product_id,l.id]));
+ }
+ if(items.length)await execute(db,items);
+ return {checked:bosSatirlar.length,matched:eslesen,unmatched:kalan};
+}
 // Provider adapter passes explicit normalized source facts. This function never dispatches orders remotely.
 export async function importOrders(env,provider,records){
  if(env.WORKSPACE!=='ec'||!['trendyol','hepsiburada'].includes(provider))fail('Sipariş aktarımı yalnızca e-ticaret alanında kullanılabilir.',403);

@@ -106,3 +106,51 @@ test('barkod bağlantısı yoksa ilan kodu yine kullanılır', async () => {
  await ordersApi(new Request('https://test.local/api/ec/orders', {method: 'POST'}), env, '/api/orders', async () => govde);
  assert.deepEqual(f.sqlite.prepare('SELECT product_id FROM ec_order_line_components').all().map(c => c.product_id), ['PINA']);
 });
+
+// TASLAKLARIN EŞLEŞMESİ KENDİLİĞİNDEN YENİDEN DENENİR. Bağlantı sipariş geldikten SONRA kurulmuş
+// olabilir ya da içe aktarmada ilan kodu tutmamış olabilir; paket o zaman elle açılmayı bekliyordu.
+// Canlıda 21 bekleyen ilan barkodunun 20'sinin bağlantısı ZATEN vardı: sistem yapabilecekken
+// kullanıcıdan bekliyordu.
+import {rematchDrafts} from '../src/orders-api.js';
+
+test('bağlantı sonradan kurulduğunda bekleyen taslak kendiliğinden eşleşir', async () => {
+ const f = fixture();
+ urunEkle(f, 'TORF10', 'Organik Torf 10 lt', 'T10');
+ const {env, govde} = paketKur(f, {barkod: 'BARKOD-10', kod: 'merchantSku'});
+ await ordersApi(new Request('https://test.local/api/ec/orders', {method: 'POST'}), env, '/api/orders', async () => govde);
+ assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_line_components').get().n, 0, 'bağlantı yokken eşleşmemeli');
+
+ baglantiEkle(f, {id: 'm-sonra', kod: 'BARKOD-10', urun: 'TORF10', olusturma: '2026-09-25 10:00:00'});
+ const sonuc = await rematchDrafts(env, {limit: 20});
+ assert.equal(sonuc.matched, 1, JSON.stringify(sonuc));
+ assert.deepEqual(f.sqlite.prepare('SELECT product_id FROM ec_order_line_components').all().map(c => c.product_id), ['TORF10']);
+ assert.equal(f.sqlite.prepare('SELECT product_id FROM ec_order_lines').get().product_id, 'TORF10');
+});
+
+test('kullanıcının kendi seçimi yeniden denemede değiştirilmez', async () => {
+ const f = fixture();
+ urunEkle(f, 'TORF10', 'Organik Torf 10 lt', 'T10');
+ urunEkle(f, 'ELLE', 'Elle Seçilen Ürün', 'E1');
+ const {env, govde} = paketKur(f, {barkod: 'BARKOD-10', kod: 'merchantSku'});
+ await ordersApi(new Request('https://test.local/api/ec/orders', {method: 'POST'}), env, '/api/orders', async () => govde);
+ // Kullanıcı elle başka bir ürün seçti.
+ const satir = f.sqlite.prepare('SELECT id FROM ec_order_lines').get();
+ f.sqlite.prepare("UPDATE ec_order_lines SET product_id='ELLE' WHERE id=?").run(satir.id);
+ f.sqlite.prepare("INSERT INTO ec_order_line_components(id,line_id,product_id,quantity_milli,revenue_share_bps,stock_unit) VALUES('c-elle',?,'ELLE',1000,10000,'adet')").run(satir.id);
+
+ baglantiEkle(f, {id: 'm-sonra', kod: 'BARKOD-10', urun: 'TORF10', olusturma: '2026-09-25 10:00:00'});
+ const sonuc = await rematchDrafts(env, {limit: 20});
+ assert.equal(sonuc.checked, 0, 'dolu satıra hiç bakılmamalı');
+ assert.deepEqual(f.sqlite.prepare('SELECT product_id FROM ec_order_line_components').all().map(c => c.product_id), ['ELLE']);
+});
+
+test('bağlantısı olmayan ilan uydurulmaz, bekleyen olarak kalır', async () => {
+ const f = fixture();
+ urunEkle(f, 'TORF10', 'Organik Torf 10 lt', 'T10');
+ const {env, govde} = paketKur(f, {barkod: 'BARKOD-BILINMEYEN', kod: 'merchantSku'});
+ await ordersApi(new Request('https://test.local/api/ec/orders', {method: 'POST'}), env, '/api/orders', async () => govde);
+ const sonuc = await rematchDrafts(env, {limit: 20});
+ assert.equal(sonuc.matched, 0);
+ assert.equal(sonuc.unmatched, 1, 'eşleşmeyen satır sayılmalı');
+ assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_line_components').get().n, 0, 'uydurma bileşen yazılmamalı');
+});
