@@ -20,7 +20,7 @@ function normalized(record){
  const seen=new Set(),lines=record.lines.map(l=>{const external=text(l.external_id,'Sipariş satır kodu');if(seen.has(external))fail('Siparişte aynı satır kodu birden fazla var.');seen.add(external);
   const quantity=integer(l.quantity_milli,'Miktar',1000000000);if(!quantity)fail('Miktar sıfır olamaz.');
   const gross=l.gross_cents==null?null:integer(l.gross_cents,'Brüt tutar'),tax=l.vat_bps==null?null:integer(l.vat_bps,'KDV',10000),net=l.net_revenue_cents==null?null:integer(l.net_revenue_cents,'Net tutar');
-  return {external_id:external,sku:opt(l.sku),name:text(l.name||l.sku||external,'Ürün adı',300),product_id:opt(l.product_id)||null,mapping_id:opt(l.mapping_id)||null,quantity_milli:quantity,gross_cents:gross,vat_bps:tax,net_revenue_cents:netAmount(gross,tax,net)};
+  return {external_id:external,sku:opt(l.sku),barcode:opt(l.barcode),name:text(l.name||l.sku||external,'Ürün adı',300),product_id:opt(l.product_id)||null,mapping_id:opt(l.mapping_id)||null,quantity_milli:quantity,gross_cents:gross,vat_bps:tax,net_revenue_cents:netAmount(gross,tax,net)};
  });
  return {external_id:text(record.external_id,'Paket kodu'),order_no:opt(record.order_no),occurred_on:day(record.occurred_on),external_status:opt(record.external_status),lines};
 }
@@ -34,12 +34,19 @@ async function mappedComponents(db,channel,line,explicit={},auto=false){
  let resolved=null;
  if(explicit.mapping_id){const mapping=await statement(db,"SELECT * FROM catalog_mappings WHERE id=? AND active=1",[text(explicit.mapping_id,'Eşleştirme')]).first();if(!mapping||mapping.source!==channel||mapping.supplier_id!==''||mapping.source_unit!=='')fail('Eşleştirme bu satış kanalına ait değil veya kapalı.',409);resolved={mapping,components:(await statement(db,'SELECT c.*,p.stock_unit FROM catalog_mapping_components c JOIN products p ON p.id=c.product_id WHERE c.mapping_id=? ORDER BY c.id',[mapping.id]).all()).results};}
  else if(explicit.product_id){const p=await statement(db,'SELECT id,stock_unit FROM products WHERE id=?',[text(explicit.product_id,'Ürün')]).first();if(!p)fail('Ürün bu çalışma alanında bulunamadı.',404);if(['trendyol','hepsiburada'].includes(channel)&&p.stock_unit!=='adet')fail('Doğrudan pazaryeri adedi yalnızca adet stok birimine eşlenebilir. Kg/litre için açık bileşen dönüşümlü eşleştirme kullanın.',409);return componentSnapshots(line,[{product_id:p.id,stock_unit:p.stock_unit,quantity_milli:1000,revenue_share_bps:10000}],null);}
- else if(auto&&line.sku)resolved=await resolveMapping(db,{source:channel,external_code:line.sku,supplier_id:'',source_unit:''});
+ // KENDİLİĞİNDEN EŞLEŞMEDE BARKOD ÖNCE DENENİR. İlan kodu ilana özgü olmayabiliyor (migration 0059:
+ // 29 ilanın kodu harfi harfine "merchantSku" ve hepsi farklı ürün); o koda açılmış tek bir bağlantı
+ // hepsini aynı stok kartına bağlardı. Barkod ilana özgüdür, kod yalnız barkod tutmazsa kullanılır.
+ else if(auto){
+  const ara=kod=>kod?resolveMapping(db,{source:channel,external_code:kod,supplier_id:'',source_unit:''}):null;
+  resolved=await ara(line.barcode)||await ara(line.sku);
+ }
  if(!resolved)return [];
  return componentSnapshots(line,resolved.components,resolved.mapping.id);
 }
 const componentInsert=(db,components)=>statement(db,"INSERT INTO order_line_components(id,line_id,product_id,quantity_milli,revenue_share_bps,stock_unit,mapping_id) SELECT json_extract(value,'$.id'),json_extract(value,'$.line_id'),json_extract(value,'$.product_id'),json_extract(value,'$.quantity_milli'),json_extract(value,'$.revenue_share_bps'),json_extract(value,'$.stock_unit'),json_extract(value,'$.mapping_id') FROM json_each(?)",[JSON.stringify(components)]);
-const lineInsert=(db,packageId,lines)=>statement(db,"INSERT INTO order_lines(id,package_id,external_id,sku,name,product_id,quantity_milli,gross_cents,vat_bps,net_revenue_cents) SELECT json_extract(value,'$.id'),?,json_extract(value,'$.external_id'),json_extract(value,'$.sku'),json_extract(value,'$.name'),json_extract(value,'$.product_id'),json_extract(value,'$.quantity_milli'),json_extract(value,'$.gross_cents'),json_extract(value,'$.vat_bps'),json_extract(value,'$.net_revenue_cents') FROM json_each(?)",[packageId,JSON.stringify(lines)]);
+// BARKOD DA SAKLANIR: ilan kodu ilana özgü olmayabiliyor, kalıcı bağlantının güvenli anahtarı budur.
+const lineInsert=(db,packageId,lines)=>statement(db,"INSERT INTO order_lines(id,package_id,external_id,sku,barcode,name,product_id,quantity_milli,gross_cents,vat_bps,net_revenue_cents) SELECT json_extract(value,'$.id'),?,json_extract(value,'$.external_id'),json_extract(value,'$.sku'),COALESCE(json_extract(value,'$.barcode'),''),json_extract(value,'$.name'),json_extract(value,'$.product_id'),json_extract(value,'$.quantity_milli'),json_extract(value,'$.gross_cents'),json_extract(value,'$.vat_bps'),json_extract(value,'$.net_revenue_cents') FROM json_each(?)",[packageId,JSON.stringify(lines)]);
 async function createPackage(env,channel,record){
  const db=env.DB,p=normalized(record),hash=await fingerprint(p),existing=await statement(db,'SELECT * FROM order_packages WHERE channel=? AND external_id=?',[channel,p.external_id]).first();
  if(['trendyol','hepsiburada'].includes(channel)&&p.lines.some(l=>l.quantity_milli%1000!==0))fail('Pazaryeri sipariş adedi tam sayı olmalı.');

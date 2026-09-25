@@ -70,3 +70,39 @@ test('hiç bağlantı yoksa eşleştirme uydurulmaz', async () => {
  assert.equal(await componentsFor(f.db, 'trendyol', {barcode: 'YOK', sku: 'merchantSku', order_date: '2026-09-24'}), null);
  assert.equal(await componentsFor(f.db, 'trendyol', {order_date: '2026-09-24'}), null, 'kod da barkod da yoksa null');
 });
+
+// KENDİLİĞİNDEN EŞLEŞMEDE DE BARKOD ÖNCE. Sipariş içe aktarılırken bağlantı aranıyor; orada da
+// ilan kodu kullanılırsa sahte kodu paylaşan 29 ilan aynı ürüne bağlanırdı.
+import {ordersApi} from '../src/orders-api.js';
+import {scopedDB} from '../src/scoped-db.js';
+
+const paketKur = (f, {barkod, kod}) => {
+ const env = {DB: scopedDB({prepare(sql) {return {args: [], bind(...a) {this.args = a; return this;},
+   all() {return {results: f.sqlite.prepare(sql).all(...this.args)};},
+   first() {return f.sqlite.prepare(sql).get(...this.args) || null;}};},
+  async batch(items) {f.sqlite.exec('BEGIN'); try {const r = items.map(i => i.all()); f.sqlite.exec('COMMIT'); return r;} catch (e) {f.sqlite.exec('ROLLBACK'); throw e;}}}, 'ec'), WORKSPACE: 'ec'};
+ return {env, govde: {channel: 'trendyol', external_id: 'PKT-1', order_no: 'ORD-1', occurred_on: '2026-09-24',
+  lines: [{external_id: 'L1', sku: kod, barcode: barkod, name: 'Organik Torf 10 lt', quantity: 1, gross: 120, vat_rate: 20}]}};
+};
+
+test('sipariş aktarılırken barkod bağlantısı ilan kodundakini yener', async () => {
+ const f = fixture();
+ urunEkle(f, 'TORF10', 'Organik Torf 10 lt', 'T10');
+ urunEkle(f, 'YANLIS', 'Alakasız Ürün', 'X1');
+ baglantiEkle(f, {id: 'm-barkod', kod: 'BARKOD-10', urun: 'TORF10', olusturma: '2026-09-01 10:00:00'});
+ baglantiEkle(f, {id: 'm-kod', kod: 'merchantSku', urun: 'YANLIS', olusturma: '2026-09-20 10:00:00'});
+ const {env, govde} = paketKur(f, {barkod: 'BARKOD-10', kod: 'merchantSku'});
+ await ordersApi(new Request('https://test.local/api/ec/orders', {method: 'POST'}), env, '/api/orders', async () => govde);
+ const bilesen = f.sqlite.prepare('SELECT product_id FROM ec_order_line_components').all();
+ assert.deepEqual(bilesen.map(c => c.product_id), ['TORF10'], 'barkodun ürününe bağlanmalı');
+ assert.equal(f.sqlite.prepare('SELECT barcode FROM ec_order_lines').get().barcode, 'BARKOD-10', 'barkod satırda saklanmalı');
+});
+
+test('barkod bağlantısı yoksa ilan kodu yine kullanılır', async () => {
+ const f = fixture();
+ urunEkle(f, 'PINA', 'Pina Saksı', 'PINA-S');
+ baglantiEkle(f, {id: 'm-kod', kod: 'PINA-S-BYZ', urun: 'PINA', olusturma: '2026-09-01 10:00:00'});
+ const {env, govde} = paketKur(f, {barkod: 'BARKOD-YOK', kod: 'PINA-S-BYZ'});
+ await ordersApi(new Request('https://test.local/api/ec/orders', {method: 'POST'}), env, '/api/orders', async () => govde);
+ assert.deepEqual(f.sqlite.prepare('SELECT product_id FROM ec_order_line_components').all().map(c => c.product_id), ['PINA']);
+});
