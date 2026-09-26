@@ -250,8 +250,14 @@ export function normalizeRows(profile, headers, rows, {date1904 = false} = {}) {
       if (field.type === 'money' && Number.isSafeInteger(data[field.key])) totals[field.key] = (totals[field.key] || 0) + data[field.key];
     }
     // Toplam satırı işlem sayılmaz: kimlik alanları boş ve satırda "toplam" yazıyor.
+    // ETİKETİN KENDİSİ KİMLİK SÜTUNUNA DÜŞEBİLİYOR. Canlıda görüldü: Hepsiburada sipariş dökümünün
+    // son satırında "Toplam" kelimesi SİPARİŞ NO sütununda; alan dolu sayıldığı için bu eleme
+    // çalışmıyor, satır "tutarı yok" diye incelemeye düşüyordu. Yedi inceleme kaydının beşi buydu:
+    // kullanıcıdan her dosyada aynı çöp satır için karar isteniyordu. Sipariş numarası "Toplam"
+    // olan gerçek sipariş yoktur; etiket taşıyan kimlik alanı BOŞ sayılır.
+    const ozetEtiketi = v => /^(genel\s+toplam|ara\s+toplam|toplam|grand\s+total|total|sum)$/i.test(String(v ?? '').trim());
     const idFields = kind === 'orders' ? ['order_no', 'package_id', 'line_id'] : ['event_id', 'order_no', 'package_id'];
-    if (idFields.every(f => data[f] === undefined) && values.some(c => /toplam|total/i.test(String(c.v)))) {
+    if (idFields.every(f => data[f] === undefined || ozetEtiketi(data[f])) && values.some(c => /toplam|total/i.test(String(c.v)))) {
       skipped.total++;
       for (const [k, v] of Object.entries(data)) if (Number.isSafeInteger(v) && totals[k] !== undefined) totals[k] -= v;
       continue;
