@@ -40,15 +40,20 @@ const gunTR = ms => new Date(ms + 3 * 3600000).toISOString().slice(0, 10);
 // 'enGeri' başlangıç ile bitiş arası fark olduğu için 13/14'tür).
 // Hepsiburada 'commissions' türü buraya girmez: o uç SKU listesi ister, kullanıcı seçimi olmadan
 // hangi ürünlerin sorulacağı uydurulamaz.
-export const SENKRON_KAYNAKLARI = {
+// OTOMATİK PAZARYERİ SENKRONU KAPALI (kullanıcı kararı, 2026-09-25).
+// Kullanıcı pazaryeri verisini elle rapor yükleyerek sürdürmeyi seçti; bağlantılar ve kaynak
+// kayıtları da silindi. Liste BOŞ olduğu için bakım turu hiçbir sağlayıcıya çıkmaz.
+//
+// GERİ AÇMAK İÇİN: aşağıdaki satırları yorumdan çıkarmak YETMEZ — Bağlantılar ekranından API
+// kimliklerinin yeniden girilmesi gerekir (kimlikler silindi). Açılırsa çalışan kurallar:
+//   trendyol: siparişler 4 saat (enGeri 13), satış/iade finansı 12 saat, kesinti ve hakediş 24 saat
+//             (uç sınırı: sipariş 14, finans 15 gün)
+//   hepsiburada: siparişler / teslim / teslim edilemedi 4 saat, kargo ve finans 12 saat
+//             (HB aralığı EN FAZLA 24 saat, o yüzden enGeri 0)
+export const SENKRON_KAYNAKLARI = {};
+export const SENKRON_KAYNAKLARI_KAPALI = {
   trendyol: [{kind: 'orders', saat: 4, enGeri: 13}, {kind: 'sale', saat: 12, enGeri: 14}, {kind: 'return', saat: 12, enGeri: 14},
     {kind: 'deductions', saat: 24, enGeri: 14}, {kind: 'payments', saat: 24, enGeri: 14}],
-  // HEPSİBURADA 24 SAATTEN UZUN ARALIK KABUL ETMİYOR: enGeri 0, yani pencere tek gündür.
-  // HB teslim kaydı siparişle AYNI sıklıkta çekilir: kâr yalnız teslim edilen pakette doğuyor ve
-  // HB'nin sipariş ucu yalnız paketlenmeyi bekleyenleri verdiği için teslim bilgisi ancak buradan
-  // geliyor. 'undelivered' kâr için ters yönde aynı derecede önemli: pazaryeri teslim edemediğini
-  // söylüyorsa bizde teslim duran paketin kârı yanlış sayılmış olabilir, iş listesinde uyarıya
-  // dönüşüyor. 'shipped' paketin yolda olduğunu doğruluyor, günde iki kez yeter.
   hepsiburada: [{kind: 'orders', saat: 4, enGeri: 0}, {kind: 'delivered', saat: 4, enGeri: 0},
     {kind: 'undelivered', saat: 4, enGeri: 0}, {kind: 'shipped', saat: 12, enGeri: 0}, {kind: 'finance', saat: 12, enGeri: 0}]
 };
@@ -86,10 +91,10 @@ export function butceler(sureMs, saat = Date.now) {
  * Yapılandırılmış pazaryeri bağlantılarından kaynak sayfalarını çeker. Hiçbir hata yukarı kaçmaz:
  * bir sağlayıcı düşerse bakımın geri kalanı (iade, kesinti, maliyet, iz kaydı) aynen sürer.
  */
-async function pazaryeriSenkronu(ec, db, {simdi, vakitVar, getir, ozet}) {
+async function pazaryeriSenkronu(ec, db, {simdi, vakitVar, getir, ozet, kaynaklar: kaynakTablosu = SENKRON_KAYNAKLARI}) {
   const baglantilar = (await db.prepare('SELECT provider,last_success_at,last_error FROM ec_provider_connections ORDER BY provider').all()).results;
   for (const b of baglantilar) {
-    const kaynaklar = SENKRON_KAYNAKLARI[b.provider];
+    const kaynaklar = kaynakTablosu[b.provider];
     if (!kaynaklar) continue;
     // SÜRE BİTTİYSE SESSİZ KALINMAZ. Rapor işleri bütçeyi yiyip senkronu aç bıraktığında dışarıdan
     // "yapılacak iş yoktu" görünüyordu: sağlayıcıya hiç gidilmediği hâlde hata da kayıt da yok.
@@ -154,7 +159,7 @@ export const senkronBildirimi = ozet => '🔄 Otomatik senkron — pazaryerinden
   [ozet.senkronTaslak && ozet.senkronTaslak + ' yeni sipariş taslağı', ozet.senkronTeslim && ozet.senkronTeslim + ' paket teslim edildi işaretlendi',
     ozet.senkronKayit && ozet.senkronKayit + ' kaynak kaydı tarandı'].filter(Boolean).join(' · ');
 
-export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sakinDakika = 10, senkronGetir = fetch, saat = Date.now} = {}) {
+export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sakinDakika = 10, senkronGetir = fetch, saat = Date.now, kaynaklar = SENKRON_KAYNAKLARI} = {}) {
   const {gecen, vakitVar, raporVakti, senkronVakti} = butceler(sureMs, saat);
   const ec = {...env, DB: scopedDB(env.DB, 'ec'), ROOT_DB: env.DB, WORKSPACE: 'ec', USER: SISTEM};
   const db = env.DB;
@@ -197,7 +202,7 @@ export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sa
   // veri getirir; rapor işleri zaten sistemdeki veriyi tamamlar ve imleçli oldukları için sıradaki
   // tura kalmaları zararsızdır. Senkron kendi payını aşamaz, yani ters yönde açlık da doğmaz.
   // Yeni taslakların maliyeti aynı turda değerlenmeye devam eder: FIFO adımı hâlâ en sonda.
-  await pazaryeriSenkronu(ec, db, {simdi, vakitVar: senkronVakti, getir: senkronGetir, ozet});
+  await pazaryeriSenkronu(ec, db, {simdi, vakitVar: senkronVakti, getir: senkronGetir, ozet, kaynaklar});
   asama('senkron');
 
   // TASLAKLARIN EŞLEŞMESİ KULLANICI BEKLENMEDEN YENİDEN DENENİR. Bağlantı sipariş geldikten sonra

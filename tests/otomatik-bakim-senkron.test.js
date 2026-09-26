@@ -8,7 +8,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {appFixture} from './helpers/app-fixture.js';
-import {otomatikBakim, SENKRON_ISTEK, butceler} from '../src/otomatik-bakim.js';
+import {otomatikBakim, SENKRON_ISTEK, butceler, SENKRON_KAYNAKLARI_KAPALI} from '../src/otomatik-bakim.js';
+
+// OTOMATİK SENKRON CANLIDA KAPALI (kullanıcı elle rapor yüklemeyi seçti), ama kuralları hâlâ
+// sınanıyor: geri açıldığında aralık, pencere, bütçe ve hata davranışı aynen geçerli olmalı.
+// Testler kural setini açıkça veriyor; üretimdeki liste boş olduğu için bakım hiçbir uca çıkmaz.
+const KAYNAKLAR = SENKRON_KAYNAKLARI_KAPALI;
 
 const KIMLIK = {seller_id: '1234', key: 'ornek-anahtar', secret: 'ornek-parola', user_agent: '1234 - SelfIntegration'};
 // Bağlantı ve imleç damgalarını veritabanı CURRENT_TIMESTAMP ile kendisi atar; aralık ölçümünün
@@ -55,7 +60,7 @@ function telegramTaklidi(env) {
 test('Senkron aralığı dolmadan pazaryerine gidilmez; aralık dolunca pencere yeniden kurulur', async () => {
   const f = await kur(); try {
     const ty = saglayici();
-    const ilk = await otomatikBakim(f.env, {simdi: AN, senkronGetir: ty.getir});
+    const ilk = await otomatikBakim(f.env, {simdi: AN, senkronGetir: ty.getir, kaynaklar: KAYNAKLAR});
     assert.deepEqual(ilk.hatalar, []);
     assert.equal(ilk.senkronTaslak, 1, 'ilk turda sipariş taslağı açılmalı: ' + JSON.stringify(ilk));
     const ilkSiparis = ty.siparisler()[0];
@@ -67,13 +72,13 @@ test('Senkron aralığı dolmadan pazaryerine gidilmez; aralık dolunca pencere 
     // 15 dakika ve 3 saat sonra: aralık dolmadığı için tek istek bile çıkmaz.
     const oncekiCagri = ty.cagrilar.length;
     for (const ms of [15 * 60000, 3 * SAAT]) {
-      const r = await otomatikBakim(f.env, {simdi: AN + ms, senkronGetir: ty.getir});
+      const r = await otomatikBakim(f.env, {simdi: AN + ms, senkronGetir: ty.getir, kaynaklar: KAYNAKLAR});
       assert.deepEqual(r.hatalar, []);
       assert.equal(ty.cagrilar.length, oncekiCagri, ms / SAAT + ' saat sonra sağlayıcıya gidilmemeli');
     }
 
     // 5 saat sonra: sipariş aralığı doldu, pencere son başarılı senkrondan kuruldu (en az 2 gün).
-    await otomatikBakim(f.env, {simdi: AN + 5 * SAAT, senkronGetir: ty.getir});
+    await otomatikBakim(f.env, {simdi: AN + 5 * SAAT, senkronGetir: ty.getir, kaynaklar: KAYNAKLAR});
     const sonraki = ty.siparisler().at(-1);
     assert.equal(sonraki.from, gunTR(AN + 5 * SAAT - 2 * GUN), 'son senkron bugünse pencere 2 güne iner');
     assert.equal(sonraki.to, gunTR(AN + 5 * SAAT));
@@ -86,19 +91,19 @@ test('Süre bütçesi senkronu sınırlar; yarıda kalan pencere bir sonraki tur
     // Her sayfa "devamı var" diyor: tur başına istek sınırı olmasa bütün bütçeyi yerdi.
     const ty = saglayici(sayfa => ({content: [siparis({shipmentPackageId: 100 + sayfa, orderNumber: 'ORD-' + sayfa, lines: satir(200 + sayfa)})],
       totalPages: 50, totalElements: 2500}));
-    const dolu = await otomatikBakim(f.env, {simdi: AN, senkronGetir: ty.getir});
+    const dolu = await otomatikBakim(f.env, {simdi: AN, senkronGetir: ty.getir, kaynaklar: KAYNAKLAR});
     assert.deepEqual(dolu.hatalar, []);
     assert.equal(ty.siparisler().length, SENKRON_ISTEK, 'tur başına istek sınırı aşılmamalı');
     assert.deepEqual(ty.siparisler().map(c => c.page), [...Array(SENKRON_ISTEK).keys()], 'sayfalar sırayla çekilmeli');
 
     // Bütçe bitmişken yeni sayfa istenmez: sağlayıcıya hiç gidilmez, bakım yine sonuç döndürür.
     const oncekiCagri = ty.cagrilar.length;
-    const bosBakim = await otomatikBakim(f.env, {simdi: AN + 5 * SAAT, sureMs: 1, senkronGetir: ty.getir});
+    const bosBakim = await otomatikBakim(f.env, {simdi: AN + 5 * SAAT, sureMs: 1, senkronGetir: ty.getir, kaynaklar: KAYNAKLAR});
     assert.equal(ty.cagrilar.length, oncekiCagri, 'süre bütçesi bitmişken sağlayıcıya gidilmemeli');
     assert.deepEqual(bosBakim.hatalar, []);
 
     // Yarıda kalan pencere kaybolmaz: sonraki tur AYNI pencerede kaldığı sayfadan devam eder.
-    await otomatikBakim(f.env, {simdi: AN + 5 * SAAT, senkronGetir: ty.getir});
+    await otomatikBakim(f.env, {simdi: AN + 5 * SAAT, senkronGetir: ty.getir, kaynaklar: KAYNAKLAR});
     const devam = ty.siparisler().at(SENKRON_ISTEK);
     assert.equal(devam.page, SENKRON_ISTEK, 'sonraki tur kaldığı sayfadan sürmeli');
     assert.equal(devam.from, ty.siparisler()[0].from, 'yarım kalan pencere daraltılmadan bitirilmeli');
@@ -110,7 +115,7 @@ test('Sağlayıcı hatası bakımı çökertmez; hatalı bağlantı kendiliğind
   const f = await kur(); try {
     const cagrilar = [];
     const bozuk = async url => { cagrilar.push(String(url)); return new Response('bozuk', {status: 500}); };
-    const r = await otomatikBakim(f.env, {simdi: AN, senkronGetir: bozuk});
+    const r = await otomatikBakim(f.env, {simdi: AN, senkronGetir: bozuk, kaynaklar: KAYNAKLAR});
     assert.equal(cagrilar.length, 1, 'hata alan sağlayıcıda sıradaki kaynaklar zorlanmamalı');
     assert.match(r.hatalar.join(' '), /senkron trendyol/);
     assert.equal(r.senkronTaslak, 0);
@@ -118,7 +123,7 @@ test('Sağlayıcı hatası bakımı çökertmez; hatalı bağlantı kendiliğind
     // Bakımın geri kalanı çalıştı: tur sonundaki iz kaydı yazıldı.
     assert.match(f.sqlite.prepare("SELECT description d FROM ec_activity WHERE description LIKE 'Otomatik bakım%' ORDER BY created_at DESC").get().d, /sorun/);
 
-    const ikinci = await otomatikBakim(f.env, {simdi: AN + 5 * SAAT, senkronGetir: bozuk});
+    const ikinci = await otomatikBakim(f.env, {simdi: AN + 5 * SAAT, senkronGetir: bozuk, kaynaklar: KAYNAKLAR});
     assert.equal(cagrilar.length, 1, 'çözülmemiş hatası olan bağlantı otomatik denenmez');
     assert.deepEqual(ikinci.senkronAtlandi, ['trendyol']);
     assert.deepEqual(ikinci.hatalar, []);
@@ -128,13 +133,13 @@ test('Sağlayıcı hatası bakımı çökertmez; hatalı bağlantı kendiliğind
 test('Telegram yalnız kayda değer iş olunca konuşur; değişen bir şey yoksa susar', async () => {
   const f = await kur(); const tg = telegramTaklidi(f.env); try {
     const ty = saglayici();
-    await otomatikBakim(f.env, {simdi: AN, senkronGetir: ty.getir});
+    await otomatikBakim(f.env, {simdi: AN, senkronGetir: ty.getir, kaynaklar: KAYNAKLAR});
     assert.equal(tg.mesajlar.length, 1, 'yeni taslak açılınca tek özet düşer');
     assert.match(tg.mesajlar[0].text, /1 yeni sipariş taslağı/);
     assert.equal(tg.mesajlar[0].chat_id, '-1001');
 
     // İkinci tur aynı siparişi görür: taslak da teslim de yok, kanal susmalı.
-    const ikinci = await otomatikBakim(f.env, {simdi: AN + 5 * SAAT, senkronGetir: ty.getir});
+    const ikinci = await otomatikBakim(f.env, {simdi: AN + 5 * SAAT, senkronGetir: ty.getir, kaynaklar: KAYNAKLAR});
     assert.equal(ikinci.senkronTaslak, 0);
     assert.equal(tg.mesajlar.length, 1, 'değişen bir şey yokken bildirim gönderilmez');
   } finally { tg.geri(); f.close(); }
@@ -146,7 +151,7 @@ test('Telegram yalnız kayda değer iş olunca konuşur; değişen bir şey yoks
 test('Senkrona sıra gelmediğinde sebep iz kaydına yazılır; sessizce "iş yoktu" denmez', async () => {
   const f = await kur(); try {
     const ty = saglayici();
-    const r = await otomatikBakim(f.env, {simdi: AN, sureMs: 1, senkronGetir: ty.getir});
+    const r = await otomatikBakim(f.env, {simdi: AN, sureMs: 1, senkronGetir: ty.getir, kaynaklar: KAYNAKLAR});
     assert.equal(ty.cagrilar.length, 0, 'bütçe yokken sağlayıcıya gidilmemeli');
     assert.deepEqual(r.hatalar, []);
     assert.ok(r.senkronSebep.some(s => /süre bütçesi bitti/.test(s)), 'sebep özete yazılmalı: ' + JSON.stringify(r.senkronSebep));
@@ -160,8 +165,8 @@ test('Senkrona sıra gelmediğinde sebep iz kaydına yazılır; sessizce "iş yo
 test('Aralık dolmadan atlandığında da sebep yazılır; süre bitti ile karıştırılmaz', async () => {
   const f = await kur(); try {
     const ty = saglayici();
-    await otomatikBakim(f.env, {simdi: AN, senkronGetir: ty.getir});
-    const r = await otomatikBakim(f.env, {simdi: AN + 60000, senkronGetir: ty.getir});
+    await otomatikBakim(f.env, {simdi: AN, senkronGetir: ty.getir, kaynaklar: KAYNAKLAR});
+    const r = await otomatikBakim(f.env, {simdi: AN + 60000, senkronGetir: ty.getir, kaynaklar: KAYNAKLAR});
     assert.ok(r.senkronSebep.some(s => /aralık dolmadı/.test(s)), JSON.stringify(r.senkronSebep));
     assert.ok(!r.senkronSebep.some(s => /süre bütçesi/.test(s)), 'süre bitmediği hâlde süre denmemeli');
   } finally { f.close(); }
@@ -193,7 +198,7 @@ test('Sağlayıcı payı korunur; bütçenin son saniyelerinde yeni sayfa istenm
 test('Senkron rapor işlerinden ÖNCE çalışır: aşama damgası sırayı gösterir', async () => {
   const f = await kur(); try {
     const ty = saglayici();
-    const r = await otomatikBakim(f.env, {simdi: AN, senkronGetir: ty.getir});
+    const r = await otomatikBakim(f.env, {simdi: AN, senkronGetir: ty.getir, kaynaklar: KAYNAKLAR});
     assert.deepEqual(r.hatalar, []);
     assert.ok(r.sure.senkron <= r.sure.rapor, 'senkron rapordan önce bitmeli: ' + JSON.stringify(r.sure));
     assert.ok(ty.siparisler().length > 0, 'sağlayıcıya çıkılmalı');
@@ -205,11 +210,24 @@ test('Senkron rapor işlerinden ÖNCE çalışır: aşama damgası sırayı gös
 test('Dolu turun iz kaydı da aşama sürelerini taşır', async () => {
   const f = await kur(); try {
     const ty = saglayici();
-    const r = await otomatikBakim(f.env, {simdi: AN, senkronGetir: ty.getir});
+    const r = await otomatikBakim(f.env, {simdi: AN, senkronGetir: ty.getir, kaynaklar: KAYNAKLAR});
     assert.ok(r.senkronKayit > 0, 'tur iş yapmalı');
     const iz = f.sqlite.prepare("SELECT description d FROM ec_activity WHERE description LIKE 'Otomatik bakım:%' ORDER BY created_at DESC, rowid DESC LIMIT 1").get();
     assert.match(iz.d, /\[.*sn\]$/, 'süreler iz kaydının sonunda olmalı: ' + iz.d);
     assert.match(iz.d, /senkron /);
     assert.match(iz.d, /rapor /);
+  } finally { f.close(); }
+});
+
+// ÜRETİMDE KAPALI OLDUĞU SINANIR. Kullanıcı pazaryeri verisini elle rapor yükleyerek sürdürmeyi
+// seçti; bakım turu varsayılan ayarla hiçbir sağlayıcıya ÇIKMAMALI. Kimlikler silinse de kod
+// yanlışlıkla açık kalırsa bu test uyarır.
+test('Varsayılan ayarda bakım hiçbir pazaryerine çıkmaz', async () => {
+  const f = await kur(); try {
+    const ty = saglayici();
+    const r = await otomatikBakim(f.env, {simdi: AN, senkronGetir: ty.getir});
+    assert.equal(ty.cagrilar.length, 0, 'sağlayıcıya istek gitmemeli');
+    assert.equal(r.senkronKayit, 0);
+    assert.deepEqual(r.hatalar, []);
   } finally { f.close(); }
 });
