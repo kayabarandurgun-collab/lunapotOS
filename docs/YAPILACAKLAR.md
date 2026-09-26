@@ -7,6 +7,20 @@ Son güncelleme: 2026-09-25
 - [ ] **Şifre yenile (ÖNCELİKLİ)** — HB servis anahtarı sohbet geçmişine iki kez düştü. Bağlantı kuruldu ve çalışıyor; anahtarı Hepsiburada panelinden yenile, sonra Bağlantılar → Hepsiburada → "Bağlantıyı güncelle" ile yenisini gir.
 - [ ] **Banka ekstresi yükle** — Trendyol ödemelerinin yattığı hesabın ekstresi. Banka ekstresi → "Ekstre yükle". CSV/Excel, sütunları panel kendisi tanıyor (test edildi). Sonra "Hakediş eşleştirme" sekmesinden onayla; para ancak o zaman kasaya girer. **Ana Kasa'nın eksi görünmesi bununla çözülecek.**
 
+## API KAPATILDI — elle rapor yükleme düzenine dönüldü (25.09)
+
+Kullanıcı kararı: pazaryeri verisi elle rapor yüklenerek sürdürülecek.
+
+**Silinenler (geri dönüşü yok):** 2 bağlantı ve API kimlikleri, 2.151 kaynak kaydı, 46 imleç, 119 çalışma kaydı. Otomatik senkron kapalı (`SENKRON_KAYNAKLARI` boş); bakım turu hiçbir sağlayıcıya çıkmıyor.
+
+**Korunanlar:** defterdeki her şey yerinde — 917 paket, 1.334 satış kaydı, 1.612 bileşen, 92 ilan bağlantısı. API ile işaretlenen teslimler, açılan taslaklar ve yazılan kesintiler gerçek işlemlerdi, geri alınmadı.
+
+**Kod silinmedi:** senkron, teslim onayı, kesinti işleme ve kuralları (`SENKRON_KAYNAKLARI_KAPALI`) duruyor ve testleri geçiyor. Geri açmak için Bağlantılar ekranından API kimliklerini yeniden girmek + listeyi doldurmak gerekir.
+
+**API kapanınca kaybolan uyarı — NOT:** "Pazaryeri teslim edilemedi diyor" uyarısı API kaydından besleniyordu, artık boş. Kapanmadan önce üç paket işaretliydi, gerçek durumları hâlâ bilinmiyor:
+- Sipariş **4302703706** — iki paketi 21.09'da teslim işaretli, kârı sayılıyor
+- Sipariş **4103383882** — kargoda görünüyor
+
 ## Açık işler
 
 - [ ] **Rapor turu boşa 60 saniye dönüyor** — bakım turunda rapor işleri hiç iş üretmeden 59,6 saniye sürüyordu (sayaçların hepsi sıfır). Senkron öne alındığı için artık zarar vermiyor ama sebep bulunmadı. Aşama süreleri artık dolu turda da iz kaydına yazılıyor, oradan izlenebilir.
