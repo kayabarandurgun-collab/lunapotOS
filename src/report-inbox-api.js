@@ -1385,8 +1385,32 @@ export async function reportInboxApi(request, env, path, readBody) {
     return {profiles: rows};
   }
   if (sub === '/profiles' && method === 'GET') {
-    const p = await db.prepare('SELECT * FROM ec_report_profiles WHERE provider=? AND kind=? AND signature=? AND active=1').bind(url.searchParams.get('provider') || '', url.searchParams.get('kind') || '', url.searchParams.get('signature') || '').first();
-    return {profile: p ? {...p, mapping: parse(p.mapping_json, {}), options: parse(p.options_json, {})} : null};
+    const provider = url.searchParams.get('provider') || '', kind = url.searchParams.get('kind') || '', signature = url.searchParams.get('signature') || '';
+    const cikar = p => ({...p, mapping: parse(p.mapping_json, {}), options: parse(p.options_json, {})});
+    const p = await db.prepare('SELECT * FROM ec_report_profiles WHERE provider=? AND kind=? AND signature=? AND active=1').bind(provider, kind, signature).first();
+    if (p) return {profile: cikar(p)};
+    // PAZARYERİ SÜTUN EKLEYİNCE EŞLEŞTİRME SIFIRLANMASIN. İmza birebir tutmuyorsa, eşleştirmede
+    // KULLANILAN sütunların hepsi yeni dosyada duran kayıtlı biçim aranır; yalnız sütun EKLENMİŞSE
+    // o biçim kullanılır. Eksilen sütun varsa hiçbir aday geçmez ve kullanıcıya yine sorulur:
+    // orada susmak, alanı boş okuyup sessizce yanlış veri yazmak olurdu.
+    // Not: imza küçük harfli olduğu için karşılaştırma da headerSignature ile normalleştirilir.
+    // Bu yalnız ÖNERİDİR; tarayıcı tarafı profileFits ile ham başlıklar üzerinde tekrar doğrular.
+    const dosya = new Set(signature.split('␟').filter(Boolean));
+    if (!dosya.size) return {profile: null};
+    const adaylar = (await db.prepare('SELECT * FROM ec_report_profiles WHERE provider=? AND kind=? AND active=1 ORDER BY rowid DESC LIMIT 50').bind(provider, kind).all()).results;
+    let best = null;
+    for (const aday of adaylar) {
+      const mapping = parse(aday.mapping_json, {});
+      const kullanilan = Object.values(mapping).filter(Boolean).map(h => headerSignature([h]));
+      if (!kullanilan.length || !kullanilan.every(h => dosya.has(h))) continue;
+      const kendi = String(aday.signature || '').split('␟').filter(Boolean);
+      if (!kendi.length) continue;
+      const ortak = kendi.filter(h => dosya.has(h)).length;
+      // Kayıtlı biçimin sütunlarının hepsi dosyada olmalı: bu, "yalnız eklenmiş" demektir.
+      if (ortak !== kendi.length) continue;
+      if (!best || ortak > best.ortak) best = {aday, ortak};
+    }
+    return {profile: best ? {...cikar(best.aday), signature_drift: true} : null};
   }
   if (sub === '/profiles' && method === 'POST') {
     const x = await readBody(request);

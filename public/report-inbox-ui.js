@@ -363,7 +363,9 @@ export function mountReports(root, namespace = 'ec') {
     d.fitInfo = profile ? profileFits(profile, table.headers) : null;
     refreshLocal(d);
     d.step = profile && d.fitInfo.fits && !d.unknownTypes.length ? 'check' : 'map';
-    if (d.step === 'check') say('Bu rapor biçimi tanındı; önceki eşleştirme kullanıldı.');
+    if (d.step === 'check') say(d.profile?.signature_drift
+      ? 'Bu rapor biçimi tanındı; pazaryeri ' + d.fitInfo.added.length + ' yeni sütun eklemiş, önceki eşleştirme bozulmadığı için kullanıldı.'
+      : 'Bu rapor biçimi tanındı; önceki eşleştirme kullanıldı.');
   }
   function refreshLocal(d) {
     d.local = normalizeRows({kind: d.kind, mapping: d.mapping, ...d.options}, d.table.headers, d.table.rows, {date1904: d.table.date1904});
@@ -443,7 +445,8 @@ export function mountReports(root, namespace = 'ec') {
         await upload();
         if (state.draft.step !== 'server' || !state.draft.fileId) { done.push({label, note: state.error || 'yüklenemedi'}); continue; }
         await apply(state.draft.fileId);
-        done.push({label, ok: true, counts: state.draft.result});
+        const kayan = state.draft.profile?.signature_drift ? ' (pazaryeri ' + state.draft.fitInfo.added.length + ' yeni sütun eklemiş, eşleştirme korundu)' : '';
+        done.push({label: label + kayan, ok: true, counts: state.draft.result});
       } catch (e) { done.push({label, note: e.message}); }
     }
     state.progress = null;
