@@ -183,3 +183,32 @@ test('Kendi rapor bağı olan kargodaki paket, ikizin tarihiyle teslime geçiril
       'kendi raporu teslim demiyorsa ikizin tarihi uygulanmamalı: ' + JSON.stringify(onizleme.packages));
   } finally { f.close(); }
 });
+
+// İKİZ DE TESLİME GEÇTİĞİNDE KOPYA HAYALET KÂR YAZMAZ. Kopyanın geliri ters kayıtla sıfırlanmıştır
+// ama pazaryeri kesintileri satırında durur; iade satırındaki eksi işaretli kesintiler kopyayı
+// "kârlı" gösteriyordu. Kopya yalnız ikiz listede YOKKEN onun yerine geçerdi; ikiz de teslim
+// edildiğinde ikisi birden sayılıp kâr şişiyordu (canlıda 6 paket, +1.452,24 TL).
+test('Kopya ve ikiz birlikte teslim edildiğinde kâr iki kez sayılmaz; kesinti ikize taşınır', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    ikiz(f);
+    await f.ok('/ec/reports/apply-fees', {store_id: 'st-ty', confirm: true});   // kesintiler kopyaya yazılır
+
+    const once = await karSatiri(f, 'asil');
+    assert.ok(once, 'ikiz, kopyanın yerine geçerek kâr raporunda görünür');
+    const kopyaOnce = await karSatiri(f, 'kopya');
+    assert.ok(!kopyaOnce, 'kopya kendi başına satır açmaz');
+
+    // Rapor eşitlemesi asıl kaydı da teslime alır: ikisi birden "teslim edildi" olur.
+    await f.ok('/ec/reports/sync-deliveries', {confirm: true});
+    assert.equal(f.sqlite.prepare("SELECT status FROM ec_order_packages WHERE id='asil'").get().status, 'delivered');
+
+    const sonra = await karSatiri(f, 'asil');
+    assert.ok(sonra, 'ikiz kendi başına raporda kalmalı');
+    const kopyaSonra = await karSatiri(f, 'kopya');
+    assert.ok(!kopyaSonra, 'kopya listeden düşmeli, hayalet kâr yazmamalı');
+    assert.equal(sonra.profit_cents, once.profit_cents,
+      'teslim durumu değişti diye kâr değişmemeli: ' + once.profit_cents + ' → ' + sonra.profit_cents);
+    assert.equal(sonra.commission_cents, once.commission_cents, 'kesinti ikize taşınmalı, tahmine düşmemeli');
+  } finally { f.close(); }
+});

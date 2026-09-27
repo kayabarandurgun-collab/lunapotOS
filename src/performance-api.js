@@ -183,7 +183,15 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
     db.prepare('SELECT c.*,l.package_id,(SELECT pp.vat_bps FROM price_profiles pp WHERE pp.product_id=c.product_id) urun_kdv,COALESCE((SELECT NULLIF(pp.replacement_cost_cents,0) FROM price_profiles pp WHERE pp.product_id=c.product_id),(SELECT CAST(ROUND(pl.net_cents*1000.0/pl.quantity_milli) AS INTEGER) FROM purchase_lines pl JOIN purchase_invoices pi ON pi.id=pl.invoice_id WHERE pl.product_id=c.product_id AND pi.status=\'posted\' AND pl.line_type=\'product\' AND pl.quantity_milli>0 ORDER BY pi.invoice_date DESC,pi.created_at DESC LIMIT 1)) son_alis,b.quantity_milli stock_quantity_milli,b.value_cents,p.stock_unit current_stock_unit,s.cost_cents sale_cost_cents FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN stock_balances b ON b.product_id=c.product_id JOIN products p ON p.id=c.product_id LEFT JOIN sale_entries s ON s.id=c.sale_id WHERE l.package_id IN (SELECT value FROM json_each(?))').bind(tids),
     db.prepare(SALES_SQL).bind(tids)])).map(r=>r.results);
    for(const [m,rows] of [[lineMap,tl],[partMap,tc],[saleMap,ts]])for(const [k,v] of group(rows))m.set(k,v);
-   const free=twins.filter(t=>!isDup(t.id));
+   // IKIZ LISTEDE DE OLABILIR. Kopyanin teslim bilgisi asil kayda da yazildiginda (rapor
+   // esitlemesi) ikiz artik kendi basina teslim edilenler arasinda yer aliyor ve yukaridaki
+   // sorgu onu disarida birakiyordu: kopya listede kalip GELIRI SIFIR ama kesintileri eksi
+   // isaretli bir satir olarak HAYALET KAR yaziyordu (canlida 6 paket, +1.452,24 TL).
+   // Ikiz zaten listedeyse kopya listeden duser; kesintileri yine ikize tasinir.
+   const dupKeys=new Set(dups.map(p=>p.channel+'|'+p.order_no));
+   const listede=new Set(packages.map(p=>p.id));
+   const dusecek=new Set();
+   const free=[...twins.filter(t=>!isDup(t.id)),...packages.filter(p=>!isDup(p.id)&&dupKeys.has(p.channel+'|'+p.order_no))];
    const byOrder=g=>{const m=new Map();for(const p of g){const k=p.channel+'|'+p.order_no;m.set(k,[...(m.get(k)||[]),p]);}return m;};
    const freeBy=byOrder(free);
    for(const [k,list] of byOrder([...dups].sort((a,b)=>a.occurred_on.localeCompare(b.occurred_on)||a.external_id.localeCompare(b.external_id)))){
@@ -198,9 +206,11 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
       return src?{...e,commission_cents:e.commission_cents??src.commission_cents,shipping_cents:e.shipping_cents??src.shipping_cents,other_cents:e.other_cents??src.other_cents,fees_status:src.fees_status}:e;
      }));
      // Stopaj payı ikizin KENDİ ekonomik payıdır: kopya paydada sayılmaz, stopaj yarıya bölünmez (Codex R18).
-     packages[packages.indexOf(dup)]={...twin,status:'delivered',delivered_on:dup.delivered_on,twin_of:dup.external_id,twin_dup_id:dup.id};
+     if(listede.has(twin.id))dusecek.add(dup.id);
+     else packages[packages.indexOf(dup)]={...twin,status:'delivered',delivered_on:dup.delivered_on,twin_of:dup.external_id,twin_dup_id:dup.id};
     });
    }
+   if(dusecek.size){const kalan=packages.filter(p=>!dusecek.has(p.id));packages.length=0;packages.push(...kalan);}
   }
  }
  const templateKeys=(mode==='pending'?packages:[]).filter(p=>!inputMap.has(p.id)).map(p=>parcelTemplateKey(p,lineMap.get(p.id)||[],partMap.get(p.id)||[]));
