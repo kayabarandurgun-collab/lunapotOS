@@ -1,0 +1,105 @@
+---
+session: lunapot-panel
+date: 2026-09-27
+status: complete
+outcome: SUCCEEDED
+---
+
+goal: "Sabah Trendyol 22,5 saattir veri çekmiyordu, HB hiç bağlı değildi. İkisi de çalıştırıldı, üç sessiz veri hatası ve bir eşleştirme tuzağı bulundu. Sonra KULLANICI API'leri tamamen kapatmayı seçti: bağlantılar ve API kaynak kayıtları silindi, elle rapor yükleme düzenine dönüldü. Gün sonunda HB ve TY raporları yüklendi."
+now: "SIRADAKİ İŞ KULLANICIDA: Trendyol SİPARİŞ raporunu yükleyecek (bugün yüklenen finans raporuydu). 418 satışın kesintisi tam olarak onu bekliyor. Kod tarafında bekleyen zorunlu iş yok; bir düzeltme önerisi onay bekliyor (aşağıda 'acik_isler' ilk madde)."
+test: "npm test   # 1030 test, 1015 pass, 15 atlanan, 0 fail. Yayın: npm test > out; grep -q '^ℹ fail 0' out && git push origin main"
+
+ortam:
+  repo: "C:/Users/baran/Desktop/site/lunapot-panel (main, HEAD 7339611). Documents/Codex kopyası ESKİ, DOKUNMA."
+  canli: "https://muhasebe.lunapot.com · CACHE lunapot-shell-v144-toplam-satiri-elenir · migration 0059'a kadar uygulandı."
+  yayin: "Migration varsa ÖNCE npm run db:remote, sonra git push (Cloudflare ~2-3 dk). UI değiştiyse public/sw.js CACHE'ini artır."
+  canli_okuma: |
+    PowerShell'de tek tırnaklı here-string kullan, yoksa $ işareti değişken sanılıp JSON yolu bozuluyor:
+      $sql = @'
+      SELECT ... json_extract(payload_json,'$.type') ...
+      '@
+      npx.cmd wrangler d1 execute lunapot-db --remote --json --command $sql
+    Çok satırlı komutta YALNIZ İLK ifade çalışıyor; DELETE gibi işleri tek tek gönder.
+    Bash aracından npx çağrılamıyor ('C:\Program' hatası), PowerShell kullan.
+  tarayici: "mcp__Claude_Browser__ ile panel açık kaldı. javascript_tool 45 saniyede zaman aşımına uğruyor: uzun döngüleri parçala. registration.update()+reload OTURUMU DÜŞÜRDÜ (devirdeki 'düşmez' notu bu sefer tutmadı)."
+  kullanici_terminali: "PowerShell 5.1. '&&' YOK (';' kullan), 'npx' değil 'npx.cmd', Windows yolu."
+  worker_secretlari: "CREDENTIAL_KEY, SETUP_TOKEN, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ORDERS, TELEGRAM_CHAT_ERRORS."
+
+kullanici:
+  - "TEKNİK ANLATMA, KISA YAZ."
+  - "İddialarını sorguluyor ve HAKLI ÇIKIYOR. Bu oturumda: 'eşleştirmeyi neden ben yapıyorum, sistem yapmalı' dedi — ölçtüm, bekleyen 21 ilan barkodunun 20'sinin bağlantısı ZATEN vardı, sistem yapabilecekken bekletiyordu. Haklıydı."
+  - "AÇIK TALİMAT: 'gerçekten ne olduğunu çözemediğin sipariş varsa UYDURMA, BANA SOR.' Bu oturumda iki ilan soruldu, cevap alındı, bağlandı. Kural böyle sürsün."
+  - "API ŞİFRESİNİ SANA VERİP 'sen gir' DİYOR. GİRME. Bu oturumda iki kez düştü; kimlikler artık silindi."
+  - "Sinirlenince sert konuşuyor. Savunmaya geçme, ölç ve iş yap."
+  - "API'leri kapatma kararını, ne kaybedeceği rakamla gösterildikten SONRA verdi. Karar bilinçli; geri açmak istemedikçe açma."
+
+done_this_session:
+  - task: "TRENDYOL SENKRONU 22,5 SAATTİR DURMUŞTU. Cron 15 dakikada bir çalışıyor, hata yok, aralık dolmuş — ama sağlayıcıya hiç çıkılmamış, iz kaydı 'yapılacak iş yoktu' diyordu. Sebep ölçüldü (iz kaydına teşhis eklenerek): 'dosya 0.2sn, rapor 59.6sn, senkron 59.7sn' — rapor işleri 50 saniyelik tur bütçesinin tamamını yiyordu, en sonda duran senkrona sıra hiç gelmiyordu. Bütçenin yarısını ayırmak YETMEDİ (tek uzun çağrı payı aşıyor); senkron rapor işlerinden ÖNE alındı. Sonuç: 262 kayıt tarandı, 11 taslak, 12 paket teslim işaretlendi; teslim edilmiş TY paketi 406→418."
+  - task: "HEPSİBURADA BAĞLANDI. Kullanıcı kimlikleri girdi, 667 finans kaydı çekildi. Yol boyunca ÜÇ SESSİZ VERİ HATASI: (1) HB para alanları {value,currencyCode} nesnesi, kod {amount,currency} arıyordu — her kayıt 'tutarı yok' sayılıp bütün sorgu düşüyordu; (2) paket uçları PascalCase gönderiyor (Id, Barcode, DeliveredDate…), kod camelCase arayınca kayıt SAYISI doğru görünüyor ama teslim tarihi BOŞ okunuyordu; (3) boş sonuçta uç items yerine null gönderiyor, bu 'şema bozuk' sanılıp sorgu reddediliyordu."
+  - task: "HB SİPARİŞ UCUNUN BOŞ DÖNMESİ HATA DEĞİLMİŞ. Dokümanda yazıyor: o uç yalnız 'Open ve Unpacked' (paketlenmeyi bekleyen) siparişleri veriyor. Teslim/kargo/teslim edilemedi ayrı uçlarda: /packages/merchantid/{id}/delivered · /shipped · /undelivered. Üçü de eklendi, teslim onayı Trendyol'daki kuralla bağlandı (belirsizse dokunma, tarih uydurma). İlk çalıştırmada 18 paket teslim işaretlendi."
+  - task: "İLAN EŞLEŞTİRME TUZAĞI. 29 Trendyol ilanının stok kodu harfi harfine 'merchantSku' (satıcı panelinde alan ADI değer olarak girilmiş) ve bu ilanlar FARKLI ürünler. Eşleştirme barkodla kodu aynı torbaya atıyordu: o koda açılacak TEK bağlantı 29 ürünü aynı stok kartına bağlardı, stok ve kâr sessizce yanlış ürüne yazılırdı. Barkod öne alındı (hem eşleştirmede hem içe aktarmada)."
+  - task: "İLAN BARKODU SATIRDA SAKLANIR (migration 0059). Kullanıcı Trendyol'daki kodu düzeltemiyor; barkod ilana özgü ve doğru. Geçmiş TASLAK satırlar ham kayıttan dolduruldu (56 satırın 55'i). Eşleştirme penceresinde 'bu ilanı barkoduyla kalıcı bağla' seçeneği eklendi."
+  - task: "EŞLEŞTİRMEYİ ARTIK SİSTEM YAPIYOR. Eşleşme yalnız içe aktarma anında bir kez deneniyordu; tutmadıysa bir daha hiç denenmiyordu. Bakım turu artık bekleyen taslakları yeniden deniyor (yalnız bileşeni de ürünü de olmayan satıra dokunur, kullanıcının seçimini değiştirmez, uydurmaz). İlk turda 54 ilan eşleşti; bekleyen paket 31→0."
+  - task: "TESLİM EDİLEMEYEN PAKET UYARISI. HB 'teslim edilemedi' diyorsa bizde teslim duran paketin kârı yanlış sayılmış olabiliyordu, görünmüyordu. İş listesine kırmızı satır eklendi. Durum KENDİLİĞİNDEN geri alınmıyor (teslimi geri çevirmek satışı ve stoğu da geri alır). Üç paket işaretlendi."
+  - task: "PAZARYERİ KESİNTİSİ API KAYITLARINDAN İŞLENEBİLİR (src/pazaryeri-kesinti.js + POST connections/<sağlayıcı>/fees). Kural: bir pakete kesinti yazılması için hem komisyonu hem kargo payı gelmiş olmalı — ölçüldü, kesintiler AYRI GÜNLERDE geliyor ve 167 paketin 59'unda ödeme var ama komisyon/kargo yok. Canlıda 0 satır yazdı (tam olanların hepsi zaten rapordan işlenmişti); değeri ileriye dönüktü."
+  - task: "API'LER TAMAMEN KAPATILDI (kullanıcı kararı). Ne kaybedeceği rakamla gösterildi, yine de kapatmayı seçti. Silindi: 2 bağlantı ve kimlikler, 2.151 kaynak kaydı, 46 imleç, 119 çalışma kaydı. SENKRON_KAYNAKLARI boşaltıldı. Kod ve kurallar SİLİNMEDİ: SENKRON_KAYNAKLARI_KAPALI altında duruyor, testler sınamaya devam ediyor, ayrıca 'varsayılan ayarda hiçbir uca çıkılmaz' testi eklendi."
+  - task: "RAPORUN 'TOPLAM' SATIRI ARTIK ELENİYOR. İnceleme kutusundaki 7 kaydın 5'i aynı çöptü: HB dökümünün son satırındaki 'Toplam' kelimesi SİPARİŞ NO sütununa düşüyor, mevcut eleme kuralı kimlik alanının boş olmasını şart koştuğu için çalışmıyordu. Etiket taşıyan kimlik alanı artık boş sayılıyor; kural dar (ürün adında 'Toplam' geçen gerçek sipariş elenmiyor, tutar genel toplama eklenmiyor)."
+  - task: "SATIŞ EKRANINA SAYFALAMA. 1255 satır tek seferde basılıyordu; 50'şer sayfa oldu. Ölçüldü: düğme 2509→114, DOM öğesi 20.137→870."
+  - task: "RAPORLAR YÜKLENDİ. HB: 21 yeni, 27 güncellenen, 2 paket teslime geçti; HB paket 266→286, teslim 191→202. TY: 1.069 yeni, 1.316 güncellenen, 2.385 KESİNTİ KAYDI, incelemeye ayrılan 0."
+
+acik_isler:
+  - "ONAY BEKLEYEN DÜZELTME: applyReportFees'te erp_package_id'si olmayan paketler SESSİZCE eleniyor (src/report-inbox-api.js:849 'const all = results.filter(r => r.erp_package_id)') — atlananlar listesine bile girmiyor. Bu yüzden 'neden işlenmedi' sorusu ekrandan cevaplanamıyor; sebebi bulmak saatler aldı. Kullanıcıya soruldu, cevap gelmedi. Yapılacaksa: elenen paket de sebebiyle skipped'a düşsün."
+  - "KULLANICIDA: Trendyol SİPARİŞ raporu yüklenecek. Bugün yüklenen finans raporuydu (adı SiparisKayitlari ama profili finans; 2.385 kesinti getirdi). Kesinti YALNIZ teslim edilmiş pakete yazılır ve 'teslim edildi mi' sorusu RAPORDAN okunuyor (deliveryOf → satırın delivered_date alanı). Ölçüm: TY'nin 597 sipariş satırının 373'ünde teslim tarihi var, 224'ünde yok; bekleyen 418 satış tam olarak o 224'ün üstünde. Sipariş raporu yüklenince kendiliğinden işlenecek."
+  - "KULLANICIDA: İnceleme kutusunda 2 gerçek karar var — sipariş 4408288778, paket 5519496836, aynı ürün iki satırda (2 adet/294,00 TL ve 1 adet/147,00 TL, ikisi de teslim edildi). 3 adet mi satıldı yoksa mükerrer kayıt mı? Birim fiyat ikisinde de 147 TL. Kalan 5 inceleme kaydı 'Toplam' satırıydı, artık oluşmayacak; eskiler 'Reddet' ile temizlenebilir."
+  - "API KAPANINCA KAYBOLAN UYARI: 'pazaryeri teslim edilemedi diyor' uyarısı API kaydından besleniyordu, artık boş. Kapanmadan önce üç paket işaretliydi, gerçek durumları BİLİNMİYOR: sipariş 4302703706 (iki paketi 21.09'da teslim işaretli, KÂRI SAYILIYOR) ve sipariş 4103383882 (kargoda görünüyor)."
+  - "Rapor turu iş üretmeden 53–80 saniye sürüyor (iz kaydındaki 'rapor' damgası). Senkron öne alındığı için artık zarar vermiyor, sebep BULUNMADI. Aşama süreleri hem dolu hem boş turda yazılıyor, oradan izlenebilir."
+  - "AY SONU — Seçkin TS1/Plug Mix: 2 adet Plug Mix iadesi + yeni TS1 faturası. Alış faturaları → YSK2026000000402 → 'Tedarikçiye iade' 2 adet. SONRA 'urun-duzeltme:plugmix-ts1-2026-09-23' referanslı stok hareketleri ters kayıtla geri alınmalı, yoksa 2 adet çift sayılır."
+  - "İş listesinde: 11 paket stok ayrıldı-gönderim bekliyor, 5 paket 7+ gündür kargoda, 1 paket satış tutarı eksik."
+  - "Komisyon farkı 514,96 TL (278 siparişte, hepsi aynı yönde). Birkaç hafta sonra tekrar ölç."
+  - "HB kargo tarifesinde iki bant daha ucuz: 400–599,99 → 130,39; 1000 TL+ → 230,99. Onay verilmedi."
+  - "BÜTÜN tarifeler 31.12.2026'da bitiyor. Aralık'ta hatırlat."
+  - "Ürün ölçüleri SAHTE: 27 HB ürününün hepsi 10x10x10 cm / 1 kg."
+  - "Genel giderler girilmedi. Girilene kadar 'kâr' brüt katkıdır."
+  - "Cari birleştirme yok. Güvenlik G10/G11 bilerek açık."
+
+failed:
+  - "SENKRONUN DURMA SEBEBİNİ İKİ KEZ YANLIŞ TAHMİN ETTİM. Önce 'bütçenin yarısını ayırmak yeter' dedim, yetmedi (12:01 turunda da çıkılmadı) — tek uzun çağrı payı aşıyor, sıranın değişmesi gerekiyordu. DERS: bütçe kapısı her yinelemeden ÖNCE bakılıyor, aşma her zaman mümkün."
+  - "HB 'teslim edilemedi' ucunun boş dönmesini 'sayfalama parametresini yutuyor, 50'den fazla kayıt döndürüyor' diye yorumladım ve çift yazımlı parametre gönderdim. Ölçünce TERSİ çıktı: totalCount 0, yani teslim edilemeyen paket HİÇ YOK ve uç boş sonuçta items yerine null gönderiyor. Tahmine dayanan değişiklik geri alındı. DERS: 'liste bulunamadı' hatasında önce gelen SAYIYI logla."
+  - "KENDİ ZAMAN ÇİZGİMİ YANLIŞ KURUP YANLIŞ ALARM VERDİM: kapatmadan ÖNCEKİ bakım turlarının senkron sayaçlarını görüp 'senkron hâlâ çalışıyor, kapatma tutmadı' dedim. Bağlantı ve kayıt sıfırdı, kapatma sağlamdı. DERS: iz kaydının saatini kendi işlem saatinle karşılaştır."
+  - "'Kesinti aktarımı hiçbir şey yapamıyor çünkü kesinti kayıtlarının erp_package_id'si boş' dedim, YANLIŞTI. Bağlantı SİPARİŞ SATIRLARI üzerinden kuruluyor, kesinti kaydının kendisinde olması gerekmiyor. Gerçek sebep: kesinti yalnız teslim edilmiş pakete yazılıyor ve teslim bilgisi RAPORDAN okunuyor."
+  - "GEÇMİŞ OTURUM DERSİ (hâlâ geçerli): canlı veriye elle SQL YAZMA. Okuma serbest, yazma uygulamanın kendi ucundan."
+
+next:
+  - "1) Kullanıcı Trendyol sipariş raporunu yükleyince: bekleyen kesintinin düştüğünü ölç (ec_sale_entries fees_status='pending' 515'ten düşmeli). Düşmezse sebebi applyReportFees'in sessiz elemesinde ara."
+  - "2) Onay gelirse: applyReportFees'te elenen paketleri sebebiyle skipped'a ekle (acik_isler ilk madde)."
+  - "3) İnceleme kutusundaki 2 kayıt için kullanıcının cevabını bekle (3 adet mi, mükerrer mi)."
+  - "4) API geri açılmak istenirse: SENKRON_KAYNAKLARI'nı SENKRON_KAYNAKLARI_KAPALI ile doldur + Bağlantılar ekranından kimlikleri yeniden gir. Kod ve testler hazır."
+
+files:
+  created:
+    - thoughts/shared/handoffs/lunapot-panel/2026-09-27_00-30_api-kapatildi-rapor-duzenine-donuldu.yaml
+    - migrations/0059_ilan_barkodu.sql
+    - src/pazaryeri-kesinti.js
+    - tests/satis-sayfalama.test.js
+    - tests/hb-finans-sema.test.js
+    - tests/hb-kesinti-isleme.test.js
+    - tests/ilan-eslestirme-barkod.test.js
+    - tests/rapor-toplam-satiri.test.js
+  modified:
+    - src/connections-api.js
+    - src/otomatik-bakim.js
+    - src/orders-api.js
+    - src/orders-query.js
+    - src/attention-api.js
+    - src/report-inbox-api.js
+    - public/report-core.js
+    - public/accounting-ui.js
+    - public/orders-ui.js
+    - public/operations-ui.js
+    - public/attention-ui.js
+    - public/sw.js
+    - docs/YAPILACAKLAR.md
+    - tests/orders.test.js
+    - tests/orders-tracking.test.js
+    - tests/otomatik-bakim-senkron.test.js
+  scratchpad: "Yok; geçici ölçüm dosyaları temizlendi."
