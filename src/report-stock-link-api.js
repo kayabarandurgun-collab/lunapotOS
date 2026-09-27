@@ -318,26 +318,56 @@ async function tazeleTaslakBagi(db, packageId) {
   const hash = await reportLinkFingerprint(records);
   if (hash === pkg.report_link_hash && !pkg.source_changed) return {};
   const gecerli = records.filter(r => !records.some(k => eskittiMi(k, r)));
-  const rapor = new Map();
-  for (const r of gecerli) {
-    const x = rapor.get(malKodu(r.data)) || {adet: 0, brut: 0, brutVar: true, kdv: new Set()};
-    x.adet += Number(r.data.quantity) || 0;
-    if (r.data.gross == null) x.brutVar = false; else x.brut += Number(r.data.gross);
-    if (r.data.vat_bps != null) x.kdv.add(Number(r.data.vat_bps));
-    rapor.set(malKodu(r.data), x);
+  const lines = (await db.prepare('SELECT id,sku,barcode,quantity_milli,gross_cents,vat_bps,net_revenue_cents FROM ec_order_lines WHERE package_id=? ORDER BY rowid').bind(packageId).all()).results;
+  // AYNI ANAHTAR İKİ TARAFTA DA. Rapor tarafı barkodla, defter tarafı stok koduyla eşleştiriliyordu.
+  // Trendyol'da ilanların stok kodu harfi harfine "merchantSku" (satıcı panelinde alan ADI değer olarak
+  // girilmiş) olduğu için hiçbiri tutmuyor, 82 sipariş taslakta kalıyordu: barkodlar doğru ve birbirinden
+  // farklıydı, stok kodu hepsinde aynı kelimeydi.
+  // Barkod önce denenir. Tutmazsa stok koduna düşülür — ama YALNIZ o anahtar ayrı barkodları aynı torbaya
+  // atmıyorsa: atsaydı farklı ürünler tek kartta birleşir, stok ve kâr sessizce yanlış ürüne yazılırdı.
+  const kur = anahtar => {
+    const rapor = new Map(), defter = new Map();
+    for (const r of gecerli) {
+      const k = anahtar(r.data), x = rapor.get(k) || {adet: 0, brut: 0, brutVar: true, kdv: new Set()};
+      x.adet += Number(r.data.quantity) || 0;
+      if (r.data.gross == null) x.brutVar = false; else x.brut += Number(r.data.gross);
+      if (r.data.vat_bps != null) x.kdv.add(Number(r.data.vat_bps));
+      rapor.set(k, x);
+    }
+    for (const l of lines) {
+      const k = anahtar(l), x = defter.get(k) || {adet: 0, brut: 0, brutVar: true, satirlar: []};
+      x.adet += (l.quantity_milli || 0) / 1000;
+      if (l.gross_cents == null) x.brutVar = false; else x.brut += l.gross_cents;
+      x.satirlar.push(l);
+      defter.set(k, x);
+    }
+    return {rapor, defter};
+  };
+  const cakisiyor = anahtar => [gecerli.map(r => r.data), lines].some(liste => {
+    const m = new Map();
+    for (const d of liste) {
+      const b = String(d.barcode || '');
+      if (!b) continue;
+      const k = anahtar(d);
+      if (!m.has(k)) m.set(k, new Set());
+      m.get(k).add(b);
+      if (m.get(k).size > 1) return true;
+    }
+    return false;
+  });
+  const esitMi = ({rapor, defter}) => rapor.size === defter.size && [...rapor].every(([k, x]) => defter.get(k)?.adet === x.adet);
+  let secilen = null;
+  for (const anahtar of [malKodu, d => String(d.sku || d.barcode || '')]) {
+    if (cakisiyor(anahtar)) continue;
+    const aday = kur(anahtar);
+    if (esitMi(aday)) { secilen = aday; break; }
   }
-  const lines = (await db.prepare('SELECT id,sku,quantity_milli,gross_cents,vat_bps,net_revenue_cents FROM ec_order_lines WHERE package_id=? ORDER BY rowid').bind(packageId).all()).results;
-  const defter = new Map();
-  for (const l of lines) {
-    const x = defter.get(String(l.sku || '')) || {adet: 0, brut: 0, brutVar: true, satirlar: []};
-    x.adet += (l.quantity_milli || 0) / 1000;
-    if (l.gross_cents == null) x.brutVar = false; else x.brut += l.gross_cents;
-    x.satirlar.push(l);
-    defter.set(String(l.sku || ''), x);
+  if (!secilen) {
+    const {rapor: r0, defter: d0} = kur(malKodu);
+    return {error: 'Sipariş taslak kaldı: raporda ürün veya adet değişti (' +
+      [...r0].map(([k, x]) => k + ' × ' + x.adet).join(', ') + '); taslak ' + [...d0].map(([k, x]) => k + ' × ' + x.adet).join(', ') + '.'};
   }
-  const ayni = rapor.size === defter.size && [...rapor].every(([k, x]) => defter.get(k)?.adet === x.adet);
-  if (!ayni) return {error: 'Sipariş taslak kaldı: raporda ürün veya adet değişti (' +
-    [...rapor].map(([k, x]) => k + ' × ' + x.adet).join(', ') + '); taslak ' + [...defter].map(([k, x]) => k + ' × ' + x.adet).join(', ') + '.'};
+  const {rapor, defter} = secilen;
   const tl = c => c == null ? 'yok' : (c / 100).toFixed(2).replace('.', ',') + ' TL';
   const degisen = [];
   for (const [k, x] of rapor) {

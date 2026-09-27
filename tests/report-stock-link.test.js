@@ -750,3 +750,47 @@ test('Otomatik iade: teslim edilemedi ve son ekstrede satış 0 ise (pazaryeri i
     assert.equal((await f.ok('/ec/reports/stock-link/returns-apply', {store_id: s, confirm: true})).done.length, 0, 'ikinci kez yazılmaz');
   } finally { f.close(); }
 });
+
+// STOK KODU AYNI, BARKOD FARKLI. Trendyol'da ilanların stok kodu alanına alan ADI ("merchantSku")
+// girilmiş; onlarca ayrı ürün aynı kodu taşıyor. Taslak tazelemesi rapor tarafını barkodla, defter
+// tarafını stok koduyla gruplayınca hiçbiri tutmuyor ve sipariş sonsuza kadar taslakta kalıyordu
+// (canlıda 82 sipariş). İki taraf da AYNI anahtarı kullanmalı.
+test('Stok kodu bütün ilanlarda aynı kelimeyse eşleştirme barkodla yürür, sipariş taslakta kalmaz', async () => {
+  const f = appFixture(); await f.setup(); try {
+    await fourPack(f);
+    const s = store(f);
+    startDate(f, DATE);
+    record(f, s, 'TY-1', line({package_id: 'PKM', line_id: 'LM', order_no: 'OM', status: 'Gönderime Hazır', delivered_date: ''}), 1);
+    const taslak = await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PKM', complete_package_confirmed: true});
+    // İlanın stok kodu alan ADINA dönüşüyor; barkod doğru ve değişmiyor.
+    sql(f, "UPDATE ec_order_lines SET sku='merchantSku', barcode='785457868' WHERE package_id=?", taslak.package_id);
+    guncelle(f, 'rec-TY-1-1', {status: 'Kargolandı'});
+
+    const r = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
+    const sonuc = r.results[0] || {};
+    assert.ok(!/ürün veya adet değişti/.test(sonuc.reason || ''),
+      'stok kodu aynı kelime olsa da barkodla eşleşmeli. Dönen: ' + JSON.stringify(sonuc));
+    assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_packages').get().n, 1, 'ikinci sipariş açılmadı');
+  } finally { f.close(); }
+});
+
+// GÜVENLİK SINIRI: bir anahtar farklı barkodları aynı torbaya atıyorsa kullanılamaz. Kullanılsaydı
+// ayrı ürünler tek kartta birleşir, stok ve kâr sessizce yanlış ürüne yazılırdı.
+test('Aynı stok kodunu taşıyan İKİ FARKLI barkod tek ürüne birleştirilmez', async () => {
+  const f = appFixture(); await f.setup(); try {
+    await fourPack(f);
+    const s = store(f);
+    startDate(f, DATE);
+    record(f, s, 'TY-1', line({package_id: 'PKZ', line_id: 'LZ', order_no: 'OZ', status: 'Gönderime Hazır', delivered_date: ''}), 1);
+    const taslak = await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PKZ', complete_package_confirmed: true});
+    sql(f, "UPDATE ec_order_lines SET sku='merchantSku', barcode='785457868' WHERE package_id=?", taslak.package_id);
+    // Defterde aynı stok kodlu İKİNCİ satır: barkodu başka bir ürünün.
+    sql(f, `INSERT INTO ec_order_lines(id,package_id,external_id,sku,barcode,name,quantity_milli,gross_cents,vat_bps)
+      VALUES('l-ikinci',?,'PKZ|BASKA','merchantSku','999999999','Başka ürün',1000,10000,2000)`, taslak.package_id);
+    guncelle(f, 'rec-TY-1-1', {status: 'Kargolandı'});
+
+    const r = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
+    const sonuc = r.results[0] || {};
+    assert.ok(sonuc.skipped, 'belirsizlikte sessizce devam edilmemeli, sebebiyle atlanmalı: ' + JSON.stringify(sonuc));
+  } finally { f.close(); }
+});
