@@ -163,6 +163,9 @@ async function plan(env, storeId, packageId, lineIdentityDeclared = false) {
         source: {provider: store.provider, store_id: store.id, package_id: packageId,
           record_ids: ayrilacak.map(r => r.id), versions: ayrilacak.map(r => r.version), relink_from: linked.erp_package_id},
         order: {channel: store.provider, external_id: 'RPT-' + (await digest([store.provider, store.id, packageId, 'eksik'])).slice(0, 40),
+          // İkiz taramasi yukarida yapildi (sahipsiz ikiz varsa ona baglanir, birden coksa incelemeye
+          // duser). Buraya gelen parca gercekten yeni: merkezdeki cift kayit kapisina beyan edilir.
+          additional_package: true,
           order_no: ayrilacak[0].data.order_no, occurred_on: gun,
           external_status: ayrilacak[0].data.status || '',
           lines: ayrilacak.map(r => ({external_id: lineIdentity(r.data, packageId, lineIdentityDeclared),
@@ -286,8 +289,10 @@ async function plan(env, storeId, packageId, lineIdentityDeclared = false) {
     fingerprint: await packageFingerprint(records),
     source: {provider: store.provider, store_id: store.id, package_id: packageId,
       record_ids: records.map(r => r.id), versions: records.map(r => r.version)},
+    // Sahipsiz ikiz taramasi (yukarida) bu paketin gercekten yeni bir parca oldugunu belirledi;
+    // merkezdeki cift kayit kapisina acikca beyan edilir.
     order: {channel: store.provider, external_id, order_no: [...orders][0], occurred_on: occurred,
-      external_status: records[0].data.status || '', lines},
+      external_status: records[0].data.status || '', additional_package: true, lines},
     notice: 'Mevcut sipariş ucuna TASLAK olarak gönderilir. Stok yalnızca rezervasyon ve gönderim adımlarında, bir kez değişir.'};
 }
 

@@ -289,7 +289,7 @@ test('Sipariş panelde iki kayıtla duruyorsa İKİNCİSİ AÇILMAZ; belirsizlik
     // Aynı sipariş panele iki paket olarak girmiş (bölünmüş), ikisi de rapora bağlanmamış.
     const a = await f.ok('/ec/orders', {channel: 'trendyol', external_id: 'ELLE-1', order_no: 'O1', occurred_on: DATE,
       lines: [{external_id: 'E1', sku: '785457868', name: '4 adet 225 ml', quantity: 1, gross: 250, vat_rate: 20}]});
-    const b = await f.ok('/ec/orders', {channel: 'trendyol', external_id: 'ELLE-2', order_no: 'O1', occurred_on: DATE,
+    const b = await f.ok('/ec/orders', {channel: 'trendyol', external_id: 'ELLE-2', additional_package: true, order_no: 'O1', occurred_on: DATE,
       lines: [{external_id: 'E2', sku: '785457868', name: '4 adet 225 ml', quantity: 1, gross: 250, vat_rate: 20}]});
     const s = store(f);
     record(f, s, 'TY-1', line(), 1);
@@ -537,7 +537,7 @@ test('Aynı sipariş panelde iki kayıtla duruyor ama biri paket numarasını ta
     await fourPack(f);
     const a = await f.ok('/ec/orders', {channel: 'hepsiburada', external_id: 'HB-PK1', order_no: 'O1', occurred_on: DATE,
       lines: [{external_id: 'E1', sku: '785457868', name: '4 adet 225 ml', quantity: 2, gross: 500, vat_rate: 20}]});
-    await f.ok('/ec/orders', {channel: 'hepsiburada', external_id: 'HB-PK2', order_no: 'O1', occurred_on: DATE,
+    await f.ok('/ec/orders', {channel: 'hepsiburada', external_id: 'HB-PK2', order_no: 'O1', occurred_on: DATE, additional_package: true,
       lines: [{external_id: 'E2', sku: '785457868', name: '4 adet 225 ml', quantity: 2, gross: 500, vat_rate: 20}]});
     const s = store(f, {provider: 'hepsiburada', code: 'HB-1'});
     record(f, s, 'HB-1', line(), 1);
@@ -642,7 +642,7 @@ test('Otomatik iade: teslim edilemeyen paket ayrı satış olarak yazılmışsa 
     const product = await fourPack(f);
     const s = store(f);
     startDate(f, DATE);
-    const ac = async (ext) => { const o = await f.ok('/ec/orders', {channel: 'trendyol', external_id: ext, order_no: 'OT', occurred_on: DATE,
+    const ac = async (ext) => { const o = await f.ok('/ec/orders', {channel: 'trendyol', external_id: ext, order_no: 'OT', occurred_on: DATE, additional_package: ext !== 'TY-PK1',
       lines: [{external_id: ext + '-1', sku: '785457868', name: '4 adet 225 ml', quantity: 2, gross: 500, vat_rate: 20}]});
       await f.ok('/ec/orders/' + o.id + '/reserve', {}); await f.ok('/ec/orders/' + o.id + '/ship', {occurred_on: DATE, reference: 'S-' + ext}); return o; };
     const a = await ac('TY-PK1'), b = await ac('TY-PK2');

@@ -129,3 +129,21 @@ test('Gerçek müşteri iadesinde komisyon satırı HİÇ yoksa sıfır uydurulm
     assert.deepEqual(kesintiOf(f, 's-gercek'), {commission_cents: null, shipping_cents: null, other_cents: null, fees_status: 'pending'});
   } finally { f.close(); }
 });
+
+// ERP'DE KARŞILIĞI OLMAYAN PAKET SESSİZCE ELENMEZ. Eskiden `results.filter(r => r.erp_package_id)`
+// ile atılıyor, atlananlar listesine bile girmiyordu: kullanıcı "bu paketin kesintisi neden
+// yazılmadı" diye sorduğunda ekranda hiçbir sebep bulamıyordu (sebebi bulmak saatler aldı).
+test('Panelde karşılığı olmayan paket sebebiyle listelenir, sessizce yutulmaz', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    // Rapor bu paketi tanıyor ama panelde karşılığı yok (erp_package_id boş).
+    raporSatiri(f, {siparis: 'S-YOK', paket: 'PK-YOK', erp: null, tarih: gun(-6), teslim: gun(-4)});
+    kesinti(f, {siparis: 'S-YOK', paket: 'PK-YOK', tur: 'commission', tutar: 4000, tarih: gun(-4)});
+    kesinti(f, {siparis: 'S-YOK', paket: 'PK-YOK', tur: 'cargo', tutar: 6000, tarih: gun(-4)});
+
+    const onizleme = await f.ok('/ec/reports/apply-fees?store_id=st-ty');
+    assert.equal(onizleme.sale_entries_changed, 0, 'bağlı satış olmadan kesinti yazılmaz');
+    assert.ok(onizleme.skipped.some(x => /karşılığı olan sipariş yok/.test(x.reason)),
+      'sebep ekranda görünmeli: ' + JSON.stringify(onizleme.skipped));
+  } finally { f.close(); }
+});

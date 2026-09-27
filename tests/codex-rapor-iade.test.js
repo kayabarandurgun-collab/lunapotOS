@@ -164,7 +164,7 @@ test('R14: bir satırın iadesi aynı paketteki diğer satırın iadesini kilitl
 test('R04/R14: DUZELTME-CIFT teknik ters kaydı müşteri iadesi sayılmaz; gerçek iade asıl kayda bir kez yazılır', async () => {
   const f = appFixture(); await f.setup(); try {
     const p = await kur(f);
-    const ac = async (ext, teslim) => { const o = await f.ok('/ec/orders', {channel: 'trendyol', external_id: ext, order_no: 'OD', occurred_on: DATE,
+    const ac = async (ext, teslim) => { const o = await f.ok('/ec/orders', {channel: 'trendyol', external_id: ext, order_no: 'OD', occurred_on: DATE, additional_package: ext !== 'TY-D1',
       lines: [{external_id: ext + '-1', sku: '785457868', name: '4 adet 225 ml', quantity: 1, gross: 250, vat_rate: 20}]});
       await f.ok('/ec/orders/' + o.id + '/reserve', {}); await f.ok('/ec/orders/' + o.id + '/ship', {occurred_on: DATE, reference: 'S-' + ext});
       if (teslim) await f.ok('/ec/orders/' + o.id + '/deliver', {occurred_on: '2026-09-14'}); return o; };

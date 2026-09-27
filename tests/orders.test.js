@@ -105,3 +105,59 @@ test('Mixed products shipment rolls back on reference collision and rounding nev
   const after=await f.call();assert.equal(after.packages.find(x=>x.id===other.id).status,'reserved');assert.equal(after.products.find(x=>x.id===p2).reserved_milli,1000);assert.equal(after.products.find(x=>x.id===p2).quantity_milli,1000);
  }finally{f.close();}
 });
+
+// AYNI SİPARİŞE İKİNCİ PAKET: KURAL MERKEZDE. Paket yalnız channel+external_id ile aranıyordu;
+// external_id'yi her kaynak kendi kuralıyla ürettiği için (pazaryeri paket no, 'RPT-'+özet, elle
+// yazılan kod) aynı sipariş iki kez kaydedilebiliyordu. Canlıda iki kez yaşandı (15.09: rapor
+// yolunda 6 paket / 17.791,38 TL; 24.09: API yolunda ~65 paket) ve iki kez de koruma ÇAĞIRAN
+// dosyaya ayrı ayrı yazıldı. Kural artık paketi kim açarsa açsın tek yerde işliyor.
+test('Aynı sipariş numarasına ikinci paket beyansız açılmaz; bölünmüş gönderi beyan edilir',async()=>{
+ const f=fixture();try{
+  const p=f.product('BOL');
+  const ilk=await f.order('SIP-1',[f.line(p,'L1')]);
+  assert.ok(ilk.id,'ilk paket açıldı');
+
+  // Aynı sipariş numarası, FARKLI paket kodu: sessizce ikinci kayıt açılmamalı.
+  await assert.rejects(
+   ()=>f.call('',{channel:'trendyol',external_id:'BASKA-KOD',order_no:'SIP-1',occurred_on:date,lines:[f.line(p,'L2')]}),
+   e=>/panelde zaten var/.test(e.message)&&e.status===409,
+   'aynı sipariş numarasına beyansız ikinci paket açıldı');
+  assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_packages').get().n,1,'ikinci paket yazılmadı');
+
+  // Bölünmüş gönderi gerçektir: açıkça beyan edilince açılır.
+  const ikinci=await f.call('',{channel:'trendyol',external_id:'BASKA-KOD',order_no:'SIP-1',occurred_on:date,additional_package:true,lines:[f.line(p,'L2')]});
+  assert.ok(ikinci.id&&ikinci.id!==ilk.id,'beyanlı ikinci parça açılmalı');
+  assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_packages').get().n,2);
+ }finally{f.close();}
+});
+
+test('Aynı paket kodu ikinci kez gelirse yeni kayıt değil, mevcut kayıt güncellenir',async()=>{
+ const f=fixture();try{
+  const p=f.product('TEKRAR');
+  const ilk=await f.order('SIP-2',[f.line(p,'L1')]);
+  const tekrar=await f.order('SIP-2',[f.line(p,'L1')]);
+  assert.equal(tekrar.id,ilk.id,'aynı paket kodu mevcut kayda düşer');
+  assert.equal(tekrar.existing,true);
+  assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_packages').get().n,1);
+ }finally{f.close();}
+});
+
+test('Farklı pazaryerinde aynı sipariş numarası engellenmez',async()=>{
+ const f=fixture();try{
+  const p=f.product('KANAL');
+  await f.order('SIP-3',[f.line(p,'L1')]);
+  const hb=await f.call('',{channel:'hepsiburada',external_id:'HB-SIP-3',order_no:'SIP-3',occurred_on:date,lines:[f.line(p,'L2')]});
+  assert.ok(hb.id,'ayrı pazaryerinin aynı numaralı siparişi ayrı siparıştır');
+  assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_order_packages').get().n,2);
+ }finally{f.close();}
+});
+
+test('İptal edilmiş sipariş ikinci paketi engellemez',async()=>{
+ const f=fixture();try{
+  const p=f.product('IPTAL');
+  const ilk=await f.order('SIP-4',[f.line(p,'L1')]);
+  await f.call('/'+ilk.id+'/cancel',{reason:'Müşteri vazgeçti'});
+  const yeni=await f.call('',{channel:'trendyol',external_id:'YENI-KOD',order_no:'SIP-4',occurred_on:date,lines:[f.line(p,'L2')]});
+  assert.ok(yeni.id&&yeni.id!==ilk.id,'iptal edilmiş kayıt yeni siparişi engellememeli');
+ }finally{f.close();}
+});

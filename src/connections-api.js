@@ -326,7 +326,9 @@ export async function syncProvider(env,provider,input,fetcher=fetch,orderImporte
     const queriesNeeded=4+2*r.lines.length;
     if(!outdated&&r.source_updated_at&&r.currency==='TRY'&&r.occurred_on&&r.lines.every(l=>l.currency==='TRY')){
      if(r.lines.length>10){oversizedOrders++;reviewOnlyOrders++;}
-     else if(queriesNeeded<=importQueryBudget){newOrders.push(r);importQueryBudget-=queriesNeeded;}else deferredOrders++;
+     // order_no ile yerelde var olan siparis yukarida elendi (alreadyKnownOrders); buraya gelen
+     // kayit gercekten yeni parcadir, merkezdeki cift kayit kapisina beyan edilir.
+     else if(queriesNeeded<=importQueryBudget){newOrders.push({...r,additional_package:true});importQueryBudget-=queriesNeeded;}else deferredOrders++;
     }
     else reviewOnlyOrders++;
    }

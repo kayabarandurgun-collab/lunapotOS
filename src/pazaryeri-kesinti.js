@@ -59,33 +59,38 @@ export async function pazaryeriKesintileriniIsle(env, {provider = 'hepsiburada',
   const ozet = {packages: hepsi.length, incomplete: 0, unmatched: 0, ambiguous: 0, alreadyConfirmed: 0, invoiced: 0, noSales: 0, applied: 0, sale_entries_changed: 0};
   const yazimlar = [];
 
+  // ELENEN PAKET SEBEBIYLE BIRLIKTE LISTELENIR. Eskiden yalniz toplam SAYI tutuluyordu; kullanici
+  // "su paketin kesintisi neden yazilmadi" diye sordugunda hangi paket oldugu hicbir yerde yoktu.
+  // Kardes fonksiyon applyReportFees zaten boyle raporluyor; ayni cizgiye getirildi.
+  const atlanan = [];
+  const atla = (p, kod, sebep) => { ozet[kod]++; atlanan.push({paket: p.paket, order_no: p.order_no || '', reason: sebep}); };
   for (const p of hepsi) {
     if (yazimlar.length >= limit) break;
-    if (!kesintiTam(p)) { ozet.incomplete++; continue; }
+    if (!kesintiTam(p)) { atla(p, 'incomplete', 'Kesinti turlerinin hepsi gelmemis (komisyon ve kargo payi birlikte gerekir).'); continue; }
     // ÖNCE PAKET NUMARASIYLA BİREBİR. Yerel paketlerin bir kısmının kimliği doğrudan pazaryerinin
     // paket numarasıdır ('HB-5511370489'); orada eşleşme kesindir, siparişe düşmeye gerek yoktur.
     let yerel = (await db.prepare("SELECT id FROM ec_order_packages WHERE channel=? AND external_id IN (?, ?)")
       .bind(provider, 'HB-' + p.paket, p.paket).all()).results;
     if (!yerel.length) {
-      if (!p.order_no) { ozet.unmatched++; continue; }
+      if (!p.order_no) { atla(p, 'unmatched', 'Panelde bu paket kodu yok ve raporda siparis numarasi da yok.'); continue; }
       // SİPARİŞ NUMARASINA DÜŞÜLÜR: rapor yolundan gelen paketlerin kimliği (RPT-…) pazaryerinin
       // paket numarasıyla kesişmiyor. İPTAL EDİLMİŞ paket aday değildir — iptalin kesintisi olmaz
       // ve onu saymak tek gerçek paketi "belirsiz" gösterip kesintiyi boşuna engelliyordu.
       yerel = (await db.prepare("SELECT id FROM ec_order_packages WHERE channel=? AND order_no=? AND status<>'cancelled'")
         .bind(provider, p.order_no).all()).results;
     }
-    if (!yerel.length) { ozet.unmatched++; continue; }
+    if (!yerel.length) { atla(p, 'unmatched', 'Panelde bu paket koduna ya da siparis numarasina karsilik gelen siparis yok.'); continue; }
     // Hâlâ birden çok aday varsa hangisinin kesintisi olduğu bilinemez: dokunulmaz.
-    if (yerel.length > 1) { ozet.ambiguous++; continue; }
+    if (yerel.length > 1) { atla(p, 'ambiguous', 'Ayni siparis numarasina birden cok acik paket var; hangisinin kesintisi oldugu bilinemez.'); continue; }
     const paketId = yerel[0].id;
     const satislar = (await db.prepare(
       'SELECT c.sale_id, s.revenue_cents, s.commission_cents, s.shipping_cents, s.other_cents, s.fees_status,' +
       ' (SELECT COUNT(*) FROM ec_fee_allocations a WHERE a.sale_id=c.sale_id AND a.reversed_at IS NULL) faturali' +
       ' FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_sale_entries s ON s.id=c.sale_id' +
       " WHERE l.package_id=? AND s.kind='sale' ORDER BY c.id").bind(paketId).all()).results;
-    if (!satislar.length) { ozet.noSales++; continue; }
-    if (satislar.some(s => s.faturali)) { ozet.invoiced++; continue; }
-    if (satislar.some(s => s.fees_status === 'confirmed')) { ozet.alreadyConfirmed++; continue; }
+    if (!satislar.length) { atla(p, 'noSales', 'Pakete bagli satis kaydi yok; kesinti yazilacak yer yok.'); continue; }
+    if (satislar.some(s => s.faturali)) { atla(p, 'invoiced', 'Satis faturaya baglanmis; fatura her zaman ustundur, rapor tutari yazilmaz.'); continue; }
+    if (satislar.some(s => s.fees_status === 'confirmed')) { atla(p, 'alreadyConfirmed', 'Kesinti zaten kesinlesmis; uzerine yazilmaz.'); continue; }
 
     // Gelirleri oranında böl; hepsi sıfırsa eşit böl. allocateCents toplamı korur, kuruş kaybolmaz.
     const agirlik = satislar.map(s => s.revenue_cents);
@@ -100,6 +105,8 @@ export async function pazaryeriKesintileriniIsle(env, {provider = 'hepsiburada',
     yazimlar.push({paket: p.paket, order_no: p.order_no, package_id: paketId, degisim});
   }
 
+  ozet.skipped = atlanan.slice(0, 100);
+  ozet.skipped_total = atlanan.length;
   ozet.applied = yazimlar.length;
   ozet.sale_entries_changed = yazimlar.reduce((t, w) => t + w.degisim.length, 0);
   if (commit && yazimlar.length) {

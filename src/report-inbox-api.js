@@ -870,8 +870,16 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
   const store = await db.prepare('SELECT * FROM ec_report_stores WHERE id=?').bind(key(storeId)).first();
   if (!store) fail('Mağaza bulunamadı.', 404);
   const {results, total_orders, next_cursor} = await allPackages(db, store, {cursor, take});
-  const all = results.filter(r => r.erp_package_id);
   const writes = [], skipped = [], changes = [];
+  // ERP'DE KARŞILIĞI OLMAYAN PAKET DE SEBEBİYLE LİSTELENİR. Eskiden sessizce eleniyordu: kullanıcı
+  // "bu paketin kesintisi neden yazılmadı" diye sorduğunda ekranda hiçbir sebep bulunmuyor, paket
+  // hiç görülmemiş gibi davranıyordu (sebebi bulmak saatler aldı). Kesinti yine yazılmaz — bağlı
+  // satış yoksa yazacak yer de yoktur — ama artık NEDEN yazılmadığı görünür.
+  const all = [];
+  for (const r of results) {
+    if (r.erp_package_id) { all.push(r); continue; }
+    skipped.push({group: r.group, reason: 'Panelde karşılığı olan sipariş yok; kesinti yazılacak satış bulunamadı.'});
+  }
   for (const g of all) {
     // Teslim edilmemiş pakette kargo kesinleşmemiştir; deftere de yazılmaz (kâr kuralıyla aynı çizgi).
     // İade edilmiş paket de kesinleşmiştir: mal döndü, ekstre son hâlini verdi.
@@ -1683,8 +1691,13 @@ export async function reportInboxApi(request, env, path, readBody) {
       " MAX(json_extract(r.data_json,'$.status')) durum" +
       ' FROM ec_order_packages p JOIN ec_report_records r ON r.erp_package_id=p.id' +
       " WHERE p.status='shipped' AND r.kind='order_line'" +
-      " AND COALESCE(json_extract(r.data_json,'$.delivered_date'),'')!='' GROUP BY p.id LIMIT 500").all()).results
+      " AND COALESCE(json_extract(r.data_json,'$.delivered_date'),'')!='' GROUP BY p.id ORDER BY p.id LIMIT 501").all()).results
       .filter(r => /^\d{4}-\d{2}-\d{2}$/.test(r.gun || ''));
+    // SINIR SESSIZ KALMAZ. Siralama yoksa hangi 500'un secildigi belirsizdi ve "hepsi bu kadar"
+    // izlenimi veriliyordu; kullanici ekrandan "kac tane kaldi" sorusuna yanlis cevap aliyordu.
+    // 501 okunur, 500 islenir: fazlasi varsa acikca bildirilir.
+    const artan = rows.length > 500;
+    if (artan) rows.length = 500;
     if (commit && rows.length) {
       await db.batch(rows.flatMap(r => [
         db.prepare("UPDATE ec_order_packages SET status='delivered',delivered_on=? WHERE id=? AND status='shipped'").bind(r.gun, r.id),
@@ -1692,7 +1705,7 @@ export async function reportInboxApi(request, env, path, readBody) {
           'Teslim onayı rapordan alındı (geçmişe dönük): paket ' + r.external_id + ' → ' + r.gun)
       ]));
     }
-    return {commit, packages: rows, count: rows.length,
+    return {commit, packages: rows, count: rows.length, truncated: artan,
       notice: commit
         ? 'Raporun teslim tarihi paketlere yazıldı. Stok, satış ve kesinti DEĞİŞMEDİ; yalnızca teslim durumu güncellendi.'
         : 'Önizleme: hiçbir şey yazılmadı. Aşağıdaki paketler raporda teslim edilmiş görünüyor ama defterde kargoda duruyor.'};
@@ -1716,7 +1729,13 @@ export async function reportInboxApi(request, env, path, readBody) {
       " json_extract(r.data_json,'$.quantity') quantity,json_extract(r.data_json,'$.gross') gross" +
       " FROM ec_report_records r WHERE r.kind='order_line' AND r.erp_package_id IN (SELECT value FROM json_each(?))" +
       ' AND NOT EXISTS(SELECT 1 FROM ec_order_lines l WHERE l.package_id=r.erp_package_id' +
+      // SATIR KIMLIGI GERCEK KURALLA ARANIR. Eskiden yalniz barkod/sku deneniyordu; rapor kalem
+      // kimligi (line_id) veriyorsa defterdeki external_id O kimliktir, barkod degil — satir
+      // deftere DOGRU baglanmis olsa da burada "eksik" diye listeleniyordu (yanlis alarm).
+      // Kural report-stock-link plan() ile ayni: kimlik, paket|kod bilesigi, barkod, sku.
       "  AND (l.sku=json_extract(r.data_json,'$.barcode') OR l.external_id=json_extract(r.data_json,'$.barcode')" +
+      "   OR l.external_id=json_extract(r.data_json,'$.line_id')" +
+      "   OR l.external_id=json_extract(r.data_json,'$.package_id')||'|'||COALESCE(json_extract(r.data_json,'$.barcode'),json_extract(r.data_json,'$.sku'))" +
       "   OR l.sku=json_extract(r.data_json,'$.sku')))")
       .bind(JSON.stringify(rows.map(r => r.pid))).all()).results : [];
     const byPkg = new Map();

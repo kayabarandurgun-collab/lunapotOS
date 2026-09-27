@@ -51,6 +51,18 @@ async function createPackage(env,channel,record){
  const db=env.DB,p=normalized(record),hash=await fingerprint(p),existing=await statement(db,'SELECT * FROM order_packages WHERE channel=? AND external_id=?',[channel,p.external_id]).first();
  if(['trendyol','hepsiburada'].includes(channel)&&p.lines.some(l=>l.quantity_milli%1000!==0))fail('Pazaryeri sipariş adedi tam sayı olmalı.');
  if(existing){const changed=existing.source_fingerprint!==hash;await execute(db,[statement(db,'UPDATE order_packages SET external_status=?,source_changed=CASE WHEN ?=1 THEN 1 ELSE source_changed END WHERE id=?',[p.external_status,changed?1:0,existing.id])]);return {id:existing.id,status:existing.status,existing:true,conflict:changed};}
+ // AYNI SIPARISE IKINCI PAKET ANCAK ACIKCA BEYAN EDILIRSE ACILIR. Bu kural eskiden yoktu: paket
+ // yalniz channel+external_id ile aranirdi, external_id'yi her kaynak kendi kuralilya urettigi icin
+ // (pazaryerinin paket numarasi, 'RPT-'+ozet, elle yazilan kod) ayni siparis iki kez kaydediliyordu.
+ // Canlida iki kez yasandi: 15.09.2026'da rapor yolunda 6 paket (17.791,38 TL brut), 24.09.2026'da
+ // API yolunda ~65 paket. Iki kez de koruma CAGIRAN dosyaya ayri ayri yazildi; ucuncu bir cagiran
+ // ayni hatayi ucuncu kez dogururdu. Kural artik paketi kim acarsa acsin burada, tek yerde isler.
+ // Bolunmus gonderi (1 siparis, N paket) gercektir: onu acan taraf ikizleri kendisi cozer ve
+ // additional_package:true ile beyan eder. Beyan yoksa sessizce ikinci kayit acilmaz, hata doner.
+ if(p.order_no&&record.additional_package!==true){
+  const ikiz=await statement(db,"SELECT id,external_id,status FROM order_packages WHERE channel=? AND order_no=? AND status!='cancelled' ORDER BY rowid LIMIT 1",[channel,p.order_no]).first();
+  if(ikiz)fail('Bu siparis numarasi panelde zaten var (paket '+ikiz.external_id+'). Ayni siparise ikinci paket acmak icin bolunmus gonderi oldugu acikca belirtilmeli.',409);
+ }
  const key=id(),components=[];for(const l of p.lines){l.id=id();const rows=await mappedComponents(db,channel,l,l,true);components.push(...rows);l.product_id=rows.length===1?rows[0].product_id:null;}
  if(components.length>20)fail('Ücretsiz işlem sınırı için paket en fazla 20 stok bileşeni içerebilir.',409);
  const items=[statement(db,'INSERT INTO order_packages(id,channel,external_id,order_no,occurred_on,external_status,source_fingerprint) VALUES(?,?,?,?,?,?,?)',[key,channel,p.external_id,p.order_no,p.occurred_on,p.external_status,hash]),lineInsert(db,key,p.lines)];
