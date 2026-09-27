@@ -35,6 +35,30 @@ const parse = (s, fallback) => { try { return JSON.parse(s); } catch { return fa
 // Türkçe küçültme: /indirim/i deseni 'İndirim' ile EŞLEŞMEZ (büyük İ, U+0130, ASCII i'ye katlanmaz).
 const trKucuk = v => String(v ?? '').toLocaleLowerCase('tr-TR');
 const b64bytes = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+// PAZARYERİ SÜTUN EKLEYİNCE EŞLEŞTİRME SIFIRLANMASIN. Kayıtlı biçim önce imzanın birebir aynısıyla
+// aranır. Tutmazsa, eşleştirmede KULLANILAN sütunların hepsi yeni dosyada duran ve kendi sütunlarının
+// hepsi yerinde olan biçim aranır: bu "yalnız sütun EKLENMİŞ" demektir, eşleştirme bozulmamıştır.
+// Sütun EKSİLDİYSE hiçbir aday geçmez, kullanıcıya yine sorulur — orada susmak, alanı boş okuyup
+// sessizce yanlış veri yazmak olurdu. İmza küçük harfli olduğundan karşılaştırma headerSignature ile
+// normalleştirilir. Hem biçim sorgusu hem dosya kabulü BU kapıdan geçer: ikisi ayrışırsa dosya
+// eşleştirme ekranını atlayıp yüklemede 409 ile reddedilir (27.09.2026'da böyle oldu).
+async function bicimBul(db, provider, kind, signature) {
+  const p = await db.prepare('SELECT * FROM ec_report_profiles WHERE provider=? AND kind=? AND signature=? AND active=1').bind(provider, kind, signature).first();
+  if (p) return {profile: p, drift: false};
+  const dosya = new Set(String(signature || '').split('␟').filter(Boolean));
+  if (!dosya.size) return {profile: null, drift: false};
+  const adaylar = (await db.prepare('SELECT * FROM ec_report_profiles WHERE provider=? AND kind=? AND active=1 ORDER BY rowid DESC LIMIT 50').bind(provider, kind).all()).results;
+  let best = null;
+  for (const aday of adaylar) {
+    const kullanilan = Object.values(parse(aday.mapping_json, {})).filter(Boolean).map(h => headerSignature([h]));
+    if (!kullanilan.length || !kullanilan.every(h => dosya.has(h))) continue;
+    const kendi = String(aday.signature || '').split('␟').filter(Boolean);
+    if (!kendi.length || kendi.some(h => !dosya.has(h))) continue;
+    if (!best || kendi.length > best.uzunluk) best = {aday, uzunluk: kendi.length};
+  }
+  return {profile: best ? best.aday : null, drift: !!best};
+}
+
 async function sha256Hex(bytes) {
   const d = await crypto.subtle.digest('SHA-256', bytes);
   return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
@@ -1385,32 +1409,9 @@ export async function reportInboxApi(request, env, path, readBody) {
     return {profiles: rows};
   }
   if (sub === '/profiles' && method === 'GET') {
-    const provider = url.searchParams.get('provider') || '', kind = url.searchParams.get('kind') || '', signature = url.searchParams.get('signature') || '';
-    const cikar = p => ({...p, mapping: parse(p.mapping_json, {}), options: parse(p.options_json, {})});
-    const p = await db.prepare('SELECT * FROM ec_report_profiles WHERE provider=? AND kind=? AND signature=? AND active=1').bind(provider, kind, signature).first();
-    if (p) return {profile: cikar(p)};
-    // PAZARYERİ SÜTUN EKLEYİNCE EŞLEŞTİRME SIFIRLANMASIN. İmza birebir tutmuyorsa, eşleştirmede
-    // KULLANILAN sütunların hepsi yeni dosyada duran kayıtlı biçim aranır; yalnız sütun EKLENMİŞSE
-    // o biçim kullanılır. Eksilen sütun varsa hiçbir aday geçmez ve kullanıcıya yine sorulur:
-    // orada susmak, alanı boş okuyup sessizce yanlış veri yazmak olurdu.
-    // Not: imza küçük harfli olduğu için karşılaştırma da headerSignature ile normalleştirilir.
-    // Bu yalnız ÖNERİDİR; tarayıcı tarafı profileFits ile ham başlıklar üzerinde tekrar doğrular.
-    const dosya = new Set(signature.split('␟').filter(Boolean));
-    if (!dosya.size) return {profile: null};
-    const adaylar = (await db.prepare('SELECT * FROM ec_report_profiles WHERE provider=? AND kind=? AND active=1 ORDER BY rowid DESC LIMIT 50').bind(provider, kind).all()).results;
-    let best = null;
-    for (const aday of adaylar) {
-      const mapping = parse(aday.mapping_json, {});
-      const kullanilan = Object.values(mapping).filter(Boolean).map(h => headerSignature([h]));
-      if (!kullanilan.length || !kullanilan.every(h => dosya.has(h))) continue;
-      const kendi = String(aday.signature || '').split('␟').filter(Boolean);
-      if (!kendi.length) continue;
-      const ortak = kendi.filter(h => dosya.has(h)).length;
-      // Kayıtlı biçimin sütunlarının hepsi dosyada olmalı: bu, "yalnız eklenmiş" demektir.
-      if (ortak !== kendi.length) continue;
-      if (!best || ortak > best.ortak) best = {aday, ortak};
-    }
-    return {profile: best ? {...cikar(best.aday), signature_drift: true} : null};
+    const {profile, drift} = await bicimBul(db, url.searchParams.get('provider') || '', url.searchParams.get('kind') || '', url.searchParams.get('signature') || '');
+    if (!profile) return {profile: null};
+    return {profile: {...profile, mapping: parse(profile.mapping_json, {}), options: parse(profile.options_json, {}), ...(drift ? {signature_drift: true} : {})}};
   }
   if (sub === '/profiles' && method === 'POST') {
     const x = await readBody(request);
@@ -1512,7 +1513,7 @@ export async function reportInboxApi(request, env, path, readBody) {
     // Yarım kalmış yükleme aynı dosyayla sürer; tamamlanmış dosya ikinci kez işlenmez.
     if (existing?.status === 'receiving') return {id: existing.id, resume: true};
     if (existing) return {duplicate: true, existing, notice: 'Bu dosya bu mağazaya daha önce yüklendi; ikinci kez işlenmez.'};
-    const profile = await db.prepare('SELECT id FROM ec_report_profiles WHERE provider=? AND kind=? AND signature=? AND active=1').bind(store.provider, x.kind, headerSignature(x.headers.map(String))).first();
+    const {profile} = await bicimBul(db, store.provider, x.kind, headerSignature(x.headers.map(String)));
     if (!profile) fail('Bu başlıklar için onaylı sütun eşleştirmesi yok. Önce eşleştirmeyi kaydedin.', 409);
     const row = {id: id()};
     await db.prepare('INSERT INTO ec_report_files(id,store_id,kind,filename,size_bytes,sha256,snapshot_at,sheet,headers_json,date1904,row_count,chunk_count,profile_id,warnings_json,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')

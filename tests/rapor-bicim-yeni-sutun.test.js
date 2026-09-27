@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {appFixture} from './helpers/app-fixture.js';
 import {headerSignature} from '../public/report-core.js';
+import {xlsxBytes} from '../public/doc-engine.js';
+import {readTable, sha256Hex} from '../public/xlsx-read.js';
 
 // PAZARYERİ RAPORA SÜTUN EKLEYİNCE EŞLEŞTİRME SIFIRLANMAMALI.
 // Gerçek olay (27.09.2026): Trendyol sipariş raporuna "Tedarik Süresi Durumu" sütununu ekledi.
@@ -74,5 +76,42 @@ test('boş imzayla biçim döndürülmez', async () => {
   try {
     const {data} = await f.req('/ec/reports/profiles?provider=trendyol&kind=orders&signature=');
     assert.equal(data.profile, null);
+  } finally { f.close(); }
+});
+
+// DOSYA KABULÜ DE AYNI KAPIDAN GEÇMELİ. 27.09.2026'da biçim sorgusu düzeltildi ama dosya kabulündeki
+// ikinci birebir-imza kontrolü unutuldu: eşleştirme ekranı atlandı, dosya yüklemede 409 yedi.
+test('yeni sütunlu dosya yüklemede de kabul edilir', async () => {
+  const f = appFixture();
+  await f.setup();
+  try {
+    const storeId = (await f.ok('/ec/reports/stores', {provider: 'trendyol', code: 'TY-1', name: 'Mağaza'})).id;
+    await f.ok('/ec/reports/profiles', {provider: 'trendyol', kind: 'orders', headers: COLUMNS, mapping: MAPPING, options: {}});
+    const bytes = new Uint8Array(xlsxBytes([{name: 'Rapor', columns: [...COLUMNS, 'Tedarik Süresi Durumu'].map(header => ({header})),
+      rows: [['S-1', 'P-1', 'K-1', '869', 'Ürün', 1, 'Teslim Edildi', '01.09.2026', '100,00', '10,00', '05.09.2026', 'Zamanında']]}]));
+    const table = await readTable(bytes, {name: 'yeni.xlsx'});
+    const created = await f.ok('/ec/reports/files', {store_id: storeId, kind: 'orders', filename: 'yeni.xlsx', size_bytes: bytes.length,
+      sha256: await sha256Hex(bytes), snapshot_at: '2026-09-27T21:00', sheet: table.sheet, headers: table.headers,
+      date1904: table.date1904, row_count: table.rows.length, chunk_count: 1, warnings: table.warnings});
+    assert.ok(created.id, 'yeni sütunlu dosya 409 almadan kabul edilmeli');
+    const profilId = f.sqlite.prepare('SELECT profile_id FROM ec_report_files WHERE id=?').get(created.id).profile_id;
+    assert.ok(profilId, 'dosya kayıtlı biçime bağlanmalı');
+  } finally { f.close(); }
+});
+
+test('eşleştirmede kullanılan sütun eksilirse dosya kabul edilmez', async () => {
+  const f = appFixture();
+  await f.setup();
+  try {
+    const storeId = (await f.ok('/ec/reports/stores', {provider: 'trendyol', code: 'TY-1', name: 'Mağaza'})).id;
+    await f.ok('/ec/reports/profiles', {provider: 'trendyol', kind: 'orders', headers: COLUMNS, mapping: MAPPING, options: {}});
+    const eksik = COLUMNS.filter(h => h !== 'Teslim Tarihi');
+    const bytes = new Uint8Array(xlsxBytes([{name: 'Rapor', columns: eksik.map(header => ({header})),
+      rows: [['S-1', 'P-1', 'K-1', '869', 'Ürün', 1, 'Teslim Edildi', '01.09.2026', '100,00', '10,00']]}]));
+    const table = await readTable(bytes, {name: 'eksik.xlsx'});
+    const r = await f.req('/ec/reports/files', {store_id: storeId, kind: 'orders', filename: 'eksik.xlsx', size_bytes: bytes.length,
+      sha256: await sha256Hex(bytes), snapshot_at: '2026-09-27T21:00', sheet: table.sheet, headers: table.headers,
+      date1904: table.date1904, row_count: table.rows.length, chunk_count: 1, warnings: table.warnings});
+    assert.equal(r.status, 409, 'sütun eksildiğinde eşleştirme yine sorulmalı');
   } finally { f.close(); }
 });
