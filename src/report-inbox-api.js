@@ -1687,11 +1687,34 @@ export async function reportInboxApi(request, env, path, readBody) {
   if (sub === '/sync-deliveries' && (method === 'GET' || method === 'POST')) {
     const commit = method === 'POST' && (await readBody(request)).confirm === true;
     const rows = (await db.prepare(
-      "SELECT p.id,p.order_no,p.external_id,p.channel,substr(MAX(json_extract(r.data_json,'$.delivered_date')),1,10) gun," +
+      "SELECT p.id AS id,p.order_no,p.external_id,p.channel,substr(MAX(json_extract(r.data_json,'$.delivered_date')),1,10) gun," +
       " MAX(json_extract(r.data_json,'$.status')) durum" +
       ' FROM ec_order_packages p JOIN ec_report_records r ON r.erp_package_id=p.id' +
       " WHERE p.status='shipped' AND r.kind='order_line'" +
-      " AND COALESCE(json_extract(r.data_json,'$.delivered_date'),'')!='' GROUP BY p.id ORDER BY p.id LIMIT 501").all()).results
+      " AND COALESCE(json_extract(r.data_json,'$.delivered_date'),'')!='' GROUP BY p.id" +
+      // TESLIM BILGISI CIFT AKTARIM KOPYASINDA KALMIS OLABILIR. Eski aktarimda ayni pazaryeri
+      // paketi panele iki kez girdi: rapor kopyasi (teslim bilgisi + pazaryeri kesintileri) ve
+      // asil kayit (satis + maliyet). Kopyanin defter satirlari DUZELTME-CIFT ters kaydiyla
+      // sifirlandi, ama rapor bagi KOPYADA kaldi; asil kayit teslim bilgisini hic alamadigi icin
+      // aylarca "kargoda" goruntulendi (canlida 6 paket, 25-27 gun). Kar raporu bunu zaten ikiz
+      // ikamesiyle dogru hesapliyor; burada eksik olan yalniz paketin DURUMUYDU.
+      // Kural dar: kopya AYNI pazaryeri ve AYNI siparis numarasinda olmali, teslim edilmis olmali,
+      // butun satislari DUZELTME-CIFT ile sifirlanmis olmali ve asil kaydin kendi rapor bagi
+      // BULUNMAMALI. Tarih uydurulmaz: kopyanin teslim gunu yazilir.
+      ' UNION SELECT p.id AS id,p.order_no,p.external_id,p.channel,substr(k.delivered_on,1,10) gun,' +
+      "  'Çift aktarım kopyasından' durum" +
+      ' FROM ec_order_packages p JOIN ec_order_packages k' +
+      "  ON k.channel=p.channel AND k.order_no=p.order_no AND k.id<>p.id AND k.status='delivered'" +
+      "   AND COALESCE(k.delivered_on,'')!=''" +
+      " WHERE p.status='shipped' AND p.order_no<>''" +
+      '  AND NOT EXISTS(SELECT 1 FROM ec_report_records r2 WHERE r2.erp_package_id=p.id)' +
+      '  AND EXISTS(SELECT 1 FROM ec_order_lines l JOIN ec_order_line_components c ON c.line_id=l.id' +
+      "   JOIN ec_sale_entries s ON s.id=c.sale_id WHERE l.package_id=k.id AND s.kind='sale')" +
+      '  AND NOT EXISTS(SELECT 1 FROM ec_order_lines l JOIN ec_order_line_components c ON c.line_id=l.id' +
+      "   JOIN ec_sale_entries s ON s.id=c.sale_id WHERE l.package_id=k.id AND s.kind='sale'" +
+      '    AND s.quantity_milli>(SELECT COALESCE(SUM(r.quantity_milli),0) FROM ec_sale_entries r' +
+      "     WHERE r.parent_id=s.id AND r.kind='return' AND r.external_id LIKE 'DUZELTME-CIFT-%'))" +
+      ' ORDER BY 1 LIMIT 501').all()).results
       .filter(r => /^\d{4}-\d{2}-\d{2}$/.test(r.gun || ''));
     // SINIR SESSIZ KALMAZ. Siralama yoksa hangi 500'un secildigi belirsizdi ve "hepsi bu kadar"
     // izlenimi veriliyordu; kullanici ekrandan "kac tane kaldi" sorusuna yanlis cevap aliyordu.

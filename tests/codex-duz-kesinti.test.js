@@ -147,3 +147,39 @@ test('Panelde karşılığı olmayan paket sebebiyle listelenir, sessizce yutulm
       'sebep ekranda görünmeli: ' + JSON.stringify(onizleme.skipped));
   } finally { f.close(); }
 });
+
+// TESLİM BİLGİSİ ÇİFT AKTARIM KOPYASINDA KALMIŞSA ASIL KAYDA DA GEÇER. Eski aktarımda aynı paket
+// panele iki kez girdi: kopyada teslim bilgisi, asıl kayıtta satış ve maliyet. Kopyanın satışları
+// DUZELTME-CIFT ile sıfırlandı ama rapor bağı kopyada kaldı; asıl kayıt teslim bilgisini hiç
+// alamadığı için canlıda 6 paket 25–27 gün "kargoda" göründü.
+test('Çift aktarım kopyası teslim edilmişse ikizin durumu da teslime geçer; tarih kopyadan alınır', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    ikiz(f);                                                   // asil: shipped, kopya: delivered
+    const once = f.sqlite.prepare("SELECT status,delivered_on FROM ec_order_packages WHERE id='asil'").get();
+    assert.equal(once.status, 'shipped', 'asıl kayıt kargoda başlıyor');
+
+    const onizleme = await f.ok('/ec/reports/sync-deliveries?store_id=st-ty');
+    const satir = onizleme.packages.find(x => x.id === 'asil');
+    assert.ok(satir, 'asıl kayıt teslim onayı bekleyenler arasında görünmeli: ' + JSON.stringify(onizleme.packages));
+    const kopya = f.sqlite.prepare("SELECT delivered_on FROM ec_order_packages WHERE id='kopya'").get();
+    assert.equal(satir.gun, String(kopya.delivered_on).slice(0, 10), 'tarih uydurulmaz, kopyanınki yazılır');
+
+    await f.ok('/ec/reports/sync-deliveries', {confirm: true});
+    const sonra = f.sqlite.prepare("SELECT status,delivered_on FROM ec_order_packages WHERE id='asil'").get();
+    assert.equal(sonra.status, 'delivered');
+    assert.equal(String(sonra.delivered_on).slice(0, 10), satir.gun);
+  } finally { f.close(); }
+});
+
+test('Kendi rapor bağı olan kargodaki paket, ikizin tarihiyle teslime geçirilmez', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    ikiz(f);
+    // Asıl kaydın KENDİ rapor satırı var ve orada teslim tarihi yok: karar raporundur, ikizin değil.
+    raporSatiri(f, {siparis: 'S-IKIZ', paket: 'PKA', erp: 'asil', tarih: gun(-6), teslim: null, durum: 'Kargoda'});
+    const onizleme = await f.ok('/ec/reports/sync-deliveries?store_id=st-ty');
+    assert.ok(!onizleme.packages.some(x => x.id === 'asil'),
+      'kendi raporu teslim demiyorsa ikizin tarihi uygulanmamalı: ' + JSON.stringify(onizleme.packages));
+  } finally { f.close(); }
+});
