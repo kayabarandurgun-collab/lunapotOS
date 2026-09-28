@@ -73,7 +73,8 @@ test('Attention counts reservations, missing mapping, partial receipts and unset
  const f=await fixture();try{
   const get=()=>f.invoke(attentionApi,'/api/attention');
   let a=await get();assert.equal(a.stock.total,2);assert.equal(a.stock.no_history,0);assert.equal(a.orders.total,0);
-  const emptyItems=attentionItems(a,{providers:[{id:'trendyol',name:'Trendyol',configured:false}]},{legal_name:'',tax_id:''});assert.ok(emptyItems.some(x=>x.title.includes('henüz bağlı değil')));
+  // Ne bağlantı ne de işlenmiş rapor var: pazaryeri verisi gerçekten akmıyor.
+  const emptyItems=attentionItems(a,{providers:[{id:'trendyol',name:'Trendyol',configured:false}]},{legal_name:'',tax_id:''});assert.ok(emptyItems.some(x=>x.title.includes('verisi akmıyor')),JSON.stringify(emptyItems.map(x=>x.title)));
   await f.create('UNMAPPED',[{...f.line,sku:'UNKNOWN'}]);
   const reserved=await f.create('RESERVED');await f.order('/'+reserved.id+'/reserve',{});
   f.sql.prepare('UPDATE ec_products SET min_stock_milli=7000 WHERE id=?').run(f.a);

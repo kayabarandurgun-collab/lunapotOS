@@ -21,7 +21,20 @@ export function attentionItems(data,connections,settings,pendingFees=0){
  add(!tariffs.shipping_active||!tariffs.commission_active?1:0,'#pricing','Geçerli kargo / komisyon tarifesi eksik','Maliyetler tamamlanmadan güvenilir kâr tahmini oluşmaz.','neutral');
  // Bağlantı durumu günlük iş değil kurulum bilgisidir: her mağaza için ayrı satır yerine tek satır.
  const kanallar=connections.providers.filter(p=>p.id!=='edm'),sorunlu=kanallar.filter(p=>!p.configured||!p.last_success_at||p.stale||p.last_error);
- add(sorunlu.length?1:0,'#integrations',sorunlu.length===kanallar.length?'Satış kanalları henüz bağlı değil':sorunlu.map(p=>p.name).join(', ')+' bağlantısı kontrol bekliyor','Bağlanınca haftalık dosya yükleme işi kendiliğinden yapılır.','neutral');
+ // BAĞLANTI YOKLUĞU TEK BAŞINA EKSİK İŞ DEĞİLDİR. Kullanıcı API'leri bilerek kapatıp raporu elle
+ // yükleme düzenine geçebilir (26.09.2026'da öyle oldu). Eskiden bu satır "Satış kanalları henüz
+ // bağlı değil · Bağlanınca haftalık dosya yükleme işi kendiliğinden yapılır" diye her gün
+ // görünüyordu: bilinçli bir karar, kapatılamayan bir "yapılacak iş" gibi duruyordu.
+ // Asıl sorulacak soru şu: pazaryeri verisi akıyor mu? Rapor son 14 gün içinde işlendiyse akıyor.
+ // Ne bağlantı ne de güncel rapor varsa uyarı GERÇEKTİR ve daha sert yazılır.
+ const sonRapor=data.reports?.last_applied?String(data.reports.last_applied).slice(0,10):'';
+ const gunFarki=sonRapor?Math.floor((Date.parse(data.as_of+'T00:00:00Z')-Date.parse(sonRapor+'T00:00:00Z'))/86400000):null;
+ const raporGuncel=gunFarki!==null&&gunFarki<=14;
+ // kanallar BOŞSA (hiç sağlayıcı tanımlı değil) 0===0 tuzağına düşülmez: ortada kanal yoksa
+ // "hepsi bozuk" denemez, bu ekranın konusu da değildir.
+ const hicVeriYok=kanallar.length>0&&sorunlu.length===kanallar.length&&!raporGuncel;
+ if(hicVeriYok)add(1,'#reports','Pazaryeri verisi akmıyor',sonRapor?'Bağlantı kapalı ve son rapor '+gunFarki+' gün önce işlendi. Güncel raporu yükle.':'Bağlantı da yok, işlenmiş rapor da yok. Raporu yükle ya da mağazayı bağla.','warning');
+ else if(sorunlu.length&&sorunlu.length<kanallar.length)add(1,'#integrations',sorunlu.map(p=>p.name).join(', ')+' bağlantısı kontrol bekliyor','Bağlantı hata veriyor ya da uzun süredir veri çekmedi.','neutral');
  return list;
 }
 export function renderAttention(data,connections,settings,pendingFees){

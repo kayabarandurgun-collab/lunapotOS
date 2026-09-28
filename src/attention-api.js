@@ -33,9 +33,13 @@ export async function attentionApi(request,env,path){
    (SELECT COUNT(*) FROM shipping_rates WHERE archived_at IS NULL AND valid_from<=? AND valid_to>=?) shipping_active,
    (SELECT COUNT(*) FROM commission_rates WHERE archived_at IS NULL AND valid_from<=? AND valid_to>=?) commission_active,
    (SELECT COUNT(*) FROM shipping_rates WHERE archived_at IS NULL AND valid_from<=? AND valid_to BETWEEN ? AND ?) shipping_expiring,
-   (SELECT COUNT(*) FROM commission_rates WHERE archived_at IS NULL AND valid_from<=? AND valid_to BETWEEN ? AND ?) commission_expiring`
+   (SELECT COUNT(*) FROM commission_rates WHERE archived_at IS NULL AND valid_from<=? AND valid_to BETWEEN ? AND ?) commission_expiring`,
+  // PAZARYERI VERISI AKIYOR MU? Bagli API tek yol degil: kullanici raporu elle de yukleyebilir
+  // (26.09.2026'da API'ler bilerek kapatildi ve elle rapor duzenine gecildi). "Baglanti yok"
+  // tek basina eksik is degildir; eksik olan VERININ AKMAMASIDIR. Son islenen rapor buradan okunur.
+  `SELECT COUNT(*) total, MAX(created_at) last_applied FROM ec_report_files WHERE status='applied'`
  ];
  const results=await env.DB.batch(queries.map((sql,i)=>i===4?env.DB.prepare(sql).bind(day,day,day,day,day,day,next,day,day,next):i===0?env.DB.prepare(sql).bind(day):env.DB.prepare(sql)));
- const [orders,stock,invoices,sales,tariffs]=results.map(r=>r.results[0]);
- return {as_of:day,scope:'all_time',orders,stock,invoices,sales,tariffs};
+ const [orders,stock,invoices,sales,tariffs,reports]=results.map(r=>r.results[0]);
+ return {as_of:day,scope:'all_time',orders,stock,invoices,sales,tariffs,reports};
 }
