@@ -92,6 +92,10 @@ const choose = (label, name, options, value = '') => select(label, name, [['','S
 const textArea = (label, name, value = '', required = true) => `<label>${esc(label)}<textarea name="${esc(name)}" rows="3" maxlength="2000" ${required ? 'required' : ''}>${esc(value)}</textarea></label>`;
 const button = (label, action, id = '', secondary = false) => `<button type="button" class="${secondary ? 'secondary' : 'primary'}" data-business="${action}" data-id="${esc(id)}">${esc(label)}</button>`;
 const badge = (label, type = 'neutral') => `<span class="v2-badge ${type}">${esc(label)}</span>`;
+// KURULUM VARSAYILANI GERÇEK ÖLÇÜ SANILMASIN. 10×10×10 cm / 1 kg, profil açılırken konan
+// yer tutucudur; canlıda 38 ürünün 37'si bunu taşıyor ve kargo/desi tahminleri bunun üzerine
+// kuruluyor. Gerçekten bu ölçüde bir ürün olabilir; o yüzden "yanlış" denmez, "doğrulanmadı" denir.
+const olcuVarsayilan = f => !!f && f.length_mm === 100 && f.width_mm === 100 && f.height_mm === 100 && f.weight_grams === 1000;
 const table = (headers, rows, emptyTitle = 'Henüz kayıt yok.', emptyText = 'Eklediğiniz kayıtlar burada görünecek.') => rows.length ? `<div class="table-wrap"><table class="v2-table"><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(cells => `<tr>${cells.map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : `<div class="v2-empty"><h3>${esc(emptyTitle)}</h3><p>${esc(emptyText)}</p></div>`;
 const card = (title, content, action = '') => `<section class="v2-card"><div class="v2-card-head"><h2>${esc(title)}</h2>${action}</div>${content}</section>`;
 /**
@@ -270,9 +274,9 @@ export function mountBusiness(root, namespace, view, user = null) {
 
   function pricingView() {
     const d = state.data;
-    if (state.tab === 'profiles') return `<div class="workflow-section-heading"><div><h2>Ürün ve paket bilgilerini tamamla</h2><details class="workflow-details"><summary>Maliyet ve ölçülerin kapsamı</summary><p>Ürün maliyeti bir adet içindir. Ölçü, ağırlık ve ambalaj gideri hazırladığın paketin tamamına aittir. Bilmediğin maliyet veya vergi oranına sıfır yazma.</p></details></div>${button('Ürün bilgisi ekle','profile')}</div>` + card('Ürün ve paket bilgileri', table(['Ürün','Birim maliyet · KDV dahil','Paket','Ağırlık / ölçü','Ürün KDV','İşlem'], d.products.map(p => {
+    if (state.tab === 'profiles') return `<div class="workflow-section-heading"><div><h2>Ürün ve paket bilgilerini tamamla</h2><details class="workflow-details"><summary>Maliyet ve ölçülerin kapsamı</summary><p>Ürün maliyeti bir adet içindir. Ölçü, ağırlık ve ambalaj gideri hazırladığın paketin tamamına aittir. Bilmediğin maliyet veya vergi oranına sıfır yazma.</p></details></div><div class="rb-actions">${d.profiles.filter(olcuVarsayilan).length ? button('Ölçüleri toplu gir (' + d.profiles.filter(olcuVarsayilan).length + ')','olculer') : ''}${button('Ürün bilgisi ekle','profile')}</div></div>` + card('Ürün ve paket bilgileri', table(['Ürün','Birim maliyet · KDV dahil','Paket','Ağırlık / ölçü','Ürün KDV','İşlem'], d.products.map(p => {
       const f = d.profiles.find(x => x.product_id === p.id);
-      return [`<strong>${esc(p.name)}</strong><small>${esc(p.sku)}</small>`, f ? (f.replacement_cost_cents === null || f.replacement_cost_cents === undefined ? badge('Alış kaydı yok','warning') : money(Math.round(f.replacement_cost_cents * (10000 + (f.vat_bps || 0)) / 10000)) + `<small>${{manual:'elle girildi',last_purchase:'son alış faturasından',stock:'stok maliyetinden'}[f.cost_source] || ''}</small>`) : badge('Bilgi gerekli','warning'), f ? `${number(f.units_per_parcel)} adet / paket` : '—', f ? `${number(f.weight_grams / 1000)} kg<small>${number(f.length_mm / 10)} × ${number(f.width_mm / 10)} × ${number(f.height_mm / 10)} cm</small>` : '—', f ? `%${number(f.vat_bps / 100)}` : '—', button(f ? 'Düzenle' : 'Bilgileri tamamla','profile',p.id,true)];
+      return [`<strong>${esc(p.name)}</strong><small>${esc(p.sku)}</small>`, f ? (f.replacement_cost_cents === null || f.replacement_cost_cents === undefined ? badge('Alış kaydı yok','warning') : money(Math.round(f.replacement_cost_cents * (10000 + (f.vat_bps || 0)) / 10000)) + `<small>${{manual:'elle girildi',last_purchase:'son alış faturasından',stock:'stok maliyetinden'}[f.cost_source] || ''}</small>`) : badge('Bilgi gerekli','warning'), f ? `${number(f.units_per_parcel)} adet / paket` : '—', f ? `${number(f.weight_grams / 1000)} kg<small>${number(f.length_mm / 10)} × ${number(f.width_mm / 10)} × ${number(f.height_mm / 10)} cm</small>${olcuVarsayilan(f) ? '<small>' + badge('ölçü doğrulanmadı','warning') + '</small>' : ''}` : '—', f ? `%${number(f.vat_bps / 100)}` : '—', button(f ? 'Düzenle' : 'Bilgileri tamamla','profile',p.id,true)];
     }), 'Önce ürün ekleyin.', namespace === 'ec' ? 'Stok ekranından ürün ekledikten sonra paket ve maliyet bilgilerini burada tamamlayabilirsiniz.' : 'Ürünler ekranından bir ürün ekleyin.'));
     if (state.tab === 'tariffs') return `<div class="notice subtle">Tarifeler tarih aralığıyla saklanır. Haftalık koşullar değiştiğinde yeni tarife ekleyin; yanlış kaydı arşivleyin. Aynı koşullarda çakışan tarifeler varsa hesap durur.</div><div class="v2-grid cols-2">${stat('Komisyon tarifesi', number(d.commissionRates.filter(x => !x.archived_at).length), 'Arşivlenmemiş tarife')}${stat('Kargo tarifesi', number(d.shippingRates.filter(x => !x.archived_at).length), 'Arşivlenmemiş tarife')}</div>` + card('Komisyon tarifeleri', table(['Tarife / kaynak','Kanal / ürün','Geçerlilik','Fiyat aralığı · KDV dahil','Komisyon','Durum / işlem'], d.commissionRates.map(r => [tariffName(r), `${esc(channelName(r.channel))}<small>${esc(r.sku || r.category || 'Tüm ürünler')}</small>`, `${esc(r.valid_from)} → ${esc(r.valid_to)}`, tariffRange(r), `%${number(r.rate_bps / 100)}<small>${r.base === 'gross' ? 'KDV dahil' : 'KDV hariç'} satış üzerinden · ücret KDV ${r.tax_included ? 'dahil' : 'hariç'}</small>`, tariffAction(r,'commissions')])), button('Komisyon tarifesi ekle','commission')) + `<div class="breakdown">` + card('Kargo tarifeleri', table(['Tarife / kaynak','Kanal / kargo','Geçerlilik','Fiyat / desi aralığı','Ücret','Durum / işlem'], d.shippingRates.map(r => [tariffName(r), `${esc(channelName(r.channel))}<small>${esc(r.carrier)}</small>`, `${esc(r.valid_from)} → ${esc(r.valid_to)}`, `${tariffRange(r)}<small>${number(r.billable_min_milli / 1000)} – ${r.billable_max_milli === null ? 'üst sınır yok' : number(r.billable_max_milli / 1000) + ' hariç'} desi/kg</small>`, `${money(r.amount_cents)}<small>KDV ${r.tax_included ? 'dahil' : 'hariç'} · %${number(r.vat_bps / 100)}</small>`, tariffAction(r,'shipping')]), 'Komisyon tarifesi tanımlı değil.', 'Tarife olmadan “satmadan önce kârım ne olur” hesaplanamaz; sistem yalnızca olan biteni ölçer. Pazaryeri komisyon oranını fiyat aralığıyla ekleyin.'), button('Kargo tarifesi ekle','shipping')) + '</div>';
     const f = state.quoteInput, carriers = [...new Set(d.shippingRates.filter(r => !r.archived_at).map(r => r.carrier))];
@@ -413,6 +417,24 @@ export function mountBusiness(root, namespace, view, user = null) {
     if (!state.data.products.length) throw new Error('Önce ürün ekleyin.');
     const f = state.data.profiles.find(p => p.product_id === id) || {};
     dialog('Ürün ve paket bilgisi','profile', choose('Ürün','product_id',productOptions(),id) + '<p class="help">Maliyeti güncel alış/yenileme bedeline göre gir. Buradaki değişiklik geçmiş satışların maliyetini değiştirmez.</p><div class="field-grid">' + amount('Bir adet ürün maliyeti · KDV hariç (TL) — 0 bırakırsan son alış faturasından alınır','replacement_cost',divided(f.manual_cost_cents ?? f.replacement_cost_cents,100)) + amount('Paketin ambalaj gideri · KDV hariç (TL)','packaging',divided(f.packaging_cents,100)) + amount('Paketin diğer giderleri · KDV hariç (TL)','other',divided(f.other_cents,100)) + input('Paketteki ürün adedi','units_per_parcel',f.units_per_parcel ?? '', 'number','required min="1" max="1000000" step="1"') + amount('Ürünün KDV oranı (%)','vat',divided(f.vat_bps,100)) + amount('Stopaj oranı (%)','withholding',divided(f.withholding_bps,100)) + '</div><h3>Hazır paketin ölçüsü ve ağırlığı</h3><div class="field-grid">' + input('Uzunluk (cm)','length',divided(f.length_mm,10),'number','required min="0.1" max="1000" step="0.1"') + input('Genişlik (cm)','width',divided(f.width_mm,10),'number','required min="0.1" max="1000" step="0.1"') + input('Yükseklik (cm)','height',divided(f.height_mm,10),'number','required min="0.1" max="1000" step="0.1"') + input('Brüt ağırlık (kg)','weight',divided(f.weight_grams,1000),'number','required min="0.001" max="1000" step="0.001"') + '</div><p class="help">Paketin dış ölçülerini ve ambalaj dahil ağırlığını gir. Bilinen sıfır gider için 0 yaz; vergi veya gider bilgisi bilinmiyorsa doğrulamadan kaydetme.</p>');
+  }
+  // OLCULERI TOPLU GIR. Tek tek diyalog acmak 37 urun icin 37 diyalog demekti; kimse yapmaz,
+  // olculer de yer tutucu olarak kalir ve kargo/desi tahminleri onun uzerine kurulur.
+  // Yalniz PROFILI OLAN urunler listelenir: profil yoksa KDV, maliyet ve adet de gerekir,
+  // onlar tek tek formda doldurulmali. Bos birakilan satira dokunulmaz.
+  function olculerForm() {
+    const d = state.data;
+    const liste = d.products.map(p => ({p, f: d.profiles.find(x => x.product_id === p.id)}))
+      .filter(x => olcuVarsayilan(x.f));
+    if (!liste.length) throw new Error('Doğrulanmamış ölçüsü olan ürün yok.');
+    const satir = ({p, f}) => `<tr><td><strong>${esc(p.name)}</strong><small>${esc(p.sku)}</small></td>`
+      + ['l','w','h','k'].map((k, i) => `<td><input type="number" name="${k}_${esc(p.id)}" step="${k === 'k' ? '0.001' : '0.1'}" min="0" max="1000" placeholder="${[f.length_mm / 10, f.width_mm / 10, f.height_mm / 10, f.weight_grams / 1000][i]}" aria-label="${esc(p.name)} ${['uzunluk','genişlik','yükseklik','ağırlık'][i]}"></td>`).join('') + '</tr>';
+    dialog('Ölçüleri toplu gir','olculer',
+      '<p class="help">Kurulum varsayılanı 10×10×10 cm / 1 kg taşıyan ürünler. Gerçek ölçüyü gir; <b>boş bıraktığın satır değişmez</b>. Bir satırda dört alanın dördünü de doldur, yarım bırakma.</p>'
+      + '<div class="v2-table-wrap"><table class="v2-table"><thead><tr><th>Ürün</th><th>Uzunluk (cm)</th><th>Genişlik (cm)</th><th>Yükseklik (cm)</th><th>Ağırlık (kg)</th></tr></thead><tbody>'
+      + liste.map(satir).join('') + '</tbody></table></div>'
+      + '<p class="help">Paketin dış ölçüsünü ve ambalaj dahil ağırlığını gir. Bu değerler kargo/desi tahmininde kullanılır; gerçek kesinti raporla geldiğinde tahminin yerine o geçer.</p>',
+      '', 'Girilenleri kaydet');
   }
   function tariffForm(type) {
     const shipping = type === 'shipping';
@@ -571,6 +593,33 @@ export function mountBusiness(root, namespace, view, user = null) {
         state.quote = await api('/quote',{product_id:x.product_id,channel:x.channel,carrier:x.carrier,date:x.date,quantity:scaled(x.quantity,1,'Ürün adedi'),price_cents:scaled(x.price,100,'Satış fiyatı'),desired_profit_cents:scaled(x.desired_profit,100,'Hedef kâr'),max_price_cents:scaled(x.max_price,100,'Arama üst sınırı')});
         if (!state.disposed) { render(); const result=$('[data-quote-result]'); result?.focus({preventScroll:true}); result?.scrollIntoView({block:'start',behavior:'instant'}); } return;
       }
+      // TOPLU OLCU: her satir kendi profilini gunceller. Dokunulmayan satir gonderilmez.
+      // Yarim doldurulmus satir KAYDEDILMEZ: uc olcuden biri eksikken desi hesabi sessizce
+      // yanlis cikar. Olcu disindaki alanlar (KDV, maliyet, adet) profilden AYNEN tasinir.
+      if (kind === 'olculer') {
+        const veri = new FormData(form), yazilacak = [];
+        for (const p of state.data.products) {
+          const f = state.data.profiles.find(q => q.product_id === p.id);
+          if (!f) continue;
+          const deger = k => String(veri.get(k + '_' + p.id) ?? '').trim();
+          const alan = ['l', 'w', 'h', 'k'].map(deger);
+          if (alan.every(v => v === '')) continue;
+          if (alan.some(v => v === '')) throw new Error(p.name + ': dört ölçüyü birden gir ya da satırı tamamen boş bırak.');
+          const sayi = alan.map(Number);
+          if (sayi.some(v => !Number.isFinite(v) || v <= 0)) throw new Error(p.name + ': ölçü ve ağırlık sıfırdan büyük olmalı.');
+          yazilacak.push({product_id: p.id, vat_bps: f.vat_bps, withholding_bps: f.withholding_bps,
+            replacement_cost_cents: f.manual_cost_cents ?? f.replacement_cost_cents ?? 0,
+            packaging_cents: f.packaging_cents, other_cents: f.other_cents, units_per_parcel: f.units_per_parcel,
+            length_mm: Math.round(sayi[0] * 10), width_mm: Math.round(sayi[1] * 10), height_mm: Math.round(sayi[2] * 10),
+            weight_grams: Math.round(sayi[3] * 1000)});
+        }
+        if (!yazilacak.length) throw new Error('Hiçbir satır doldurulmadı.');
+        for (const govde of yazilacak) await api('/profiles', govde);
+        if (state.disposed) return;
+        closeDialog(); await load();
+        if (!state.disposed) showError(yazilacak.length + ' ürünün ölçüsü kaydedildi.');
+        return;
+      }
       let path, body = {...x}, verb = '';
       if (kind === 'profile') {
         path = '/profiles'; body = {product_id:x.product_id,vat_bps:scaled(x.vat,100,'KDV'),withholding_bps:scaled(x.withholding,100,'Stopaj'),replacement_cost_cents:scaled(x.replacement_cost,100,'Ürün maliyeti'),packaging_cents:scaled(x.packaging,100,'Ambalaj'),other_cents:scaled(x.other,100,'Diğer giderler'),length_mm:scaled(x.length,10,'Uzunluk'),width_mm:scaled(x.width,10,'Genişlik'),height_mm:scaled(x.height,10,'Yükseklik'),weight_grams:scaled(x.weight,1000,'Ağırlık'),units_per_parcel:scaled(x.units_per_parcel,1,'Paket adedi')};
@@ -672,6 +721,7 @@ export function mountBusiness(root, namespace, view, user = null) {
       if (action === 'tab') { closeDialog(); state.tab = id; render(); }
       else if (action === 'close') closeDialog();
       else if (action === 'profile') profileForm(id);
+      else if (action === 'olculer') olculerForm();
       else if (action === 'shipping' || action === 'commission') tariffForm(action);
       else if (action === 'archive') dialog('Tarifeyi arşivle','archive','<p>Bu tarife yeni hesaplarda kullanılmayacak. Kaydın geçmişi korunacak.</p>',id,'Arşivle');
       else if (action === 'pay-all') {
