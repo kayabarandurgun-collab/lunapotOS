@@ -25,7 +25,7 @@ export function mountReports(root, namespace = 'ec') {
   const controller = new AbortController(), signal = controller.signal;
   const state = {tab: 'upload', data: null, draft: null, busy: false, message: '', error: '', orders: null, reviews: null, storeFilter: '',
     orderPage: 1, orderQuery: '', orderStatus: '', backfill: null, stockLink: null, inventoryStart: undefined,
-    summary: null, summaryList: '', feeTransfer: null, progress: ''};
+    summary: null, summaryList: '', feeTransfer: null, toplu: null, progress: ''};
   const api = async (path = '', body) => {
     const r = await fetch('/api/' + namespace + '/reports' + path, {method: body === undefined ? 'GET' : 'POST', headers: {'Content-Type': 'application/json'}, ...(body === undefined ? {} : {body: JSON.stringify(body)}), signal});
     let x; try { x = await r.json(); } catch { throw new Error('Sunucudan yanıt alınamadı.'); }
@@ -88,13 +88,18 @@ export function mountReports(root, namespace = 'ec') {
   function uploadView() {
     const d = state.draft;
     const noStore = !(state.data?.stores || []).length;
+    const topluPanel = state.toplu && state.toplu.length ? `<section class="v2-card"><h3>Son toplu yükleme</h3>
+      <ul class="rb-list">${state.toplu.map(x => `<li>${x.ok ? '✓' : '✗'} <b>${esc(x.label)}</b>${x.ok
+        ? (x.counts ? ' — ' + Object.entries(x.counts).map(([k, v]) => esc(OUTCOMES[k] || k) + ' ' + num(v)).join(' · ') : ' — işlendi')
+        : ' — ' + esc(x.note || '')}</li>`).join('')}</ul>
+      <div class="rb-actions"><button type="button" class="secondary" data-rb-act="toplu-kapat">Kapat</button></div></section>` : '';
     const head = `<ol class="workflow-steps" aria-label="Rapor yükleme adımları">${[['pick','Dosya'],['map','Eşleştirme'],['check','Kontrol'],['server','İşleme']].map(([key,label],i)=>`<li ${(!d&&key==='pick')||d?.step===key?'aria-current="step"':''}><span>${i+1}</span>${label}</li>`).join('')}</ol><section class="rb-intro"><div><strong>Dosyayı seç, türünü sistem tanısın.</strong><p>Sipariş, hakediş ve kesinti raporlarını aynı yerden yükle. Mağazayı seçebilir veya dosyadan tanınmasını bekleyebilirsin.</p></div><details class="rb-help"><summary>Yüklemeden sonra ne olur?</summary><ul class="rb-facts"><li>Dosyanın türü ve kayıtlı eşleştirmeler kontrol edilir.</li><li>Tanınan kayıtlar işlenir; ürün veya tutar belirsizse incelemeye ayrılır.</li><li>Sonucu yüklenen dosyalardan takip et. Eksik eşleştirmeler tamamlanmadan bütün kayıtlar işlenmiş sayılmaz.</li></ul></details></section>`
       + (noStore ? `<section class="v2-card"><h3>Önce mağazanı ekle</h3><p class="rb-muted">Rapor yükleyebilmek için dosyanın hangi mağazaya ait olduğunu bilmemiz gerekiyor.</p>
         <form data-rb-form="store" class="rb-grid"><label>Pazaryeri<select name="provider">${Object.entries(PROVIDERS).map(([k, t]) => `<option value="${k}">${esc(t)}</option>`).join('')}</select></label>
         <label>Mağaza kodu / satıcı no<input name="code" required maxlength="80"></label><label>Görünen ad<input name="name" required maxlength="120"></label>
         <button class="primary" type="submit">Mağazayı ekle</button></form></section>` : '');
-    if (noStore) return head;
-    if (!d || d.step === 'pick') return head + pickForm();
+    if (noStore) return topluPanel + head;
+    if (!d || d.step === 'pick') return topluPanel + head + pickForm();
     // Tanınan tür yazılır; yanlışsa buradan değiştirilir (dosya yeniden okunur).
     const turu = d.file ? `<p class="rb-kind">${esc(d.file.name)} · <b>${esc(REPORT_KINDS[d.kind] || '')}</b> ${d.kindAuto ? '<span class="rb-chip">otomatik tanındı</span>' : ''}
       <label class="rb-kind-change">Yanlışsa değiştir <select data-rb="kind">${Object.entries(REPORT_KINDS).map(([k, t]) => `<option value="${k}" ${d.kind === k ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label></p>` : '';
@@ -176,6 +181,16 @@ export function mountReports(root, namespace = 'ec') {
         <p class="rb-muted">${esc(p.notice)}</p>` : ''}
       <div class="rb-actions">${d.result ? `<button type="button" class="secondary" data-rb-act="restart">Yeni dosya</button><button type="button" class="primary" data-rb-tab="orders">Sipariş sonuçlarını gör</button>` : p && !prog ? `${geriButonu()}<button type="button" class="secondary" data-rb-act="restart">Vazgeç</button><button type="button" class="primary" data-rb-act="apply" data-id="${esc(d.fileId)}">İşle</button>` : ''}</div>
       ${d.result ? `<p class="rb-alert ok">Tamamlandı: ${Object.entries(d.result).map(([k, v]) => esc(OUTCOMES[k] || k) + ' ' + num(v)).join(' · ')}</p>
+      ${d.autoLink ? `<dl class="rb-kv">
+        <div><dt>Panele aktarılan yeni sipariş</dt><dd><strong>${num(d.autoLink.done.length)}</strong></dd></div>
+        <div><dt>Aktarılamayan</dt><dd>${num(d.autoLink.atlanan.length)}</dd></div></dl>
+        ${d.autoLink.atlanan.length ? `<details><summary>Aktarılamayanlar ve gerekçeleri (${num(d.autoLink.atlanan.length)})</summary><ul class="rb-list">${
+          d.autoLink.atlanan.slice(0, 200).map(x => `<li><b>${esc(x.package_id ?? x.paket ?? '')}</b> ${esc(x.reason || '')}</li>`).join('')
+        }</ul></details>` : ''}` : ''}
+      ${d.sonrasi ? `<dl class="rb-kv">
+        ${d.sonrasi.teslim ? `<div><dt>Teslime geçen paket</dt><dd>${num(d.sonrasi.teslim)}</dd></div>` : ''}
+        ${d.sonrasi.iade ? `<div><dt>İade kaydedilen satış</dt><dd>${num(d.sonrasi.iade)}</dd></div>` : ''}
+        ${d.sonrasi.kesinti ? `<div><dt>Kesintisi yazılan satış</dt><dd>${num(d.sonrasi.kesinti)}</dd></div>` : ''}</dl>` : ''}
       ${d.result.fee_events ? `<div class="notice" role="alert"><strong>Bu dosya ${num(d.result.fee_events)} kesinti kaydı getirdi.</strong> Finans dosyası yüklemek tek başına kâr rakamlarını değiştirmez: kesintilerin satış kayıtlarına aktarılması ayrı bir adımdır. Aktarmazsan kâr eski kesintilerle hesaplanmaya devam eder.<div class="rb-actions"><button type="button" class="primary" data-rb-tab="orders">Kesintileri aktarmaya git →</button></div></div>` : ''}` : ''}</section>`;
   }
 
@@ -453,6 +468,10 @@ export function mountReports(root, namespace = 'ec') {
     state.draft = {step: 'pick', store_id: base.store_id, snapshot_at: localNow(), kind: 'orders'};
     await load();
     const ok = done.filter(x => x.ok), bad = done.filter(x => !x.ok);
+    // COKLU YUKLEME OZETI EKRANDA LISTE OLUR. Eskiden hepsi tek cumleye sikistirilirdi ve
+    // "1 dosya islendi: ... Islenmeyen: ... — ...; ... — ..." diye uzayip giden, okunmayan bir
+    // satir cikardi. Sayilar kisa kalir, dosya basina sonuc asagida listelenir.
+    state.toplu = done;
     say(ok.length + ' dosya işlendi' + (ok.length ? ': ' + ok.map(x => x.label).join(', ') : '') + (bad.length ? '. İşlenmeyen: ' + bad.map(x => x.label + ' — ' + x.note).join('; ') : '.'), bad.length > 0 && !ok.length);
   }
   // Sipariş raporu işlenince panelde karşılığı olmayan paketler kendiliğinden siparişe dönüşür,
@@ -481,7 +500,10 @@ export function mountReports(root, namespace = 'ec') {
       if (d.kind === 'orders') {
         const a = await autoLink(d.store.id);
         d.autoLink = a;
-        aktarim = ' Panele aktarılan yeni sipariş: ' + a.done.length + (a.atlanan.length ? ' · atlanan: ' + a.atlanan.length + ' (' + [...new Set(a.atlanan.map(x => x.reason))].slice(0, 3).join('; ') + ')' : '') + '.';
+        // SEBEPLER CUMLEYE SIKISTIRILMAZ. Eskiden bu satir tek bir metne donuyordu ve ekranda
+        // noktali virgullerle uzayip giden, okunmayan bir blok cikiyordu ("atlanan: 72 (Siparis
+        // taslak kaldi: ...; ...; ...)"). Sayilar burada, sebepler asagida LISTE olarak.
+        aktarim = ' Panele aktarılan yeni sipariş: ' + a.done.length + (a.atlanan.length ? ' · aktarılamayan: ' + a.atlanan.length + ' (gerekçeler aşağıda)' : '') + '.';
       }
       // Her rapordan sonra: rapora göre teslim edilenler güncellenir ve rapordaki kesintiler
       // teslim edilmiş siparişlere yazılır. Kullanıcının ayrıca bir düğmeye basması gerekmez.
@@ -497,6 +519,7 @@ export function mountReports(root, namespace = 'ec') {
         if (!f.next_cursor || f.next_cursor <= cursor) break;
         cursor = f.next_cursor;
       }
+      d.sonrasi = {teslim: t.count || 0, iade, kesinti: yazilan};
       aktarim += (t.count ? ' Teslim güncellenen: ' + t.count + '.' : '') + (iade ? ' İade kaydedilen satış: ' + iade + '.' : '') + (yazilan ? ' Kesintisi yazılan satış: ' + yazilan + '.' : '');
     }
     await load();
@@ -593,6 +616,7 @@ export function mountReports(root, namespace = 'ec') {
       state.feeTransfer = toplam;
       return toplam;
     };
+    if (a === 'toplu-kapat') { state.toplu = null; render(); return; }
     if (a === 'fees-preview') run(async () => { await feeSweep(false); say('Önizleme hazır. Hiçbir şey yazılmadı.'); });
     if (a === 'fees-apply') run(async () => {
       const t = await feeSweep(true);
