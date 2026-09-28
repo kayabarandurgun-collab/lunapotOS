@@ -159,11 +159,18 @@ export function mountOrders(root,namespace='ec'){
  }
  // Sipariş penceresinin üstündeki işlem düğmeleri: yalnız o durumda yapılabilecek adımlar.
  function detayIslemleri(p){
-  const liste=state.data?.packages.find(x=>x.id===p.id),hazir=(liste?.readiness||'ready')==='ready';
+  // HAZIRLIK DURUMU ONCE SIPARISIN KENDI VERISINDEN. Eskiden yalniz o an yuklu liste sayfasindan
+  // okunuyordu: siparis listede yoksa sessizce "hazir" varsayiliyor ve dugme gercek duruma
+  // bakilmadan cikabiliyordu. Artik pencerenin kendi getirdigi readiness onceliklidir.
+  const liste=state.data?.packages.find(x=>x.id===p.id),durum=p.readiness??liste?.readiness??'ready',hazir=durum==='ready';
   const b=p.status==='draft'?btn('Ürünleri eşleştir','map',p.id,true)+(hazir&&!p.source_changed?btn('Stok ayır','reserve',p.id):''):p.status==='reserved'?btn('Gönderimi kaydet','ship',p.id):p.status==='shipped'?btn('Teslimi kaydet','deliver',p.id,true):'';
   const iptal=['draft','reserved'].includes(p.status)?btn('Siparişi iptal et','cancel',p.id,true):'';
   const kaynak=p.source_changed&&p.channel==='trendyol'?btn('Güncel kaydı incele','source',p.id,true):'';
-  return b||iptal||kaynak?`<div class="ol-detay-islem">${kaynak}${b}${iptal}</div>`:'';
+  // SEBEP PENCEREDE DE YAZILIR. Kullanici listede "Stok yetersiz" gorup siparisi aciyordu ve
+  // pencerede hicbir aciklama bulamiyordu; tek gorunen "Urunleri eslestir" dugmesi de stok
+  // yetersizligini cozmez.
+  const neden=!hazir&&readiness[durum]?`<p class="help">${esc(readiness[durum])}</p>`:'';
+  return b||iptal||kaynak?`${neden}<div class="ol-detay-islem">${kaynak}${b}${iptal}</div>`:neden;
  }
  function quoteForm(p,lines){
   if(!lines.length)return '<p class="notice">Paket satırları bulunamadı.</p>';

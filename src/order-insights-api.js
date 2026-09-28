@@ -68,7 +68,24 @@ async function orderData(env,key){
   if(o){cash_cents=o.cash_cents;cash_estimated=o.estimated;cash_note=o.note;cash_source='performance';cash_breakdown=o.kalemler||null;if(o.withholding_cents!==null)stopaj=Math.abs(o.withholding_cents);
    commission_gross_cents=o.commission_gross_cents??null;commission_base_cents=o.commission_base_cents??null;}
  }
- return {package:p,lines,components,sales,withholding_cents:stopaj,cash_cents,cash_estimated,cash_note,cash_source,cash_breakdown,
+ // HAZIRLIK DURUMU PENCERENIN KENDI VERISINDEN GELIR. Ekran bunu daha once LISTEDEN okuyordu:
+ // siparis o an yuklu liste sayfasinda yoksa (baska ekrandan dogrudan acildiginda, ya da liste
+ // farkli bir filtrede/sayfadayken) sessizce "hazir" varsayiliyor ve "Stok ayir" dugmesi gercek
+ // duruma bakilmadan cikabiliyordu. Kural listedekiyle AYNI: kaynak degistiyse, esleme ya da tutar
+ // eksikse, taslakta stok yetmiyorsa hazir degildir.
+ const urunIdleri=[...new Set(components.map(c=>c.product_id))];
+ const stokSatir=urunIdleri.length?await all(stmt(db,
+  'SELECT b.product_id,b.quantity_milli-COALESCE((SELECT SUM(r.quantity_milli) FROM order_reservations r WHERE r.product_id=b.product_id AND r.released_on IS NULL),0) kullanilabilir'
+  +' FROM stock_balances b WHERE b.product_id IN (SELECT value FROM json_each(?))',[JSON.stringify(urunIdleri)])):[];
+ const stok=new Map(stokSatir.map(r=>[r.product_id,r.kullanilabilir]));
+ const ihtiyac=new Map();
+ for(const c of components)ihtiyac.set(c.product_id,(ihtiyac.get(c.product_id)||0)+c.quantity_milli);
+ const readiness=p.source_changed?'source_changed'
+  :lines.some(l=>components.filter(c=>c.line_id===l.id).reduce((n,c)=>n+c.revenue_share_bps,0)!==10000)?'needs_mapping'
+  :lines.some(l=>l.net_revenue_cents===null)?'needs_amounts'
+  :p.status==='draft'&&[...ihtiyac].some(([urun,q])=>(stok.get(urun)||0)<q)?'needs_stock'
+  :'ready';
+ return {package:{...p,readiness},lines,components,sales,withholding_cents:stopaj,cash_cents,cash_estimated,cash_note,cash_source,cash_breakdown,
   commission_gross_cents,commission_base_cents,commission_rate_bps:komisyonOraniBps(commission_gross_cents,commission_base_cents),parcel_input:parcelInput,parcel_input_source:parcelInputSource,actual_summary:actualSummary,customer,source,source_facts:sourceFacts,purchase_invoices:purchases.slice(0,50).map(r=>({...r,source:'recent_receipt_not_exact_lot'})),purchase_invoices_truncated:purchases.length>50,fee_evidence:feeEvidence,drafts:drafts.map(unpack),invoice_status:'draft_only',notices:['Alış belgeleri bu stok kartlarının son mal teslimleridir. Satış maliyeti ağırlıklı ortalamadır; kesin parti/fatura çıkışı olduğu iddia edilmez.','Yerel satış faturası taslağı resmî fatura değildir. EDM/GİB gönderimi yapılmaz.',...(p.channel==='hepsiburada'?['Hepsiburada kaynakları henüz paket düzeyinde doğrulanmadığından müşteri ayrıntısı otomatik eşleştirilmedi.']:[])]};
 }
 function billingData(input){

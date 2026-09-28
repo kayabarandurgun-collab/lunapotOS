@@ -164,3 +164,19 @@ test('R22: geçmiş yoksa üç görünüm aynı kısa eksik nedenini verir', asy
     assert.equal(ozet.cash_note, neden, 'pencere aynı nedeni taşır');
   } finally { f.close(); }
 });
+
+// HAZIRLIK DURUMU LİSTEYE DEĞİL SİPARİŞİN KENDİSİNE BAĞLI. Ekran bunu listeden okuyordu; sipariş o
+// an yüklü liste sayfasında yoksa (başka ekrandan doğrudan açıldığında ya da liste farklı bir
+// filtredeyken) sessizce "hazır" varsayılıyor ve "Stok ayır" düğmesi gerçek duruma bakılmadan
+// çıkabiliyordu. Pencere artık kendi hazırlık durumunu getiriyor.
+test('Sipariş penceresi hazırlık durumunu kendisi bildirir; listeyle aynı sonucu verir', async () => {
+  const f = appFixture(); await f.setup(); try {
+    await kur(f);
+    const liste = new Map((await f.ok('/ec/orders')).packages.map(p => [p.id, p]));
+    for (const [id, satir] of liste) {
+      const pencere = await f.ok('/ec/orders/' + id + '/insights');
+      assert.equal(pencere.package.readiness, satir.readiness,
+        id + ': pencere ve liste aynı hazırlık durumunu söylemeli (' + pencere.package.readiness + ' / ' + satir.readiness + ')');
+    }
+  } finally { f.close(); }
+});
