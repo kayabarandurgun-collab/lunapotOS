@@ -123,3 +123,39 @@ test('Teslim edilemedi kaydı olmayan paket uyarıya girmez',async()=>{
   assert.equal(attentionItems(data,{providers:[]},{tax_id:'1',legal_name:'T'}).some(i=>i.href==='#orders?watch=undelivered'),false,'sıfırken kart çıkmamalı');
  }finally{f.close();}
 });
+
+// YARIM KALAN YÜKLEME KAYBOLMASIN. Bağlantı koparsa dosya "alınıyor" durumunda kalır; otomatik
+// bakım bunu bilerek atlar. Kullanıcı Rapor Kutusu'nu açmazsa o dönemin raporu hiç işlenmemiş
+// olur ve bunu hiçbir yerden öğrenemezdi.
+test('İş listesi: yarım kalan rapor yüklemesini gösterir', () => {
+  const temel={as_of:'2026-09-28',
+    orders:{changed:0,unmapped:0,missing_amounts:0,reserved:0,long_shipping:0},
+    stock:{total:1,low:0,no_history:0},invoices:{drafts:0,awaiting_receipt:0},
+    sales:{total:0,unconfirmed:0,delivered_unconfirmed:0,losses:0},
+    tariffs:{shipping_active:1,commission_active:1,shipping_expiring:0,commission_expiring:0}};
+  const baglantili={providers:[{id:'trendyol',name:'Trendyol',configured:true,last_success_at:'2026-09-28',stale:false,last_error:null}]};
+
+  const yarim=attentionItems({...temel,reports:{total:5,last_applied:'2026-09-27 12:00:00',yarim:2}},baglantili,{legal_name:'L',tax_id:'1'})
+    .filter(x=>/Yarım kalan rapor/.test(x.title));
+  assert.equal(yarim.length,1);
+  assert.equal(yarim[0].count,2);
+
+  const yok=attentionItems({...temel,reports:{total:5,last_applied:'2026-09-27 12:00:00',yarim:0}},baglantili,{legal_name:'L',tax_id:'1'})
+    .filter(x=>/Yarım kalan rapor/.test(x.title));
+  assert.equal(yok.length,0,'yarım kalan yoksa satır çıkmamalı');
+});
+
+// Kesinti işi yalnız TESLİM EDİLMİŞ satışları sayar: teslim edilmemişe kural gereği kesinti
+// yazılmaz, onu "yapılacak iş" diye göstermek listeyi şişiriyordu (canlıda 236'nın 175'i).
+test('İş listesi: kesinti işi teslim edilmişleri sayar, bekleyenleri açıklamada anar', () => {
+  const data={as_of:'2026-09-28',reports:{total:5,last_applied:'2026-09-27 12:00:00',yarim:0},
+    orders:{changed:0,unmapped:0,missing_amounts:0,reserved:0,long_shipping:0},
+    stock:{total:1,low:0,no_history:0},invoices:{drafts:0,awaiting_receipt:0},
+    sales:{total:300,unconfirmed:236,delivered_unconfirmed:61,losses:0},
+    tariffs:{shipping_active:1,commission_active:1,shipping_expiring:0,commission_expiring:0}};
+  const item=attentionItems(data,{providers:[{id:'trendyol',name:'Trendyol',configured:true,last_success_at:'2026-09-28',stale:false,last_error:null}]},{legal_name:'L',tax_id:'1'})
+    .find(x=>/kesintisi yazılmamış/.test(x.title));
+  assert.ok(item,'teslim edilmiş satış işi görünmeli');
+  assert.equal(item.count,61,'sayı teslim edilmişlerin sayısı olmalı');
+  assert.match(item.detail,/175 satış teslim bekliyor/);
+});

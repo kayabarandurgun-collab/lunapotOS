@@ -28,6 +28,12 @@ export async function attentionApi(request,env,path){
    COALESCE(SUM(status='posted' AND EXISTS(SELECT 1 FROM purchase_lines l WHERE l.invoice_id=purchase_invoices.id AND l.line_type='product' AND l.quantity_milli-COALESCE((SELECT cancelled_milli FROM purchase_line_limits WHERE id=l.id),0)>COALESCE((SELECT SUM(g.quantity_milli) FROM effective_receipts g WHERE g.line_id=l.id),0))),0) awaiting_receipt FROM purchase_invoices`,
   `SELECT COUNT(*) total,
    COALESCE(SUM(fees_status!='confirmed' OR commission_cents IS NULL OR shipping_cents IS NULL OR other_cents IS NULL),0) unconfirmed,
+   -- TESLIM EDILMIS OLANI AYRI SAY. Teslim edilmemis pakete kural geregi kesinti yazilmaz; onu
+   -- "yapilacak is" diye gostermek listeyi sisiriyor ve gercekten bakilmasi gerekeni gizliyordu
+   -- (canlida 236'nin 175'i sirasini bekliyordu, yalniz 61'i gercek konuydu).
+   COALESCE(SUM((fees_status!='confirmed' OR commission_cents IS NULL OR shipping_cents IS NULL OR other_cents IS NULL)
+     AND EXISTS(SELECT 1 FROM order_line_components c JOIN order_lines l ON l.id=c.line_id
+       JOIN order_packages p ON p.id=l.package_id WHERE c.sale_id=sale_entries.id AND p.status='delivered')),0) delivered_unconfirmed,
    COALESCE(SUM(kind='sale' AND fees_status='confirmed' AND revenue_cents-cost_cents-commission_cents-shipping_cents-other_cents<0),0) losses FROM sale_entries`,
   `SELECT
    (SELECT COUNT(*) FROM shipping_rates WHERE archived_at IS NULL AND valid_from<=? AND valid_to>=?) shipping_active,
@@ -37,7 +43,15 @@ export async function attentionApi(request,env,path){
   // PAZARYERI VERISI AKIYOR MU? Bagli API tek yol degil: kullanici raporu elle de yukleyebilir
   // (26.09.2026'da API'ler bilerek kapatildi ve elle rapor duzenine gecildi). "Baglanti yok"
   // tek basina eksik is degildir; eksik olan VERININ AKMAMASIDIR. Son islenen rapor buradan okunur.
-  `SELECT COUNT(*) total, MAX(created_at) last_applied FROM ec_report_files WHERE status='applied'`
+  `SELECT (SELECT COUNT(*) FROM ec_report_files WHERE status='applied') total,
+    (SELECT MAX(created_at) FROM ec_report_files WHERE status='applied') last_applied,
+    -- YARIM KALAN YUKLEME KAYBOLMASIN. Baglanti koparsa ya da sekme kapanirsa dosya
+    -- 'receiving' durumunda kalir; otomatik bakim bu durumu BILEREK atlar (ayni dosyanin
+    -- parcalari yeniden gonderilmeden surdurulemez). Kullanici Rapor Kutusu'nu acmazsa o
+    -- donemin raporu hic islenmemis olur ve bunu hicbir yerden ogrenemezdi.
+    -- 1 saatten eski olanlar sayilir: devam eden yukleme is listesine dusmesin.
+    (SELECT COUNT(*) FROM ec_report_files WHERE status IN ('receiving','received','applying')
+      AND created_at < datetime('now','-1 hour')) yarim`
  ];
  const results=await env.DB.batch(queries.map((sql,i)=>i===4?env.DB.prepare(sql).bind(day,day,day,day,day,day,next,day,day,next):i===0?env.DB.prepare(sql).bind(day):env.DB.prepare(sql)));
  const [orders,stock,invoices,sales,tariffs,reports]=results.map(r=>r.results[0]);

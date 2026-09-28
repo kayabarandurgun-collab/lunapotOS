@@ -11,7 +11,12 @@ export function attentionItems(data,connections,settings,pendingFees=0){
  add(stock.low,'#stock?filter=low','Kritik kullanılabilir stok','Siparişlere ayrılan miktar düşüldükten sonra alt sınırda.');
  add(invoices.drafts,'#invoices','İncelenecek alış faturası','Tedarikçiyi, ürün bağlantısını ve tutarları kontrol et.');
  add(invoices.awaiting_receipt,'#invoices','Mal teslimi tamamlanmamış fatura','Borç kaydedilmiş; depoya gelen miktarı ayrıca işle.');
- add(sales.unconfirmed,'#sales','Kesintisi doğrulanmamış satış / iade','Kargo ve komisyon tamamlanmadan kâr kesinleşmez.');
+ // YALNIZ TESLIM EDILMIS OLAN IS SAYILIR. Teslim edilmemis pakete kural geregi kesinti yazilmaz;
+ // onu listeye koymak "236 is var" izlenimi veriyor, gercekten bakilmasi gereken 61'i gizliyordu.
+ // Bekleyenlerin sayisi yine yazilir ama is olarak sayilmaz.
+ const teslimEdilmis=sales.delivered_unconfirmed??sales.unconfirmed,bekleyen=(sales.unconfirmed||0)-(teslimEdilmis||0);
+ add(teslimEdilmis,'#sales','Teslim edilmiş ama kesintisi yazılmamış satış',
+  'Kargo ve komisyon tamamlanmadan kâr kesinleşmez.'+(bekleyen>0?' Ayrıca '+bekleyen+' satış teslim bekliyor; onlara kural gereği henüz kesinti yazılmaz.':''));
  add(pendingFees>0?1:0,'#reconciliation','Satışlara dağıtılacak kesinti faturası','Kargo ve komisyon belgelerini satışlara eşleştir.');
  // Component allocations are not independent sold offerings; profitability belongs to Satış ve kâr.
 
@@ -27,6 +32,9 @@ export function attentionItems(data,connections,settings,pendingFees=0){
  // görünüyordu: bilinçli bir karar, kapatılamayan bir "yapılacak iş" gibi duruyordu.
  // Asıl sorulacak soru şu: pazaryeri verisi akıyor mu? Rapor son 14 gün içinde işlendiyse akıyor.
  // Ne bağlantı ne de güncel rapor varsa uyarı GERÇEKTİR ve daha sert yazılır.
+ // Yarim kalan yukleme: dosya alinmis ama islenmemis. Kullanici ayni dosyayi yeniden secince
+ // kaldigi yerden surer; bilmedigi surece o donemin raporu hic islenmemis kalir.
+ add(data.reports?.yarim||0,'#reports','Yarım kalan rapor yüklemesi','Aynı dosyayı yeniden seç; kaldığı yerden sürer. İşlenmeden o dönemin siparişleri ve kesintileri panele girmez.');
  const sonRapor=data.reports?.last_applied?String(data.reports.last_applied).slice(0,10):'';
  const gunFarki=sonRapor?Math.floor((Date.parse(data.as_of+'T00:00:00Z')-Date.parse(sonRapor+'T00:00:00Z'))/86400000):null;
  const raporGuncel=gunFarki!==null&&gunFarki<=14;

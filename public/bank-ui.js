@@ -122,7 +122,7 @@ export function mountBank(root, namespace = 'ec') {
           <td class="rb-num ${x.amount_cents < 0 ? 'rb-warn' : ''}">${money(x.amount_cents)}</td>
           <td class="rb-num">${money(x.balance_cents)}</td><td>${esc(x.reference)}</td></tr>`).join('')}
         </tbody></table></div><div class="rb-actions workflow-pagination"><span class="rb-muted">${num(l.total)} hareket · sayfa ${l.page} / ${Math.max(1,Math.ceil(l.total/l.page_size))}</span><button type="button" class="secondary" data-bank-act="previous" ${l.page<=1?'disabled':''}>← Önceki</button><button type="button" class="secondary" data-bank-act="next" ${l.page*l.page_size>=l.total?'disabled':''}>Sonraki →</button></div>`
-        : '<p class="rb-muted">Bu aramaya uyan hareket yok.</p>') : '<p class="rb-muted">Hesap seçin.</p>'}</section>`;
+        : '<p class="rb-muted">Bu aramaya uyan hareket yok.</p>') : (state.account?'<p class="rb-muted">Hareketler yükleniyor…</p>':'<p class="rb-muted">Hesap seçin.</p>')}</section>`;
   }
 
   const sekmeler = () => '<nav class="v2-tabs" aria-label="Banka">' +
