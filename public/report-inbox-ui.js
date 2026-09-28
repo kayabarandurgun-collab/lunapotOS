@@ -478,13 +478,19 @@ export function mountReports(root, namespace = 'ec') {
   // stok ayrılır ve (kargolandıysa) gönderilir. Atlananlar sebebiyle listelenir.
   async function autoLink(storeId) {
     const skip = [], done = [], atlanan = [];
+    // SINIR SESSIZ KALMAZ. Tur sayisi 80 ile sinirli (her turda en cok 5 paket): ilk kez yuklenen
+    // buyuk bir raporda 400'den fazla yeni paket varsa dongu kalanini denemeden biterdi ve ekranda
+    // yalnizca "aktarilan: 400" yazardi. Kalan is bir sonraki bakim turunda ya da tekrar "Isle"
+    // dendiginde tamamlaniyor; ama kullanici "hepsi bitti" sanmasin diye acikca yazilir.
+    let kalan = false;
     for (let tur = 0; tur < 80; tur++) {
       state.progress = 'Yeni siparişler panele aktarılıyor… ' + done.length + ' tamam'; render();
       const r = await api('/stock-link/auto', {store_id: storeId, skip});
       for (const x of r.results) { if (x.done) done.push(x); else { atlanan.push(x); skip.push(x.package_id); } }
       if (!r.results.length || (!r.remaining && r.results.length < 5)) break;
+      if (tur === 79) kalan = true;
     }
-    return {done, atlanan};
+    return {done, atlanan, kalan};
   }
   async function apply(fileId) {
     let result;
@@ -503,7 +509,7 @@ export function mountReports(root, namespace = 'ec') {
         // SEBEPLER CUMLEYE SIKISTIRILMAZ. Eskiden bu satir tek bir metne donuyordu ve ekranda
         // noktali virgullerle uzayip giden, okunmayan bir blok cikiyordu ("atlanan: 72 (Siparis
         // taslak kaldi: ...; ...; ...)"). Sayilar burada, sebepler asagida LISTE olarak.
-        aktarim = ' Panele aktarılan yeni sipariş: ' + a.done.length + (a.atlanan.length ? ' · aktarılamayan: ' + a.atlanan.length + ' (gerekçeler aşağıda)' : '') + '.';
+        aktarim = ' Panele aktarılan yeni sipariş: ' + a.done.length + (a.atlanan.length ? ' · aktarılamayan: ' + a.atlanan.length + ' (gerekçeler aşağıda)' : '') + '.' + (a.kalan ? ' Bu turda işlenebilecek sınıra ulaşıldı; kalanlar bir sonraki bakım turunda ya da yeniden "İşle" dediğinde sürecek.' : '');
       }
       // Her rapordan sonra: rapora göre teslim edilenler güncellenir ve rapordaki kesintiler
       // teslim edilmiş siparişlere yazılır. Kullanıcının ayrıca bir düğmeye basması gerekmez.

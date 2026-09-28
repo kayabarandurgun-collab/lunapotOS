@@ -51,7 +51,13 @@ export async function attentionApi(request,env,path){
     -- donemin raporu hic islenmemis olur ve bunu hicbir yerden ogrenemezdi.
     -- 1 saatten eski olanlar sayilir: devam eden yukleme is listesine dusmesin.
     (SELECT COUNT(*) FROM ec_report_files WHERE status IN ('receiving','received','applying')
-      AND created_at < datetime('now','-1 hour')) yarim`
+      AND created_at < datetime('now','-1 hour')) yarim,
+    -- ARKA PLAN HATASI GORUNMEZ KALMASIN. Otomatik bakim hatayi yutup panel gunlugune yaziyor;
+    -- Telegram'a BILEREK gondermiyor (ayni hata her turda tekrarlanir, kanali okunmaz yapar).
+    -- Ama ekran kapaliyken calisan bir isin surekli hata vermesi de hicbir yerde gorunmuyordu.
+    -- Son 24 saatteki sorunlu tur sayilir: is listesi zaten her gun bakilan yerdir.
+    (SELECT COUNT(*) FROM ec_activity WHERE description LIKE 'Otomatik bak%sorun:%'
+      AND created_at > datetime('now','-1 day')) bakim_sorunu`
  ];
  const results=await env.DB.batch(queries.map((sql,i)=>i===4?env.DB.prepare(sql).bind(day,day,day,day,day,day,next,day,day,next):i===0?env.DB.prepare(sql).bind(day):env.DB.prepare(sql)));
  const [orders,stock,invoices,sales,tariffs,reports]=results.map(r=>r.results[0]);

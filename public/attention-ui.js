@@ -34,6 +34,10 @@ export function attentionItems(data,connections,settings,pendingFees=0){
  // Ne bağlantı ne de güncel rapor varsa uyarı GERÇEKTİR ve daha sert yazılır.
  // Yarim kalan yukleme: dosya alinmis ama islenmemis. Kullanici ayni dosyayi yeniden secince
  // kaldigi yerden surer; bilmedigi surece o donemin raporu hic islenmemis kalir.
+ // Arka planda calisan is surekli hata veriyorsa kullanici bunu yalnizca paneli acip etkinlik
+ // listesini okuyarak fark edebiliyordu; otomatik bakimin var olma amaci tam olarak ekran
+ // kapaliyken is yapmaktir. Telegram'a gonderilmiyor (her tur ayni hatayi tekrarlardi).
+ add(data.reports?.bakim_sorunu||0,'#settings','Otomatik bakım turu hata verdi','Son 24 saatte bu kadar turda sorun yazıldı. Etkinlik listesinden sebebine bak; işler ertelenmiş olabilir.');
  add(data.reports?.yarim||0,'#reports','Yarım kalan rapor yüklemesi','Aynı dosyayı yeniden seç; kaldığı yerden sürer. İşlenmeden o dönemin siparişleri ve kesintileri panele girmez.');
  const sonRapor=data.reports?.last_applied?String(data.reports.last_applied).slice(0,10):'';
  const gunFarki=sonRapor?Math.floor((Date.parse(data.as_of+'T00:00:00Z')-Date.parse(sonRapor+'T00:00:00Z'))/86400000):null;
