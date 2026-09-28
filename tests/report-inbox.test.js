@@ -410,3 +410,56 @@ test('Teslim tarihi paketin BÜTÜN satırlarında olmalı; bir satırı eksikse
     assert.equal(row.contribution_cents, null);
   } finally { f.close(); }
 });
+
+// AYNI SORU HER YÜKLEMEDE YENİDEN SORULMAZ. Karar yalnız o dosyanın o satırına yazılıyordu; ertesi
+// gün aynı rapor yüklenince soru sıfırdan açılıyordu. Canlıda tek bir sipariş için 4 kayıt birikti
+// (ikisi 26.09 dosyasından, ikisi 27.09'dan) ve kullanıcı aynı soruyu dört kez gördü.
+test('Reddedilen inceleme sorusu, aynı satır yeniden yüklenince tekrar sorulmaz', async () => {
+  const {f, store, profile, upload, applyAll} = await fixture();
+  try {
+    // Kalem kimliği OLMAYAN biçim: aynı bilgiye sahip iki satır ikiz sayılır.
+    const SUTUN = ORDER_COLUMNS.filter(c => c.header !== 'Kalem No');
+    const ESLEME = {...ORDER_MAPPING}; delete ESLEME.line_id;
+    const s = await store();
+    await profile('orders', SUTUN, ESLEME);
+    const satir = (adet, tutar) => ['S-1', 'P-1', '869', 'Ürün 869', adet, 'Teslim Edildi', '01.09.2026', tutar, '50,00', '05.09.2026'];
+
+    const ilk = await upload(s, 'orders', SUTUN, [satir(2, '294,00'), satir(1, '147,00')], '2026-09-26T12:00', 'ilk.xlsx');
+    await applyAll(ilk.id);
+    const acik = (await f.ok('/ec/reports/reviews')).reviews.filter(r => r.reason === 'ambiguous_twin');
+    assert.equal(acik.length, 2, 'ikiz satırlar incelemeye düşmeli: ' + JSON.stringify(acik.map(r => r.reason)));
+
+    for (const r of acik) await f.ok('/ec/reports/reviews/' + r.id, {decision: 'reject'});
+    assert.equal((await f.ok('/ec/reports/reviews')).reviews.length, 0, 'reddedilenler kapanmalı');
+
+    // Ertesi günün raporu: AYNI iki satır + ilgisiz bir sipariş (dosya baytları farklı olsun diye;
+    // aynı bayt dizisi mükerrer sayılıp hiç işlenmezdi).
+    const baska = ['S-9', 'P-9', '900', 'Ürün 900', 1, 'Teslim Edildi', '02.09.2026', '100,00', '50,00', '06.09.2026'];
+    const ikinci = await upload(s, 'orders', SUTUN, [satir(2, '294,00'), satir(1, '147,00'), baska], '2026-09-27T12:00', 'ikinci.xlsx');
+    const sonuc = await applyAll(ikinci.id);
+    assert.equal((await f.ok('/ec/reports/reviews')).reviews.length, 0, 'aynı soru yeniden açılmamalı');
+    assert.equal(sonuc.counts.review_remembered, 2, 'kaç sorunun hatırlandığı ekranda görünmeli: ' + JSON.stringify(sonuc.counts));
+  } finally { f.close(); }
+});
+
+test('İçerik değişirse eski karar uygulanmaz, soru yeniden sorulur', async () => {
+  const {f, store, profile, upload, applyAll} = await fixture();
+  try {
+    const SUTUN = ORDER_COLUMNS.filter(c => c.header !== 'Kalem No');
+    const ESLEME = {...ORDER_MAPPING}; delete ESLEME.line_id;
+    const s = await store();
+    await profile('orders', SUTUN, ESLEME);
+    const satir = (adet, tutar) => ['S-1', 'P-1', '869', 'Ürün 869', adet, 'Teslim Edildi', '01.09.2026', tutar, '50,00', '05.09.2026'];
+
+    const ilk = await upload(s, 'orders', SUTUN, [satir(2, '294,00'), satir(1, '147,00')], '2026-09-26T12:00', 'ilk.xlsx');
+    await applyAll(ilk.id);
+    for (const r of (await f.ok('/ec/reports/reviews')).reviews) await f.ok('/ec/reports/reviews/' + r.id, {decision: 'reject'});
+
+    // Adet değişti: eski karar bu veriye ait değildir.
+    const baska = ['S-9', 'P-9', '900', 'Ürün 900', 1, 'Teslim Edildi', '02.09.2026', '100,00', '50,00', '06.09.2026'];
+    const ikinci = await upload(s, 'orders', SUTUN, [satir(4, '588,00'), satir(1, '147,00'), baska], '2026-09-27T12:00', 'ikinci.xlsx');
+    await applyAll(ikinci.id);
+    const acik = (await f.ok('/ec/reports/reviews')).reviews;
+    assert.ok(acik.length > 0, 'içerik değiştiğinde soru yeniden açılmalı');
+  } finally { f.close(); }
+});

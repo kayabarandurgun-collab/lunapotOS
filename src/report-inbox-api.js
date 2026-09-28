@@ -1268,6 +1268,17 @@ async function applyStep(db, f) {
       r.issues.push({code: 'duplicate_in_file', field: null, detail: 'Aynı kimlik dosyada ' + duplicateKeys[k] + '. satırda da var.'});
   }
   const part = await classify(db, f, profile, batch.records);
+  // AYNI SORU HER YUKLEMEDE YENIDEN SORULMAZ. Karar yalniz o dosyanin o satirina yaziliyordu;
+  // sonraki dosyada ayni satir yeniden gelince soru sifirdan aciliyordu. Canlida ayni siparis
+  // icin 4 kayit birikmisti: ikisi 26.09 dosyasindan, ikisi 27.09'dan, hepsi TEK soru.
+  // Kullanici "bu ayri islem degil" dediyse ve satirin icerigi DEGISMEDIYSE tekrar sorulmaz.
+  // Yalniz REDDEDILEN karar hatirlanir: "kabul" ayri bir kayit olusturur, onu kendiliginden
+  // tekrarlamak her yuklemede yeni bir mukerrer kayit yazardi.
+  // Icerik degisirse (adet, tutar, durum) anahtar tutmaz ve soru yeniden acilir: eski karar
+  // yeni veriye uygulanmaz.
+  const reddedilen = new Set(((await db.prepare(
+    "SELECT record_key,reason,incoming_json FROM ec_report_reviews WHERE store_id=? AND status='rejected' ORDER BY resolved_at DESC LIMIT 500")
+    .bind(f.store_id).all()).results || []).map(x => x.record_key + '␟' + x.reason + '␟' + x.incoming_json));
   const counts = parse(f.counts_json, {new: 0, updated: 0, same: 0, older: 0, review: 0});
   const stmts = [db.prepare('INSERT INTO ec_report_apply_steps(file_id,from_row,to_row) VALUES(?,?,?)').bind(f.id, f.applied_row, toRow)];
   // R01: sınıflandırmanın dayandığı durum değiştiyse (başka dosya yazdı, gözlem ilerledi, bağlantı
@@ -1303,7 +1314,11 @@ async function applyStep(db, f) {
       stmts.push(db.prepare('UPDATE ec_report_records SET source_time=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND (source_time IS NULL OR source_time<?)')
         .bind(f.snapshot_at, r.prior.id, f.snapshot_at));
     } else if (r.outcome === 'review') {
-      stmts.push(review(db, f, r, r.reason, r.detail));
+      const anahtar = r.kind + '|' + r.key + '␟' + (r.reason || 'review') + '␟' + JSON.stringify(r.data);
+      if (reddedilen.has(anahtar)) {
+        counts.review = Math.max(0, (counts.review || 0) - 1);
+        counts.review_remembered = (counts.review_remembered || 0) + 1;
+      } else stmts.push(review(db, f, r, r.reason, r.detail));
     }
   }
   // RAPORDAN TESLİM ONAYI. Kâr yalnız teslim edilmiş pakette hesaplanır ve teslim durumu
