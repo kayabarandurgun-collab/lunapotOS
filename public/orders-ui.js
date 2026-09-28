@@ -291,8 +291,18 @@ export function mountOrders(root,namespace='ec'){
  // Liste kontrolleri: her değişiklik hemen uygulanır, sayfa 1'e döner ve adrese yazılır.
  const degistir=async ayar=>{if(state.busy)return;Object.assign(state,ayar);state.busy=true;try{await load();}catch(err){if(err.name!=='AbortError')notify(err.message);}finally{state.busy=false;}};
  root.addEventListener('submit',e=>{
-  if(e.target.matches('[data-ol-search]')){e.preventDefault();degistir({search:e.target.q.value.trim(),page:1});}
+  if(e.target.matches('[data-ol-search]')){e.preventDefault();clearTimeout(aramaZaman);degistir({search:e.target.q.value.trim(),page:1});}
   else if(e.target.matches('[data-ol-extra]')){e.preventDefault();const f=Object.fromEntries(new FormData(e.target));if(f.from&&f.to&&f.from>f.to){notify('Başlangıç tarihi bitişten sonra olamaz.');return;}degistir({from:f.from,to:f.to,watch:f.watch,page:1});}
+ },{signal});
+ // YAZARKEN SUZER. Aramanin uygulanmasi icin "Ara" dugmesine basmak gerekiyordu; kullanici
+ // yaziyor, liste degismiyor, neden olmadigini anlamiyordu. Her tusa basista istek atmamak
+ // icin 300 ms beklenir (son yazilan kazanir); dugme ve Enter eskisi gibi calisir.
+ let aramaZaman=null;
+ root.addEventListener('input',e=>{
+  if(!e.target.matches('[data-ol-search] input'))return;
+  const deger=e.target.value.trim();
+  clearTimeout(aramaZaman);
+  aramaZaman=setTimeout(()=>{if(deger!==state.search)degistir({search:deger,page:1});},300);
  },{signal});
  root.addEventListener('change',e=>{if(e.target.matches('[data-ol-sort]'))degistir({sort:e.target.value,page:1});},{signal});
  root.addEventListener('click',e=>{
