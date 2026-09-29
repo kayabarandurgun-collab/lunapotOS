@@ -1,0 +1,140 @@
+---
+session: lunapot-panel
+date: 2026-09-29
+status: complete
+outcome: SUCCEEDED
+---
+
+goal: "Trendyol sütun ekleyince rapor yüklenemiyordu; düzeltildi. Sonra çift kayıt kuralı merkeze alındı, üç koldan sistem denetimi yapıldı (arayüz / para-tarih / yarım kalma), stopajı bildirmeyen kanal için ölçülen oranla tahmin eklendi, iş listesi ve yanıltan metinler düzeltildi. 19 commit, hepsi yayında."
+now: "KULLANICIDA: 7+ gündür kargoda 4 Trendyol siparişi (11619222537, 11620068587, 11620546066, 11628432821) — teslim mi edildi, geri mi döndü? Kod tarafında bekleyen zorunlu iş YOK. Genel gider girişi hâlâ boş (kâr değil brüt katkı)."
+test: "npm test   # 1057 test, 1042 pass, 15 atlanan, 0 fail. Yayın: npm test && git push origin main (Cloudflare ~2-3 dk). UI değiştiyse public/sw.js CACHE'ini artır (şu an v157)."
+
+ortam:
+  repo: "C:/Users/baran/Desktop/site/lunapot-panel (main, HEAD 12d69fc). Documents/Codex kopyası ESKİ, DOKUNMA. Bash aracının cwd'si ara sıra oraya kayıyor — MUTLAK YOL kullan."
+  canli: "https://muhasebe.lunapot.com · CACHE lunapot-shell-v157-olcu-kapsami · migration 0060'a kadar uygulandı."
+  yayin: "Migration varsa ÖNCE npm run db:remote, sonra git push. Yayın çıktı mı: sw.js'i no-cache ile çekip CACHE adına bak, ya da npx wrangler deployments list."
+  canli_okuma: |
+    PowerShell + tek tırnaklı here-string kullan, yoksa $ işareti değişken sanılıp json_extract yolu bozulur:
+      $sql = @'
+      SELECT ... json_extract(payload_json,'$.type') ...
+      '@
+      npx.cmd wrangler d1 execute lunapot-db --remote --json --command $sql
+    UZUN TEK SATIRLIK SQL bazen exit 9 veriyor; sorguyu böl. --file sonuç satırı DÖNDÜRMEZ, yalnız özet verir.
+    Bash aracından npx çağrılamıyor ('C:\Program' hatası), PowerShell kullan.
+  tarayici: "mcp__Claude_Browser__ paneli açık. javascript_tool 45 saniyede zaman aşımına uğruyor: uzun döngüleri window.__x state'iyle parçala. Panel oturumu bir kez düştü; ŞİFRE GİRME, kullanıcıdan iste."
+  araclar: "Agent aracı (denetim ajanları) ara sıra 'classifier no verdict' hatası veriyor — bir kez aynen tekrar dene, geçiyor. Toplu API yazımı javascript_tool'dan bir kez engellendi (Modify Shared Resources); tek tek ve kullanıcı onaylıysa geçiyor."
+
+kullanici:
+  - "TEKNİK ANLATMA, KISA YAZ."
+  - "İDDİALARINI SORGULUYOR VE HAKLI ÇIKIYOR. Bu oturumda ÜÇ KEZ: (1) 'ürün ölçülerini neden gireyim, geçmiş siparişlerden çıkarabilirsin' — haklıydı, sistem zaten fee-history ile öyle yapıyor, ölçü sadece tarife hesabında kullanılıyor; (2) 'stopaj oranı sabitse TY'de de kullan' — ölçtüm, sabitti (KDV hariç satışın %1'i); (3) 'bu uyarı nedir' dediği metin gerçekten yanlıştı."
+  - "AÇIK TALİMAT: 'gerçekten ne olduğunu çözemediğin sipariş varsa UYDURMA, BANA SOR.' Bu oturumda üç kez soruldu, üçünde de doğru karar çıktı."
+  - "Sinirlenince sert konuşuyor. Savunmaya geçme, ÖLÇ ve iş yap."
+  - "Canlıya elle SQL YAZMA. Okuma serbest, yazma uygulamanın kendi ucundan."
+  - "Ayar/karar gerektiren yazmayı kendi oturumundan yapmasını iste (şifre sende değil)."
+
+done_this_session:
+  - task: "RAPOR BİÇİMİ: Trendyol sipariş raporuna 'Tedarik Süresi Durumu' sütunu ekledi; 56 sütunun 56'sı yerindeydi ama kayıtlı eşleştirme BİREBİR imza istediği için dosya 'ilk kez görülen biçim' diye atlandı. Kural değişti: eşleştirmede KULLANILAN sütunların hepsi dosyada duruyorsa kayıtlı biçim kullanılır; sütun EKSİLDİYSE yine sorulur. İlk düzeltmem EKSİKTİ — aynı birebir kontrol dosya kabulünde de vardı, kullanıcı 409 yedi; ikisi bicimBul() yardımcısına alındı."
+    files: [src/report-inbox-api.js, public/report-inbox-ui.js, tests/rapor-bicim-yeni-sutun.test.js]
+  - task: "TASLAK EŞLEŞTİRMESİ: rapor tarafı barkodla, defter tarafı stok koduyla gruplanıyordu. Trendyol'da ilanların stok kodu harfi harfine 'merchantSku' olduğu için 82 sipariş taslakta kilitliydi. İki taraf da aynı anahtardan geçiyor (önce barkod, tutmazsa stok kodu; stok kodu iki ayrı barkodu aynı torbaya atıyorsa hiç kullanılmaz). SONUÇ: taslak 82 → 0."
+    files: [src/report-stock-link-api.js, tests/report-stock-link.test.js]
+  - task: "ÇİFT KAYIT KURALI MERKEZE ALINDI. Denetim ortaya çıkardı: aynı hata canlıda İKİ KEZ yaşanmış (15.09 rapor yolu 6 paket/17.791 TL, 24.09 API yolu ~65 paket) ve iki kez ÇAĞIRAN dosyaya ayrı ayrı yamanmış. Kök sebep createPackage'ın yalnız channel+external_id'ye bakmasıydı. Kural artık orada: aynı pazaryeri+sipariş no'da iptal olmayan paket varsa ikincisi açılmaz (409); bölünmüş gönderiyi açan taraf additional_package:true ile beyan eder."
+    files: [src/orders-api.js, src/report-stock-link-api.js, src/connections-api.js, tests/orders.test.js]
+  - task: "SESSİZ ELEMELER SEBEP DÖNDÜRÜYOR: applyReportFees'te ERP karşılığı olmayan paket, pazaryeri-kesinti'de altı eleme sebebi, /sync-deliveries'te 500 sınırı (sıralama + truncated), /ledger-gaps'te satır kimliğinin gerçek kuralla aranması."
+    files: [src/report-inbox-api.js, src/pazaryeri-kesinti.js]
+  - task: "TESLİM BİLGİSİ İKİZE GEÇİYOR + HAYALET KÂR DÜZELTİLDİ. Çift aktarım kopyasında kalan teslim bilgisi asıl kayda da yazılıyor (6 paket 25-27 gündür kargoda görünüyordu). Bu düzeltme YENİ BİR HATA DOĞURDU: ikiz de teslime geçince kopya listede kalıp geliri 0 ama kesintileri eksi işaretli olduğu için +1.452,24 TL hayalet kâr yazdı; ölçerek yakalandı ve kopya listeden düşürüldü."
+    files: [src/report-inbox-api.js, src/performance-api.js, tests/codex-duz-kesinti.test.js]
+  - task: "ÜÇ KOLDAN SİSTEM DENETİMİ (ajanlarla, hepsi kod okunarak): arayüz/kullanılabilirlik, para-tarih doğruluğu, yarım kalma-tekrar. ZAMAN DİLİMİ BULGUSU YOK — kod her yerde Europe/Istanbul kullanıyor. Para tarafı da sağlam (BigInt kuruş dağıtımı, 'bilinmeyen sıfır değildir' ilkesi)."
+    files: []
+  - task: "DENETİM DÜZELTMELERİ: iptal penceresi taslakta 'ayrılan stok serbest kalacak' diyordu; kargo tarifesi yoksa kâr formu çıkmaza giriyordu; 'KDV oranı yok' jargonu; banka 'Hesap seçin.' yükleme sırasında; sipariş penceresi hazırlık durumunu LİSTEDEN okuyordu (liste sayfasına bağlı düğme görünürlüğü) — artık kendi verisinden okuyor ve sebebi de yazıyor."
+    files: [public/orders-ui.js, public/bank-ui.js, src/order-insights-api.js, tests/codex-kar-ortak.test.js]
+  - task: "İŞ LİSTESİ ANLAMLI HÂLE GETİRİLDİ: (1) 'Satış kanalları henüz bağlı değil' her gün görünüyordu — API'ler 26.09'da BİLEREK kapatıldı; artık soru 'veri akıyor mu', rapor son 14 günde işlendiyse satır çıkmıyor. (2) 'Kesintisi doğrulanmamış 236' → 'Teslim edilmiş ama kesintisi yazılmamış 61' (175'i sırasını bekliyordu). (3) Yarım kalan rapor yüklemesi ve (4) otomatik bakım hataları artık görünüyor."
+    files: [src/attention-api.js, public/attention-ui.js, tests/orders-tracking.test.js, tests/order-estimate.test.js]
+  - task: "ARAYÜZ İYİLEŞTİRMELERİ: reddedilen inceleme sorusu her yüklemede yeniden sorulmuyor; yükleme sonucu tek cümle yerine okunur liste; sipariş aramasında yazarken süzme (300ms); ölçüleri toplu girme ekranı + 'ölçü doğrulanmadı' rozeti; gider kaydı yokken 'genel giderler dahil' yazılmıyor."
+    files: [public/report-inbox-ui.js, public/orders-ui.js, public/business-ui.js, public/accounting-ui.js, src/report-inbox-api.js, tests/report-inbox.test.js]
+  - task: "STOPAJ TAHMİNİ (migration 0060). Ölçüldü: HB teslim edilmiş 205 siparişin 205'inde stopaj bildiriyor, Trendyol'un sipariş raporunda stopaj SÜTUNU YOK (21 sütun sayıldı), 548 siparişin hiçbirinde kayıt yok. Oran HB'nin kendi verisinden çıkarıldı: KDV hariç satışın %1'i (ima edilen çarpan 12000). Doğrulama: HB'de tahmin 598,73 TL / gerçek 599,87 TL. Ayar VARSAYILAN KAPALI, kullanıcı Trendyol'u işaretledi. Kâr 30.704,89 → 29.098,72 TL; HB satırlarına HİÇ dokunulmadı (0 tahminli)."
+    files: [migrations/0060_stopaj_tahmini.sql, src/performance-api.js, src/settings-api.js, public/operations-ui.js, tests/codex-duz-kesinti.test.js]
+  - task: "RAPOR YÜKLENDİ (29.09, Trendyol sipariş 645 + finans 598 satır). Kullanıcı hiçbir şeye basmadan işlendi: 23 yeni, 76 güncellenen, 50 paket teslime geçti, 612 kesinti kaydı, 131 satışın kesintisi otomatik yazıldı. Bekleyen kesinti 226 → 95 → 89."
+    files: []
+  - task: "ÇİFT AKTARIM KOPYASININ KESİNTİSİ ASIL KAYDA TAŞINIYOR. Kopya rapora bağlı olduğu için kesinti ona yazılıyor, asıl kayıt boş kalıyordu; kâr doğruydu (ikiz ikamesi) ama 'teslim edilmiş ama kesintisi yazılmamış' işi hiç kapanmıyordu. 12 satır taşındı, iş 6 → 0, KÂR DEĞİŞMEDİ (29.417,86 TL aynı kaldı — değişseydi hata olurdu)."
+    files: [src/report-inbox-api.js, tests/codex-duz-kesinti.test.js]
+  - task: "İPTAL EDİLEN SİPARİŞ TEMİZLENDİ: TY 11628461936 (external_status 'Cancelled', raporda hiç yok). Kullanıcı 'müşteri iptal etmiş' dedi, uygulamanın kendi ucundan iptal edildi. 'Satış tutarı eksik paket' 1 → 0."
+    files: []
+
+acik_isler:
+  - "KULLANICIDA: 7+ gündür kargoda 4 Trendyol siparişi — 11619222537 (11 gün), 11620068587 (10), 11620546066 (10), 11628432821 (8). Hepsi 'Kargolandı'. Teslim edildiyse rapor kapatır; geri döndüyse iade kaydı gerekir."
+  - "KULLANICIDA: GENEL GİDER GİRİLMEDİ (tüm sistemde 1 kayıt). Altyapı TAM: '+ Genel gider', '+ Sabit gider' (aylık kira), 'Eksik ayları oluştur' hepsi var. Girilene kadar ekrandaki rakam kâr DEĞİL brüt katkı. Kullanıcı 'sonra girerim' dedi."
+  - "KULLANICIDA: kritik stok 8 ürün; Gartengold Torf 2,5 L ve 10 L EKSİYE düşmüş (-1) — alış faturası girilmemiş maldan satış. Fatura girilince düzelir."
+  - "KULLANICIDA: TRP2026000001037 (Tropikal) faturası işlenmiş ama mal teslimi kaydedilmemiş."
+  - "KULLANICIDA: stok geçmişi olmayan 3 ürün — Klasmann Potgrond P 70L, Potgrond H 70L, Pina Small Saksı."
+  - "AY SONU — Seçkin TS1/Plug Mix: 2 adet Plug Mix iadesi + yeni TS1 faturası. Alış faturaları → YSK2026000000402 → 'Tedarikçiye iade' 2 adet. SONRA 'urun-duzeltme:plugmix-ts1-2026-09-23' referanslı stok hareketleri ters kayıtla geri alınmalı, yoksa 2 adet çift sayılır."
+  - "OTOMATİK BAKIM TURU KESİNTİ TAŞIMASINI 10 DAKİKA ALMADI, elle çalıştırıldı (11 sayfa). Tur süre bütçesi olabilir. Şu an zararsız (sonraki turlar toparlıyor) ama tekrar birikirse otomatik-bakim.js'teki bütçe dağılımına bak."
+  - "Rapor turu iş üretmeden 53-80 saniye sürüyor (iz kaydındaki 'rapor' damgası). Sebep BULUNMADI; senkron öne alındığı için zarar vermiyor."
+  - "Komisyon farkı 514,96 TL (278 siparişte, hepsi aynı yönde). Birkaç hafta sonra tekrar ölç."
+  - "HB kargo tarifesinde iki bant daha ucuz: 400-599,99 → 130,39; 1000 TL+ → 230,99. Onay verilmedi."
+  - "BÜTÜN tarifeler 31.12.2026'da bitiyor. Aralık'ta hatırlat."
+  - "Ürün ölçüleri sahte (38 ürünün 37'si 10x10x10/1kg) AMA GEREKLİ DEĞİL: fee-history geçmiş teslimlerden öğreniyor, ölçü yalnız 'Tarifeyle hesapla' ve paket kâr planı formunda kullanılıyor. Toplu giriş ekranı hazır, isteyen girer."
+  - "Cari birleştirme yok. Güvenlik G10/G11 bilerek açık."
+
+decisions:
+  - stopaj_ayar_olarak: "Her zaman açık yazınca rakamla ilgili 8 test birden düştü ve bu, değişikliğin kârın her satırına dokunduğunu gösterdi. Ayar + varsayılan kapalı seçildi: muhasebeci 'TY kesmiyor' derse tek tıkla geri alınır, kimse farkında olmadan rakam kaymaz."
+  - telegram_yerine_is_listesi: "Otomatik bakım hatalarını Telegram'a göndermek koddaki bilinçli karara aykırıydı ('aynı hata her turda tekrarlanır, kanalı okunmaz yapar'). İş listesine kondu — zaten her gün bakılan yer."
+  - kopya_kesintisi_kodda: "6 satırı elle SQL ile düzeltmek yerine kesinti aktarımına kural eklendi; aynı durum ileride tekrar olursa kendiliğinden düzelir."
+
+findings:
+  - trendyol_stopaj_yok: "Trendyol 'Sipariş Kayıtları' raporunun 21 sütununda stopaj YOK. Eski raporları yeniden yüklemek işe yaramaz (hem veri dosyada yok, hem UNIQUE(store_id,sha256) aynı dosyayı ikinci kez almıyor)."
+  - stopaj_orani: "Stopaj = KDV hariç satışın %1'i. HB'nin 205 siparişinden çıkarıldı, ima edilen çarpan 12000 (KDV %20); %10 KDV'li üründe 90,9 bps."
+  - olcu_gerekmiyor: "fee-history.js'in ilk satırı: 'Kargo, hizmet bedeli ve komisyon oranı pazaryerinin GERÇEK ekstresinden gelmiş teslim edilmiş paketlerden öğrenilir; tarife ya da elle girilen ölçü beklenmez.' Kâr raporu, sipariş listesi, ana sayfa ve 'Kaça satmalıyım' bu kaynağı kullanıyor."
+  - ayni_hata_iki_kez: "Çift kayıt hatası iki ayrı dosyada ayrı ayrı yamanmıştı (commit 421303b ve f9930eb). Koruma çağıran dosyada olduğu sürece üçüncü çağıran aynı hatayı doğurur — kural merkeze alındı."
+  - trendyol_finans_tam: "Trendyol finans raporunun paralı sütunlarının HEPSİ okunuyor; atlanan üç sütun (Diğer, Yurtdışı Operasyon, Uluslararası Hizmet) dosyada gerçekten 0,00 TL. Sızıntı yok."
+
+worked:
+  - "İDDİA ETMEDEN ÖNCE ÖLÇMEK. 'Ürün ölçüleri gerekli', 'kesintileri kimse süpürmüyor', 'genel gider altyapısı yok', '17.000 TL çift sayılmış' — dördü de yanlıştı ve ölçünce çıktı."
+  - "PANELİ AÇIP EKRANIN NE DEDİĞİNE BAKMAK. SQL toplamı ters kayıtları saymadığı için 'çift sayım var' dedim; panel 'Çift aktarım kopyası · İade ile kapandı' yazıyordu. 7 paketi iptal etseydim üç siparişte tek gerçek satış silinecekti."
+  - "DEĞİŞİKLİKTEN SONRA AYNI RAKAMI TEKRAR ÖLÇMEK. Teslim düzeltmesi kârı 1.452 TL şişirmişti; ölçmeseydim fark edilmezdi."
+  - "Testlerin toplu düşmesini UYARI saymak: 8 test birden düşünce değişikliğin kapsamını anladım ve tasarımı değiştirdim."
+
+failed:
+  - "İLK BİÇİM DÜZELTMESİ EKSİKTİ: aynı birebir-imza kontrolünden İKİ TANE vardı, birini düzeltip 'oldu' dedim, kullanıcı 409 yedi. DERS: aynı kalıbı grep'le TAMAMEN tara, ilk bulduğunu düzeltip bırakma."
+  - "KARGODA KALAN PAKET LİSTESİNİ YANLIŞ VERDİM: iş listesinin süzgecini uygulamadan en eskileri sıraladım; kullanıcı 4 paketi boşuna kontrol etti (hepsi zaten tam iade edilmişti). DERS: ekrandaki sayıyı sorduğunda O EKRANIN sorgusunu birebir çalıştır."
+  - "'47 yeni sütun' metni yanlıştı: profileFits.added eşleştirmede kullanılmayan HER sütunu sayıyor, profilin ignored listesi boşken bu neredeyse bütün dosya demek. Profilin kendi imzasıyla karşılaştırmak gerekiyordu."
+  - "STOPAJI HER ZAMAN AÇIK YAZMAYA KALKTIM: 8 test düştü, geri alıp ayara çevirdim."
+  - "GEÇMİŞ OTURUM DERSİ (hâlâ geçerli): canlı veriye elle SQL YAZMA. Okuma serbest, yazma uygulamanın kendi ucundan."
+
+next:
+  - "1) Kullanıcı 4 Trendyol siparişine bakınca: teslim edildiyse bir sonraki rapor kapatır, geri döndüyse iade kaydı gerekir (diğerlerinde IADE-… ile doğru yapılmış, örnek alınabilir)."
+  - "2) Genel gider girilirse 'Faaliyet sonucu' gerçek kâr olur; o zaman ana sayfadaki 'brüt katkı' uyarıları da kendiliğinden değişir."
+  - "3) Otomatik bakım turu kesinti taşımasını almazsa otomatik-bakim.js'teki süre bütçesine bak (rapor adımı 53-80 sn yiyor)."
+  - "4) Stopaj: muhasebeci 'Trendyol kesmiyor' derse Şirket ve yedek ekranından Trendyol kutusunu kaldır, rakam eski hâline döner."
+
+files:
+  created:
+    - thoughts/shared/handoffs/lunapot-panel/2026-09-29_09-25_rapor-duzeltmeleri-sistem-denetimi-stopaj.yaml
+    - migrations/0060_stopaj_tahmini.sql
+    - tests/rapor-bicim-yeni-sutun.test.js
+  modified:
+    - src/report-inbox-api.js
+    - src/report-stock-link-api.js
+    - src/orders-api.js
+    - src/order-insights-api.js
+    - src/performance-api.js
+    - src/attention-api.js
+    - src/settings-api.js
+    - src/pazaryeri-kesinti.js
+    - src/connections-api.js
+    - public/report-inbox-ui.js
+    - public/orders-ui.js
+    - public/operations-ui.js
+    - public/business-ui.js
+    - public/accounting-ui.js
+    - public/attention-ui.js
+    - public/bank-ui.js
+    - public/sw.js
+    - tests/orders.test.js
+    - tests/orders-tracking.test.js
+    - tests/order-estimate.test.js
+    - tests/report-inbox.test.js
+    - tests/report-stock-link.test.js
+    - tests/codex-duz-kesinti.test.js
+    - tests/codex-rapor-iade.test.js
+    - tests/codex-kar-ortak.test.js
+  scratchpad: "Geçici ölçüm dosyaları scratchpad'de (basliklar.mjs, karsilastir.mjs, atlanan.mjs) — xlsx başlığı okumak ve atlanan sütunları ölçmek için, tekrar gerekirse işe yarar."
