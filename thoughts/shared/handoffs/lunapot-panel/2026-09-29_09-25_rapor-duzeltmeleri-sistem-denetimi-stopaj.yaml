@@ -2,7 +2,7 @@
 session: lunapot-panel
 date: 2026-09-29
 status: complete
-outcome: SUCCEEDED
+outcome: PARTIAL_PLUS
 ---
 
 goal: "Trendyol sütun ekleyince rapor yüklenemiyordu; düzeltildi. Sonra çift kayıt kuralı merkeze alındı, üç koldan sistem denetimi yapıldı (arayüz / para-tarih / yarım kalma), stopajı bildirmeyen kanal için ölçülen oranla tahmin eklendi, iş listesi ve yanıltan metinler düzeltildi. 19 commit, hepsi yayında."
