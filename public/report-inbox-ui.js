@@ -191,7 +191,7 @@ export function mountReports(root, namespace = 'ec') {
         ${d.sonrasi.teslim ? `<div><dt>Teslime geçen paket</dt><dd>${num(d.sonrasi.teslim)}</dd></div>` : ''}
         ${d.sonrasi.iade ? `<div><dt>İade kaydedilen satış</dt><dd>${num(d.sonrasi.iade)}</dd></div>` : ''}
         ${d.sonrasi.kesinti ? `<div><dt>Kesintisi yazılan satış</dt><dd>${num(d.sonrasi.kesinti)}</dd></div>` : ''}</dl>` : ''}
-      ${d.result.fee_events ? `<div class="notice" role="alert"><strong>Bu dosya ${num(d.result.fee_events)} kesinti kaydı getirdi.</strong> Finans dosyası yüklemek tek başına kâr rakamlarını değiştirmez: kesintilerin satış kayıtlarına aktarılması ayrı bir adımdır. Aktarmazsan kâr eski kesintilerle hesaplanmaya devam eder.<div class="rb-actions"><button type="button" class="primary" data-rb-tab="orders">Kesintileri aktarmaya git →</button></div></div>` : ''}` : ''}</section>`;
+      ${d.result.fee_events ? `<div class="notice"><strong>Bu dosya ${num(d.result.fee_events)} kesinti kaydı getirdi.</strong> ${d.sonrasi?.kesinti ? `Bunlardan <b>${num(d.sonrasi.kesinti)} satışın</b> kesintisi kendiliğinden yazıldı; ayrıca bir şey yapman gerekmiyor. Yazılmayanlar teslim edilmemiş paketlerdir: kural gereği teslim olmadan kesinti yazılmaz, teslim edildikçe kendiliğinden kapanır.` : `Kesintiler teslim edilmiş siparişlere kendiliğinden yazılır. Bu dosyadan yazılan olmadı: ilgili paketler henüz teslim edilmemiş olabilir.`}<div class="rb-actions"><button type="button" class="secondary" data-rb-tab="orders">Kesinti durumuna bak →</button></div></div>` : ''}` : ''}</section>`;
   }
 
   function filesView() {
@@ -376,10 +376,16 @@ export function mountReports(root, namespace = 'ec') {
     Object.assign(d, {file, bytes, table, sha, store, signature, suggested, profile,
       mapping: profile ? profile.mapping : {...suggested}, options: profile ? profile.options : {type_map: {}, fees_positive: false, fee_amounts_include_vat: null, fee_vat_bps: null}});
     d.fitInfo = profile ? profileFits(profile, table.headers) : null;
+    // KAC SUTUN GERCEKTEN YENI? profileFits.added, eslestirmede KULLANILMAYAN her sutunu sayar;
+    // profilin 'ignored' listesi bos oldugunda bu, dosyadaki neredeyse butun sutunlar demek
+    // olur (canlida 57 sutunluk dosyada "47 yeni sutun" yazdi, oysa yalniz 1 sutun eklenmisti).
+    // Dogru olcu: profilin KENDI imzasinda olmayan sutunlar.
+    const eskiSutunlar = new Set(String(profile?.signature || '').split('␟').filter(Boolean));
+    d.yeniSutunlar = profile ? table.headers.filter(h => !eskiSutunlar.has(headerSignature([h]))) : [];
     refreshLocal(d);
     d.step = profile && d.fitInfo.fits && !d.unknownTypes.length ? 'check' : 'map';
-    if (d.step === 'check') say(d.profile?.signature_drift
-      ? 'Bu rapor biçimi tanındı; pazaryeri ' + d.fitInfo.added.length + ' yeni sütun eklemiş, önceki eşleştirme bozulmadığı için kullanıldı.'
+    if (d.step === 'check') say(d.yeniSutunlar.length
+      ? 'Bu rapor biçimi tanındı; pazaryeri ' + d.yeniSutunlar.length + ' yeni sütun eklemiş (' + d.yeniSutunlar.slice(0, 3).join(', ') + (d.yeniSutunlar.length > 3 ? '…' : '') + '), önceki eşleştirme bozulmadığı için kullanıldı.'
       : 'Bu rapor biçimi tanındı; önceki eşleştirme kullanıldı.');
   }
   function refreshLocal(d) {
@@ -460,7 +466,7 @@ export function mountReports(root, namespace = 'ec') {
         await upload();
         if (state.draft.step !== 'server' || !state.draft.fileId) { done.push({label, note: state.error || 'yüklenemedi'}); continue; }
         await apply(state.draft.fileId);
-        const kayan = state.draft.profile?.signature_drift ? ' (pazaryeri ' + state.draft.fitInfo.added.length + ' yeni sütun eklemiş, eşleştirme korundu)' : '';
+        const kayan = state.draft.yeniSutunlar?.length ? ' (pazaryeri ' + state.draft.yeniSutunlar.length + ' yeni sütun eklemiş, eşleştirme korundu)' : '';
         done.push({label: label + kayan, ok: true, counts: state.draft.result});
       } catch (e) { done.push({label, note: e.message}); }
     }
