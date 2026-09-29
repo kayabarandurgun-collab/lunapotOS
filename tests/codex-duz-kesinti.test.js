@@ -212,3 +212,46 @@ test('Kopya ve ikiz birlikte teslim edildiğinde kâr iki kez sayılmaz; kesinti
     assert.equal(sonra.commission_cents, once.commission_cents, 'kesinti ikize taşınmalı, tahmine düşmemeli');
   } finally { f.close(); }
 });
+
+// STOPAJI RAPORLAMAYAN KANAL İÇİN TAHMİN. Ölçüldü (28.09.2026): Hepsiburada teslim edilmiş 205
+// siparişin 205'inde stopajı bildiriyor; Trendyol'un sipariş raporunda stopaj SÜTUNU YOK ve 548
+// siparişin hiçbirinde kayıt gelmiyor. Kayıt yokken sıfır saymak o kanalın nakit sonucunu
+// olduğundan yüksek gösteriyordu. Oran pazaryerinin kendi verisinden çıkarıldı: KDV hariç satışın
+// %1'i (HB doğrulaması: tahmin 598,73 TL / gerçek 599,87 TL).
+const kesintiliPaket = (f, id, satis = 100000, siparis = 'S-' + id) => {
+  paket(f, id, gun(-5), {satis, siparis});
+  f.sqlite.exec(`UPDATE ec_sale_entries SET commission_cents=1000,shipping_cents=2000,other_cents=0,fees_status='confirmed' WHERE id='s-${id}'`);
+};
+
+test('Stopaj tahmini varsayılan olarak KAPALIDIR; rakam kendiliğinden kaymaz', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    kesintiliPaket(f, 'p-kapali');
+    const satir = await karSatiri(f, 'p-kapali');
+    assert.ok(satir, 'satır hesaplanmalı');
+    assert.equal(satir.withholding_cents, 0, 'ayar açılmadan stopaj düşülmemeli');
+    assert.ok(!satir.withholding_estimated, 'tahmin işareti konmamalı');
+  } finally { f.close(); }
+});
+
+test('Kanal işaretlenince stopaj ölçülen oranla tahmin edilir ve "tahmini" işaretlenir', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    f.sqlite.exec("UPDATE workspace_settings SET withholding_estimate_channels='trendyol' WHERE workspace='ec'");
+    kesintiliPaket(f, 'p-tahmin');                            // KDV hariç 1.000,00 TL satış
+    const satir = await karSatiri(f, 'p-tahmin');
+    assert.equal(satir.withholding_cents, -1000, "KDV hariç satışın %1'i düşülmeli");
+    assert.ok(satir.fees_estimated && satir.withholding_estimated, 'satır tahmini işaretini taşımalı: ' + JSON.stringify({f: satir.fees_estimated, w: satir.withholding_estimated, n: satir.cash_note}));
+  } finally { f.close(); }
+});
+
+test('Gerçek stopaj kaydı varsa tahmin kullanılmaz', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    f.sqlite.exec("UPDATE workspace_settings SET withholding_estimate_channels='trendyol' WHERE workspace='ec'");
+    kesintiliPaket(f, 'p-gercek', 100000, 'S-GERCEK');
+    kesinti(f, {siparis: 'S-GERCEK', paket: 'PKG', tur: 'withholding', tutar: 250, tarih: gun(-4)});
+    const satir = await karSatiri(f, 'p-gercek');
+    assert.equal(satir.withholding_cents, -250, 'ölçülen tutar geçerli, tahmin devreye girmemeli');
+  } finally { f.close(); }
+});

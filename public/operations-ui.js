@@ -135,6 +135,15 @@ export function mountOperations(root,namespace,view){
      // DEGERI hicbir durumda eksiye dusmez.
      +'<label class="op-check"><input type="checkbox" name="allow_negative_stock" '+(state.settings.allow_negative_stock?'checked':'')+'> Stok eksiye düşebilsin</label>'
      +'<p class="help">Alış faturası henüz girilmemiş bir maldan satış yaptıysan, kapalıyken o satışı kaydedemezsin. Açarsan kayıt geçer ve <b>eksi bakiye</b> görünür: bu, eksik alış belgesini gizlemez, tam tersine ekranda tutar. Stok <b>değeri</b> her durumda eksiye düşmez. Belgeyi girince bakiye kendiliğinden düzelir.</p>'
+     // STOPAJI RAPORLAMAYAN PAZARYERI. Olculdu: Trendyol'un siparis raporunda stopaj sutunu yok,
+     // Hepsiburada her siparişte bildiriyor. Kayit yokken sifir saymak o kanalin nakit sonucunu
+     // oldugundan yuksek gosteriyor. Varsayilan KAPALI: kimse acmadan hicbir rakam degismez.
+     +(namespace==='ec'?'<fieldset class="op-fieldset"><legend>Stopajı bildirmeyen pazaryeri</legend>'
+      +['trendyol','hepsiburada'].map(k=>'<label class="op-check"><input type="checkbox" name="wh_'+k+'" '
+       +(String(state.settings.withholding_estimate_channels||'').split(',').includes(k)?'checked':'')+'> '
+       +(k==='trendyol'?'Trendyol':'Hepsiburada')+'</label>').join('')
+      +field('Tahmin oranı (%)','withholding_estimate_pct',((state.settings.withholding_estimate_bps??100)/100),'number','min="0" max="20" step="0.01"')
+      +'<p class="help">İşaretlenen pazaryerinde stopaj <b>tahmin edilir</b>: KDV hariç satışın bu oranı kadar. O satırlar “tahmini” diye işaretlenir ve sebebi yazılır. Pazaryeri gerçek stopajı bildirirse tahmin kullanılmaz, bildirilen tutar geçerlidir. Boş bırakırsan hiçbir şey değişmez. Oran, Hepsiburada’nın kendi verisinden ölçüldü: %1 (205 siparişte tahmin 598,73 TL, gerçek 599,87 TL).</p></fieldset>':'')
      +'<button class="primary" type="submit">Şirket bilgilerini kaydet</button></form></section><section class="card"><div class="card-heading"><h2>Geri dönüş noktası</h2></div><div class="form-body"><p><strong>Otomatik yedek açık.</strong> Veritabanı sürekli geri alınabilir durumda tutuluyor (Cloudflare D1 “zaman yolculuğu”). Ayrıca bir şey kurmana veya ödeme yapmana gerek yok.</p><details><summary>Yedekten geri dönme hakkında</summary><p class="muted">Bir hata olursa veritabanı geçmiş bir ana geri döndürülebilir. Bu işlem <strong>bilerek düğme değildir</strong>: yanlış bir tıklama o günün bütün işini siler. Geri dönmek gerekirse komutu elle çalıştırmak gerekir:</p><pre class="tip recovery-command">wrangler d1 time-travel info DB\nwrangler d1 time-travel restore DB --bookmark=&lt;yukarıdaki kod&gt;</pre><p class="muted">Geri dönüş penceresi sınırlıdır; uzun süre saklamak istediğin durumlar için aşağıdaki JSON dışa aktarmayı kullan ve dosyayı kendi bilgisayarında sakla.</p></details></div></section><section class="card"><div class="card-heading"><h2>Verilerin sende kalsın</h2></div><div class="form-body"><p>Bu çalışma alanının ürün, cari, fatura ve hareketlerini JSON olarak indir.</p><button class="secondary" data-op="backup">İş verilerini indir</button><p class="help">Şifreler ve bağlantı anahtarları dahil edilmez. Bu dosya iş verileri arşividir. Tam kurtarma Cloudflare’ın otomatik tuttuğu son 7 günlük geçmiş üzerinden yapılır.</p><p><a class="secondary" href="/access#recovery">Otomatik yedek ve kurtarma</a></p><div class="notice subtle">Lunapot AI kapalı. Ücretli yapay zekâ servisi bağlı değil.</div></div></section>'
     // Sunucunun kendiliğinden yaptığı işler: 15 dakikalık otomatik bakımın çalıştığı buradan görülür.
     +(state.jobs?.length?'<section class="card"><div class="card-heading"><h2>Sunucunun kendiliğinden yaptığı işler</h2></div><div class="form-body"><ul class="op-jobs">'
@@ -185,7 +194,11 @@ export function mountOperations(root,namespace,view){
   if(action==='password'){const r=await fetch('/api/admin/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(x)});
    const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Şifre değiştirilemedi.');
    e.target.reset();notice('Şifre değişti. Diğer cihazlardaki oturumlar kapatıldı.');}
-  if(action==='settings'){x.allow_negative_stock=e.target.querySelector('[name=allow_negative_stock]')?.checked===true;await api('/settings',x);await load();notice('Şirket bilgileri kaydedildi.');}
+  if(action==='settings'){x.allow_negative_stock=e.target.querySelector('[name=allow_negative_stock]')?.checked===true;
+   x.withholding_estimate_channels=['trendyol','hepsiburada'].filter(k=>e.target.querySelector('[name=wh_'+k+']')?.checked===true);
+   x.withholding_estimate_bps=x.withholding_estimate_pct===undefined||x.withholding_estimate_pct===''?100:Math.round(Number(x.withholding_estimate_pct)*100);
+   delete x.withholding_estimate_pct;delete x.wh_trendyol;delete x.wh_hepsiburada;
+   await api('/settings',x);await load();notice('Şirket bilgileri kaydedildi.');}
   if(action==='configure'){await api('/connections/'+x.provider+'/configure',x);close();await load();notice('Erişim bilgileri kaydedildi. Bağlantıyı doğrulamak için verileri alın.');}
   if(action==='sync')await runSync(senkronGirdisi(x,b?.dataset.mode==='preview'));
   if(action==='records'){recordPage=0;recordProvider=x.provider;recordKind=x.kind;await records();}

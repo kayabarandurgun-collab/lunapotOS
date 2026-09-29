@@ -49,9 +49,22 @@ const KOPYA=q=>`(EXISTS(SELECT 1 FROM order_lines l JOIN order_line_components c
 // Rapor kayıtlarında sipariş no her zaman metindir (json_type='text'), sonuç aynıdır.
 // Kâr raporu, sipariş penceresi ve liste bu parçayı ve stopajPayi'ni paylaşır.
 export const STOPAJ_SQL=`(SELECT COALESCE(SUM(json_extract(r.data_json,'$.amount_cents')),0) FROM ec_report_records r JOIN ec_report_stores st ON st.id=r.store_id AND st.provider=order_packages.channel WHERE r.kind='finance_event' AND json_extract(r.data_json,'$.type')='withholding' AND json_extract(r.data_json,'$.order_no')=+order_packages.order_no) stopaj_cents,`
+ // STOPAJ KAYDI VAR MI? "Sifir stopaj" ile "stopaj hic bildirilmedi" ayni sey degildir.
+ // Olculdu (28.09.2026): Hepsiburada 205 teslim siparisin 205'inde stopaj bildiriyor;
+ // Trendyol'un siparis raporunda stopaj SUTUNU YOK, 548 siparisin hicbirinde kayit gelmiyor.
+ // Kayit yoksa sifir saymak Trendyol kârini oldugundan yuksek gosterir.
+ +`(SELECT COUNT(*) FROM ec_report_records r JOIN ec_report_stores st ON st.id=r.store_id AND st.provider=order_packages.channel WHERE r.kind='finance_event' AND json_extract(r.data_json,'$.type')='withholding' AND json_extract(r.data_json,'$.order_no')=+order_packages.order_no) stopaj_kaydi,`
  +`(SELECT COUNT(*) FROM order_packages q WHERE q.order_no=order_packages.order_no AND q.channel=order_packages.channel AND q.status!='cancelled' AND NOT ${KOPYA('q')}) stopaj_paket,`
  +`(SELECT COUNT(*) FROM order_packages q WHERE q.order_no=order_packages.order_no AND q.channel=order_packages.channel AND q.status!='cancelled' AND q.id<order_packages.id AND NOT ${KOPYA('q')}) stopaj_sira`;
 export const stopajPayi=p=>{const t=Math.abs(p.stopaj_cents||0),n=Math.max(1,p.stopaj_paket||0),b=Math.floor(t/n);return b+(Math.min(p.stopaj_sira||0,n-1)<t-b*n?1:0);};
+// STOPAJ BILDIRILMEMISSE TAHMIN EDILIR. Kural pazaryerinin KENDI verisinden cikarildi:
+// Hepsiburada'nin 205 siparisinde stopaj / (KDV haric satis) orani 100 bps'te kumeleniyor
+// (ima edilen carpan 12000 = KDV %20; %10'luk urunlerde 90,9 bps cikiyor, ayni kural).
+// Yani stopaj = KDV HARIC satisin %1'i. Ayni oran, stopaji hic bildirmeyen kanalda da kullanilir.
+// Bu bir OLCUMDUR ama yine de TAHMINDIR: uygulandigi satir 'tahmini' isaretini alir ve sebebi
+// yazilir; gercek kayit geldiginde tahmin kullanilmaz, olculen tutar gecerlidir.
+export const STOPAJ_TAHMIN_BPS=100;
+export const stopajTahmini=netGelirKurus=>Math.max(0,Math.round((netGelirKurus||0)*STOPAJ_TAHMIN_BPS/10000));
 // Teslim edilenlerin İLK SONUÇ tarihi: ilk teslim ya da (daha önceyse) teslim edilemeyip dönen paketin
 // iade tarihi. Ana sayfa ve ürün kârlılığı "tüm zamanlar"ı buradan başlatır (Codex R19).
 export async function ilkSonucTarihi(db,to){
@@ -120,6 +133,13 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
  if(channel&&!['trendyol','hepsiburada'].includes(channel))fail('Kanal geçersiz.');
  const channelSql=channel?` AND channel='${channel}'`:'';
  const today=new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Istanbul'});
+ // STOPAJI RAPORLAMAYAN KANAL ICIN TAHMIN AYARI. Varsayilan BOS: hicbir kanalda tahmin
+ // yapilmaz, kimse farkinda olmadan kâr rakami kaymaz. Sahibi hangi kanalda pazaryerinin
+ // stopaji bildirmedigini bilir ve o kanali acikca isaretler.
+ let ayar=null;
+ try{ayar=await (env.ROOT_DB||env.DB).prepare('SELECT withholding_estimate_channels,withholding_estimate_bps FROM workspace_settings WHERE workspace=?').bind('ec').first();}catch{ayar=null;}
+ const stopajTahminKanallari=new Set(String(ayar?.withholding_estimate_channels||'').split(',').map(x=>x.trim()).filter(Boolean));
+ const stopajTahminBps=Number(ayar?.withholding_estimate_bps??STOPAJ_TAHMIN_BPS)||STOPAJ_TAHMIN_BPS;
  // Satışın stokta olmadan satılıp henüz alışla kapanmamış (açık) kısmı ve tahmin olup olmadığı.
  const SALES_SQL='SELECT s.*,l.package_id,l.vat_bps satir_kdv,pp.vat_bps,(SELECT o.open_milli-o.settled_milli FROM open_costs o WHERE o.sale_id=s.id) open_milli,(SELECT iif(o.estimate_cents IS NULL,1,0) FROM open_costs o WHERE o.sale_id=s.id) no_estimate FROM sale_entries s JOIN order_line_components c ON (s.id=c.sale_id OR s.parent_id=c.sale_id) JOIN order_lines l ON l.id=c.line_id LEFT JOIN price_profiles pp ON pp.product_id=s.product_id WHERE l.package_id IN (SELECT value FROM json_each(?)) ORDER BY c.product_id,c.id,s.id';
  if(paketIdleri&&mode!=='delivered')fail('Paket sonucu yalnız teslim edilenler için verilir.');
@@ -312,7 +332,22 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
     for(const e of entries)nakit+=incl(e.revenue_cents,e.satir_kdv??e.vat_bps)-incl(e.cost_cents,e.vat_bps)
      -incl(e.commission_cents??0,fv)-incl(e.shipping_cents??0,fv)-incl(e.other_cents??0,fv);
     // Stopaj bankaya gireni azaltir: nakit sonuctan dusulur.
-    const stopaj=stopajPayi(p);
+    // BILDIRILMEMISSE SIFIR SAYILMAZ, TAHMIN EDILIR. Trendyol'un siparis raporunda stopaj sutunu
+    // yok; sifir saymak o kanalin nakit sonucunu oldugundan yuksek gosteriyordu. Oran pazaryerinin
+    // kendi verisinden olculdu: KDV haric satisin %1'i (bkz. stopajTahmini). Tahmin edilen satir
+    // "tahmini" isaretini alir ve sebebi yazilir; gercek kayit geldiginde tahmin kullanilmaz.
+    // BILDIRILMEMISSE SIFIR SAYILMAZ: o kanal icin tahmin acilmissa olculen oranla tahmin edilir.
+    // Trendyol'un siparis raporunda stopaj sutunu yok; sifir saymak o kanalin nakit sonucunu
+    // oldugundan yuksek gosteriyordu. Oran pazaryerinin kendi verisinden olculdu (KDV haric
+    // satisin %1'i; HB dogrulamasi: tahmin 598,73 TL / gercek 599,87 TL). Tahmin edilen satir
+    // "tahmini" isaretini alir ve sebebi yazilir; gercek kayit varsa tahmin hic kullanilmaz.
+    const tahminMi=!p.stopaj_kaydi&&stopajTahminKanallari.has(p.channel);
+    const stopaj=tahminMi?Math.max(0,Math.round(entries.reduce((t,e)=>t+e.revenue_cents,0)*stopajTahminBps/10000)):stopajPayi(p);
+    if(tahminMi&&stopaj){
+     row.fees_estimated=true;
+     row.withholding_estimated=true;
+     row.cash_note=(row.cash_note?row.cash_note+' ':'')+"Stopaj bu pazaryerinin raporunda yer almıyor; KDV hariç satışın %"+(stopajTahminBps/100)+"'i olarak tahmin edildi.";
+    }
     row.withholding_cents=stopaj?-stopaj:0;
     row.cash_cents=nakit-stopaj;
     row.revenue_gross_cents=entries.reduce((t,e)=>t+incl(e.revenue_cents,e.satir_kdv??e.vat_bps),0);

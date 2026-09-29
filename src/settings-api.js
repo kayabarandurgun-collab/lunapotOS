@@ -23,10 +23,23 @@ export async function settingsApi(request,env,path,readBody){
   // Stok eksiye dusebilsin mi? ACIK beyan: varsayilan kapali. Acikken kaydi olmayan alistan
   // satilmis mal eksi bakiye olarak GORUNUR; kapaliyken satis reddedilir.
   const negatif=x.allow_negative_stock===true?1:0;
+  // STOPAJI RAPORLAMAYAN KANAL. Bazi pazaryerleri stopaji siparis raporunda hic bildirmiyor
+  // (olculdu 28.09.2026: Trendyol'un raporunda stopaj sutunu yok, 548 siparisin hicbirinde
+  // kayit gelmiyor; Hepsiburada 205 siparisin 205'inde bildiriyor). Kayit yokken sifir saymak
+  // o kanalin nakit sonucunu oldugundan yuksek gosteriyor. Isaretlenen kanalda stopaj, KDV
+  // haric satisin girilen oraniyla TAHMIN edilir ve satir "tahmini" isaretini alir.
+  // Varsayilan BOS: kimse acmadan hicbir rakam degismez. Gercek kayit varsa tahmin kullanilmaz.
+  const kanalListesi=Array.isArray(x.withholding_estimate_channels)?x.withholding_estimate_channels
+   :typeof x.withholding_estimate_channels==='string'?x.withholding_estimate_channels.split(','):[];
+  const kanallar=[...new Set(kanalListesi.map(v=>String(v).trim()).filter(Boolean))];
+  if(kanallar.some(v=>!['trendyol','hepsiburada'].includes(v)))fail('Stopaj tahmini yalnız tanımlı pazaryerleri için açılabilir.');
+  const stopajBps=x.withholding_estimate_bps===undefined||x.withholding_estimate_bps===null||x.withholding_estimate_bps===''
+   ?100:Number(x.withholding_estimate_bps);
+  if(!Number.isInteger(stopajBps)||stopajBps<0||stopajBps>2000)fail('Stopaj tahmin oranı %0 ile %20 arasında olmalı.');
   const old=await db.prepare('SELECT tax_id FROM workspace_settings WHERE workspace=?').bind(ns).first();
   if(old.tax_id&&old.tax_id!==x.tax_id&&await env.DB.prepare("SELECT id FROM purchase_invoices WHERE status='posted' LIMIT 1").first())fail('İşlenmiş faturalar varken şirket vergi numarası değiştirilemez.',409);
-  await db.prepare('UPDATE workspace_settings SET legal_name=?,tax_id=?,inventory_start_date=?,allow_negative_stock=?,updated_at=CURRENT_TIMESTAMP WHERE workspace=?')
-   .bind(x.legal_name.trim(),x.tax_id,startRaw||null,negatif,ns).run();
+  await db.prepare('UPDATE workspace_settings SET legal_name=?,tax_id=?,inventory_start_date=?,allow_negative_stock=?,withholding_estimate_channels=?,withholding_estimate_bps=?,updated_at=CURRENT_TIMESTAMP WHERE workspace=?')
+   .bind(x.legal_name.trim(),x.tax_id,startRaw||null,negatif,kanallar.join(','),stopajBps,ns).run();
   return {ok:true};
  }
  if(path==='/api/settings/backup'&&request.method==='GET'){
