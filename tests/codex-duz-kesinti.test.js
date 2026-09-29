@@ -255,3 +255,30 @@ test('Gerçek stopaj kaydı varsa tahmin kullanılmaz', async () => {
     assert.equal(satir.withholding_cents, -250, 'ölçülen tutar geçerli, tahmin devreye girmemeli');
   } finally { f.close(); }
 });
+
+// ÇİFT AKTARIM KOPYASININ KESİNTİSİ ASIL KAYDA DA GEÇER. Kopya rapora bağlı olduğu için kesintiler
+// ona yazılıyor; asıl kayıt satışı taşıyor ama kesintisi boş kalıyordu. Kâr raporu bunu ikiz
+// ikamesiyle doğru hesaplasa da ham kayıt boş kaldığı için "teslim edilmiş ama kesintisi
+// yazılmamış" işi hiç kapanmıyordu (canlıda 6 satır).
+test('Kopyanın kesintisi asıl kayda taşınır; dolu olana dokunulmaz', async () => {
+  const f = appFixture(); await f.setup(); try {
+    kur(f);
+    ikiz(f);
+    const once = kesintiOf(f, 's-asil');
+    assert.equal(once.commission_cents, null, 'asıl kayıt kesintisiz başlıyor');
+
+    const onizleme = await f.ok('/ec/reports/apply-fees?store_id=st-ty');
+    assert.equal(onizleme.twin_fee_copies, 1, 'taşınacak satır önizlemede sayılmalı: ' + JSON.stringify(onizleme.twin_fee_copies));
+
+    await f.ok('/ec/reports/apply-fees', {store_id: 'st-ty', confirm: true});
+    const sonra = kesintiOf(f, 's-asil');
+    const kopya = kesintiOf(f, 's-kopya');
+    assert.equal(sonra.fees_status, 'confirmed', 'asıl kayıt kesinleşmeli');
+    assert.deepEqual({c: sonra.commission_cents, k: sonra.shipping_cents, d: sonra.other_cents},
+      {c: kopya.commission_cents, k: kopya.shipping_cents, d: kopya.other_cents}, 'kopyadaki tutarlar birebir taşınmalı');
+
+    // İkinci çalıştırma yeni bir şey yazmaz (dolu olana dokunulmaz).
+    const tekrar = await f.ok('/ec/reports/apply-fees?store_id=st-ty');
+    assert.equal(tekrar.twin_fee_copies, 0, 'dolu kayda ikinci kez yazılmamalı');
+  } finally { f.close(); }
+});

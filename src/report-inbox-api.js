@@ -973,6 +973,52 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
     writes.push({group: g.group, erp_package_id: g.erp_package_id, ...want,
       ...(g.discount_prorated_cents ? {discount_prorated_cents: g.discount_prorated_cents} : {})});
   }
+  // ÇİFT AKTARIM KOPYASININ KESİNTİSİ ASIL KAYDA DA GEÇER. Eski aktarımda aynı paket panele iki
+  // kez girdi: kopya rapora bağlı (kesintiler ona yazıldı), asıl kayıt satışı ve maliyeti taşıyor.
+  // Kopyanın satışları DUZELTME-CIFT ters kaydıyla sıfırlandığı için kesinti ORADA duruyor, asıl
+  // kayıtta boş kalıyordu. Kâr raporu bunu ikiz ikamesiyle zaten doğru hesaplıyor; eksik olan ham
+  // satış kaydıydı ve bu yüzden "teslim edilmiş ama kesintisi yazılmamış" işi hiç kapanmıyordu.
+  // Kural dar: kopya aynı pazaryeri ve aynı sipariş numarasında olmalı, bütün satışları
+  // DUZELTME-CIFT ile sıfırlanmış olmalı, kesintileri kesinleşmiş olmalı; asıl kaydın kendi
+  // kesintisi BOŞ olmalı (dolu olana dokunulmaz) ve eşleşme ÜRÜN bazında yapılır.
+  const ikizeTasi = [];
+  for (const w of writes) {
+    const kopyaMi = await db.prepare("SELECT 1 FROM ec_order_lines l JOIN ec_order_line_components c ON c.line_id=l.id JOIN ec_sale_entries s ON s.id=c.sale_id"
+      + " WHERE l.package_id=? AND s.kind='sale' AND NOT EXISTS(SELECT 1 FROM ec_sale_entries r WHERE r.parent_id=s.id AND r.kind='return'"
+      + " AND r.external_id LIKE 'DUZELTME-CIFT-%' AND r.quantity_milli>=s.quantity_milli) LIMIT 1").bind(w.erp_package_id).first();
+    if (kopyaMi) continue;                                   // her satışı sıfırlanmamış: kopya değil
+    // BU TURDA HESAPLANAN TUTARLAR KULLANILIR. Kopyanın kesintisi aynı çağrıda yazılıyor; kayıttan
+    // okumak önizlemede boş döner ve taşıma hiç görünmezdi. Bu turda hesaplanan varsa o, yoksa
+    // daha önce kesinleşmiş kayıt geçerlidir.
+    const buTur = new Map(changes.filter(c => c.erp_package_id === w.erp_package_id).map(c => [c.sale_id, c.after]));
+    const kopyaSatislari = (await db.prepare("SELECT s.id,s.product_id,s.commission_cents,s.shipping_cents,s.other_cents,s.fees_status FROM ec_order_lines l"
+      + " JOIN ec_order_line_components c ON c.line_id=l.id JOIN ec_sale_entries s ON s.id=c.sale_id"
+      + " WHERE l.package_id=? AND s.kind='sale'").bind(w.erp_package_id).all()).results
+      .map(k => { const t = buTur.get(k.id);
+        return t ? {product_id: k.product_id, commission_cents: t.commission, shipping_cents: t.shipping, other_cents: t.other}
+          : k.fees_status === 'confirmed' ? k : null; })
+      .filter(Boolean);
+    if (!kopyaSatislari.length) continue;
+    const ikizSatislari = (await db.prepare("SELECT s.id,s.product_id,s.commission_cents,s.shipping_cents,s.other_cents FROM ec_order_packages d"
+      + " JOIN ec_order_lines l ON l.package_id=d.id JOIN ec_order_line_components c ON c.line_id=l.id JOIN ec_sale_entries s ON s.id=c.sale_id"
+      + " WHERE d.channel=(SELECT channel FROM ec_order_packages WHERE id=?) AND d.order_no=(SELECT order_no FROM ec_order_packages WHERE id=?)"
+      + " AND d.id<>? AND d.status IN ('shipped','delivered') AND s.kind='sale'"
+      + " AND s.commission_cents IS NULL AND s.shipping_cents IS NULL AND s.other_cents IS NULL")
+      .bind(w.erp_package_id, w.erp_package_id, w.erp_package_id).all()).results;
+    for (const t of ikizSatislari) {
+      const src = kopyaSatislari.find(k => k.product_id === t.product_id);
+      if (!src) continue;
+      ikizeTasi.push({sale_id: t.id, kaynak: w.erp_package_id,
+        after: {commission: src.commission_cents, shipping: src.shipping_cents, other: src.other_cents}});
+    }
+  }
+  if (commit && ikizeTasi.length) for (const part of inChunks(ikizeTasi, 40)) await db.batch(part.flatMap(t => [
+    db.prepare("UPDATE ec_sale_entries SET commission_cents=?,shipping_cents=?,other_cents=?,fees_status='confirmed' WHERE id=? AND commission_cents IS NULL AND shipping_cents IS NULL AND other_cents IS NULL")
+      .bind(t.after.commission, t.after.shipping, t.after.other, t.sale_id),
+    db.prepare('INSERT INTO ec_fee_audit(id,sale_id,old_values,new_values) VALUES(?,?,?,?)').bind(id(), t.sale_id,
+      JSON.stringify({commission: null, shipping: null, other: null}),
+      JSON.stringify({...t.after, source: 'çift aktarım kopyasından taşındı', package: t.kaynak}))
+  ]));
   // MÜŞTERİ İADESİNİN KESİNTİSİ SIFIRDIR. Pazaryerinin iadeden sonraki son hâli (geri verilen
   // komisyon, dönüş kargosu) siparişin kesintisine zaten yazıldı; iade kaydına ayrıca kesinti
   // yazmak aynı parayı iki kez sayar. Yalnız müşteri iadeleri (IADE-…, TESLIM-EDILEMEDI-…);
@@ -1004,7 +1050,7 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
   return {
     store, commit, next_cursor, total_orders,
     packages: all.length, applied: writes.length, sale_entries_changed: changes.length + iadeDuzelt.length,
-    skipped: skipped.slice(0, 100), skipped_total: skipped.length,
+    skipped: skipped.slice(0, 100), skipped_total: skipped.length, twin_fee_copies: ikizeTasi.length,
     totals: writes.reduce((t, w) => ({commission: t.commission + w.commission, shipping: t.shipping + w.shipping, other: t.other + w.other}), {commission: 0, shipping: 0, other: 0}),
     notice: commit
       ? 'Kesintiler satış kayıtlarına yazıldı. Stok, satış tutarı ve fatura DEĞİŞMEDİ; yalnızca kesinti alanları doldu. Tutarlar faturayla doğrulanmadığı için "kesinleşmedi" kalır.'
