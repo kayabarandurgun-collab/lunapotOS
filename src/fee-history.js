@@ -40,7 +40,9 @@ export async function kesintiTahmincisi(db) {
     db.prepare("SELECT id,channel,delivered_on FROM ec_order_packages WHERE status='delivered' AND channel IN ('trendyol','hepsiburada') ORDER BY delivered_on DESC,rowid DESC LIMIT 2000"),
     db.prepare("SELECT l.package_id,c.product_id,c.quantity_milli FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_order_packages q ON q.id=l.package_id WHERE q.status='delivered'"),
     db.prepare("SELECT l.package_id,s.revenue_cents,s.shipping_cents,s.commission_cents,s.other_cents FROM ec_sale_entries s JOIN ec_order_line_components c ON s.id=c.sale_id JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_order_packages q ON q.id=l.package_id WHERE q.status='delivered' AND s.kind='sale'"),
-    db.prepare("SELECT DISTINCT l.package_id FROM ec_sale_entries r JOIN ec_order_line_components c ON r.parent_id=c.sale_id JOIN ec_order_lines l ON l.id=c.line_id WHERE r.kind='return'"),
+    // Teknik ters kayıt (DUZELTME-) iade değildir: paket gerçekten teslim edildi, kesintileri
+    // öğrenmeye elverişlidir. Dışarıda bırakılsaydı her düzeltme geçmişten bir örnek eksiltirdi.
+    db.prepare("SELECT DISTINCT l.package_id FROM ec_sale_entries r JOIN ec_order_line_components c ON r.parent_id=c.sale_id JOIN ec_order_lines l ON l.id=c.line_id WHERE r.kind='return' AND r.external_id NOT LIKE 'DUZELTME-%'"),
     // Stopaj oranı: stopajı raporda görünen siparişlerde stopaj / KDV dahil satış.
     db.prepare(`SELECT s.provider,json_extract(r.data_json,'$.order_no') o,SUM(CASE WHEN json_extract(r.data_json,'$.type')='withholding' THEN json_extract(r.data_json,'$.amount_cents') ELSE 0 END) w,
       SUM(CASE WHEN json_extract(r.data_json,'$.type')='sale' THEN json_extract(r.data_json,'$.amount_cents') ELSE 0 END) sale

@@ -13,7 +13,7 @@ const money=v=>{if(v===null||v===undefined||v==='')return null;try{return intege
 const qty=v=>{try{return milli(v);}catch{fail('Miktar en fazla üç ondalıklı ve sıfırdan büyük olmalı.');}};
 const vat=v=>v===null||v===undefined||v===''?null:integer(Math.round(v*100),'KDV oranı',10000);
 const statement=(db,sql,args=[])=>db.prepare(sql).bind(...args);
-async function execute(db,items){try{return await db.batch(items);}catch(error){const m=String(error.message);if(/STOCK_RESERVED/.test(m))fail('Bu stok başka siparişler için ayrılmış.',409);if(/ORDER_INSUFFICIENT_STOCK|INSUFFICIENT_STOCK/.test(m))fail('Siparişin tamamını ayırmak için kullanılabilir stok yetersiz.',409);if(/ORDER_COMPONENT_LIMIT/.test(m))fail("Paket en fazla 20 stok bileşeni içerebilir.",409);if(/ORDER_UNIT_CHANGED/.test(m))fail("Stok birimi değişmiş. Bileşen eşleştirmesini yeniden doğrulayın.",409);if(/ORDER_UNMAPPED/.test(m))fail('Önce bütün sipariş satırlarını ürünlerle eşleştirin.',409);if(/ORDER_MISSING_AMOUNT/.test(m))fail('KDV hariç satış tutarı eksik. Tutarı veya doğrulanmış KDV oranını girin.',409);if(/ORDER_SOURCE_CHANGED/.test(m))fail('Kaynak sipariş değişmiş. Güncel kaydı inceleyip taslağı yenileyin.',409);if(/ORDER_REFRESH_BLOCKED|ORDER_REFRESH_AUDIT_LOCKED/.test(m))fail("Yalnızca stok ayrılmamış ve gönderilmemiş taslak yenilenebilir.",409);if(/ORDER_LOCKED|INVALID_ORDER_TRANSITION/.test(m))fail('Sipariş bu durumda değiştirilemez.',409);if(/UNIQUE constraint/.test(m))fail('Bu sipariş veya gönderi referansı daha önce kaydedildi.',409);if(/FOREIGN KEY/.test(m))fail('Kayıt bu çalışma alanında bulunamadı.',404);throw error;}}
+async function execute(db,items){try{return await db.batch(items);}catch(error){const m=String(error.message);if(/STOCK_RESERVED/.test(m))fail('Bu stok başka siparişler için ayrılmış.',409);if(/RETURN_EXCEEDS_SALE|REFUND_EXCEEDS_SALE|INVALID_RETURN/.test(m))fail('Bu satışın ters kaydı yazılamadı; kayıtta iade ya da başka bir düzeltme var.',409);if(/ORDER_INSUFFICIENT_STOCK|INSUFFICIENT_STOCK/.test(m))fail('Siparişin tamamını ayırmak için kullanılabilir stok yetersiz.',409);if(/ORDER_COMPONENT_LIMIT/.test(m))fail("Paket en fazla 20 stok bileşeni içerebilir.",409);if(/ORDER_UNIT_CHANGED/.test(m))fail("Stok birimi değişmiş. Bileşen eşleştirmesini yeniden doğrulayın.",409);if(/ORDER_UNMAPPED/.test(m))fail('Önce bütün sipariş satırlarını ürünlerle eşleştirin.',409);if(/ORDER_MISSING_AMOUNT/.test(m))fail('KDV hariç satış tutarı eksik. Tutarı veya doğrulanmış KDV oranını girin.',409);if(/ORDER_SOURCE_CHANGED/.test(m))fail('Kaynak sipariş değişmiş. Güncel kaydı inceleyip taslağı yenileyin.',409);if(/ORDER_REFRESH_BLOCKED|ORDER_REFRESH_AUDIT_LOCKED/.test(m))fail("Yalnızca stok ayrılmamış ve gönderilmemiş taslak yenilenebilir.",409);if(/ORDER_LOCKED|INVALID_ORDER_TRANSITION/.test(m))fail('Sipariş bu durumda değiştirilemez.',409);if(/UNIQUE constraint/.test(m))fail('Bu sipariş veya gönderi referansı daha önce kaydedildi.',409);if(/FOREIGN KEY/.test(m))fail('Kayıt bu çalışma alanında bulunamadı.',404);throw error;}}
 function netAmount(gross,tax,net){if(gross!==null&&tax!==null){const calculated=Math.round(gross*10000/(10000+tax));if(net!==null&&Math.abs(net-calculated)>1)fail('Brüt tutar, KDV ve net tutar birbiriyle uyuşmuyor.');return net??calculated;}return net;}
 function normalized(record){
  if(!Array.isArray(record.lines)||!record.lines.length||record.lines.length>10)fail('Ücretsiz işlem sınırı için paket 1–10 satır içermeli. Daha büyük paket kaynak kutusunda ayrıca incelenmeli.');
@@ -172,7 +172,7 @@ export async function ordersApi(request,env,path,readBody){
   // Liste, kâr raporuyla BİREBİR aynı hesaplanır: iade satırları dahil (satışın alt kaydı), KDV
   // kalem kalem eklenip yuvarlanır. Önceden iadeler atlanıyor ve KDV toplamda yuvarlanıyordu;
   // aynı paket iki ekranda kuruşlarca, iadeli pakette yüzlerce lira farklı görünüyordu.
-  const kalemler=(await statement(db,"SELECT l.package_id pid,l.vat_bps satir_kdv,p.channel kanal,s.id,s.kind,s.quantity_milli,s.revenue_cents,s.cost_cents,s.commission_cents,s.shipping_cents,s.other_cents,pp.vat_bps"
+  const kalemler=(await statement(db,"SELECT l.package_id pid,l.vat_bps satir_kdv,p.channel kanal,s.id,s.kind,s.external_id,s.quantity_milli,s.revenue_cents,s.cost_cents,s.commission_cents,s.shipping_cents,s.other_cents,pp.vat_bps"
     +" FROM order_lines l JOIN order_line_components c ON c.line_id=l.id"
     +" JOIN order_packages p ON p.id=l.package_id"
     +" JOIN sale_entries s ON (s.id=c.sale_id OR s.parent_id=c.sale_id)"
@@ -184,7 +184,8 @@ export async function ordersApi(request,env,path,readBody){
    const tam=list.every(e=>e.commission_cents!==null&&e.shipping_cents!==null&&e.other_cents!==null);
    const kdvTam=list.every(e=>e.vat_bps!==null&&e.vat_bps!==undefined);
    // İADE: paketin satışlarına bağlı iade kaydı varsa listede rozet olarak söylenir (tam / kısmi).
-   const satilan=list.filter(e=>e.kind==='sale').reduce((t,e)=>t+e.quantity_milli,0),iadeAdet=list.filter(e=>e.kind==='return').reduce((t,e)=>t+e.quantity_milli,0);
+   // DUZELTME- ters kaydı müşteri iadesi değildir: sayılsaydı ikame edilen sipariş listede "İade edildi" görünürdü.
+   const satilan=list.filter(e=>e.kind==='sale').reduce((t,e)=>t+e.quantity_milli,0),iadeAdet=list.filter(e=>e.kind==='return'&&!String(e.external_id||'').startsWith('DUZELTME-')).reduce((t,e)=>t+e.quantity_milli,0);
    const r={pid,kanal:list[0].kanal,tam,iade:iadeAdet>0?(iadeAdet>=satilan?'tam':'kismi'):null,
     gelir:list.reduce((t,e)=>t+e.revenue_cents,0),
     sonuc:list.reduce((t,e)=>t+e.revenue_cents-e.cost_cents-(e.commission_cents||0)-(e.shipping_cents||0)-(e.other_cents||0),0)};
@@ -232,7 +233,7 @@ export async function ordersApi(request,env,path,readBody){
   if(!Array.isArray(x.lines))fail('Sipariş satırları gerekli.');
   return createPackage(env,x.channel,{...x,lines:x.lines.map(l=>({...l,quantity_milli:qty(l.quantity),gross_cents:money(l.gross),vat_bps:vat(l.vat_rate),net_revenue_cents:money(l.net_revenue)}))});
  }
- const match=path.match(/^\/api\/orders\/([\w-]+)\/(map|reserve|ship|deliver|cancel|refresh)$/);if(!match)return null;
+ const match=path.match(/^\/api\/orders\/([\w-]+)\/(map|reserve|ship|deliver|cancel|refresh|duzeltme)$/);if(!match)return null;
  const key=match[1],action=match[2],p=await statement(db,'SELECT * FROM order_packages WHERE id=?',[key]).first();if(!p)fail('Sipariş paketi bulunamadı.',404);
  const lines=(await statement(db,'SELECT * FROM order_lines WHERE package_id=? ORDER BY rowid',[key]).all()).results;
  const components=(await statement(db,'SELECT c.*,p.stock_unit current_stock_unit FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN products p ON p.id=c.product_id WHERE l.package_id=? ORDER BY c.rowid',[key]).all()).results;
@@ -259,6 +260,64 @@ export async function ordersApi(request,env,path,readBody){
   if(newComponents.length+components.filter(c=>!seen.has(c.line_id)).length>20)fail('Paket en fazla 20 stok bileşeni içerebilir.',409);
   const items=[statement(db,'DELETE FROM order_line_components WHERE line_id IN (SELECT value FROM json_each(?))',[JSON.stringify([...seen])]),componentInsert(db,newComponents),statement(db,"WITH patch AS (SELECT json_extract(value,'$.id') id,json_extract(value,'$.product_id') product_id,json_extract(value,'$.vat_bps') vat_bps,json_extract(value,'$.net_revenue_cents') net_revenue_cents FROM json_each(?)) UPDATE order_lines SET product_id=(SELECT product_id FROM patch WHERE patch.id=order_lines.id),vat_bps=(SELECT vat_bps FROM patch WHERE patch.id=order_lines.id),net_revenue_cents=(SELECT net_revenue_cents FROM patch WHERE patch.id=order_lines.id) WHERE id IN (SELECT id FROM patch)",[JSON.stringify(patches)])];
   await execute(db,items);return {id:key,status:p.status};
+ }
+ if(action==='duzeltme'){
+  // TEK SEFERLİK DÜZELTME: bu pakette depodan GERÇEKTE ne çıktığını düzeltir.
+  // Canlıdan gelen ihtiyaç: 10 L torf bitince o siparişlere 2 adet 5 L gönderildi.
+  // KALICI EŞLEŞMEYE DOKUNMAZ: mapping_id boş bırakılır, catalog_mappings hiç yazılmaz.
+  // Aynı ilanın sonraki siparişi eskisi gibi eşleşir — düzeltme yalnız bu pakete aittir.
+  // CİRO ASIL BİLEŞENDE KALIR: düzeltme bileşeninin gelir payı 0'dır. Böylece ciro bir kez
+  // sayılır ve satırın pay toplamı 10000'de kalır; packageProfit 'complete' bunu şart koşuyor,
+  // bozulsaydı paketin kârı hiç hesaplanmazdı.
+  // KESİNTİLER 0 VE 'confirmed' YAZILIR: null bırakılsaydı contribution() null döner, kâr
+  // raporu paketi "kesintisi eksik" sayıp sonucu gizlerdi. Kesintiler asıl satışta durur;
+  // pazaryeri kesinti dağıtımı bu kayıtları DUZELTME- önekinden tanıyıp dışarıda bırakır.
+  if(!['shipped','delivered'].includes(p.status))fail('Bu düzeltme gönderilmiş siparişler içindir. Taslakta ürünleri eşleştirme ekranından değiştirin.',409);
+  if(!['ikame','ilave'].includes(x.kind))fail('Düzeltme türünü seçin.');
+  const tur=x.kind,line=lines.find(l=>l.id===x.line_id);
+  if(!line)fail('Sipariş satırı bulunamadı.',404);
+  if(!Array.isArray(x.items)||!x.items.length||x.items.length>5)fail('Bir düzeltmede 1–5 ürün yazın.');
+  const reason=text(x.reason,'Düzeltme sebebi',300);
+  const date=p.shipped_on||p.occurred_on;
+  // İKAME: asıl ürün raftan çıkmadı; ters kaydı restock=1 ile rafa geri koyar.
+  // Satışında zaten iade varsa kalan miktar ve maliyet belirsizleşir: dokunulmaz, kullanıcıya söylenir.
+  let asil=null,asilSatis=null;
+  if(tur==='ikame'){
+   asil=components.find(c=>c.id===x.component_id&&c.line_id===line.id);
+   if(!asil)fail('Yerine gönderim yapılacak ürün bu satırda bulunamadı.',404);
+   if(asil.correction_kind)fail('Bu kayıt zaten bir düzeltme. Asıl ürünü seçin.',409);
+   if(!asil.sale_id)fail('Bu ürünün satış kaydı yok; düzeltme yapılamaz.',409);
+   if(components.some(c=>c.replaces_component_id===asil.id))fail('Bu ürün için zaten bir ikame kaydedilmiş.',409);
+   asilSatis=await statement(db,'SELECT * FROM sale_entries WHERE id=?',[asil.sale_id]).first();
+   if(!asilSatis)fail('Satış kaydı bulunamadı.',404);
+   if(await statement(db,'SELECT id FROM sale_entries WHERE parent_id=? LIMIT 1',[asil.sale_id]).first())fail('Bu satışta iade kaydı var. Önce iadeyi çözün, sonra düzeltme yapın.',409);
+  }
+  const secilen=[];
+  for(const item of x.items){
+   const product=await statement(db,'SELECT id,name,stock_unit FROM products WHERE id=?',[text(item.product_id,'Ürün')]).first();
+   if(!product)fail('Gönderilen ürün bu çalışma alanında bulunamadı.',404);
+   const quantity=qty(item.quantity);
+   if(secilen.some(s=>s.id===product.id))fail('Aynı ürünü iki kez yazmayın; adedi tek satırda toplayın.');
+   secilen.push({...product,quantity_milli:quantity});
+  }
+  if(components.length+secilen.length>20)fail('Paket en fazla 20 stok bileşeni içerebilir.',409);
+  const items=[];
+  if(tur==='ikame'){
+   // Ters kayıt: gelir 0 (müşteri ödedi, para iade edilmedi), maliyet asıl satışın maliyetinin
+   // eksiği — tetikleyici value_cents'i -cost_cents yazdığı için stok değeri geri gelir.
+   items.push(statement(db,"INSERT INTO sale_entries(id,channel,external_id,product_id,kind,parent_id,quantity_milli,revenue_cents,cost_cents,commission_cents,shipping_cents,other_cents,fees_status,restock,occurred_on,notes) VALUES(?,?,?,?,'return',?,?,0,?,0,0,0,'confirmed',1,?,?)",
+    [id(),p.channel,'DUZELTME-IKAME-'+asil.id,asil.product_id,asil.sale_id,asil.quantity_milli,-asilSatis.cost_cents,date,'Yerine başka ürün gönderildi · '+reason]));
+  }
+  for(const product of secilen){
+   const componentId=id(),saleId=id();
+   items.push(statement(db,"INSERT INTO sale_entries(id,channel,external_id,product_id,kind,quantity_milli,revenue_cents,cost_cents,commission_cents,shipping_cents,other_cents,fees_status,occurred_on,notes) SELECT ?,?,?,product_id,'sale',?,0,CAST(ROUND(value_cents*?/MAX(quantity_milli,1.0)) AS INTEGER),0,0,0,'confirmed',?,? FROM stock_balances WHERE product_id=?",
+    [saleId,p.channel,'DUZELTME-EK-'+componentId,product.quantity_milli,product.quantity_milli,date,(tur==='ikame'?'İkame · ':'İlave · ')+reason,product.id]));
+   items.push(statement(db,'INSERT INTO order_line_components(id,line_id,product_id,quantity_milli,revenue_share_bps,stock_unit,sale_id,mapping_id,correction_kind,correction_note,replaces_component_id) VALUES(?,?,?,?,0,?,?,NULL,?,?,?)',
+    [componentId,line.id,product.id,product.quantity_milli,product.stock_unit,saleId,tur,reason,tur==='ikame'?asil.id:null]));
+  }
+  items.push(statement(db,'INSERT INTO activity(id,description) VALUES(?,?)',[id(),(tur==='ikame'?'Sipariş ikame düzeltmesi: ':'Siparişe ilave ürün: ')+(p.order_no||p.external_id)+' · '+secilen.map(s=>s.name).join(', ')+' · '+reason]));
+  await execute(db,items);
+  return {id:key,status:p.status,kind:tur,items:secilen.length};
  }
  if(action==='reserve'){
   if(p.status==='reserved')return {id:key,status:p.status,existing:true};

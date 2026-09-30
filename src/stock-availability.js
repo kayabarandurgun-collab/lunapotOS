@@ -6,7 +6,9 @@
 export function pendingPackageScopeSql(alias = 'p') {
  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(alias)) throw Error('Invalid SQL alias');
  const sold = `(SELECT COALESCE(SUM(s.quantity_milli),0) FROM order_lines l JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries s ON s.id=c.sale_id AND s.kind='sale' WHERE l.package_id=${alias}.id)`;
- const returned = `(SELECT COALESCE(SUM(r.quantity_milli),0) FROM sale_entries r WHERE r.kind='return' AND r.parent_id IN (SELECT c.sale_id FROM order_line_components c JOIN order_lines l ON l.id=c.line_id WHERE l.package_id=${alias}.id))`;
+ // İKAME ters kaydı iade değildir (siparişteki ürün yerine başkası gönderildi): sayılsaydı düzeltilen
+ // paket "tamamen dönmüş" sayılıp yoldaki maldan ve bekleyen kârdan düşerdi. DUZELTME-CIFT aynen kalır.
+ const returned = `(SELECT COALESCE(SUM(r.quantity_milli),0) FROM sale_entries r WHERE r.kind='return' AND r.external_id NOT LIKE 'DUZELTME-IKAME-%' AND r.parent_id IN (SELECT c.sale_id FROM order_line_components c JOIN order_lines l ON l.id=c.line_id WHERE l.package_id=${alias}.id))`;
  return `NOT (${sold}>0 AND ${returned}>=${sold}) AND NOT (${alias}.status='shipped' AND EXISTS (
   SELECT 1 FROM order_packages d JOIN order_lines l ON l.package_id=d.id
   JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries r ON r.parent_id=c.sale_id

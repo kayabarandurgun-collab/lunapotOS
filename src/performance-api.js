@@ -17,10 +17,12 @@ const all=async s=>(await s.all()).results;
 // diye ekranlar oranı "satışa oranı" diye etiketler ve paydayı yanında söyler.
 export const komisyonOraniBps=(komisyon,ciro)=>Number.isSafeInteger(komisyon)&&Number.isSafeInteger(ciro)&&ciro>0?Math.round(komisyon*10000/ciro):null;
 // TESLİM EDİLEMEYİP DÖNEN PAKET ölçütü (kâr raporu ve ana sayfanın ilk tarihi AYNI ölçütü kullanır):
-// satışı var, gerçek iadesi satışı karşılıyor. DUZELTME-CIFT çift aktarım düzeltmesidir, iade sayılmaz.
+// satışı var, gerçek iadesi satışı karşılıyor. DUZELTME- ile başlayan ters kayıtlar TEKNİKTİR, iade
+// sayılmaz: DUZELTME-CIFT çift aktarım düzeltmesi, DUZELTME-IKAME ise "siparişteki ürün yerine
+// başkası gönderildi" düzeltmesidir (mal dönmedi, para iade edilmedi).
 const SATILAN="(SELECT COALESCE(SUM(s.quantity_milli),0) FROM order_lines l JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries s ON s.id=c.sale_id WHERE l.package_id=order_packages.id AND s.kind='sale')";
-const IADE="(SELECT COALESCE(SUM(r.quantity_milli),0) FROM order_lines l JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries r ON r.parent_id=c.sale_id WHERE l.package_id=order_packages.id AND r.kind='return' AND r.external_id NOT LIKE 'DUZELTME-CIFT-%')";
-const IADE_TARIHI="(SELECT MAX(r.occurred_on) FROM order_lines l JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries r ON r.parent_id=c.sale_id WHERE l.package_id=order_packages.id AND r.kind='return')";
+const IADE="(SELECT COALESCE(SUM(r.quantity_milli),0) FROM order_lines l JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries r ON r.parent_id=c.sale_id WHERE l.package_id=order_packages.id AND r.kind='return' AND r.external_id NOT LIKE 'DUZELTME-%')";
+const IADE_TARIHI="(SELECT MAX(r.occurred_on) FROM order_lines l JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries r ON r.parent_id=c.sale_id WHERE l.package_id=order_packages.id AND r.kind='return' AND r.external_id NOT LIKE 'DUZELTME-%')";
 const DONEN=`channel IN ('trendyol','hepsiburada') AND status IN ('shipped','reserved') AND ${SATILAN}>0 AND ${IADE}>=${SATILAN}`;
 // Kargodaki tahminde maliyet: stok ortalaması; stok sıfır/eksiyse (faturası gelmemiş mal) ürünün son alış fiyatı.
 const birimMaliyet=c=>c.stock_quantity_milli>0&&c.value_cents>0?Math.round(c.value_cents*c.quantity_milli/c.stock_quantity_milli):c.son_alis?Math.round(c.son_alis*c.quantity_milli/1000):null;
@@ -307,6 +309,9 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
     const tahminli=packageProfit(p,packageLines,parts,entries);
     Object.assign(profit,{profit_cents:tahminli.estimated_profit_cents,reasons:[]});
     row.fees_estimated=true;
+    // KESİNTİ GEÇMİŞTEN TAHMİN EDİLDİ: bu BELGEYLE KESİNLEŞİR (finans raporu gelince gerçek tutar yazılır).
+    // Stopaj tahmininden ayrı işaretlenir, çünkü o hiçbir belgeyle kesinleşmez (bkz. withholding_estimated).
+    row.fees_from_history=true;
     // ADET UYUMU (R23) kâr yoluna da taşınır: tahmin benzer ADETTE teslime dayanmıyorsa satır işaretlenir.
     // Tutar değişmez; yalnız ne kadar kaba olduğu makine okunur alanla ve kısa notla söylenir.
     row.tahmin_uyum=h.uyum||null;row.tahmin_ornek_adet=h.ornekAdet||null;
@@ -317,7 +322,8 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
    const fee=key=>entries.every(s=>s[key]!==null)?entries.reduce((sum,s)=>sum+s[key],0):null;
    row.shipping_cents=fee('shipping_cents');row.commission_cents=fee('commission_cents');row.other_cents=fee('other_cents');
    row.missing=profit.reasons;row.profit_cents=profit.profit_cents;
-   row.returns=entries.filter(s=>s.kind==='return').length;
+   // Teknik ters kayıt (DUZELTME-) iade sayılmaz; kâr raporunda "iade" sütununu şişirirdi.
+   row.returns=entries.filter(s=>s.kind==='return'&&!String(s.external_id||'').startsWith('DUZELTME-')).length;
    if(p.teslim_edilemedi)row.cost_note=(row.cost_note?row.cost_note+' ':'')+'Teslim edilemedi / geri döndü: satış iadeyle sıfırlandı, kargo ve hizmet bedeli gider olarak yazıldı (iade tarihi '+p.delivered_on+').';
    // NAKIT SONUC: KDV dahil satis - KDV dahil mal maliyeti - KDV dahil kesintiler.
    // Kullanicinin gordugu rakam budur; KDV haric katki ayrica durur.

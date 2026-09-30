@@ -88,7 +88,7 @@ test('Gerçekten metinsiz belgede satır UYDURULMAZ', async () => {
   const r = await readPdf(bos, {name: 'e.pdf'});
   assert.equal(r.textLayer, false);
   assert.deepEqual(r.lines, []);
-  assert.ok(r.warnings.some(w => /metin katmanı yok/.test(w)));
+  assert.ok(r.warnings.some(w => /okunabilir değil/.test(w)));
 });
 
 // EDM'den "hepsini indir" denince tek dosyada birden çok fatura gelir. Sayfa sayfa okunan

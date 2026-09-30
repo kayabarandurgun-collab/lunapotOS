@@ -28,6 +28,19 @@ const parse = (s, fallback) => { try { return JSON.parse(s); } catch { return fa
 
 export const DOC_CHUNK_B64_MAX = 700000;              // ~512 KB ham parça
 const MAX_DOC_BYTES = 20 * 1024 * 1024;
+// OCR sınırları: sayfa başına ve toplamda. Model çağrısı ücretlidir; kaçak büyüme olmasın.
+const MAX_OCR_PAGES = 8, MAX_OCR_PAGE_BYTES = 4 * 1024 * 1024, MAX_OCR_TOTAL_BYTES = 12 * 1024 * 1024;
+const OCR_MODEL = '@cf/google/gemma-4-26b-a4b-it';
+// PROMPT'UN TEK İŞİ: GÖRÜNENİ YAZMAK. Yorum, tamamlama ve düzeltme istenmez; okunamayan yer
+// açıkça boş bırakılır. Model "makul" bir fatura numarası uydurursa o numara deftere girerdi.
+const OCR_PROMPT = [
+  'Bu görüntüler bir satın alma faturasının sayfalarıdır.',
+  'Görünen bütün yazıyı olduğu gibi, soldan sağa ve yukarıdan aşağıya düz metin olarak yaz.',
+  'Tabloları satır satır yaz; aynı satırdaki hücreleri tek boşlukla ayır.',
+  'Sayıları ve tarihleri belgede yazdığı biçimde bırak (1.234,56 gibi); birimini değiştirme.',
+  'HİÇBİR ŞEY UYDURMA. Okuyamadığın yeri boş bırak veya [okunamadı] yaz.',
+  'Yorum, özet, başlık veya açıklama ekleme; yalnız belgedeki yazıyı ver.'
+].join(' ');
 const MAX_CHUNKS = 60;
 
 const b64bytes = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
@@ -45,6 +58,47 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
   if (!path.startsWith('/api/invoices/documents') && !path.startsWith('/api/invoices/families')) return null;
   if (!['ec', 'lp'].includes(env.WORKSPACE)) fail('Çalışma alanı geçersiz.', 403);
   const db = env.DB, method = request.method, url = new URL(request.url), user = env.USER || {};
+
+  /* ---------------- görüntüden yazı okuma (OCR) ---------------- */
+  // NEDEN VAR: bazı fatura PDF'lerinde okunacak harf YOKTUR. 29.09.2026'da ölçüldü — bir tedarikçi
+  // PDF'inde 16.814 bezier eğrisi ve 10.631 çizgi vardı, metin komutu SIFIRDI: yazı harf olarak
+  // değil çizim olarak gömülmüştü. Taranmış belgede de aynı durum olur. Bu uçta sayfanın
+  // GÖRÜNTÜSÜ modele verilir ve yalnız GÖRÜNEN yazı geri istenir.
+  //
+  // BURADA ALAN TAHMİNİ YAPILMAZ: uç yalnız düz metin döndürür. Fatura no, tarih, VKN ve satırlar
+  // istemcideki guessHeader/guessLines ile çıkarılır ve hepsi ekranda "kontrol et" işaretli gelir.
+  // Böylece modelin okuduğu hiçbir şey kullanıcı onaylamadan kayda geçmez.
+  if (path === '/api/invoices/documents/ocr' && method === 'POST') {
+    if (!env.AI) fail('Görüntüden yazı okuma bu ortamda açık değil.', 503);
+    const x = await readBody(request);
+    if (!Array.isArray(x.images) || !x.images.length) fail('Okunacak sayfa görüntüsü gönderilmedi.');
+    if (x.images.length > MAX_OCR_PAGES) fail('Bir seferde en fazla ' + MAX_OCR_PAGES + ' sayfa okunabilir.');
+    let toplam = 0;
+    const sayfalar = x.images.map(s => {
+      if (typeof s !== 'string' || !/^[A-Za-z0-9+/=]+$/.test(s)) fail('Sayfa görüntüsü geçersiz.');
+      const bayt = Math.floor(s.length * 3 / 4);
+      if (bayt > MAX_OCR_PAGE_BYTES) fail('Sayfa görüntüsü çok büyük; daha düşük çözünürlük gönderin.');
+      toplam += bayt;
+      if (toplam > MAX_OCR_TOTAL_BYTES) fail('Gönderilen sayfaların toplam boyutu sınırı aşıyor.');
+      return s;
+    });
+    let cevap;
+    try {
+      cevap = await env.AI.run(OCR_MODEL, {
+        messages: [{role: 'user', content: [{type: 'text', text: OCR_PROMPT},
+          ...sayfalar.map(s => ({type: 'image_url', image_url: {url: 'data:image/jpeg;base64,' + s}}))]}],
+        max_completion_tokens: 4000, temperature: 0
+      });
+    } catch (e) { fail('Görüntü okunamadı: ' + (e.message || 'model yanıt vermedi') + '.', 502); }
+    // Yanıt biçimi modele göre değişebiliyor; ikisi de denenir, hiçbiri yoksa UYDURULMAZ.
+    const metin = typeof cevap === 'string' ? cevap
+      : cevap?.response ?? cevap?.choices?.[0]?.message?.content ?? '';
+    if (typeof metin !== 'string' || !metin.trim()) fail('Model bu görüntüde okunabilir yazı bulamadı.', 422);
+    await db.prepare('INSERT INTO activity(id,description) VALUES(?,?)')
+      .bind(id(), 'Fatura görüntüsünden yazı okundu (' + sayfalar.length + ' sayfa)').run();
+    return {text: metin.trim(), pages: sayfalar.length, model: OCR_MODEL,
+      notice: 'Bu yazı bir modelin GÖRÜNTÜDEN okumasıdır; harf hatası olabilir. Her alanı belgeyle karşılaştırın.'};
+  }
 
   /* ---------------- ürün aileleri ---------------- */
   // Aile yalnızca ADAY kartları ve birim dönüşümünü hatırlar. Çeşit adetleri ASLA hatırlanmaz:

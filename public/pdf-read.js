@@ -434,7 +434,12 @@ export async function readPdf(input, {name = ''} = {}) {
   const gorunur = joined.replace(/\s/g, ''), bozuk = (gorunur.match(/[\x00-\x1f�]/g) || []).length;
   const textLayer = gorunur.length >= 40 && bozuk / gorunur.length < 0.05;
   if (!textLayer)
-    warnings.push('Bu PDF\'te okunabilir metin katmanı yok; büyük olasılıkla taranmış veya fotoğraflanmış. Bu panelde OCR (görüntüden yazı okuma) hizmeti bulunmuyor, bu yüzden satırlar okunamadı. Belgeyi ekranda görüp bilgileri elle girebilirsiniz.');
+    // SEBEBİ UYDURMA. Eskiden "büyük olasılıkla taranmış veya fotoğraflanmış" deniyordu; ölçünce
+    // (29.09.2026, KARAKUŞ faturası) dosyanın taranmış OLMADIĞI çıktı: 16.814 eğri ve 10.631 çizgi
+    // vardı, metin komutu sıfırdı — yani yazı, harf olarak değil ÇİZİM olarak gömülmüştü.
+    // Yanlış sebep kullanıcıyı yanlış çözüme (yeniden tarama) yönlendiriyordu. Artık yalnız
+    // bilinen şey söyleniyor: yazı makinenin okuyabileceği biçimde değil.
+    warnings.push('Bu PDF\'teki yazı makine tarafından okunabilir değil: dosyada harf yok, sayfa ya görüntü olarak ya da çizim olarak gömülmüş. (Deneyin: PDF\'i açıp bir yazıyı seçip kopyalamaya çalışın — kopyalanmıyorsa harf yoktur.) Bu panelde OCR (görüntüden yazı okuma) hizmeti bulunmuyor, bu yüzden satırlar okunamadı. Tedarikçinin gönderdiği özgün e-fatura PDF\'inde genelde harf bulunur; yoksa belgeyi ekranda görüp bilgileri elle girebilirsiniz.');
   return {pages, textLayer, lines: textLayer ? lines : [], pageLines: textLayer ? pageLines : [], text: textLayer ? joined : '', warnings};
 }
 

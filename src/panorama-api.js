@@ -13,6 +13,11 @@ const tutarVar = v => Number.isSafeInteger(v);
 const nakitVar = r => tutarVar(r.cash_cents);
 const ciroVar = r => tutarVar(r.revenue_gross_cents);
 const tahmini = r => !!(r.fees_estimated || r.cost_estimated || r.assumptions_source);
+// STOPAJ TAHMİNİ BELGEYLE KESİNLEŞMEZ. Diğer tahminler (kesinti geçmişten, maliyet son alıştan)
+// bir belge gelince gerçek tutara döner; stopaj dönmez, çünkü Trendyol stopajı HİÇ raporlamıyor
+// (28.09.2026'da ölçüldü: 553 teslim edilmiş TY siparişinin 553'ünde kayıt yok, HB'de 195/195 var).
+// İkisi tek cümlede toplanınca ekran her gün "belge bekleniyor" diyordu; beklenecek belge yok.
+const stopajTahminiSadece = r => !!r.withholding_estimated && !r.cost_estimated && !r.assumptions_source && !r.fees_from_history;
 const hataMetni = e => (e && e.message) || 'Bu bölüm hesaplanamadı.';
 
 // İki analytics uç noktası aynı sıkı takvim ve aralık doğrulamasını kullanır.
@@ -64,6 +69,8 @@ function ozet(rows) {
     gains: hesapli.filter(r => r.cash_cents > 0).length,
     profit_ex_vat_cents: rows.reduce((t, r) => t + (r.profit_cents ?? 0), 0),
     estimated: rows.filter(tahmini).length,
+    // Yalnız stopaj yüzünden tahmini olanlar ayrı sayılır: ekran "belge bekleniyor" demesin.
+    estimated_withholding_only: rows.filter(stopajTahminiSadece).length,
     kaba_tahmin: rows.filter(r => r.tahmin_uyari).length,
     channels: kanallar
   };

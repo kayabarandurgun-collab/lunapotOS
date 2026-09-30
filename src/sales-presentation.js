@@ -64,8 +64,10 @@ export function buildSalesPresentation(row, lines, parts, entries, {names = new 
     const ratios = [];
     for (const c of cs) {
       const es = c.sale_id ? entries.filter(e => e.id === c.sale_id || e.parent_id === c.sale_id) : [];
-      const returned = es.filter(e => e.kind === 'return' && !String(e.external_id || '').startsWith('DUZELTME-CIFT-')).reduce((n, e) => n + e.quantity_milli, 0);
-      const corrected = es.filter(e => e.kind === 'return' && String(e.external_id || '').startsWith('DUZELTME-CIFT-')).reduce((n, e) => n + e.quantity_milli, 0);
+      // DUZELTME- ile başlayan ters kayıt müşteri iadesi DEĞİLDİR (çift aktarım düzeltmesi ya da
+      // "yerine başka ürün gönderildi"): faturada iade satırı olarak görünmemeli, teknik düzeltmedir.
+      const returned = es.filter(e => e.kind === 'return' && !String(e.external_id || '').startsWith('DUZELTME-')).reduce((n, e) => n + e.quantity_milli, 0);
+      const corrected = es.filter(e => e.kind === 'return' && String(e.external_id || '').startsWith('DUZELTME-')).reduce((n, e) => n + e.quantity_milli, 0);
       item.technical_correction ||= corrected > 0;
       ratios.push({n: returned + corrected, d: c.quantity_milli});
       if (returned) item.component_returns.push({product_id: c.product_id, stock_unit: c.stock_unit, quantity_milli: returned});

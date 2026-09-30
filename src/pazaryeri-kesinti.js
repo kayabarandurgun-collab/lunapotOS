@@ -87,7 +87,10 @@ export async function pazaryeriKesintileriniIsle(env, {provider = 'hepsiburada',
       'SELECT c.sale_id, s.revenue_cents, s.commission_cents, s.shipping_cents, s.other_cents, s.fees_status,' +
       ' (SELECT COUNT(*) FROM ec_fee_allocations a WHERE a.sale_id=c.sale_id AND a.reversed_at IS NULL) faturali' +
       ' FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_sale_entries s ON s.id=c.sale_id' +
-      " WHERE l.package_id=? AND s.kind='sale' ORDER BY c.id").bind(paketId).all()).results;
+      // DÜZELTME KAYITLARI DIŞARIDA: ikame/ilave bileşenlerinin satışı ciro taşımaz ve kesintisi
+      // asıl satışta durur. İçeride kalsalardı 'confirmed' oldukları için paket "kesintisi zaten
+      // kesinleşmiş" sayılıp gerçek kesinti hiç yazılmazdı.
+      " WHERE l.package_id=? AND s.kind='sale' AND s.external_id NOT LIKE 'DUZELTME-%' ORDER BY c.id").bind(paketId).all()).results;
     if (!satislar.length) { atla(p, 'noSales', 'Pakete bagli satis kaydi yok; kesinti yazilacak yer yok.'); continue; }
     if (satislar.some(s => s.faturali)) { atla(p, 'invoiced', 'Satis faturaya baglanmis; fatura her zaman ustundur, rapor tutari yazilmaz.'); continue; }
     if (satislar.some(s => s.fees_status === 'confirmed')) { atla(p, 'alreadyConfirmed', 'Kesinti zaten kesinlesmis; uzerine yazilmaz.'); continue; }

@@ -883,12 +883,13 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
   for (const g of all) {
     // Teslim edilmemiş pakette kargo kesinleşmemiştir; deftere de yazılmaz (kâr kuralıyla aynı çizgi).
     // İade edilmiş paket de kesinleşmiştir: mal döndü, ekstre son hâlini verdi.
-    // YALNIZ GERÇEK İADE: DUZELTME-CIFT çift aktarım düzeltmesidir (Codex §3.9) — mal dönmedi, para
+    // YALNIZ GERÇEK İADE: DUZELTME- ile başlayanlar teknik ters kayıttır — DUZELTME-CIFT çift aktarım
+    // düzeltmesi (Codex §3.9), DUZELTME-IKAME ise "yerine başka ürün gönderildi" düzeltmesi. İkisinde de mal dönmedi, para
     // iade edilmedi, pazaryeri komisyonu almaya devam etti. Teknik ters kayıt sayılırsa paket teslim
     // beklemeden yazılır ve raporda komisyon yoksa SIFIR komisyon "kesinleşmiş" diye deftere geçerdi;
     // kopyanın kesintileri kâr raporunda ikize taşındığı için o sıfır doğrudan kârı şişirir. Kodun
     // geri kalanı da (IADE/DONEN, iade tahsisi, aşağıdaki iade düzeltmesi) DUZ'u iade saymaz.
-    const iadeli = g.erp_package_id ? await db.prepare("SELECT 1 FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_sale_entries r ON r.parent_id=c.sale_id WHERE l.package_id=? AND r.kind='return' AND r.external_id NOT LIKE 'DUZELTME-CIFT-%' LIMIT 1").bind(g.erp_package_id).first() : null;
+    const iadeli = g.erp_package_id ? await db.prepare("SELECT 1 FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_sale_entries r ON r.parent_id=c.sale_id WHERE l.package_id=? AND r.kind='return' AND r.external_id NOT LIKE 'DUZELTME-%' LIMIT 1").bind(g.erp_package_id).first() : null;
     if (!g.delivered && !iadeli) { skipped.push({group: g.group, reason: 'Teslim edilmedi; kargo kesinleşmeden kesinti yazılmaz.'}); continue; }
     // kaynak: tutarı olan kalem. bildirilen: ekstrede satırı OLAN kalem (tutarı 0 olsa da).
     // İkisi ayrıdır: "pazaryeri 0,00 beyan etti" gerçek sıfırdır, "satır hiç yok" bilinmeyendir.
@@ -928,7 +929,7 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
       const raporBrut = g.lines.reduce((t, l) => t + (l.gross_cents || 0), 0);
       const defter = await db.prepare("SELECT COALESCE(SUM(gross_cents),0) b," +
         "(SELECT COALESCE(SUM(s.quantity_milli),0) FROM ec_order_line_components c JOIN ec_order_lines x ON x.id=c.line_id JOIN ec_sale_entries s ON s.id=c.sale_id WHERE x.package_id=?1 AND s.kind='sale') satilan," +
-        "(SELECT COALESCE(SUM(r.quantity_milli),0) FROM ec_order_line_components c JOIN ec_order_lines x ON x.id=c.line_id JOIN ec_sale_entries r ON r.parent_id=c.sale_id WHERE x.package_id=?1 AND r.kind='return') iade " +
+        "(SELECT COALESCE(SUM(r.quantity_milli),0) FROM ec_order_line_components c JOIN ec_order_lines x ON x.id=c.line_id JOIN ec_sale_entries r ON r.parent_id=c.sale_id WHERE x.package_id=?1 AND r.kind='return' AND r.external_id NOT LIKE 'DUZELTME-%') iade " +
         'FROM ec_order_lines WHERE package_id=?1').bind(g.erp_package_id).first();
       const fark = raporBrut - defter.b;
       const kalanFark = defter.satilan > 0 && defter.iade > 0 ? Math.round(fark * Math.max(0, defter.satilan - defter.iade) / defter.satilan) : fark;
@@ -941,7 +942,8 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
       'SELECT c.sale_id,s.revenue_cents,s.commission_cents,s.shipping_cents,s.other_cents,s.fees_status,' +
       '(SELECT COUNT(*) FROM ec_fee_allocations a WHERE a.sale_id=c.sale_id AND a.reversed_at IS NULL) faturali ' +
       'FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_sale_entries s ON s.id=c.sale_id ' +
-      "WHERE l.package_id=? AND s.kind='sale' ORDER BY c.id").bind(g.erp_package_id).all()).results;
+      // Düzeltme (ikame/ilave) satışları hariç: ciro taşımazlar, kesintileri asıl satışta durur.
+      "WHERE l.package_id=? AND s.kind='sale' AND s.external_id NOT LIKE 'DUZELTME-%' ORDER BY c.id").bind(g.erp_package_id).all()).results;
     if (!rows.length) { skipped.push({group: g.group, reason: 'ERP paketinde satış kaydı yok (stok çıkışı yapılmamış).'}); continue; }
     if (rows.some(r => r.faturali)) { skipped.push({group: g.group, reason: 'Bu paketin gideri faturaya bağlanmış; fatura üstündür, dokunulmadı.'}); continue; }
     // İNDİRİM PAYI ANLAMSIZ ÇIKTIYSA (paketin kendi cirosundan büyük) HİÇBİR KESİNTİ YAZILMAZ:
@@ -993,7 +995,8 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
     const buTur = new Map(changes.filter(c => c.erp_package_id === w.erp_package_id).map(c => [c.sale_id, c.after]));
     const kopyaSatislari = (await db.prepare("SELECT s.id,s.product_id,s.commission_cents,s.shipping_cents,s.other_cents,s.fees_status FROM ec_order_lines l"
       + " JOIN ec_order_line_components c ON c.line_id=l.id JOIN ec_sale_entries s ON s.id=c.sale_id"
-      + " WHERE l.package_id=? AND s.kind='sale'").bind(w.erp_package_id).all()).results
+      // Düzeltme (ikame/ilave) satışları kaynak sayılmaz: kesintileri yoktur, ikize 0 taşınırdı.
+      + " WHERE l.package_id=? AND s.kind='sale' AND s.external_id NOT LIKE 'DUZELTME-%'").bind(w.erp_package_id).all()).results
       .map(k => { const t = buTur.get(k.id);
         return t ? {product_id: k.product_id, commission_cents: t.commission, shipping_cents: t.shipping, other_cents: t.other}
           : k.fees_status === 'confirmed' ? k : null; })
@@ -1059,9 +1062,10 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
 }
 
 /* ---------------- iade tahsisi ---------------- */
-// DUZELTME-CIFT teknik ters kaydıdır (eski çift aktarımın kopyası sıfırlandı): mal dönmedi, para iade
+// DUZELTME- ile başlayanlar teknik ters kayıttır: DUZELTME-CIFT (eski çift aktarımın kopyası sıfırlandı)
+// ve DUZELTME-IKAME (siparişteki ürün yerine başkası gönderildi). İkisinde de mal dönmedi, para iade
 // edilmedi. Müşteri iadesi sayılmaz, iade olayının tutarını tüketmez, gerçek iadeyi engellemez.
-const teknikIade = r => String(r.external_id || '').startsWith('DUZELTME-CIFT-');
+const teknikIade = r => String(r.external_id || '').startsWith('DUZELTME-');
 // Teslim edilemeyip dönen paketin iadesi para iadesi değildir: olayın tutarını tüketmez.
 const teslimEdilemediIadesi = r => /^(TESLIM-EDILEMEDI-|IADE-T-)/.test(String(r.external_id || '')) || /^Paket .+ teslim edilemedi;/.test(String(r.notes || ''));
 const IADE_TOLERANS = 200;

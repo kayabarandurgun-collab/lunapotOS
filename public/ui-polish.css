@@ -197,6 +197,13 @@ td strong,.recipe-card h2,.studio-material strong,.history-links li{overflow-wra
 .rb-degisti{border-left:3px solid currentColor;padding-left:.5rem;background:color-mix(in srgb,currentColor 7%,transparent)}
 .rb-degisti dt{font-weight:600}
 .order-sold{margin:14px 0}.order-sold-item{padding:14px 0;border-bottom:1px solid var(--line,#e8e5ef)}.order-sold-item:last-child{border-bottom:0}.order-sold-main{display:flex;justify-content:space-between;gap:12px;align-items:baseline}.order-sold-main strong{font-size:16px;line-height:1.4;overflow-wrap:anywhere}.order-sold-qty{font-weight:700;white-space:nowrap;font-size:16px}.order-sold-money{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:6px;font-size:13px}.order-sold-stock,.order-stock-plain{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:8px}.order-sold-stock li,.order-stock-plain li{display:grid;grid-template-columns:minmax(0,2fr) auto auto;gap:6px 16px;align-items:center;padding:10px 12px;border-radius:10px;background:var(--brand-soft,#f4f1fb);font-size:13px}.order-stock-plain li{grid-template-columns:minmax(0,2fr) repeat(3,auto)}.order-sold-stock small,.order-stock-plain small{display:block;color:var(--muted,#656170)}@media(max-width:600px){.order-sold-stock li,.order-stock-plain li{grid-template-columns:1fr}}
+/* Tek seferlik düzeltme (ikame / parasız ilave): iade rozetinden ayrı okunsun diye kendi rengi var. */
+.ol-duz-rozet{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:999px;background:var(--warn-soft,#fff3e0);color:var(--warn-ink,#7a4a00);font-weight:600}
+.ol-duz-islem{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:12px 0 0}
+.ol-duz-islem small{flex:1 1 220px;margin:0}
+.ol-duz-satir{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto;gap:8px 12px;align-items:end;margin-bottom:10px}
+.ol-duz-satir label{margin:0}
+@media(max-width:600px){.ol-duz-satir{grid-template-columns:1fr}}
 /* Daha sade yazı: tablo, özet satırı ve rozetlerde kalınlık bir kademe hafif. */
 main td strong,main dd,.v2-summary-line strong,.product-tile dd{font-weight:560}
 main .text-button{font-weight:var(--kalinlik-dugme)}

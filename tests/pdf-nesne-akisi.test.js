@@ -61,5 +61,5 @@ test('Kod→harf tablosu bulunamazsa anlamsız kodlar "metin" sayılmaz; satır 
   const r = await readPdf(bozuk);
   assert.equal(r.textLayer, false);
   assert.deepEqual(r.lines, []);
-  assert.ok(r.warnings.some(w => /metin katmanı yok/.test(w)));
+  assert.ok(r.warnings.some(w => /okunabilir değil/.test(w)));
 });
