@@ -8,6 +8,7 @@ import {prepareWorkflow} from './product-list.js';
 //  · Taslak kaydı borç ve stok yazmaz: borç muhasebeleştirmede, stok mal tesliminde oluşur.
 //  · Çeşit adetleri hiçbir zaman hatırlanmaz; her belgede yeniden girilir ve onaylanır.
 import {readPdf, guessHeader, guessLines, guessTotals, splitInvoices, sha256Hex, PDF_LIMITS} from './pdf-read.js';
+import {ocrIleOku} from './pdf-ocr.js';
 import {parseInvoiceXML} from './invoice-import.js';
 import {matchFromHistory, codeOf} from './purchase-match.js';
 
@@ -443,12 +444,34 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     const own = await loadOwn();
 
     if (kind === 'pdf') {
-      const pdf = await readPdf(bytes, {name: file.name});
+      let pdf = await readPdf(bytes, {name: file.name});
       state.extracted = pdf; pageCount = pdf.pages; textLayer = pdf.textLayer ? 1 : 0;
       state.warnings.push(...pdf.warnings);
+      // HARF YOKSA GÖRÜNTÜDEN OKU. Sayfa çizimden/görüntüden resme çevrilip modele verilir.
+      // text_layer 0 KALIR: belgede gerçekten harf yoktu, bunu 1 yazmak kaydı yalan söyletirdi.
+      // Okuma başarısız olursa akış BOZULMAZ; kullanıcı belgeyi ekranda görüp elle girer.
+      let ocr = null;
+      if (!pdf.textLayer) {
+        state.warnings.push('Belgede harf bulunamadı; sayfa görüntüsünden okunuyor…');
+        ocr = await ocrIleOku(bytes, api);
+        if (ocr.hata) {
+          state.warnings.push('Görüntüden okuma denendi, olmadı: ' + ocr.hata + ' Bilgileri elle girebilirsin; belge yanında duruyor.');
+        } else {
+          pdf = {...pdf, lines: ocr.lines, text: ocr.lines.join('\n'), ocr: true};
+          state.extracted = pdf;
+          state.warnings.push((ocr.notice ? ocr.notice + ' ' : '') + 'Aşağıdaki alanların HEPSİ sayfa görüntüsünden okundu; hiçbiri kesin değildir, tek tek belgeyle karşılaştır.');
+        }
+      }
       header = guessHeader(pdf.lines, own);
       totals = guessTotals(pdf.lines);
       lines = guessLines(pdf.lines).map(l => ({...l, line_type: 'product', expense_category: 'other', source: l.description}));
+      // GÖRÜNTÜDEN OKUNAN KİMLİK ALANLARININ HEPSİ ŞÜPHELİDİR: harf hatası (0/O, 1/l, 5/S)
+      // fatura numarasını ya da VKN'yi sessizce bozabilir. Hepsi "kontrol et" işaretlenir.
+      if (ocr && !ocr.hata) {
+        header.uncertain = [...new Set([...(header.uncertain || []),
+          'invoice_no', 'invoice_date', 'uuid', 'supplier_tax_id', 'supplier_name', 'receiver_tax_id'])];
+        for (const l of lines) l.uncertain = [...new Set([...(l.uncertain || []), 'description', 'invoice_quantity', 'net', 'tax'])];
+      }
       if (pdf.textLayer && !lines.length)
         state.warnings.push('Belgenin yazıları okundu ama satır düzeni tanınamadı. Satırları elle girebilirsin; belge yanında duruyor.');
     } else {

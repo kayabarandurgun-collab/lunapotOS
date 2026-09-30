@@ -14,6 +14,7 @@
   "devDependencies": {
     "@pdf-lib/fontkit": "^1.1.1",
     "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.3.289",
     "wrangler": "^4.0.0"
   }
 }
