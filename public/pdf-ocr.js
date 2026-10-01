@@ -36,7 +36,11 @@ function canvasBase64(canvas, kalite) {
 export async function sayfalariResmeCevir(bytes, {sayfaSiniri = SAYFA_SINIRI, ilerleme} = {}) {
   const pdfjs = await pdfjsYukle();
   // Kopya veriliyor: pdf.js gelen tamponu devralıp boşaltıyor, aynı baytlar sonra da lazım.
-  const belge = await pdfjs.getDocument({data: bytes.slice(), isEvalSupported: false}).promise;
+  // DESTROY YÜKLEME GÖREVİNDEDİR, belgede değil (PDFDocumentLoadingTask.destroy). Belgede
+  // yalnız cleanup() var. İlk sürümde belge.destroy() çağrılmıştı: sayfalar sorunsuz
+  // çevriliyor, sonra temizlikte patlıyor ve sonuç çöpe gidiyordu (canlıda 30.09.2026'da görüldü).
+  const gorev = pdfjs.getDocument({data: bytes.slice(), isEvalSupported: false});
+  const belge = await gorev.promise;
   const sayfalar = [];
   try {
     const adet = Math.min(belge.numPages, sayfaSiniri);
@@ -53,12 +57,17 @@ export async function sayfalariResmeCevir(bytes, {sayfaSiniri = SAYFA_SINIRI, il
       // ZEMİN BEYAZ: saydam zemin JPEG'e çevrilince siyah olur ve yazı okunmaz hâle gelir.
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      await sayfa.render({canvasContext: ctx, viewport}).promise;
+      // pdf.js 6'da birincil parametre `canvas`; `canvasContext` tek başına da çalışıyor ama
+      // türetmeye bırakmıyoruz, ikisi de açıkça veriliyor.
+      await sayfa.render({canvas, canvasContext: ctx, viewport}).promise;
       sayfalar.push(await canvasBase64(canvas, JPEG_KALITE));
       canvas.width = canvas.height = 0;   // bellek hemen bırakılsın
-      sayfa.cleanup();
+      try { sayfa.cleanup(); } catch { /* temizlik sonucu etkilemez */ }
     }
-  } finally { await belge.destroy().catch(() => {}); }
+  } finally {
+    // TEMİZLİK SONUCU ASLA DÜŞÜRMEZ: buradaki bir hata, başarıyla çevrilmiş sayfaları çöpe atardı.
+    try { await gorev.destroy(); } catch { /* yok sayılır */ }
+  }
   return sayfalar;
 }
 

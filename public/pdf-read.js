@@ -439,7 +439,10 @@ export async function readPdf(input, {name = ''} = {}) {
     // vardı, metin komutu sıfırdı — yani yazı, harf olarak değil ÇİZİM olarak gömülmüştü.
     // Yanlış sebep kullanıcıyı yanlış çözüme (yeniden tarama) yönlendiriyordu. Artık yalnız
     // bilinen şey söyleniyor: yazı makinenin okuyabileceği biçimde değil.
-    warnings.push('Bu PDF\'teki yazı makine tarafından okunabilir değil: dosyada harf yok, sayfa ya görüntü olarak ya da çizim olarak gömülmüş. (Deneyin: PDF\'i açıp bir yazıyı seçip kopyalamaya çalışın — kopyalanmıyorsa harf yoktur.) Bu panelde OCR (görüntüden yazı okuma) hizmeti bulunmuyor, bu yüzden satırlar okunamadı. Tedarikçinin gönderdiği özgün e-fatura PDF\'inde genelde harf bulunur; yoksa belgeyi ekranda görüp bilgileri elle girebilirsiniz.');
+    // SONRAKİ ADIMI BURASI SÖYLEMEZ: alış faturası ekranı bu durumda görüntüden okumayı (OCR)
+    // deniyor, satış belgesi ekranı denemiyor. Burada yalnız DOSYANIN DURUMU bildirilir;
+    // ne yapılacağını çağıran ekran kendi diliyle ekler.
+    warnings.push('Bu PDF\'teki yazı makine tarafından okunabilir değil: dosyada harf yok, sayfa ya görüntü olarak ya da çizim olarak gömülmüş. (Deneyin: PDF\'i açıp bir yazıyı seçip kopyalamaya çalışın — kopyalanmıyorsa harf yoktur.) Tedarikçinin gönderdiği özgün e-fatura PDF\'inde genelde harf bulunur.');
   return {pages, textLayer, lines: textLayer ? lines : [], pageLines: textLayer ? pageLines : [], text: textLayer ? joined : '', warnings};
 }
 

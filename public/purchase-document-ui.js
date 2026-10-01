@@ -85,7 +85,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
         <label class="secondary pd-file">UBL XML yükle<input type="file" accept=".xml,application/xml,text/xml" data-pd="xml" multiple></label>
         <button class="secondary" type="button" data-pd="manual">Elle fatura gir</button>
       </div>
-      <p class="pd-alert info">Taranmış (fotoğraf) faturada yazıları okuyan bir hizmet bu panelde yok. Öyle bir belgeyi de yükleyebilirsin: belge saklanır, ekranda görürsün ve satırları elle girersin.</p>
+      <p class="pd-alert info">Harf taşımayan faturada (taranmış, fotoğraflanmış ya da yazısı çizim olarak gömülmüş) sayfa görüntüsünden okunur. Görüntüden okunan her alan <strong>kontrol et</strong> işaretiyle gelir ve sen onaylamadan hiçbir tutar kaydedilmez; okunamazsa belge yine saklanır, ekranda görür ve elle girersin.</p>
     </section>`;
   }
 
