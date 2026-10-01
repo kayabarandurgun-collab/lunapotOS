@@ -30,6 +30,7 @@ function fixture(ai) {
   };
   const env = {DB: scopedDB(DB, 'ec'), ROOT_DB: DB, WORKSPACE: 'ec'};
   if (ai) env.AI = ai;
+  env.OCR_TIMEOUT_MS = 300;   // testte askida kalmayi 300 ms'de olcuyoruz
   const ocr = body => purchaseDocumentApi(
     new Request('https://test.local/api/invoices/documents/ocr', {method: 'POST'}),
     env, '/api/invoices/documents/ocr', async () => body);
@@ -68,23 +69,37 @@ test('OCR ucu: model bos ya da anlamsiz donerse METIN UYDURULMAZ', async () => {
 });
 
 test('OCR ucu: sayfalar modele goruntu olarak gider, yalniz duz metin doner ve alan tahmini YAPILMAZ', async () => {
-  let gonderilen = null;
-  const f = fixture({run: async (model, girdi) => { gonderilen = {model, girdi}; return {response: 'AGROMART\nFatura No: ABC123\nTOPLAM 1.234,56'}; }});
+  const cagrilar = [];
+  const f = fixture({run: async (model, girdi) => { cagrilar.push({model, girdi}); return {description: 'AGROMART\nFatura No: ABC123\nTOPLAM 1.234,56'}; }});
   try {
     const r = await f.ocr({images: [img(), img()]});
     assert.equal(r.pages, 2);
     assert.match(r.text, /Fatura No: ABC123/);
-    assert.equal(r.model, '@cf/google/gemma-4-26b-a4b-it');
+    assert.equal(r.model, '@cf/moondream/moondream3.1-9B-A2B');
     assert.match(r.notice, /harf hatası olabilir/);
     // UC ALAN TAHMINI YAPMAZ: fatura no / tarih / VKN cikarimi istemcide yapilir ve
     // ekranda "kontrol et" isaretiyle gelir. Sunucu tahmin donerse bu sessizce deftere girerdi.
     for (const alan of ['invoice_no', 'invoice_date', 'tax_id', 'lines', 'total_cents'])
       assert.equal(alan in r, false, alan + ' ucta tahmin edilmemeli');
 
-    const icerik = gonderilen.girdi.messages[0].content;
-    assert.equal(icerik.filter(c => c.type === 'image_url').length, 2, 'iki sayfa da modele gitti');
-    assert.ok(icerik[0].text.includes('HİÇBİR ŞEY UYDURMA'), 'uydurma yasagi prompt\'ta');
-    assert.ok(icerik[1].image_url.url.startsWith('data:image/jpeg;base64,'));
-    assert.equal(gonderilen.girdi.temperature, 0, 'okuma isinde rastgelelik olmamali');
+    // Moondream TEK goruntu okur: iki sayfa = iki cagri, metinler birlestirilir.
+    assert.equal(cagrilar.length, 2, 'her sayfa icin ayri cagri');
+    for (const c of cagrilar) {
+      assert.ok(c.girdi.image.startsWith('data:image/jpeg;base64,'), 'goruntu base64 data URI olarak gider');
+      assert.ok(c.girdi.question.includes('HİÇBİR ŞEY UYDURMA'), 'uydurma yasagi soruda');
+      assert.equal(c.girdi.temperature, 0, 'okuma isinde rastgelelik olmamali');
+      assert.equal(c.girdi.task, 'query');
+    }
+  } finally { f.close(); }
+});
+
+test('OCR ucu: model askida kalirsa istek sonsuza kadar beklemez', async () => {
+  // Canlida (30.09.2026) yanlis girdi semasiyla cagrilan model dakikalarca cevap vermedi ve
+  // kullanici "Isleniyor..." ekraninda kilitli kaldi. Artik sure dolunca acik hata doner.
+  const f = fixture({run: () => new Promise(() => {})});   // hic cozulmeyen soz
+  try {
+    const basla = Date.now();
+    await assert.rejects(f.ocr({images: [img()]}), /yanıt vermedi|okunamadı/);
+    assert.ok(Date.now() - basla < 5000, 'zaman asimi devrede');
   } finally { f.close(); }
 });

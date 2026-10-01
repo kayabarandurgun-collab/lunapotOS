@@ -32,7 +32,15 @@ const MAX_DOC_BYTES = 20 * 1024 * 1024;
 // karakterdir ve base64 ham baytı 4/3 büyütür, bu yüzden sayfa başına 600 KB çözülmüş bayt
 // (~800 KB base64) tavan. Model çağrısı ücretlidir; kaçak büyüme olmasın.
 const MAX_OCR_PAGES = 8, MAX_OCR_PAGE_BYTES = 600 * 1024, MAX_OCR_TOTAL_BYTES = 1200 * 1024;
-const OCR_MODEL = '@cf/google/gemma-4-26b-a4b-it';
+// MODEL SEÇİMİ ÖLÇÜLEREK YAPILDI (30.09.2026). Önce @cf/google/gemma-4-26b-a4b-it denendi:
+// hesapta VAR ama Workers AI'da türü "Text Generation" ve OpenAI biçimli messages/image_url
+// girdisiyle çağrıldığında canlıda DAKİKALARCA cevap vermeden askıda kaldı.
+// Moondream 3.1 türü "Image-to-Text"tir ve belgelenmiş girdisi nettir: image = base64 data URI,
+// question = sorulacak soru. OCR ve yapılandırılmış çıktı için tasarlanmış model budur.
+const OCR_MODEL = '@cf/moondream/moondream3.1-9B-A2B';
+// MODEL ASLA SONSUZA KADAR BEKLETMEZ: askıda kalan çağrı kullanıcıyı "İşleniyor…" ekranında
+// kilitliyordu. Süre dolarsa açık hata döner, kullanıcı elle girmeye geçer.
+const OCR_TIMEOUT_MS = 50000;
 // PROMPT'UN TEK İŞİ: GÖRÜNENİ YAZMAK. Yorum, tamamlama ve düzeltme istenmez; okunamayan yer
 // açıkça boş bırakılır. Model "makul" bir fatura numarası uydurursa o numara deftere girerdi.
 const OCR_PROMPT = [
@@ -84,17 +92,25 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
       if (toplam > MAX_OCR_TOTAL_BYTES) fail('Gönderilen sayfaların toplam boyutu sınırı aşıyor.');
       return s;
     });
-    let cevap;
-    try {
-      cevap = await env.AI.run(OCR_MODEL, {
-        messages: [{role: 'user', content: [{type: 'text', text: OCR_PROMPT},
-          ...sayfalar.map(s => ({type: 'image_url', image_url: {url: 'data:image/jpeg;base64,' + s}}))]}],
-        max_completion_tokens: 4000, temperature: 0
-      });
-    } catch (e) { fail('Görüntü okunamadı: ' + (e.message || 'model yanıt vermedi') + '.', 502); }
-    // Yanıt biçimi modele göre değişebiliyor; ikisi de denenir, hiçbiri yoksa UYDURULMAZ.
-    const metin = typeof cevap === 'string' ? cevap
-      : cevap?.response ?? cevap?.choices?.[0]?.message?.content ?? '';
+    // Moondream TEK GÖRÜNTÜ okur; istemci zaten sayfaları tek tek yolluyor. Birden çok gelirse
+    // hepsi sırayla okunur ve metinleri birleştirilir.
+    const parcalar = [];
+    for (const s of sayfalar) {
+      let cevap;
+      try {
+        cevap = await Promise.race([
+          env.AI.run(OCR_MODEL, {image: 'data:image/jpeg;base64,' + s, task: 'query',
+            question: OCR_PROMPT, max_tokens: 4096, temperature: 0, stream: false}),
+          new Promise((_, red) => { const sure = Number(env.OCR_TIMEOUT_MS) || OCR_TIMEOUT_MS;
+            setTimeout(() => red(new Error('model ' + Math.round(sure / 1000) + ' saniyede yanıt vermedi')), sure); })
+        ]);
+      } catch (e) { fail('Görüntü okunamadı: ' + (e.message || 'model yanıt vermedi') + '.', 502); }
+      // Yanıt alanı modele göre değişiyor; sırayla denenir, hiçbiri yoksa UYDURULMAZ.
+      const p = typeof cevap === 'string' ? cevap
+        : cevap?.description ?? cevap?.answer ?? cevap?.response ?? cevap?.text ?? cevap?.choices?.[0]?.message?.content ?? '';
+      if (typeof p === 'string' && p.trim()) parcalar.push(p.trim());
+    }
+    const metin = parcalar.join('\n');
     if (typeof metin !== 'string' || !metin.trim()) fail('Model bu görüntüde okunabilir yazı bulamadı.', 422);
     await db.prepare('INSERT INTO activity(id,description) VALUES(?,?)')
       .bind(id(), 'Fatura görüntüsünden yazı okundu (' + sayfalar.length + ' sayfa)').run();
