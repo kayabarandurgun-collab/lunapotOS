@@ -48,8 +48,12 @@ test('OCR ucu: model kapaliysa, sayfa yoksa ve sinirlar asilirsa yazi okunmaz', 
     await assert.rejects(f.ocr({}), /gönderilmedi/);
     await assert.rejects(f.ocr({images: []}), /gönderilmedi/);
     await assert.rejects(f.ocr({images: Array(9).fill(img())}), /en fazla 8 sayfa/);
-    await assert.rejects(f.ocr({images: [img(5 * 1024)]}), /çok büyük/);
-    await assert.rejects(f.ocr({images: Array(4).fill(img(3.5 * 1024))}), /toplam boyutu/);
+    // Sayfa basina 600 KB cozulmus bayt tavan: sunucunun govde siniri 1.000.000 karakter ve
+    // base64 4/3 buyutuyor. Istemci sigmazsa goruntuyu kademeli kucultur.
+    await assert.rejects(f.ocr({images: [img(700)]}), /çok büyük/);
+    await assert.rejects(f.ocr({images: Array(3).fill(img(500))}), /toplam boyutu/);
+    // Sinirin altindaki sayfa gecer.
+    assert.ok((await f.ocr({images: [img(500)]})).text);
     await assert.rejects(f.ocr({images: ['bu base64 degil!!']}), /geçersiz/);
   } finally { f.close(); }
 });

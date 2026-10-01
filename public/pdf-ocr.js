@@ -4,13 +4,19 @@
 // tedarikçi faturasında ölçüldü — 16.814 bezier eğrisi, 10.631 çizgi, metin komutu SIFIR: yazı
 // harf olarak değil ÇİZİM olarak gömülmüştü. Taranmış/fotoğraflanmış belgede de durum aynıdır.
 // Gömülü görüntüleri çıkarmak YETMEZ (o dosyada çıkanlar yalnız logolardı); sayfanın kendisi
-// çizimden resme çevrilmeli. pdf.js bunu tarayıcıda yapar.
+// resme çevrilmeli. pdf.js bunu tarayıcıda yapar.
 //
-// SINIR: buradan çıkan her şey ADAYDIR. Okunan metin doğrudan guessHeader/guessLines'a verilir ve
-// bütün kimlik alanları "kontrol et" işaretlenir; kullanıcı onaylamadan hiçbir tutar kaydedilmez.
-const SAYFA_SINIRI = 8;      // sunucudaki MAX_OCR_PAGES ile aynı olmalı
-const EN_UZUN_KENAR = 2000;  // OCR için yeterli çözünürlük; daha büyüğü boyut sınırını zorlar
-const JPEG_KALITE = 0.85;
+// SAYFALAR TEK TEK GÖNDERİLİR: sunucunun gövde sınırı 1.000.000 karakterdir (worker.js bodyLimit).
+// Hepsini tek istekte yollamak canlıda "İstek çok büyük" hatası verdi (30.09.2026).
+//
+// SINIR: buradan çıkan her şey ADAYDIR. Okunan metin guessHeader/guessLines'a verilir ve bütün
+// kimlik alanları "kontrol et" işaretlenir; kullanıcı onaylamadan hiçbir tutar kaydedilmez.
+const SAYFA_SINIRI = 8;
+// Sunucu sayfa başına 600 KB ÇÖZÜLMÜŞ bayt kabul ediyor; base64 4/3 büyüttüğü için tavan budur.
+// Pay bırakılıyor: JSON sarmalı ve çok baytlı karakter payı.
+const BASE64_TAVAN = 780 * 1024;
+// Sığmazsa sırayla küçültülür. Okunabilirlik önce gelir; en küçük kademe son çaredir.
+const KADEMELER = [{kenar: 1700, kalite: 0.72}, {kenar: 1300, kalite: 0.62}, {kenar: 1000, kalite: 0.52}];
 
 let pdfjsSoz = null;
 // Kütüphane ancak GEREKTİĞİNDE yüklenir: harf taşıyan normal faturada 1,7 MB indirilmez.
@@ -32,58 +38,76 @@ function canvasBase64(canvas, kalite) {
   }, 'image/jpeg', kalite));
 }
 
-/** PDF sayfalarını JPEG'e çevirir; base64 dizisi döndürür (data: öneki YOK, sunucu öyle bekliyor). */
-export async function sayfalariResmeCevir(bytes, {sayfaSiniri = SAYFA_SINIRI, ilerleme} = {}) {
-  const pdfjs = await pdfjsYukle();
-  // Kopya veriliyor: pdf.js gelen tamponu devralıp boşaltıyor, aynı baytlar sonra da lazım.
-  // DESTROY YÜKLEME GÖREVİNDEDİR, belgede değil (PDFDocumentLoadingTask.destroy). Belgede
-  // yalnız cleanup() var. İlk sürümde belge.destroy() çağrılmıştı: sayfalar sorunsuz
-  // çevriliyor, sonra temizlikte patlıyor ve sonuç çöpe gidiyordu (canlıda 30.09.2026'da görüldü).
-  const gorev = pdfjs.getDocument({data: bytes.slice(), isEvalSupported: false});
-  const belge = await gorev.promise;
-  const sayfalar = [];
-  try {
-    const adet = Math.min(belge.numPages, sayfaSiniri);
-    for (let i = 1; i <= adet; i++) {
-      if (ilerleme) ilerleme(i, adet);
-      const sayfa = await belge.getPage(i);
-      const ilk = sayfa.getViewport({scale: 1});
-      const olcek = Math.max(0.5, Math.min(EN_UZUN_KENAR / Math.max(ilk.width, ilk.height), 3));
-      const viewport = sayfa.getViewport({scale: olcek});
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.ceil(viewport.width);
-      canvas.height = Math.ceil(viewport.height);
-      const ctx = canvas.getContext('2d');
-      // ZEMİN BEYAZ: saydam zemin JPEG'e çevrilince siyah olur ve yazı okunmaz hâle gelir.
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      // pdf.js 6'da birincil parametre `canvas`; `canvasContext` tek başına da çalışıyor ama
-      // türetmeye bırakmıyoruz, ikisi de açıkça veriliyor.
-      await sayfa.render({canvas, canvasContext: ctx, viewport}).promise;
-      sayfalar.push(await canvasBase64(canvas, JPEG_KALITE));
-      canvas.width = canvas.height = 0;   // bellek hemen bırakılsın
-      try { sayfa.cleanup(); } catch { /* temizlik sonucu etkilemez */ }
-    }
-  } finally {
-    // TEMİZLİK SONUCU ASLA DÜŞÜRMEZ: buradaki bir hata, başarıyla çevrilmiş sayfaları çöpe atardı.
-    try { await gorev.destroy(); } catch { /* yok sayılır */ }
+async function kademeyleCiz(sayfa, kenar, kalite) {
+  const ilk = sayfa.getViewport({scale: 1});
+  const olcek = Math.max(0.3, Math.min(kenar / Math.max(ilk.width, ilk.height), 3));
+  const viewport = sayfa.getViewport({scale: olcek});
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(viewport.width);
+  canvas.height = Math.ceil(viewport.height);
+  const ctx = canvas.getContext('2d');
+  // ZEMİN BEYAZ: saydam zemin JPEG'e çevrilince siyah olur ve yazı okunmaz hâle gelir.
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // pdf.js 6'da birincil parametre `canvas`; ikisi de açıkça veriliyor.
+  await sayfa.render({canvas, canvasContext: ctx, viewport}).promise;
+  const b64 = await canvasBase64(canvas, kalite);
+  canvas.width = canvas.height = 0;   // bellek hemen bırakılsın
+  return b64;
+}
+
+/** Tek sayfayı sunucunun kabul edeceği boyuta sığacak şekilde resme çevirir; sığmazsa null. */
+async function sayfayiSigdir(sayfa) {
+  let son = null;
+  for (const k of KADEMELER) {
+    son = await kademeyleCiz(sayfa, k.kenar, k.kalite);
+    if (son.length <= BASE64_TAVAN) return son;
   }
-  return sayfalar;
+  return null;
 }
 
 /**
- * Harf taşımayan PDF'i görüntüden okur. Başarısızlıkta null döner ve ÇAĞIRAN AKIŞ BOZULMAZ:
- * kullanıcı belgeyi ekranda görüp elle girmeye devam edebilir.
+ * Harf taşımayan PDF'i görüntüden okur. Sayfalar TEK TEK gönderilir ve okunan metinler birleştirilir.
+ * Başarısızlıkta {hata} döner; ÇAĞIRAN AKIŞ BOZULMAZ, kullanıcı belgeyi görüp elle girer.
  */
 export async function ocrIleOku(bytes, api, {ilerleme} = {}) {
-  let sayfalar;
-  try { sayfalar = await sayfalariResmeCevir(bytes, {ilerleme}); }
-  catch (e) { return {hata: 'Sayfa görüntüye çevrilemedi: ' + (e.message || 'bilinmeyen hata')}; }
-  if (!sayfalar.length) return {hata: 'PDF sayfası bulunamadı.'};
-  let sonuc;
-  try { sonuc = await api('/invoices/documents/ocr', {images: sayfalar}); }
-  catch (e) { return {hata: e.message || 'Görüntüden yazı okunamadı.'}; }
-  const lines = String(sonuc.text || '').split('\n').map(s => s.trim()).filter(Boolean);
-  if (!lines.length) return {hata: 'Görüntüde okunabilir yazı bulunamadı.'};
-  return {lines, pages: sonuc.pages, notice: sonuc.notice};
+  let pdfjs, gorev, belge;
+  try {
+    pdfjs = await pdfjsYukle();
+    // Kopya veriliyor: pdf.js gelen tamponu devralıp boşaltıyor, aynı baytlar sonra da lazım.
+    // DESTROY YÜKLEME GÖREVİNDEDİR, belgede değil; belgede yalnız cleanup() var.
+    gorev = pdfjs.getDocument({data: bytes.slice(), isEvalSupported: false});
+    belge = await gorev.promise;
+  } catch (e) { return {hata: 'PDF açılamadı: ' + (e.message || 'bilinmeyen hata') + '.'}; }
+
+  const parcalar = [], atlanan = [];
+  let sayfaSayisi = 0;
+  try {
+    const adet = Math.min(belge.numPages, SAYFA_SINIRI);
+    for (let i = 1; i <= adet; i++) {
+      if (ilerleme) ilerleme(i, adet);
+      let b64;
+      try {
+        const sayfa = await belge.getPage(i);
+        b64 = await sayfayiSigdir(sayfa);
+        try { sayfa.cleanup(); } catch { /* temizlik sonucu etkilemez */ }
+      } catch (e) { atlanan.push(i + '. sayfa çevrilemedi'); continue; }
+      if (!b64) { atlanan.push(i + '. sayfa küçültülse de boyut sınırına sığmadı'); continue; }
+      // HER SAYFA KENDİ İSTEĞİNDE: hepsi bir arada gövde sınırını aşıyordu.
+      try {
+        const sonuc = await api('/invoices/documents/ocr', {images: [b64]});
+        const metin = String(sonuc.text || '').trim();
+        if (metin) { parcalar.push(metin); sayfaSayisi++; }
+      } catch (e) { atlanan.push(i + '. sayfa okunamadı (' + (e.message || 'model yanıt vermedi') + ')'); }
+    }
+  } finally {
+    // TEMİZLİK SONUCU ASLA DÜŞÜRMEZ: buradaki bir hata, okunmuş sayfaları çöpe atardı.
+    try { await gorev.destroy(); } catch { /* yok sayılır */ }
+  }
+
+  const lines = parcalar.join('\n').split('\n').map(s => s.trim()).filter(Boolean);
+  if (!lines.length) return {hata: (atlanan[0] || 'Görüntüde okunabilir yazı bulunamadı') + '.'};
+  return {lines, pages: sayfaSayisi,
+    notice: 'Bu yazı bir modelin GÖRÜNTÜDEN okumasıdır; harf hatası olabilir. Her alanı belgeyle karşılaştırın.'
+      + (atlanan.length ? ' Atlanan: ' + atlanan.join('; ') + '.' : '')};
 }

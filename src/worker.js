@@ -56,7 +56,10 @@ const now=()=>Math.floor(Date.now()/1000);
 const json=(data,status=200,headers={})=>Response.json(data,{status,headers:{'Cache-Control':'no-store',...headers}});
 const activity=(db,description)=>db.prepare('INSERT INTO activity(id,description) VALUES(?,?)').bind(crypto.randomUUID(),description);
 // Rapor Kutusu dosya parçası ve satır partileri daha büyük olabilir; sınır yalnızca bu iki uçta yükselir.
-const bodyLimit=request=>/^\/api\/ec\/reports\/files\/[\w-]{1,100}\/(chunk|rows)$/.test(new URL(request.url).pathname)||/^\/api\/(ec|lp)\/invoices\/documents\/[\w-]{1,100}\/chunk$/.test(new URL(request.url).pathname)||/^\/api\/ec\/sales\/documents\/[\w-]{1,100}\/chunk$/.test(new URL(request.url).pathname)?1000000:64000;
+const bodyLimit=request=>/^\/api\/ec\/reports\/files\/[\w-]{1,100}\/(chunk|rows)$/.test(new URL(request.url).pathname)||/^\/api\/(ec|lp)\/invoices\/documents\/[\w-]{1,100}\/chunk$/.test(new URL(request.url).pathname)||/^\/api\/ec\/sales\/documents\/[\w-]{1,100}\/chunk$/.test(new URL(request.url).pathname)
+ // OCR: gövde bir SAYFA GÖRÜNTÜSÜDÜR, 64 KB'a sığmaz. İstemci sayfaları tek tek yollar ve
+ // görüntü bu sınıra sığmazsa kendiliğinden küçültür; sınır parça uçlarıyla aynı tutulur.
+ ||/^\/api\/(ec|lp)\/invoices\/documents\/ocr$/.test(new URL(request.url).pathname)?1000000:64000;
 // Gövde SINIRA KADAR okunur: Content-Length yoksa (parçalı gövde) eskiden tamamı belleğe alınıp sonra
 // bakılıyordu; giriş ucu kimlik istemeden çağrılabildiği için bu bir bellek baskısı yoluydu.
 async function body(request){const limit=bodyLimit(request);

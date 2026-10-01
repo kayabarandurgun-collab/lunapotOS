@@ -28,8 +28,10 @@ const parse = (s, fallback) => { try { return JSON.parse(s); } catch { return fa
 
 export const DOC_CHUNK_B64_MAX = 700000;              // ~512 KB ham parça
 const MAX_DOC_BYTES = 20 * 1024 * 1024;
-// OCR sınırları: sayfa başına ve toplamda. Model çağrısı ücretlidir; kaçak büyüme olmasın.
-const MAX_OCR_PAGES = 8, MAX_OCR_PAGE_BYTES = 4 * 1024 * 1024, MAX_OCR_TOTAL_BYTES = 12 * 1024 * 1024;
+// OCR sınırları. İstemci sayfaları TEK TEK yollar: gövde sınırı (worker.js bodyLimit) 1.000.000
+// karakterdir ve base64 ham baytı 4/3 büyütür, bu yüzden sayfa başına 600 KB çözülmüş bayt
+// (~800 KB base64) tavan. Model çağrısı ücretlidir; kaçak büyüme olmasın.
+const MAX_OCR_PAGES = 8, MAX_OCR_PAGE_BYTES = 600 * 1024, MAX_OCR_TOTAL_BYTES = 1200 * 1024;
 const OCR_MODEL = '@cf/google/gemma-4-26b-a4b-it';
 // PROMPT'UN TEK İŞİ: GÖRÜNENİ YAZMAK. Yorum, tamamlama ve düzeltme istenmez; okunamayan yer
 // açıkça boş bırakılır. Model "makul" bir fatura numarası uydurursa o numara deftere girerdi.
