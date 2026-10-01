@@ -59,11 +59,27 @@ test('OCR ucu: model kapaliysa, sayfa yoksa ve sinirlar asilirsa yazi okunmaz', 
   } finally { f.close(); }
 });
 
-test('OCR ucu: model bos ya da anlamsiz donerse METIN UYDURULMAZ', async () => {
+test('OCR ucu: yanit alani hangi adla gelirse gelsin okunur', async () => {
+  // Alan adini bilmemek yuzunden OKUNMUS sayfayi cope atmak canlida yasandi (30.09.2026):
+  // model cevap verdi, uc "yazi bulunamadi" dedi. Artik bilinen alanlar once, sonra derin arama.
+  const beklenen = 'AGROMART\nFatura No: ABC123\nTOPLAM 1.234,56';
+  for (const donen of [{description: beklenen}, {answer: beklenen}, {response: beklenen}, {text: beklenen},
+    {result: {response: beklenen}}, {choices: [{message: {content: beklenen}}]},
+    {bilinmeyen_alan: beklenen}, {sarmal: {ic: {bir_yerde: beklenen}}}, beklenen]) {
+    const f = fixture({run: async () => donen});
+    try { assert.match((await f.ocr({images: [img()]})).text, /Fatura No: ABC123/, JSON.stringify(donen).slice(0, 60)); }
+    finally { f.close(); }
+  }
+});
+
+test('OCR ucu: model bos ya da anlamsiz donerse METIN UYDURULMAZ ve yanitin sekli soylenir', async () => {
   for (const donen of [{response: ''}, {response: '   '}, {}, {choices: []}, null]) {
     const f = fixture({run: async () => donen});
     try { await assert.rejects(f.ocr({images: [img()]}), /okunabilir yazı bulamadı/); } finally { f.close(); }
   }
+  // Tanimadigim bir sekil gelirse hata mesaji NE GELDIGINI yazar; kor kalmayalim.
+  const tuhaf = fixture({run: async () => ({durum: 'hata', kod: 500})});
+  try { await assert.rejects(tuhaf.ocr({images: [img()]}), /Modelin yanıtı:.*durum/s); } finally { tuhaf.close(); }
   const patlayan = fixture({run: async () => { throw new Error('model mesgul'); }});
   try { await assert.rejects(patlayan.ocr({images: [img()]}), /Görüntü okunamadı/); } finally { patlayan.close(); }
 });

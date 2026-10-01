@@ -51,6 +51,39 @@ const OCR_PROMPT = [
   'HİÇBİR ŞEY UYDURMA. Okuyamadığın yeri boş bırak veya [okunamadı] yaz.',
   'Yorum, özet, başlık veya açıklama ekleme; yalnız belgedeki yazıyı ver.'
 ].join(' ');
+// Yanıttan metni çıkarma. Bilinen alanlar önce denenir ("reasoning" gibi düşünme alanları asıl
+// cevaptan uzun olabilir, körlemesine en uzunu almak yanlış metni seçerdi); hiçbiri tutmazsa
+// yanıtın içindeki en uzun metin aranır. Alan adını bilmemek okunmuş sayfayı çöpe attırmasın.
+const OCR_ALANLARI = ['description', 'answer', 'response', 'text', 'caption', 'output'];
+function enUzunMetin(v, derinlik = 0) {
+  if (typeof v === 'string') return v;
+  if (!v || typeof v !== 'object' || derinlik > 5) return '';
+  let en = '';
+  for (const x of Array.isArray(v) ? v : Object.values(v)) { const s = enUzunMetin(x, derinlik + 1); if (s.length > en.length) en = s; }
+  return en;
+}
+function ocrMetniAyikla(cevap) {
+  if (typeof cevap === 'string') return cevap.trim();
+  if (!cevap || typeof cevap !== 'object') return '';
+  for (const alan of OCR_ALANLARI) if (typeof cevap[alan] === 'string' && cevap[alan].trim()) return cevap[alan].trim();
+  const ic = cevap.result ?? cevap.choices?.[0]?.message?.content;
+  if (typeof ic === 'string' && ic.trim()) return ic.trim();
+  if (ic && typeof ic === 'object') for (const alan of OCR_ALANLARI) if (typeof ic[alan] === 'string' && ic[alan].trim()) return ic[alan].trim();
+  // BİLİNMEYEN ALANDAN OKUMANIN BEDELİ VAR: derin arama "hata", "ok", "error" gibi kısa durum
+  // kelimelerini de metin sanıp faturaya yazardı (testte yakalandı). Bir fatura sayfasının
+  // okunmuş hâli kısa olamaz; bu yüzden yalnız anlamlı uzunluktaki metin kabul edilir.
+  const derin = enUzunMetin(cevap).trim();
+  return derin.length >= 25 ? derin : '';
+}
+// Yanıtın ŞEKLİ (içeriği değil): hangi alanlar var, metin alanları ne ile başlıyor.
+// Hata mesajında gösterilir ki sorun modelde mi, alan adında mı ayırt edilebilsin.
+function yanitOzeti(cevap) {
+  if (cevap === null || cevap === undefined) return String(cevap);
+  if (typeof cevap !== 'object') return typeof cevap + ' (' + String(cevap).slice(0, 80) + ')';
+  const parcalar = Object.entries(cevap).slice(0, 8).map(([k, v]) =>
+    k + ':' + (typeof v === 'string' ? '"' + v.slice(0, 40) + '"' : Array.isArray(v) ? 'dizi[' + v.length + ']' : typeof v));
+  return '{' + parcalar.join(', ') + '}';
+}
 const MAX_CHUNKS = 60;
 
 const b64bytes = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
@@ -95,6 +128,7 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
     // Moondream TEK GÖRÜNTÜ okur; istemci zaten sayfaları tek tek yolluyor. Birden çok gelirse
     // hepsi sırayla okunur ve metinleri birleştirilir.
     const parcalar = [];
+    let sonYanitOzeti = '';
     for (const s of sayfalar) {
       let cevap;
       try {
@@ -105,13 +139,17 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
             setTimeout(() => red(new Error('model ' + Math.round(sure / 1000) + ' saniyede yanıt vermedi')), sure); })
         ]);
       } catch (e) { fail('Görüntü okunamadı: ' + (e.message || 'model yanıt vermedi') + '.', 502); }
-      // Yanıt alanı modele göre değişiyor; sırayla denenir, hiçbiri yoksa UYDURULMAZ.
-      const p = typeof cevap === 'string' ? cevap
-        : cevap?.description ?? cevap?.answer ?? cevap?.response ?? cevap?.text ?? cevap?.choices?.[0]?.message?.content ?? '';
-      if (typeof p === 'string' && p.trim()) parcalar.push(p.trim());
+      // YANIT ALANI MODELE GÖRE DEĞİŞİYOR. Önce bilinen alanlar denenir; hiçbiri tutmazsa yanıtın
+      // İÇİNDEKİ EN UZUN METİN aranır. Alan adını bilmemek yüzünden okunmuş bir sayfayı çöpe
+      // atmak, canlıda 30.09.2026'da yaşandı (model cevap verdi, uç "yazı bulunamadı" dedi).
+      const p = ocrMetniAyikla(cevap);
+      if (p) parcalar.push(p);
+      else sonYanitOzeti = yanitOzeti(cevap);
     }
     const metin = parcalar.join('\n');
-    if (typeof metin !== 'string' || !metin.trim()) fail('Model bu görüntüde okunabilir yazı bulamadı.', 422);
+    // SEBEBİ SÖYLER: "yazı bulunamadı" tek başına kullanıcıyı da beni de kör bırakıyordu.
+    // Yanıtın şekli yazılır ki sorun modelde mi, alan adında mı belli olsun.
+    if (!metin.trim()) fail('Model bu görüntüde okunabilir yazı bulamadı.' + (sonYanitOzeti ? ' Modelin yanıtı: ' + sonYanitOzeti : ''), 422);
     await db.prepare('INSERT INTO activity(id,description) VALUES(?,?)')
       .bind(id(), 'Fatura görüntüsünden yazı okundu (' + sayfalar.length + ' sayfa)').run();
     return {text: metin.trim(), pages: sayfalar.length, model: OCR_MODEL,
