@@ -101,7 +101,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
         <label>Yeni tedarikçi unvanı<input name="supplier_name" value="${esc(h.supplier_name || '')}" maxlength="200"></label>
         <label>Tedarikçi VKN / TCKN ${flag(unsure('supplier_tax_id'), 'kontrol et')}<input name="supplier_tax_id" value="${esc(h.supplier_tax_id || '')}" pattern="[0-9]{10,11}"></label>
         <label>Fatura numarası ${flag(unsure('invoice_no'), 'kontrol et')}<input name="invoice_no" value="${esc(h.invoice_no || '')}" required maxlength="60"></label>
-        <label>Fatura tarihi ${flag(unsure('invoice_date'), 'kontrol et')}<input name="invoice_date" type="date" value="${esc(h.invoice_date || today())}" required></label>
+        <label>Fatura tarihi ${flag(unsure('invoice_date'), 'kontrol et')}<input name="invoice_date" type="date" value="${esc(h.invoice_date || (unsure('invoice_date') ? '' : today()))}" required></label>
         <label>ETTN / UUID<input name="uuid" value="${esc(h.uuid || '')}" maxlength="60"></label>
       </div>
       <div class="pd-actions"><button class="secondary pd-left" type="button" data-pd="restart">Başka belge</button>

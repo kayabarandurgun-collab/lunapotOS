@@ -137,3 +137,16 @@ test('Goruntuden okunan belgede VKN tek harf hatasiyla gelse de tedarikci numara
   const bos = guessHeader(['WKN: 12345', 'VKN: abcdefghij'], {taxIds: [], name: ''});
   assert.equal(bos.supplier_tax_id, '', 'eksik haneli numara kabul edilmez');
 });
+
+test('Goruntuden okunan tutarda binlik ayraci virgul cikarsa sayi dogru okunur', async () => {
+  // Canlida (03.10.2026): model 2.850,00'i "2,850,00" yazdi, satir tutari 0 okundu ve 15 adetlik
+  // kalem bedava gorundu. Turkce yazimda bir sayida IKI virgul olmaz; sonuncusu ondalik sayilir.
+  const {guessLines} = await import('../public/pdf-read.js');
+  const satir = guessLines(['1 Gartengold 20 Litre Torfu 15 Adet 190,00 TL 570,00 TL 2,850,00 TL']);
+  assert.equal(satir.length, 1);
+  assert.equal(satir[0].net, 2850, 'bozuk binlik ayraci duzeltilmeli');
+  // NOKTALI SAYIYA DOKUNULMAZ: dogru yazilmis tutar bozulmamali.
+  assert.equal(guessLines(['2 Urun 1 Adet 1.234,56 TL 1.234,56 TL'])[0].net, 1234.56);
+  // TEK VIRGULLU ONDALIK aynen kalir.
+  assert.equal(guessLines(['3 Urun 1 Adet 165,00 TL 165,00 TL'])[0].net, 165);
+});

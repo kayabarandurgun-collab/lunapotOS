@@ -451,8 +451,13 @@ export async function readPdf(input, {name = ''} = {}) {
 // Bulunamayan alan boş bırakılır; tahmin edilmez.
 
 const TR_NUMBER = /^-?\d{1,3}(?:\.\d{3})*(?:,\d+)?$|^-?\d+(?:,\d+)?$/;
+// GÖRÜNTÜDEN OKUMADA BİNLİK AYRACI VİRGÜL ÇIKABİLİYOR: canlıda (03.10.2026) model 2.850,00'ı
+// "2,850,00" yazdı ve satır tutarı 0 okundu. Türkçe yazımda bir sayıda İKİ virgül olmaz; iki ya
+// da daha fazla virgül varsa sonuncusu ondalık, öncekiler binliktir. Nokta içeren sayıya
+// DOKUNULMAZ: orada ayraçlar zaten belli, karıştırmak tutarı bozardı.
+const ocrSayisi = t => /^-?\d{1,3}(?:,\d{3})+,\d{1,2}$/.test(t) ? t.replace(/,(?=.*,)/g, '.') : t;
 const toNumber = s => {
-  const t = String(s).trim();
+  const t = ocrSayisi(String(s).trim());
   if (!TR_NUMBER.test(t)) return null;
   const n = Number(t.replace(/\./g, '').replace(',', '.'));
   return Number.isFinite(n) ? n : null;
@@ -517,7 +522,11 @@ const UNITS = '(adet|ad|kutu|koli|paket|pk|kg|gr|g|lt|l|ml|m|m2|m3|ton|çift|cif
 const ROW = new RegExp('^(?:(.*)\\s)?(\\d+(?:,\\d+)?)\\s*' + UNITS + '\\s+(.*\\d,\\d{2}.*)$', 'i');
 const HEADER_WORD = /(?:^|\s)(S[ıi]ra|Miktar|Birim|Fiyat|Oran[ıi]|Tutar[ıi]|[İI]skonto|KDV|[ÜU]r[üu]n|Mal\s*Hizmet|A[çc][ıi]klama|Vergiler)(?=\s|$)/i;
 const TOTALS_LINE = /(Mal\s*\/?\s*Hizmet\s*Toplam|Toplam\s*[İI]skonto|Ara\s*Toplam|Genel\s*Toplam|Hesaplanan\s*KDV|Vergiler\s*Dahil|[ÖO]denecek\s*Tutar)/i;
-const AMOUNT = /(%\s*)?(-?\d{1,3}(?:\.\d{3})+(?:,\d+)?|-?\d+(?:,\d+)?)/g;
+// İLK SEÇENEK GÖRÜNTÜDEN OKUMA İÇİN: "2,850,00" gibi binlik ayracı virgül yazılmış tutar TEK
+// sayıdır. Bu seçenek olmadan tarayıcı onu "2,850" + "00" diye ikiye bölüyor ve 15 adetlik kalemi
+// 2,85 TL okuyordu (canlıda 03.10.2026). Türkçe yazımda bir sayıda iki virgül olmadığı için bu
+// kalıp yalnız bozuk yazıma uyar; doğru yazılmış tutarlar sonraki seçeneklerde aynen kalır.
+const AMOUNT = /(%\s*)?(-?\d{1,3}(?:,\d{3})+,\d{1,2}|-?\d{1,3}(?:\.\d{3})+(?:,\d+)?|-?\d+(?:,\d+)?)/g;
 const VAT_RATES = new Set([1, 8, 10, 18, 20]);
 const numbersIn = s => [...String(s).matchAll(AMOUNT)].map(m => ({v: toNumber(m[2]), pct: !!m[1]})).filter(x => x.v !== null);
 // Açıklama satırındaki tutar/oran/para birimi kırıntıları açıklamaya girmez.
