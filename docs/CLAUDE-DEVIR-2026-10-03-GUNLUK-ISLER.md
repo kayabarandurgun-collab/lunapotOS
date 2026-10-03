@@ -77,7 +77,10 @@ Yayın sırası: normal ve bakım sürümlerini önce trafiğe açmadan yükle �
 
 ## Yayın ve son doğrulama kaydı
 
-**TAMAMLANDI — canlı v173.**
+**UYGULAMA TAMAMLANDI — canlı v173. GitHub ana dala gönderim onay bekliyor.**
+
+Uygulama kodunun yerel Git kaydı: 2027603 (Simplify daily workflows and secure provisional inventory). Kod doğrudan Cloudflare sürümüyle canlıya alındı. GitHub origin/main'e gönderme girişimi otomatik onay incelemesi tarafından reddedildi: canlı yayın yetkisini kabul etti, fakat korunan varsayılan dala uzak push için ayrıca açık kullanıcı onayı istedi. Uzak push yapılmadı ve engel başka yoldan aşılmadı. Bu, canlı yayının başarısız olduğu anlamına gelmez; canlı v173 doğrulanmıştır. Ana dala göndermek için kullanıcının bu ayrı işleme açık onayı alınmalı.
+
 
 - Canlı: https://muhasebe.lunapot.com/eticaret/#overview
 - Yayın sonrası kontrol zamanı: 2026-10-03T16:42:16.567Z (UTC).
@@ -126,15 +129,15 @@ date: 2026-10-03
 status: complete
 outcome: SUCCEEDED
 goal: Günlük işleri bulunur yapmak; mobil düzeni ve doğrulanmış muhasebe/izin kusurlarını düzeltmek.
-now: v173 canlı; sonraki kullanıcı talebinde bu belge ve mevcut Git durumu okunmalı.
+now: v173 canlı; uygulama kodu yerel 2027603 içinde; uzak main gönderimi için açık onay bekleniyor.
 test: node --test tests/*.test.js
 done_this_session:
   - task: Ortak günlük işler, doğrudan yükleme ve depo akışları, mobil gezinme.
     files: [public/daily-actions.js, public/workspace-frame.js, public/accounting-ui.js, public/report-inbox-ui.js]
   - task: FA01-05, üretim bilinmeyen stok, yedek ve güvenli geçiş.
     files: [migrations/0065_provisional_allocations.sql, src/provisional-inventory.js, src/settings-api.js, src/worker.js]
-blockers: []
-questions: []
+blockers: [GitHub origin/main gönderimi otomatik onay incelemesi nedeniyle açık kullanıcı onayı bekliyor.]
+questions: [Kullanıcı GitHub ana dala gönderime açıkça onay veriyor mu?]
 decisions:
   - stock: Fiziksel ürün sayımı ve satılan set kârı ayrı tutulur.
   - legacy: Kesin iki yönlü bağ metadata ile kurulur; belirsiz bağda işlem durur.
