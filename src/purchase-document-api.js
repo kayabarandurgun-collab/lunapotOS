@@ -43,14 +43,14 @@ const OCR_MODEL = '@cf/moondream/moondream3.1-9B-A2B';
 const OCR_TIMEOUT_MS = 50000;
 // PROMPT'UN TEK İŞİ: GÖRÜNENİ YAZMAK. Yorum, tamamlama ve düzeltme istenmez; okunamayan yer
 // açıkça boş bırakılır. Model "makul" bir fatura numarası uydurursa o numara deftere girerdi.
-const OCR_PROMPT = [
-  'Bu görüntüler bir satın alma faturasının sayfalarıdır.',
-  'Görünen bütün yazıyı olduğu gibi, soldan sağa ve yukarıdan aşağıya düz metin olarak yaz.',
-  'Tabloları satır satır yaz; aynı satırdaki hücreleri tek boşlukla ayır.',
-  'Sayıları ve tarihleri belgede yazdığı biçimde bırak (1.234,56 gibi); birimini değiştirme.',
-  'HİÇBİR ŞEY UYDURMA. Okuyamadığın yeri boş bırak veya [okunamadı] yaz.',
-  'Yorum, özet, başlık veya açıklama ekleme; yalnız belgedeki yazıyı ver.'
-].join(' ');
+// PROMPT'TA ÖRNEK RAKAM/METİN OLMAZ. İlk sürümde "sayıları şöyle bırak: 1.234,56 gibi" yazıyordu;
+// model canlıda (30.09.2026) o örneği okumuş gibi geri yazdı — yani prompt'un kendisi uydurma
+// kaynağı oldu. Komut KISA ve DOĞRUDAN tutulur: küçük görsel modeller uzun kural listesini
+// özetleyerek yanıtlıyor, istenen ise özet değil birebir döküm.
+const OCR_PROMPT = 'Transcribe every piece of text visible in this invoice image, exactly as printed, '
+  + 'line by line from top to bottom. Include the company name, tax number, invoice number, date, '
+  + 'every product row and every amount. Output only the transcribed text, nothing else. '
+  + 'Do not summarise, do not explain, do not invent anything that is not visible.';
 // Yanıttan metni çıkarma. Bilinen alanlar önce denenir ("reasoning" gibi düşünme alanları asıl
 // cevaptan uzun olabilir, körlemesine en uzunu almak yanlış metni seçerdi); hiçbiri tutmazsa
 // yanıtın içindeki en uzun metin aranır. Alan adını bilmemek okunmuş sayfayı çöpe attırmasın.
@@ -133,8 +133,10 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
       let cevap;
       try {
         cevap = await Promise.race([
+          // reasoning:false — model "düşünüp özetlemek" yerine doğrudan döksün. Varsayılan açık ve
+          // canlıda altı satırlık bir özet döndürdü; istenen sayfanın tamamının dökümü.
           env.AI.run(OCR_MODEL, {image: 'data:image/jpeg;base64,' + s, task: 'query',
-            question: OCR_PROMPT, max_tokens: 4096, temperature: 0, stream: false}),
+            question: OCR_PROMPT, max_tokens: 4096, temperature: 0, reasoning: false, stream: false}),
           new Promise((_, red) => { const sure = Number(env.OCR_TIMEOUT_MS) || OCR_TIMEOUT_MS;
             setTimeout(() => red(new Error('model ' + Math.round(sure / 1000) + ' saniyede yanıt vermedi')), sure); })
         ]);

@@ -16,7 +16,9 @@ const SAYFA_SINIRI = 8;
 // Pay bırakılıyor: JSON sarmalı ve çok baytlı karakter payı.
 const BASE64_TAVAN = 780 * 1024;
 // Sığmazsa sırayla küçültülür. Okunabilirlik önce gelir; en küçük kademe son çaredir.
-const KADEMELER = [{kenar: 1700, kalite: 0.72}, {kenar: 1300, kalite: 0.62}, {kenar: 1000, kalite: 0.52}];
+// Fatura yazısı küçüktür: ilk kademe ÇÖZÜNÜRLÜĞÜ yüksek tutar, boyut sınırına sığmazsa düşülür.
+// 1700 px'te model yalnız birkaç rakam okuyabildi; ince baskı için daha fazlası gerekiyor.
+const KADEMELER = [{kenar: 2400, kalite: 0.78}, {kenar: 1900, kalite: 0.7}, {kenar: 1400, kalite: 0.6}, {kenar: 1000, kalite: 0.5}];
 
 let pdfjsSoz = null;
 // Kütüphane ancak GEREKTİĞİNDE yüklenir: harf taşıyan normal faturada 1,7 MB indirilmez.

@@ -102,9 +102,13 @@ test('OCR ucu: sayfalar modele goruntu olarak gider, yalniz duz metin doner ve a
     assert.equal(cagrilar.length, 2, 'her sayfa icin ayri cagri');
     for (const c of cagrilar) {
       assert.ok(c.girdi.image.startsWith('data:image/jpeg;base64,'), 'goruntu base64 data URI olarak gider');
-      assert.ok(c.girdi.question.includes('HİÇBİR ŞEY UYDURMA'), 'uydurma yasagi soruda');
+      assert.match(c.girdi.question, /not invent anything/i, 'uydurma yasagi soruda');
       assert.equal(c.girdi.temperature, 0, 'okuma isinde rastgelelik olmamali');
+      assert.equal(c.girdi.reasoning, false, 'model ozetlemesin, doksun');
       assert.equal(c.girdi.task, 'query');
+      // PROMPT'TA ORNEK RAKAM OLMAZ. Canlida (30.09.2026) prompt'taki "1.234,56" ornegi modelin
+      // yanitinda cikti: komutun kendisi uydurma kaynagi oldu. Bir daha sizmasin.
+      assert.equal(/\d{1,3}[.,]\d{3}[.,]\d{2}/.test(c.girdi.question), false, 'promptta ornek tutar olmamali');
     }
   } finally { f.close(); }
 });
