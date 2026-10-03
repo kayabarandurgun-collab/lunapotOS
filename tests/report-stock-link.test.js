@@ -83,17 +83,40 @@ test('Aktarım tek taslak sipariş açar; stok ancak gönderimde bir kez düşer
   } finally { f.close(); }
 });
 
-test('KDV oranı bilinmeyen pakette stok ayrılamaz; kural gevşetilmez', async () => {
+test('Rapordaki KDV oranı KULLANILMAZ: oran ayardan gelir (%20)', async () => {
+  // Kullanıcı bütün faturalarını %20 ile kesiyor. Hepsiburada bazı ilanlarda %10 bildiriyordu ve
+  // satırın KDV'si doğrudan oradan alınıyordu: 03.10.2026'da 18 satır yanlış hesaplanmış bulundu.
+  // Oran artık çalışma alanı ayarından gelir; rapor ne derse desin dikkate alınmaz.
+  for (const raporOrani of [undefined, 1000, 800]) {
+    const f = appFixture(); await f.setup(); try {
+      await fourPack(f);
+      const s = store(f);
+      record(f, s, 'TY-1', {...line(), vat_bps: raporOrani}, 1);
+      startDate(f, DATE);
+      const applied = await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PK1', complete_package_confirmed: true});
+      assert.equal(applied.applied, true);
+      const l = f.sqlite.prepare('SELECT vat_bps,gross_cents,net_revenue_cents FROM ec_order_lines').get();
+      assert.equal(l.vat_bps, 2000, 'rapor ' + raporOrani + ' dese de %20 yazılır');
+      assert.equal(l.net_revenue_cents, Math.round(l.gross_cents / 1.2), 'KDV hariç tutar %20 ile');
+      // KDV bilindiği için stok ayrılabilir; tutar bilinmeden ayrılamaz kuralı aşağıda ayrıca sınanıyor.
+      const reserve = await f.req('/ec/orders/' + applied.package_id + '/reserve', {});
+      assert.equal(reserve.status, 200, 'oran ayardan bilindiği için ayırma açılır');
+    } finally { f.close(); }
+  }
+});
+
+test('TUTAR bilinmeden stok ayrılamaz; bu kural gevşetilmedi', async () => {
+  // KDV ayardan geliyor ama BRÜT TUTAR hâlâ rapordan gelir. Tutar yoksa KDV hariç tutar da
+  // hesaplanamaz ve stok ayrılmaz: bilinmeyen sıfır sayılmaz.
   const f = appFixture(); await f.setup(); try {
     const product = await fourPack(f);
     const s = store(f);
-    record(f, s, 'TY-1', {...line(), vat_bps: undefined}, 1);
+    record(f, s, 'TY-1', {...line(), gross: undefined}, 1);
     startDate(f, DATE);
     const applied = await f.ok('/ec/reports/stock-link/apply', {store_id: s, package_id: 'PK1', complete_package_confirmed: true});
     assert.equal(applied.applied, true, 'taslak açılır');
     const reserve = await f.req('/ec/orders/' + applied.package_id + '/reserve', {});
-    assert.equal(reserve.status, 409, 'KDV hariç tutar bilinmeden stok ayrılmaz');
-    assert.match(reserve.data.error, /tutarı eksik/i);
+    assert.equal(reserve.status, 409, 'tutar bilinmeden stok ayrılmaz');
     assert.equal(stockOf(f, product.id), 20000, 'stok değişmedi');
   } finally { f.close(); }
 });
@@ -444,18 +467,19 @@ test('Otomatik aktarım: kargolanan paket açılır, stok ayrılır ve düşer; 
   } finally { f.close(); }
 });
 
-test('Otomatik aktarım: raporda KDV oranı yoksa ürünün fiyat profilindeki oranla tamamlanır; oran yoksa taslak kalır', async () => {
+test('Otomatik aktarım: KDV ürün profiline bakmadan ayardan gelir, aktarım durmaz', async () => {
+  // ESKİDEN: rapor KDV bildirmezse ürünün fiyat profiline bakılır, o da yoksa taslakta kalırdı.
+  // ARTIK: oran ayardan (%20) gelir. Fiyat profili yalnız KDV'den ibaret değil (ambalaj, ölçü,
+  // ağırlık da ister), bu yüzden KDV'yi oraya bağlamak aktarımı gereksiz yere durduruyordu.
   const f = appFixture(); await f.setup(); try {
     const product = await fourPack(f);
     const s = store(f);
     startDate(f, DATE);
+    assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_price_profiles WHERE product_id=?').get(product.id).n, 0,
+      'ürünün fiyat profili yok');
     record(f, s, 'TY-1', line({package_id: 'PKV', line_id: 'LV', order_no: 'OV', status: 'Kargolandı', vat_bps: undefined, delivered_date: ''}), 1);
-    const once = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
-    assert.ok(once.results[0].skipped && /KDV/.test(once.results[0].reason), 'profil oranı yokken KDV uydurulmadı: ' + JSON.stringify(once.results[0]));
-    sql(f, `INSERT INTO ec_price_profiles(product_id,vat_bps,replacement_cost_cents,packaging_cents,other_cents,withholding_bps,length_mm,width_mm,height_mm,weight_grams,units_per_parcel)
-      VALUES(?,2000,0,0,0,0,100,100,100,500,1)`, product.id);
-    const again = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
-    assert.equal(again.results[0].done, 'taslak sürdürüldü, KDV ürün profilinden, stok ayrıldı, gönderildi');
+    const sonuc = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
+    assert.ok(!sonuc.results[0].skipped, 'profil olmadan da aktarılır: ' + JSON.stringify(sonuc.results[0]));
     const l = f.sqlite.prepare('SELECT vat_bps,net_revenue_cents,gross_cents FROM ec_order_lines').get();
     assert.deepEqual([l.vat_bps, l.net_revenue_cents], [2000, Math.round(l.gross_cents / 1.2)]);
   } finally { f.close(); }

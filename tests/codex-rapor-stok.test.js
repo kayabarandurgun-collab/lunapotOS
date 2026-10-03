@@ -61,7 +61,10 @@ test('R05: yalnız hazırlanan sipariş stoğu artırmaz; iptal edilince stok ra
 test('R05: kargolanmış pakette rezervasyon başarısız olursa telafi artışı kalmaz', async () => {
   const f = appFixture(); await f.setup(); try {
     const p = await kur(f, {profil: false});
-    record(f, {status: 'Kargolandı', vat_bps: undefined});      // KDV bilinmiyor: tutar eksik, ayırma yapılamaz
+    // Rezervasyonu BAŞARISIZ kılmak için tutar eksik bırakılır. Eskiden bunun için KDV oranı
+    // bilinmez yapılıyordu; KDV artık ayardan geldiği için (hep %20) o yol tetiklemiyor.
+    // Testin derdi KDV değil: başarısız ayırmadan geriye telafi stok artışı kalmaması.
+    record(f, {status: 'Kargolandı', gross: undefined});       // tutar bilinmiyor: ayırma yapılamaz
     const r = await oto(f);
     assert.ok(r.results[0].skipped, JSON.stringify(r.results));
     assert.equal(stok(f, p.id), 24000, 'başarısız rezervasyon stok artışı bırakmadı');

@@ -68,6 +68,7 @@ const eskittiMi = (yeni, eski) => String(yeni.data.package_id) !== String(eski.d
 
 /** Paketi okur ve aktarıma uygun olup olmadığını söyler. Yalnız eskimiş taslağı işaretler. */
 async function plan(env, storeId, packageId, lineIdentityDeclared = false) {
+  const kdvBps = await satisKdvBps(env.ROOT_DB || env.DB);
   const db = env.DB, rootDB = env.ROOT_DB || db;
   const store = await db.prepare('SELECT * FROM ec_report_stores WHERE id=?').bind(key(storeId)).first();
   if (!store) fail('Mağaza bulunamadı.', 404);
@@ -171,7 +172,7 @@ async function plan(env, storeId, packageId, lineIdentityDeclared = false) {
           lines: ayrilacak.map(r => ({external_id: lineIdentity(r.data, packageId, lineIdentityDeclared),
             name: r.data.product_name || r.data.barcode || r.data.sku, sku: r.data.barcode || r.data.sku,
             quantity: r.data.quantity, gross: r.data.gross == null ? null : r.data.gross / 100,
-            vat_rate: r.data.vat_bps == null ? null : r.data.vat_bps / 100, net_revenue: null}))},
+            vat_rate: kdvBps / 100, net_revenue: null}))},
         reason: (eksik.length
           ? 'Bu paketin ' + eksik.length + ' satırı defterde yok.'
           : 'Bu paket, kalemlerini tutmayan bir sipariş kaydına bağlanmış (defterdeki adet ' + defterAdet +
@@ -273,7 +274,7 @@ async function plan(env, storeId, packageId, lineIdentityDeclared = false) {
     external_id: lineIdentity(r.data, packageId, lineIdentityDeclared), name: r.data.product_name || r.data.barcode || r.data.sku,
     sku: r.data.barcode || r.data.sku, quantity: r.data.quantity,
     gross: r.data.gross == null ? null : r.data.gross / 100,
-    vat_rate: r.data.vat_bps == null ? null : r.data.vat_bps / 100,
+    vat_rate: kdvBps / 100,
     net_revenue: null
   }));
   const external_id = 'RPT-' + (await digest([store.provider, store.id, packageId])).slice(0, 40);
@@ -315,6 +316,7 @@ async function plan(env, storeId, packageId, lineIdentityDeclared = false) {
  * başka bir tazeleme girdiyse hiçbir şey yazılmaz.
  */
 async function tazeleTaslakBagi(db, packageId) {
+  const kdvBps = await satisKdvBps(db);
   const pkg = await db.prepare('SELECT id,status,report_linked,report_link_hash,source_changed FROM ec_order_packages WHERE id=?').bind(packageId).first();
   if (!pkg || !['draft', 'reserved'].includes(pkg.status) || !pkg.report_linked) return {};
   const rows = (await db.prepare("SELECT id,version,data_json,updated_at FROM ec_report_records WHERE erp_package_id=? AND kind='order_line'").bind(packageId).all()).results;
@@ -336,7 +338,7 @@ async function tazeleTaslakBagi(db, packageId) {
       const k = anahtar(r.data), x = rapor.get(k) || {adet: 0, brut: 0, brutVar: true, kdv: new Set()};
       x.adet += Number(r.data.quantity) || 0;
       if (r.data.gross == null) x.brutVar = false; else x.brut += Number(r.data.gross);
-      if (r.data.vat_bps != null) x.kdv.add(Number(r.data.vat_bps));
+      x.kdv.add(kdvBps);   // rapordaki oran kullanilmaz: KDV ayardan gelir
       rapor.set(k, x);
     }
     for (const l of lines) {
@@ -454,6 +456,18 @@ async function sayimTelafisiHazirla(db, packageId, occurred) {
     niyet++;
   }
   return niyet;
+}
+
+
+// SATIŞ KDV ORANI PAZARYERİNDEN ALINMAZ. Hepsiburada bazı ilanlarda %10 bildiriyordu; kullanıcı
+// bütün faturalarını %20 ile kesiyor. Rapordan gelen oran 18 siparişin KDV hariç tutarını yanlış
+// hesaplatmıştı (ölçüldü 03.10.2026, 14.606,85 TL brüt). Kaynak rapor kaldıkça hata tekrar ederdi.
+// Oran çalışma alanı ayarından gelir (varsayılan %20); kanunla değişirse kod yayınlamadan ayarlanır.
+async function satisKdvBps(db) {
+  try {
+    const r = await db.prepare('SELECT sales_vat_bps FROM workspace_settings WHERE workspace=?').bind('ec').first();
+    return Number.isInteger(r?.sales_vat_bps) ? r.sales_vat_bps : 2000;
+  } catch { return 2000; }
 }
 
 export async function reportStockLinkApi(request, env, path, readBody) {
