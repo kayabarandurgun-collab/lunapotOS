@@ -313,11 +313,11 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
       return {id: same.id, resume: true, reread: true, format_warning: bicimUyarisi, notice: 'Bu dosya önce yüklenmiş ama hiçbir faturaya işlenmemişti; yeniden okundu.'};
     }
     if (same) return {duplicate: true, existing: same, reason: 'sha256', notice: 'Bu dosya daha önce yüklendi; ikinci kez işlenmedi.'};
-    let devralmaNotu = '';
+    let devralmaNotu = '', devralinan = null;
     if (uuid) {
-      const byUuid = await db.prepare('SELECT id,filename,invoice_id FROM purchase_documents WHERE doc_uuid=?').bind(uuid).first();
+      const byUuid = await db.prepare('SELECT d.id,d.filename,d.invoice_id,EXISTS(SELECT 1 FROM purchase_document_pages p WHERE p.document_id=d.id) paged FROM purchase_documents d WHERE doc_uuid=?').bind(uuid).first();
       // İŞLENMİŞ belgede eski davranış aynen: aynı fatura ikinci kez muhasebeleşmez.
-      if (byUuid && byUuid.invoice_id) return {duplicate: true, existing: byUuid, reason: 'ettn',
+      if (byUuid && (byUuid.invoice_id || byUuid.paged)) return {duplicate: true, existing: byUuid, reason: 'ettn',
         notice: 'Aynı ETTN ile bir belge zaten yüklü ("' + byUuid.filename + '"). Satırları farklı olsa bile otomatik üzerine yazılmaz; farklıysa inceleyin.'};
       // HİÇBİR FATURAYA İŞLENMEMİŞ BELGE, AYNI FATURANIN DÜZGÜN HÂLİNİN YOLUNU KESMEZ.
       // Canlıda (03.10.2026): harf taşımayan taramadan OCR ile okunan ETTN saklanmıştı; kullanıcı
@@ -325,7 +325,7 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
       // diye reddedildi — yani bozuk kopya, düzgün aslının önünü kesti. Eski kayıt SİLİNMEZ;
       // yalnız ETTN iddiasını bırakır. Zaten o ETTN tahminle okunmuştu, sahiplenmesi doğru değil.
       if (byUuid) {
-        await db.prepare("UPDATE purchase_documents SET doc_uuid='' WHERE id=? AND invoice_id IS NULL").bind(byUuid.id).run();
+        devralinan = byUuid.id;
         devralmaNotu = 'Aynı ETTN ile daha önce yüklenen ve hiçbir faturaya işlenmemiş belge ("' + byUuid.filename
           + '") bu faturanın kimliğini bıraktı; o belge duruyor, silinmedi. Bu yükleme asıl belge sayılacak.';
       }
@@ -344,11 +344,16 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
         notice: 'Bu belge ' + (registered.workspace === 'ec' ? 'E-Ticaret' : 'Lunapot') + ' alanında zaten faturaya işlenmiş. İkinci kez işlenmedi.'};
     }
     const row = {id: id()};
-    await db.prepare(`INSERT INTO purchase_documents(id,kind,filename,mime,size_bytes,sha256,chunk_count,page_count,text_layer,supplier_tax_id,doc_no,doc_uuid,extracted_json,warnings_json,created_by)
+    const insert = db.prepare(`INSERT INTO purchase_documents(id,kind,filename,mime,size_bytes,sha256,chunk_count,page_count,text_layer,supplier_tax_id,doc_no,doc_uuid,extracted_json,warnings_json,created_by)
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(row.id, x.kind, text(x.filename, 'Dosya adı', 255), optional(x.mime, 100), x.size_bytes, x.sha256, x.chunk_count,
       Number.isSafeInteger(x.page_count) ? x.page_count : null, x.text_layer ? 1 : 0, taxId, docNo, uuid,
       JSON.stringify(x.extracted && typeof x.extracted === 'object' ? x.extracted : {}),
-      JSON.stringify((x.warnings || []).slice(0, 20).map(w => String(w).slice(0, 500))), user.id || 'owner').run();
+      JSON.stringify((x.warnings || []).slice(0, 20).map(w => String(w).slice(0, 500))), user.id || 'owner');
+    // Eski kimlik ancak yeni dosya gerçekten kaydolursa bırakılır. Doğrulama, tekillik veya
+    // eşzamanlı bağlama hatasında bütün işlem geri alınır; özgün belgenin ETTN'si kaybolmaz.
+    const writes = devralinan ? [db.prepare("UPDATE purchase_documents SET doc_uuid='' WHERE id=? AND doc_uuid=? AND invoice_id IS NULL AND NOT EXISTS(SELECT 1 FROM purchase_document_pages WHERE document_id=?)").bind(devralinan, uuid, devralinan), insert] : [insert];
+    try { await db.batch(writes); }
+    catch (error) { if (/UNIQUE constraint|DOCUMENT_IMMUTABLE/.test(String(error.message))) fail('Belge bu sırada başka bir işlemle kaydedildi veya faturaya bağlandı. Listeyi yenileyip mevcut belgeyi kullanın.', 409); throw error; }
     return {id: row.id, format_warning: bicimUyarisi, notice: devralmaNotu || undefined};
   }
 
@@ -401,7 +406,8 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
     if (!invoice) fail('Fatura kaydı bulunamadı.', 404);
     const taken = await db.prepare('SELECT id FROM purchase_documents WHERE invoice_id=?').bind(invoice.id).first();
     if (taken) fail('Bu fatura kaydına başka bir belge bağlı.', 409);
-    await db.prepare("UPDATE purchase_documents SET status='linked',invoice_id=? WHERE id=? AND invoice_id IS NULL").bind(invoice.id, doc.id).run();
+    const linked = await db.prepare("UPDATE purchase_documents SET status='linked',invoice_id=? WHERE id=? AND invoice_id IS NULL AND NOT EXISTS(SELECT 1 FROM purchase_documents WHERE invoice_id=? AND id!=?) RETURNING invoice_id").bind(invoice.id, doc.id, invoice.id, doc.id).all();
+    if (!linked.results.length) fail('Belge veya fatura bu sırada başka bir kayda bağlandı. Listeyi yenileyin.', 409);
     return {ok: true, invoice_id: invoice.id, notice: 'Özgün belge fatura kaydına bağlandı. Belge saklanır; kayıt silinemez.'};
   }
 
@@ -434,9 +440,9 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
 
     // Mevcut bağlantılar ÜSTÜNE YAZILMAZ. Aynısı zaten varsa tekrar sayılmaz; çelişki varsa
     // bildirilir ve o satır atlanır. Sessiz düzeltme yok.
-    const prior = (await db.prepare(`SELECT page_no,invoice_id FROM purchase_document_pages
+    const prior = (await db.prepare(`SELECT document_id,page_no,invoice_id FROM purchase_document_pages
       WHERE document_id=? OR invoice_id IN (SELECT value FROM json_each(?))`).bind(doc.id, ids).all()).results;
-    const byPage = new Map(prior.filter(r => r.page_no !== undefined).map(r => [r.page_no, r.invoice_id]));
+    const byPage = new Map(prior.filter(r => r.document_id === doc.id).map(r => [r.page_no, r.invoice_id]));
     const byInvoice = new Map(prior.map(r => [r.invoice_id, r.page_no]));
     const created = [], same = [], conflicts = [];
     for (const p of wanted) {
@@ -446,11 +452,24 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
       if (invoiceHas !== undefined) { conflicts.push({page_no: p.page_no, reason: 'Bu fatura zaten ' + invoiceHas + '. sayfaya bağlı.'}); continue; }
       created.push(p);
     }
+    let inserted = 0;
     if (created.length) {
-      await db.batch(created.map(p => db.prepare('INSERT INTO purchase_document_pages(id,document_id,page_no,invoice_id,doc_no,doc_uuid,created_by) VALUES(?,?,?,?,?,?,?)')
+      const results = await db.batch(created.map(p => db.prepare('INSERT INTO purchase_document_pages(id,document_id,page_no,invoice_id,doc_no,doc_uuid,created_by) VALUES(?,?,?,?,?,?,?) ON CONFLICT DO NOTHING RETURNING page_no')
         .bind(id(), doc.id, p.page_no, p.invoice_id, p.doc_no, p.doc_uuid, user.id || 'owner')));
+      const skipped = created.filter((p, i) => !results[i].results.length);
+      inserted = created.length - skipped.length;
+      // İki çağrı aynı eski durumu okumuş olabilir. Tekillik hiçbir bağı ezmez; kaybetmiş
+      // çağrı yazılmayan satırları başarı saymadan gerçek bağlantı üzerinden cevap verir.
+      if (skipped.length) {
+        const current = (await db.prepare('SELECT document_id,page_no,invoice_id FROM purchase_document_pages WHERE document_id=? OR invoice_id IN (SELECT value FROM json_each(?))')
+          .bind(doc.id, JSON.stringify(skipped.map(p => p.invoice_id))).all()).results;
+        for (const p of skipped) {
+          if (current.some(r => r.document_id === doc.id && r.page_no === p.page_no && r.invoice_id === p.invoice_id)) same.push(p.page_no);
+          else conflicts.push({page_no: p.page_no, reason: 'Sayfa veya fatura bu sırada başka bir kayda bağlandı; mevcut bağlantı korunuyor.'});
+        }
+      }
     }
-    return {document_id: doc.id, created: created.length, already_linked: same.length, conflicts,
+    return {document_id: doc.id, created: inserted, already_linked: same.length, conflicts,
       notice: 'Belge tek kopya olarak durur; her fatura kendi sayfasına bağlandı. Bu işlem borç veya stok yazmaz.'};
   }
   return null;

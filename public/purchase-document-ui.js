@@ -26,7 +26,6 @@ function b64(bytes) {
   return btoa(s);
 }
 
-const STEPS = [['document', 'Tedarikçi ve belge'], ['lines', 'Satırlar'], ['allocate', 'Çeşit dağılımı'], ['confirm', 'Kontrol ve onay']];
 
 // OTOMATİK İŞLEME KAPISI — SAF VE DIŞA AÇIK. Bu karar deftere borç ve stok yazdırır, bu yüzden
 // durumdan bağımsız olarak test edilebilir olmalıdır. İçeriden `otomatikEngel()` çağrılır.
@@ -100,10 +99,10 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
   };
 
   /* ---------------- görünüm ---------------- */
-  const steps = () => `<ol class="pd-steps">${STEPS.map(([k, t], i) => {
-    const at = STEPS.findIndex(s => s[0] === state.step);
-    return `<li ${state.step === k ? 'aria-current="step"' : ''} class="${state.step === k ? 'active' : at > i ? 'done' : ''}"><b>${i + 1}</b>${esc(t)}</li>`;
-  }).join('')}</ol>`;
+  const steps = () => {
+    const at=state.step==='pick'?0:state.step==='confirm'?2:state.step==='summary'?3:1;
+    return '<ol class="pd-steps" aria-label="Belgeden kayda ilerleme">'+[['Dosya seç','PDF veya XML'],['Kontrol et','Belge ve ürünler'],['Kaydı tamamla','Fatura ve teslimat']].map(([title,help],i)=>'<li '+(i===at?'aria-current="step"':'')+' class="'+(i===at?'active':i<at?'done':'')+'"><b>'+(i<at?'✓':i+1)+'</b><div><strong>'+title+'</strong><small>'+help+'</small></div></li>').join('')+'</ol>';
+  };
 
   const status = () => `${state.error ? `<p class="pd-alert error" role="alert">${esc(state.error)}</p>` : ''}` +
     `${state.message ? `<p class="pd-alert ok" role="status">${esc(state.message)}</p>` : ''}` +
@@ -119,18 +118,13 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
   }
 
   function pickView() {
-    return `<section class="v2-card v2-card-body pd-intake">
-      <h2>Tedarikçinin faturasını seç</h2>
-      <p class="pd-muted">PDF veya UBL XML yükleyebilirsin. Birden fazla dosya seçersen sırayla işlenir.</p>
+    return `<div class="pd-intake-shell"><section class="pd-intake" aria-label="Fatura dosyası seçimi">
+      <div class="pd-panel-heading"><span class="eyebrow">YENİ ALIŞ BELGESİ</span><h2>Faturanı buraya bırak</h2><p>Tek dosya veya birden fazla fatura. İşlem sırayla ilerler.</p></div>
       <label class="pd-drop" data-pd-drop><input type="file" accept=".pdf,application/pdf" data-pd="file" multiple aria-label="Alış faturası PDF dosyalarını seç">
-        <strong>PDF dosyası seç</strong><span>Bilgisayarda buraya da sürükleyebilirsin · dosya başına en çok ${PDF_LIMITS.fileBytes / 1024 / 1024} MB</span></label>
-      <div class="pd-alt">
-        <label class="secondary pd-file">UBL XML seç<input type="file" accept=".xml,application/xml,text/xml" data-pd="xml" multiple aria-label="Alış faturası UBL XML dosyalarını seç"></label>
-        <button class="secondary" type="button" data-pd="manual">Dosyam yok, elle gireceğim</button>
-      </div>
-      <p class="pd-alert info"><strong>Yükleyince ne olur?</strong> Belge saklanır. Satırlar ve toplamlar doğrulanır, ürünler eşleşirse fatura otomatik muhasebeleşir ve fatura tarihiyle stoğa alınabilir. Eksik veya şüpheli bilgide işlem durur, kontrol ekranı açılır.</p>
-      <details class="workflow-details"><summary>Taranmış PDF ve teslimat hakkında</summary><p>Yazısı okunamayan PDF sayfa görüntüsünden okunur. Görüntüden okunan belirsiz bilgiler işaretlenir. Otomatik doğrulama tamamlanamazsa senin kontrolüne açılır. Doğrudan JPG/PNG fotoğraf yerine PDF veya XML seç.</p><p>Mal henüz gelmediyse elle fatura girişini kullan; teslim aldıkça kayıtlı faturadan “Mal teslimi” gir. Faturasız kaydettiğin malı ikinci kez sayımdan ekleme.</p></details>
-    </section>`;
+        <span class="pd-upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 16V4m-4 4 4-4 4 4M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></svg></span><strong>PDF dosyası seç</strong><span>ya da dosyalarını bu alana sürükle</span><small>PDF · dosya başına en çok ${PDF_LIMITS.fileBytes / 1024 / 1024} MB</small></label>
+      <div class="pd-alt"><label class="secondary pd-file">UBL XML seç<input type="file" accept=".xml,application/xml,text/xml" data-pd="xml" multiple aria-label="Alış faturası UBL XML dosyalarını seç"></label><button class="secondary" type="button" data-pd="manual">Dosyam yok, elle gireceğim</button></div>
+      <p class="pd-file-help">Taranmış PDF de okunabilir. JPG/PNG fotoğraf yerine PDF veya XML kullan.</p>
+    </section><aside class="pd-intake-guide" aria-label="Fatura işlem rehberi"><span class="eyebrow">SONRA NE OLUR?</span><h2>Belgen kaybolmaz.<br>Kayıt adım adım oluşur.</h2><ol class="pd-guide-list"><li><b>1</b><div><strong>Belge okunur</strong><p>Tedarikçi, ürün satırları ve toplamlar çıkarılır.</p></div></li><li><b>2</b><div><strong>Eksikler önüne gelir</strong><p>Ürün eşleşmesi veya tutar belirsizse kontrol için durur.</p></div></li><li><b>3</b><div><strong>Sonucu burada görürsün</strong><p>Muhasebeleşen, stoğa giren ve kontrol bekleyen dosyalar ayrı gösterilir.</p></div></li></ol><div class="pd-auto-note"><strong>Otomatik işlem açık</strong><p>Doğrulanan ve eşleşen fatura borç oluşturabilir; mal fatura tarihiyle stoğa alınabilir.</p></div><details class="workflow-details"><summary>Mal henüz gelmediyse</summary><p>Elle fatura girişini kullan. Teslim aldıkça kayıtlı faturadan “Mal teslimi” gir. Faturasız kaydettiğin malı ikinci kez sayımdan ekleme.</p></details></aside></div>`;
   }
 
   function documentView() {
@@ -138,7 +132,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     const matched = h.supplier_tax_id ? suppliers.find(s => s.tax_id === h.supplier_tax_id) : null;
     const selectedSupplier=state.supplierId??matched?.id??'';
     const unsure = k => h.uncertain?.includes(k);
-    return `<section class="v2-card v2-card-body"><h2>1 · Tedarikçi ve belge</h2>
+    return `<section class="v2-card v2-card-body"><h2>Tedarikçi ve belge</h2>
       <p class="pd-muted">Belgeden okunanlar aşağıda. <span class="pd-flag">kontrol et</span> işaretli alanlar kesin okunamadı.</p>
       <form data-pd-form="document"><div class="pd-grid">
         <label>Tedarikçi<select name="supplier_id"><option value="">— yeni tedarikçi —</option>
@@ -211,7 +205,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
   }
 
   function linesView() {
-    return `<section class="v2-card v2-card-body"><h2>2 · Satırlar</h2>
+    return `<section class="v2-card v2-card-body"><h2>Ürün satırlarını kontrol et</h2>
       <p class="pd-muted">Özgün belgeyi açarak her satırı karşılaştır; eksik okunan alanı kendin doldur.
         Bir satır aynı boyun birkaç çeşidini içeriyorsa (örneğin bitki besini 500 ml) ürün ailesini seç — adetleri sonraki adımda gireceksin.</p>
       ${familiesPanel()}
@@ -233,11 +227,11 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
   function allocateView() {
     const familyLines = state.lines.map((l, i) => ({...l, i})).filter(l => l.family_id && l.line_type !== 'expense');
     if (!familyLines.length)
-      return `<section class="v2-card v2-card-body"><h2>3 · Çeşit dağılımı</h2>
+      return `<section class="v2-card v2-card-body"><h2>Çeşit dağılımı</h2>
         <p class="pd-alert info">Bu faturada çeşide dağıtılacak satır yok.</p>
         <div class="pd-actions"><button class="secondary pd-left" type="button" data-pd="back-lines">← Geri</button>
           <button class="primary" type="button" data-pd="to-confirm">Kontrole geç →</button></div></section>`;
-    return `<section class="v2-card v2-card-body"><h2>3 · Çeşit dağılımı</h2>
+    return `<section class="v2-card v2-card-body"><h2>Çeşit dağılımı</h2>
       <p class="pd-muted">Adetleri <b>bu belgedeki gerçek teslim/irsaliye bilgisine göre</b> gir. Önceki faturanın adetleri veya oranı otomatik uygulanmaz.
         Altı çeşidin tümünü almak zorunda değilsin; yalnız gelenleri seç.</p>
       ${familyLines.map(line => {
@@ -285,7 +279,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
         if (!String(l.reason || '').trim()) problems.push('Satır ' + (i + 1) + ': adetlerin kaynağını yaz.');
       }
     }
-    return `<section class="v2-card v2-card-body"><h2>4 · Kontrol ve onay</h2>
+    return `<section class="v2-card v2-card-body"><h2>Son kontrol ve kayıt</h2>
       <div class="pd-totals">${cmp('Genel toplam · KDV dahil', net + tax, d.gross)}${cmp('Satırların net toplamı · KDV hariç', net, d.net)}${cmp('Satırların KDV toplamı', tax, d.tax)}</div>
       <p class="pd-muted">Belgedeki toplam okunamadıysa karşılaştırma yapılamaz; tutarları belgeden kendin doğrula. Belge düzeyi iskonto veya farklı vergi yapısı varsa satırlar elle düzeltilmelidir.</p>
       ${problems.length ? `<p class="pd-alert warn">Kesinleştirmeden önce: <br>${problems.map(esc).join('<br>')}</p>` : '<p class="pd-alert ok">Eksik görünmüyor.</p>'}
@@ -300,12 +294,12 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     const body = state.step === 'pick' ? pickView() : state.step === 'document' ? documentView()
       : state.step === 'summary' ? ozetView()
         : state.step === 'lines' ? linesView() : state.step === 'allocate' ? allocateView() : confirmView();
-    const withPreview = state.step !== 'pick';
+    const withPreview = !['pick','summary'].includes(state.step), original=withPreview?preview():'';
     root.innerHTML = `<div class="pd workflow-page">
-      <div class="pd-head"><div><span class="eyebrow">İşlemler / Alış faturası</span><h1>Alış faturası yükle</h1><p class="pd-muted">Belgeyi yükle, oku, kontrol et, onayla.</p></div>
+      <div class="pd-head"><div><span class="eyebrow">ALIŞLAR / BELGE ÇALIŞMA ALANI</span><h1>Alış faturası yükle</h1><p class="pd-muted">Dosyadan stok ve cari kaydına, tek akış.</p></div>
         <button class="secondary" type="button" data-pd="close">← Alış faturaları</button></div>
-      ${state.step === 'pick' ? '' : steps()}${status()}
-      ${withPreview ? `<div class="pd-split"><div class="pd-work">${body}</div>${preview()?`<details class="workflow-details pd-document-preview"><summary>Özgün belgeyi göster</summary>${preview()}</details>`:''}</div>` : body}
+      ${steps()}${status()}
+      ${withPreview ? `<div class="pd-split ${original?'':'pd-no-preview'}"><div class="pd-work">${body}</div>${original?`<details class="workflow-details pd-document-preview" ${window.matchMedia('(min-width:1000px)').matches?'open':''}><summary>Özgün belgeyi göster</summary>${original}</details>`:''}</div>` : body}
       ${state.busy ? '<p class="rb-busy" role="status">İşleniyor…</p>' : ''}</div>`;
     root.setAttribute('aria-busy',String(state.busy));
     if(state.busy)for(const control of root.querySelectorAll('button,input,select,textarea'))control.disabled=true;

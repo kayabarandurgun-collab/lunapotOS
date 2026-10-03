@@ -47,7 +47,7 @@ test('local browser: owner/reader physical stock, table, count preview, CSV and 
    }else{
     const countButton=page.locator('[data-ac="stock"]');assert.ok(await countButton.count()===0||!await countButton.isVisible()||await countButton.isDisabled(),'reader cannot enter a stock count');
    }
-   await page.locator('[data-ac-form="stock-filters"] [name=view]').selectOption('table');await page.locator('.product-table').first().waitFor();
+   await page.locator('.stock-refinements>summary').click();await page.locator('[data-ac-form="stock-filters"] [name=view]').selectOption('table');await page.locator('.product-table').first().waitFor();
    assert.ok((await page.locator('.product-table thead').first().innerText()).includes('Kargoda · depodan çıktı'));
    // A download is read-only; inspect its stream without writing any artifact to disk.
    const downloadEvent=page.waitForEvent('download');await page.locator('[data-ac="stock-csv"]').click();const download=await downloadEvent;

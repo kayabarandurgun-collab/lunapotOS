@@ -27,7 +27,7 @@ test('navigation requires an explicit workspace envelope and preserves existing 
   assert.deepEqual(navigationGroups('ec',ec,user),[]);assert.deepEqual(navigationGroups('lp',lp,user),[]);
  }
  const staff={ec_access:'read',lp_access:'read',permissions:{ec:{orders:'read'},lp:{recipes:'read'}}};
- assert.deepEqual(navigationGroups('ec',ec,staff).flatMap(g=>g.routes),['overview','reports','orders']);
+ assert.deepEqual(navigationGroups('ec',ec,staff).flatMap(g=>g.routes),['overview','orders','reports']);
  assert.deepEqual(navigationGroups('lp',lp,staff).flatMap(g=>g.routes),['dashboard','recipes','barcodes','lots']);
 });
 
@@ -104,6 +104,7 @@ test('local browser: navigation discovery, permissions, current page, keyboard a
     if(role==='owner')assert.equal(await page.locator('.ui-command-result[href="/access"] span').innerText(),'Ekip ve yetkiler');
     else assert.equal(await page.locator('.ui-command-result[href="/access"]').count(),0);
     await close(page);
+    if(!await page.locator('.workspace-switch').isVisible())await page.locator('[data-dock-menu]').click();
     await page.locator('.workspace-switch').click();
     assert.equal(await page.locator('.workspace-switch-list a[aria-current]').getAttribute('href'),'/');
     assert.equal(await page.locator('.workspace-switch-list a[href="/access"] strong').innerText(),role==='owner'?'Ekip ve erişim':'Hesabım');
@@ -116,6 +117,7 @@ test('local browser: navigation discovery, permissions, current page, keyboard a
     assert.equal(await page.locator('#ws-nav a[aria-current]').getAttribute('href'),'#orders');
     if(width<800&&!await page.locator('.ws-navigation').evaluate(el=>el.open))await page.locator('.ws-navigation>summary').click();
     assert.equal(await page.locator('#ws-nav a[href="#outbox"]').isVisible(),role==='owner');
+    if(!await page.locator('.workspace-switch').isVisible())await page.locator('[data-dock-menu]').click();
     await page.locator('.workspace-switch').click();
     assert.equal(await page.locator('.workspace-switch-list a[aria-current]').getAttribute('href'),'/webmagaza/');
     await page.keyboard.press('Escape');await page.locator('.workspace-switch-dialog').waitFor({state:'detached'});
@@ -132,10 +134,11 @@ test('local browser: navigation discovery, permissions, current page, keyboard a
   await t.test('restricted browser fixture exposes only assigned destinations, including collapsed aliases',()=>withPage(390,async(page,start)=>{
    await start('/eticaret/#overview','reader');await open(page);
    const routes=await page.locator('.ui-command-result[href^="/eticaret/#"]').evaluateAll(links=>links.map(a=>a.hash));
-   assert.deepEqual(routes,['#overview','#reports','#orders']);
+   assert.deepEqual(routes,['#overview','#orders','#reports']);
    await close(page);
    assert.deepEqual(await page.locator('.mobile-dock a').evaluateAll(links=>links.map(a=>a.hash)),['#overview','#reports']);
-   await page.locator('.workspace-switch').click();
+   if(!await page.locator('.workspace-switch').isVisible())await page.locator('[data-dock-menu]').click();
+    await page.locator('.workspace-switch').click();
    assert.deepEqual(await page.locator('.workspace-switch-list a').evaluateAll(links=>links.map(a=>a.getAttribute('href'))),['/','/eticaret/#overview','/access']);
    await page.keyboard.press('Escape');await page.locator('.workspace-switch-dialog').waitFor({state:'detached'});
    await start('/','reader');await open(page);

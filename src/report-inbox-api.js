@@ -869,6 +869,21 @@ const FEE_COMPONENT = {commission: 'commission', cargo: 'shipping', service: 'ot
 export async function applyReportFees(db, storeId, {commit = false, cursor = 0, take = 50} = {}) {
   const store = await db.prepare('SELECT * FROM ec_report_stores WHERE id=?').bind(key(storeId)).first();
   if (!store) fail('Mağaza bulunamadı.', 404);
+  // Rapor kayıtları silinemez; içerik değişiminde sürüm artar. Hesap başlamadan alınan
+  // bu damga, eski bir hesabın daha yeni raporu veya güncellenmiş kesintiyi ezmesini önler.
+  const revisionSQL = 'SELECT COUNT(*) records,COALESCE(SUM(version),0) versions FROM ec_report_records WHERE store_id=?';
+  const revision = commit ? await db.prepare(revisionSQL).bind(store.id).first() : null;
+  async function feeBatch(expected, statements) {
+    const guard = db.prepare("INSERT INTO ec_report_write_guard(code) SELECT 'fee-transfer' WHERE " +
+      "(SELECT COUNT(*) FROM ec_report_records WHERE store_id=?)!=? OR (SELECT COALESCE(SUM(version),0) FROM ec_report_records WHERE store_id=?)!=? OR " +
+      "EXISTS(SELECT 1 FROM json_each(?) j LEFT JOIN ec_sale_entries s ON s.id=json_extract(j.value,'$.sale_id') WHERE s.id IS NULL " +
+      "OR s.commission_cents IS NOT json_extract(j.value,'$.commission') OR s.shipping_cents IS NOT json_extract(j.value,'$.shipping') OR s.other_cents IS NOT json_extract(j.value,'$.other') " +
+      "OR (json_extract(j.value,'$.status') IS NOT NULL AND s.fees_status IS NOT json_extract(j.value,'$.status')) " +
+      "OR EXISTS(SELECT 1 FROM ec_fee_allocations a WHERE a.sale_id=s.id AND a.reversed_at IS NULL))")
+      .bind(store.id, revision.records, store.id, revision.versions, JSON.stringify(expected));
+    try { return await db.batch([guard, ...statements]); }
+    catch (error) { if (/REPORT_STALE_WRITE|RECONCILED_FEE_LOCKED/.test(String(error.message))) fail('Rapor veya satış kesintileri işlem sırasında değişti. Güncel kayıtlarla yeniden deneyin; eski hesap yazılmadı.', 409); throw error; }
+  }
   const {results, total_orders, next_cursor} = await allPackages(db, store, {cursor, take});
   const writes = [], skipped = [], changes = [];
   // ERP'DE KARŞILIĞI OLMAYAN PAKET DE SEBEBİYLE LİSTELENİR. Eskiden sessizce eleniyordu: kullanıcı
@@ -966,7 +981,7 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
       const next = {commission: parts.commission[i], shipping: parts.shipping[i], other: parts.other[i]};
       if (r.commission_cents === next.commission && r.shipping_cents === next.shipping && r.other_cents === next.other
         && r.fees_status === 'confirmed') return;
-      changes.push({sale_id: r.sale_id, group: g.group, erp_package_id: g.erp_package_id,
+      changes.push({sale_id: r.sale_id, group: g.group, erp_package_id: g.erp_package_id, expected_status: r.fees_status,
         before: {commission: r.commission_cents, shipping: r.shipping_cents, other: r.other_cents},
         after: next});
     });
@@ -1015,7 +1030,7 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
         after: {commission: src.commission_cents, shipping: src.shipping_cents, other: src.other_cents}});
     }
   }
-  if (commit && ikizeTasi.length) for (const part of inChunks(ikizeTasi, 40)) await db.batch(part.flatMap(t => [
+  if (commit && ikizeTasi.length) for (const part of inChunks(ikizeTasi, 40)) await feeBatch(part.map(t => ({sale_id: t.sale_id, commission: null, shipping: null, other: null})), part.flatMap(t => [
     db.prepare("UPDATE ec_sale_entries SET commission_cents=?,shipping_cents=?,other_cents=?,fees_status='confirmed' WHERE id=? AND commission_cents IS NULL AND shipping_cents IS NULL AND other_cents IS NULL")
       .bind(t.after.commission, t.after.shipping, t.after.other, t.sale_id),
     db.prepare('INSERT INTO ec_fee_audit(id,sale_id,old_values,new_values) VALUES(?,?,?,?)').bind(id(), t.sale_id,
@@ -1032,7 +1047,7 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
       " JOIN ec_sale_entries r ON r.parent_id=c.sale_id WHERE l.package_id=? AND r.kind='return' AND (r.external_id LIKE 'IADE-%' OR r.external_id LIKE 'TESLIM-EDILEMEDI-%')").bind(w.erp_package_id).all()).results;
     for (const r of rs) if (r.commission_cents !== 0 || r.shipping_cents !== 0 || r.other_cents !== 0 || r.fees_status !== 'confirmed') iadeDuzelt.push(r);
   }
-  if (commit && iadeDuzelt.length) await db.batch(iadeDuzelt.flatMap(r => [
+  if (commit && iadeDuzelt.length) await feeBatch(iadeDuzelt.map(r => ({sale_id: r.id, commission: r.commission_cents, shipping: r.shipping_cents, other: r.other_cents, status: r.fees_status})), iadeDuzelt.flatMap(r => [
     db.prepare("UPDATE ec_sale_entries SET commission_cents=0,shipping_cents=0,other_cents=0,fees_status='confirmed' WHERE id=?").bind(r.id),
     db.prepare('INSERT INTO ec_fee_audit(id,sale_id,old_values,new_values) VALUES(?,?,?,?)').bind(id(), r.id,
       JSON.stringify({commission: r.commission_cents, shipping: r.shipping_cents, other: r.other_cents}),
@@ -1040,7 +1055,7 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
   ]));
   if (commit && changes.length) {
     for (const part of inChunks(changes, 40)) {
-      await db.batch(part.flatMap(c => [
+      await feeBatch(part.map(c => ({sale_id: c.sale_id, ...c.before, status: c.expected_status})), part.flatMap(c => [
         // Üç bileşen de bilindiği için 'confirmed': kaynak pazaryerinin KENDİ hesap raporudur.
         // Sonradan fatura gelirse devralma koruması (FEE_TAKEOVER_REQUIRED) yine devrededir.
         db.prepare("UPDATE ec_sale_entries SET commission_cents=?,shipping_cents=?,other_cents=?,fees_status='confirmed' WHERE id=?")

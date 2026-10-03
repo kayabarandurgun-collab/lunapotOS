@@ -46,6 +46,6 @@ function openPalette(){
 export function enhanceNavigationSearch(){
  const host=document.querySelector('.workspace .header-actions,.launchpad .top-actions');if(!host||host.querySelector('[data-quick-nav]'))return;
  const shortcut=/Mac|iPhone|iPad/.test(navigator.platform)?'⌘ K':'Ctrl K';
- const button=document.createElement('button');button.type='button';button.className='ui-quick-nav';button.dataset.quickNav='';button.setAttribute('aria-label','Hızlı geçiş: ekran ara');button.setAttribute('aria-haspopup','dialog');button.setAttribute('aria-keyshortcuts','Control+K Meta+K');button.innerHTML=searchIcon+'<span>Hızlı geçiş</span><kbd aria-hidden="true">'+shortcut+'</kbd>';button.addEventListener('click',openPalette);host.prepend(button);
+ const button=document.createElement('button');button.type='button';button.className='ui-quick-nav';button.dataset.quickNav='';button.setAttribute('aria-label','Hızlı geçiş: ekran ara');button.setAttribute('aria-haspopup','dialog');button.setAttribute('aria-keyshortcuts','Control+K Meta+K');button.innerHTML=searchIcon+'<span>İşlem ara</span><kbd aria-hidden="true">'+shortcut+'</kbd>';button.addEventListener('click',openPalette);host.prepend(button);
 }
 window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&!e.isComposing&&e.key.toLowerCase()==='k'&&!document.querySelector('dialog[open]')&&document.querySelector('[data-quick-nav]')){e.preventDefault();openPalette();}});

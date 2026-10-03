@@ -99,7 +99,7 @@ test('keyboard interactions: mobile drawer, responsive focus, skip link and nati
     ['/eticaret/#stock','[data-quick-nav]'],
     ['/eticaret/#stock','.workspace-switch']
    ]){
-    await start(path,width);await page.locator(opener).focus();await page.keyboard.press('Enter');
+    await start(path,width);if(opener==='[data-ac="product"]')await page.locator('.stock-task-help>summary').click();if(width<801&&opener==='.workspace-switch')await page.locator('[data-dock-menu]').click();await page.locator(opener).focus();await page.keyboard.press('Enter');
     const dialog=page.locator('dialog[open]');await dialog.waitFor();
     const semantics=await dialog.evaluate(d=>({modal:d.matches(':modal'),ownsFocus:d.contains(document.activeElement),label:d.getAttribute('aria-label'),names:(d.getAttribute('aria-labelledby')||'').split(/\s+/).filter(Boolean).map(id=>{const h=document.getElementById(id);return {text:h?.textContent.trim(),visible:!!h?.checkVisibility({visibilityProperty:true})};})}));
     assert.equal(semantics.modal,true);assert.equal(semantics.ownsFocus,true);

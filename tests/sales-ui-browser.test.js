@@ -27,7 +27,7 @@ test('sales UI local preview: desktop/mobile, filters, drilldowns, CSV, pending,
     if(scenario==='empty'){assert.match(await page.locator('.sales-report').innerText(),/Bu dönemde satış kaydı yok/);return;}
     assert.ok(await page.locator('.sales-row').count()>0);
     const totals=await page.locator('.ins-report-kpis').innerText(),returns=await page.locator('.sales-return-summary').innerText();
-    await page.selectOption('[name="kind"]','bundle');await page.locator('[data-performance-filter] button[type="submit"]').click();
+    assert.ok((await page.locator('.ins-report-kpis').boundingBox()).y<530,'money summary visible before expanded filters');await page.locator('.sales-filter-disclosure>summary').click();await page.selectOption('[name="kind"]','bundle');await page.locator('[data-performance-filter] button[type="submit"]').click();
     assert.equal(await page.locator('.ins-report-kpis').innerText(),totals);assert.equal(await page.locator('.sales-return-summary').innerText(),returns);
     assert.ok(page.url().includes('view=sales')&&page.url().includes('kind=bundle'));
     const rows=page.locator('.sales-row');assert.ok(await rows.count()>0,'seeded orchid kit present');
@@ -44,9 +44,9 @@ test('sales UI local preview: desktop/mobile, filters, drilldowns, CSV, pending,
     assert.match(text,/Sipariş/);assert.match(download.suggestedFilename(),/lunapot-packages-delivered/);
     await page.locator('[data-mode="pending"]').click();await loaded();
     const pending=await page.locator('.sales-pending-status').innerText();assert.match(pending,/Hazırlanan/);assert.match(pending,/Kargoda/);await noOverflow();
-    await start('#overview',scenario);await page.locator('[data-sales-rankings]').waitFor();
+    await start('#overview',scenario);await page.locator('[data-sales-rankings]').waitFor({state:'attached'});await page.locator('[data-disclosure="offerings"]>summary').click();
     const kpi=await page.locator('.insights-panorama .ins-kpis').boundingBox(),date=await page.locator('.insights-panorama .ins-date-disclosure').boundingBox();
-    assert.ok(kpi.y<date.y,'financial summary precedes date controls');await noOverflow();
+    assert.ok(date.y<kpi.y,'date scope precedes financial summary');await noOverflow();
     await page.selectOption('[data-panorama-kind]','multipack');assert.match(await page.locator('[data-product-panel="profit"]').innerText(),/Çoklu paket/);
     await page.locator('[data-product-view="profit"]').focus();await page.keyboard.press('End');
     assert.equal(await page.locator('[data-product-view="revenue"]').getAttribute('aria-selected'),'true');

@@ -38,9 +38,10 @@ function showAreas(button){
 export function enhanceWorkspaceFrame(){
  if(!document.body.classList.contains('workspace-redesign'))return;
  const header=document.querySelector('.workspace>header .header-actions,.top-actions,.ws-top>div');
- if(header&&ready&&!header.querySelector('.workspace-switch')){
+ const switchHost=document.querySelector('#sidebar')||header;
+ if(switchHost&&ready&&!switchHost.querySelector('.workspace-switch')){
   const b=document.createElement('button');b.type='button';b.className='workspace-switch';b.setAttribute('aria-haspopup','dialog');b.setAttribute('aria-label','Çalışma alanını değiştir');
-  b.innerHTML=icon('overview')+'<span>Çalışma alanı</span><small>⌄</small>';b.onclick=()=>showAreas(b);header.append(b);
+  const area=areas.find(a=>a.key===ns());b.innerHTML=icon(area?.icon||'overview')+'<span>'+esc(area?.title||'Çalışma alanı')+'</span><small>⌄</small>';b.onclick=()=>showAreas(b);if(switchHost.id==='sidebar')switchHost.querySelector('.brand')?.after(b);else switchHost.append(b);
   header.querySelector('.app-launcher-link')?.setAttribute('hidden','');
  }
  const tasks=workspaceTaskDestinations();

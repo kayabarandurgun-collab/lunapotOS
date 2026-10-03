@@ -72,10 +72,10 @@ test('overview ranks sales only, keeps complete names, tags and date-scoped sale
  const noContract=panoramaSalesMarkup({...p,sales:undefined});assert.match(noContract,/Satış biçimi bilgisi henüz alınamadı/);assert.doesNotMatch(noContract,/WRONG STOCK PROFIT/);
  assert.doesNotMatch(panoramaSalesMarkup(p,{kind:'bundle'}),/Genel bitki besini/);
 });
-test('overview puts financial summary before date controls and separates pending statuses without borrowing total count',()=>{
+test('overview scopes the financial summary with date controls and separates pending statuses without borrowing total count',()=>{
  const p={key:'custom',...range,packages:1,calculated:1,cash_cents:2000,revenue_gross_cents:12000,channels:{},sales:{rows:[]}};
  const html=panoramaDetailMarkup({daily:[],pending:{packages:124,cash_cents:10000,preparing:{packages:100,cash_cents:7000},shipped:{packages:24,cash_cents:3000}}},p,{dateControls:'DATE-CONTROLS-MARKER'});
- assert.ok(html.indexOf('ins-kpis')<html.indexOf('DATE-CONTROLS-MARKER'));assert.match(html,/Hazırlanan<\/span><strong>100/);assert.match(html,/Kargoda<\/span><strong>24/);
+ assert.ok(html.indexOf('DATE-CONTROLS-MARKER')>=0 && html.indexOf('DATE-CONTROLS-MARKER')<html.indexOf('ins-kpis'));assert.match(html,/Hazırlanan<\/span><strong>100/);assert.match(html,/Kargoda<\/span><strong>24/);
  const unknown=pendingStatusMarkup({packages:124,cash_cents:0});assert.doesNotMatch(unknown,/124|₺0,00/);assert.match(unknown,/Bilgi eksik/);
 });
 test('paged sales reports publish only at terminal cursor and keep return-only pages',async()=>{

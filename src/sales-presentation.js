@@ -12,7 +12,7 @@ const NOTE = 'Stok bileşeni katkısıdır; tek başına satılan ürün kârı 
 const SEKIL = ['tek', 'set'], sekilAdi = kind => kind === 'bundle' ? 'set' : 'tek';
 
 // Largest remainder, stable caller order, signed integer cents; even allocation when every weight is zero.
-function allocate(total, weights) {
+export function allocateCents(total, weights) {
   if (!money(total)) return weights.map(() => null);
   if (!weights.length) return [];
   const ws = weights.some(w => w > 0) ? weights.map(w => Math.max(0, w)) : weights.map(() => 1);
@@ -54,7 +54,7 @@ export function offeringComposition(line, parts, names = new Map()) {
     kind, components};
 }
 
-export function buildSalesPresentation(row, lines, parts, entries, {names = new Map(), feeVat, pending = false, componentCost = () => null, lineQuotes = []} = {}) {
+export function buildSalesPresentation(row, lines, parts, entries, {names = new Map(), feeVat, pending = false, componentCost = () => null, costVatFallback = null, lineQuotes = []} = {}) {
   const sorted = [...lines].sort((a, b) => compare(a.id, b.id));
   const items = [], pieces = [];
   for (const line of sorted) {
@@ -93,7 +93,7 @@ export function buildSalesPresentation(row, lines, parts, entries, {names = new 
       } else if (pending) {
         const own = es.filter(e => e.kind === 'sale');
         x.revenue_weight = own.length ? sum(own, 'revenue_cents') : c.revenue_share_bps;
-        x.cost_gross_cents = own.length ? sum(own.map(e => ({v: inc(e.cost_cents, e.vat_bps)})), 'v') : inc(componentCost(c), c.urun_kdv ?? line.vat_bps);
+        x.cost_gross_cents = own.length ? sum(own.map(e => ({v: inc(e.cost_cents, e.vat_bps ?? costVatFallback)})), 'v') : inc(componentCost(c), c.urun_kdv ?? costVatFallback);
         x.return_cash_cents = 0;
       }
       pieces.push(x);
@@ -121,37 +121,36 @@ export function buildSalesPresentation(row, lines, parts, entries, {names = new 
         withholding_cents: quote?.withholding_cents};
     });
     // Reconcile parcel VAT rounding between lines first. Component rounding stays inside its own line.
-    const lineRevenue = allocate(row.revenue_gross_cents, groups.map(g => Math.max(0, g.gross_cents ?? 0)));
+    const lineRevenue = allocateCents(row.revenue_gross_cents, groups.map(g => Math.max(0, g.gross_cents ?? 0)));
     groups.forEach((g, i) => {
       g.weights = g.pieces.map(p => Math.max(0, p.revenue_weight ?? 0));
-      const shares = allocate(lineRevenue[i], g.weights);
+      const shares = allocateCents(lineRevenue[i], g.weights);
       g.pieces.forEach((p, j) => { p.revenue_gross_cents = shares[j]; });
     });
-    const costs = allocate(row.cost_gross_cents, pieces.map(p => Math.max(0, p.cost_gross_cents ?? 0)));
+    const costs = allocateCents(row.cost_gross_cents, pieces.map(p => Math.max(0, p.cost_gross_cents ?? 0)));
     pieces.forEach((p, i) => { p.cost_gross_cents = costs[i]; });
     const cost = sum(pieces, 'cost_gross_cents'), revenue = sum(pieces, 'revenue_gross_cents'), fixed = sum(groups, 'fixed_cents');
     const weights = lineRevenue.map(v => Math.max(0, v ?? 0));
     // Tariff commissions/withholding belong to their listing; only the remaining parcel costs are shared.
-    const shared = allocate([row.cash_cents, cost, revenue, fixed].every(money) ? revenue - cost - row.cash_cents - fixed : null, weights);
-    const withholding = allocate(row.withholding_cents, lineQuotes.length ? groups.map(g => g.withholding_cents ?? 0) : weights);
+    const shared = allocateCents([row.cash_cents, cost, revenue, fixed].every(money) ? revenue - cost - row.cash_cents - fixed : null, weights);
+    const withholding = allocateCents(row.withholding_cents, lineQuotes.length ? groups.map(g => g.withholding_cents ?? 0) : weights);
     groups.forEach((g, i) => {
-      const deductions = allocate(money(shared[i]) && money(g.fixed_cents) ? shared[i] + g.fixed_cents : null, g.weights);
-      const shares = allocate(withholding[i], g.weights);
+      const deductions = allocateCents(money(shared[i]) && money(g.fixed_cents) ? shared[i] + g.fixed_cents : null, g.weights);
+      const shares = allocateCents(withholding[i], g.weights);
       g.pieces.forEach((p, j) => {
         p.cash_cents = money(deductions[j]) ? p.revenue_gross_cents - p.cost_gross_cents - deductions[j] : null;
         p.withholding_cents = shares[j];
       });
     });
   } else {
-    // Preserve the legacy component totals, including their product-level withholding rounding.
+    // The same largest-remainder shares as the package component view: an expense never
+    // becomes a credit merely because earlier products rounded their shares upward.
     const products = [...new Set(entries.map(e => e.product_id))];
     const productRevenue = products.map(id => pieces.filter(p => p.product_id === id).reduce((n, p) => n + (p.revenue_gross_cents ?? 0), 0));
-    const denominator = productRevenue.reduce((n, v) => n + Math.max(0, v), 0) || 1;
-    let remaining = row.withholding_cents;
+    const productShares = allocateCents(row.withholding_cents, productRevenue);
     products.forEach((id, i) => {
-      const amount = !money(remaining) ? null : i === products.length - 1 ? remaining : Math.round(-row.withholding_cents * Math.max(0, productRevenue[i]) / denominator) * -1;
-      if (money(amount)) remaining -= amount;
-      const ps = pieces.filter(p => p.product_id === id), shares = allocate(amount, ps.map(p => Math.max(0, p.revenue_gross_cents ?? 0)));
+      const amount = productShares[i];
+      const ps = pieces.filter(p => p.product_id === id), shares = allocateCents(amount, ps.map(p => Math.max(0, p.revenue_gross_cents ?? 0)));
       ps.forEach((p, j) => { p.withholding_cents = shares[j]; p.cash_cents = money(p.cash_cents) && money(shares[j]) ? p.cash_cents + shares[j] : null; });
     });
   }
@@ -180,7 +179,7 @@ export function buildSalesPresentation(row, lines, parts, entries, {names = new 
       const base = buckets.map(k => sum(ps.filter(p => p.item.kind === k), 'sold_cash_cents'));
       const revenues = buckets.map(k => ps.filter(p => p.item.kind === k).reduce((n, p) => n + Math.max(0, p.revenue_gross_cents ?? 0), 0));
       const weights = revenues.some(v => v > 0) ? revenues : buckets.map(k => ps.filter(p => p.item.kind === k).length);
-      const shares = allocate(u.cash_cents - base.reduce((n, v) => n + v, 0), weights);
+      const shares = allocateCents(u.cash_cents - base.reduce((n, v) => n + v, 0), weights);
       buckets.forEach((k, i) => { u[k + '_cash_cents'] = base[i] + shares[i]; }); u.return_cash_cents = 0;
     }
     // Şekil kırılımı: tek = single + multipack, set = bundle. Teslim edilenlerde iade etkisi de kendi

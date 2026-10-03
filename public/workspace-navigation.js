@@ -1,7 +1,7 @@
 import {canRoute} from './permissions.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const layouts={
- ec:[['daily','Her gün kullandıkların',['overview','reports','invoices','stock','orders','performance']],['flows','Ürünler ve fiyatlar',['catalog','pricing']],['records','Para ve diğer kayıtlar',['ledger','bank','expenses','documents','sales','reconciliation','offers']],['manage','Yönetim',['integrations','settings']]],
+ ec:[['daily','İşletmem',['overview','orders','stock','reports','invoices','performance','ledger']],['flows','Ürünler ve fiyatlar',['catalog','pricing']],['records','Diğer kayıtlar',['bank','expenses','documents','sales','reconciliation','offers']],['manage','Yönetim',['integrations','settings']]],
  lp:[['daily','Günlük işler',['dashboard','production','materialstock','recipes','costs']],['catalog','Ürün ve hammadde',['products','materials','catalog']],['tracking','Takip ve etiket',['barcodes','lots']],['records','Para ve belgeler',['accounts','ledger','offers','reconciliation']],['manage','Yönetim',['settings','ai']]]
 };
 export function navigationGroups(namespace,titles,user){

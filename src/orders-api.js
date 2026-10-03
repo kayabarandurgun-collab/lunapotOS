@@ -44,9 +44,9 @@ async function mappedComponents(db,channel,line,explicit={},auto=false){
  if(!resolved)return [];
  return componentSnapshots(line,resolved.components,resolved.mapping.id);
 }
-const componentInsert=(db,components)=>statement(db,"INSERT INTO order_line_components(id,line_id,product_id,quantity_milli,revenue_share_bps,stock_unit,mapping_id) SELECT json_extract(value,'$.id'),json_extract(value,'$.line_id'),json_extract(value,'$.product_id'),json_extract(value,'$.quantity_milli'),json_extract(value,'$.revenue_share_bps'),json_extract(value,'$.stock_unit'),json_extract(value,'$.mapping_id') FROM json_each(?)",[JSON.stringify(components)]);
+const componentInsert=(db,components,packageId=null)=>statement(db,"INSERT INTO order_line_components(id,line_id,product_id,quantity_milli,revenue_share_bps,stock_unit,mapping_id) SELECT json_extract(value,'$.id'),json_extract(value,'$.line_id'),json_extract(value,'$.product_id'),json_extract(value,'$.quantity_milli'),json_extract(value,'$.revenue_share_bps'),json_extract(value,'$.stock_unit'),json_extract(value,'$.mapping_id') FROM json_each(?)"+(packageId?" WHERE EXISTS(SELECT 1 FROM order_packages WHERE id=?)":""),[JSON.stringify(components),...(packageId?[packageId]:[])]);
 // BARKOD DA SAKLANIR: ilan kodu ilana özgü olmayabiliyor, kalıcı bağlantının güvenli anahtarı budur.
-const lineInsert=(db,packageId,lines)=>statement(db,"INSERT INTO order_lines(id,package_id,external_id,sku,barcode,name,product_id,quantity_milli,gross_cents,vat_bps,net_revenue_cents) SELECT json_extract(value,'$.id'),?,json_extract(value,'$.external_id'),json_extract(value,'$.sku'),COALESCE(json_extract(value,'$.barcode'),''),json_extract(value,'$.name'),json_extract(value,'$.product_id'),json_extract(value,'$.quantity_milli'),json_extract(value,'$.gross_cents'),json_extract(value,'$.vat_bps'),json_extract(value,'$.net_revenue_cents') FROM json_each(?)",[packageId,JSON.stringify(lines)]);
+const lineInsert=(db,packageId,lines)=>statement(db,"INSERT INTO order_lines(id,package_id,external_id,sku,barcode,name,product_id,quantity_milli,gross_cents,vat_bps,net_revenue_cents) SELECT json_extract(value,'$.id'),?,json_extract(value,'$.external_id'),json_extract(value,'$.sku'),COALESCE(json_extract(value,'$.barcode'),''),json_extract(value,'$.name'),json_extract(value,'$.product_id'),json_extract(value,'$.quantity_milli'),json_extract(value,'$.gross_cents'),json_extract(value,'$.vat_bps'),json_extract(value,'$.net_revenue_cents') FROM json_each(?) WHERE EXISTS(SELECT 1 FROM order_packages WHERE id=?)",[packageId,JSON.stringify(lines),packageId]);
 async function createPackage(env,channel,record){
  const db=env.DB,p=normalized(record),hash=await fingerprint(p),existing=await statement(db,'SELECT * FROM order_packages WHERE channel=? AND external_id=?',[channel,p.external_id]).first();
  if(['trendyol','hepsiburada'].includes(channel)&&p.lines.some(l=>l.quantity_milli%1000!==0))fail('Pazaryeri sipariş adedi tam sayı olmalı.');
@@ -65,9 +65,14 @@ async function createPackage(env,channel,record){
  }
  const key=id(),components=[];for(const l of p.lines){l.id=id();const rows=await mappedComponents(db,channel,l,l,true);components.push(...rows);l.product_id=rows.length===1?rows[0].product_id:null;}
  if(components.length>20)fail('Ücretsiz işlem sınırı için paket en fazla 20 stok bileşeni içerebilir.',409);
- const items=[statement(db,'INSERT INTO order_packages(id,channel,external_id,order_no,occurred_on,external_status,source_fingerprint) VALUES(?,?,?,?,?,?,?)',[key,channel,p.external_id,p.order_no,p.occurred_on,p.external_status,hash]),lineInsert(db,key,p.lines)];
- if(components.length)items.push(componentInsert(db,components));
- await execute(db,items);return {id:key,status:'draft',existing:false,conflict:false};
+ // Tekillik kontrolü aynı yazma işleminin içinde tekrarlanır. İki kaynak aynı anda boş
+ // sonuç okumuş olsa da yalnız biri paket açabilir; diğerinin alt satırları da yazılmaz.
+ const items=[statement(db,"INSERT INTO order_packages(id,channel,external_id,order_no,occurred_on,external_status,source_fingerprint) SELECT ?,?,?,?,?,?,? WHERE (?=1 OR ?='' OR NOT EXISTS(SELECT 1 FROM order_packages WHERE channel=? AND order_no=? AND status!='cancelled')) ON CONFLICT(channel,external_id) DO NOTHING RETURNING id",[key,channel,p.external_id,p.order_no,p.occurred_on,p.external_status,hash,record.additional_package===true?1:0,p.order_no,channel,p.order_no]),lineInsert(db,key,p.lines)];
+ if(components.length)items.push(componentInsert(db,components,key));
+ const created=await execute(db,items);
+ // Diğer çağrı kazandı: normal mevcut-kayıt yolu aynı kaydı/çelişkiyi döndürür.
+ if(!created[0].results.length)return createPackage(env,channel,record);
+ return {id:key,status:'draft',existing:false,conflict:false};
 }
 /**
  * TASLAKLARIN EŞLEŞMESİNİ YENİDEN DENER. İçe aktarma anında bağlantı bulunamamış olabilir: ilan

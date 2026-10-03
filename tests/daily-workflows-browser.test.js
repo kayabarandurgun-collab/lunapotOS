@@ -8,7 +8,7 @@ test('daily workflows: direct actions, mobile menus, search, permissions and rea
  const base=new URL(preview);assert.equal(base.hostname,'127.0.0.1');assert.equal(base.protocol,'http:');
  const health=await (await fetch(new URL('/__preview/health',base))).json();assert.equal(health.synthetic,true);assert.equal(health.network,'blocked');
  const {api}=await findPlaywright();assert.ok(api);const browser=await api.chromium.launch({headless:true,channel:'chrome'});
- const out=resolve('docs/ux-2026-10-03/workflows');await mkdir(out,{recursive:true});
+ const out=resolve('docs/ux-rebuild-2026-10-04/workflows');await mkdir(out,{recursive:true});
  async function run(width,role,callback){
   const ctx=await browser.newContext({viewport:{width,height:900},serviceWorkers:'block',reducedMotion:'reduce'}),writes=[],errors=[];
   await ctx.route('**/*',async r=>{const req=r.request();if(new URL(req.url()).origin!==base.origin||!['GET','HEAD'].includes(req.method())){writes.push(req.method()+' '+new URL(req.url()).pathname);return r.abort();}return r.continue();});
@@ -21,7 +21,9 @@ test('daily workflows: direct actions, mobile menus, search, permissions and rea
   for(const width of [320,390,1440])await t.test(width+'px owner daily entry points',()=>run(width,'owner',async(page,go,fits)=>{
    await go();await page.locator('[data-daily-home] [data-daily-task=reports]').waitFor();
    assert.equal(await page.locator('[data-daily-home] [data-daily-task]').count(),4);await fits();
-   assert.equal(await page.locator('.daily-analysis[open]').count(),0,'long analytics start closed');
+   assert.equal(await page.locator('.daily-analysis[data-disclosure=trend][open]').count(),1,'real sales chart is immediately discoverable');
+   assert.equal(await page.locator('.daily-analysis[data-disclosure=offerings][open]').count(),0,'secondary sales ranking remains optional');
+   assert.ok((await page.locator('.ins-kpi-primary').boundingBox()).y<500,'cash result is visible without a long action-card scroll');
    await page.screenshot({path:resolve(out,'overview-'+width+'.png')});
    await page.locator('[data-daily-home] [data-daily-task=reports]').click();await page.locator('[data-rb="file"]').waitFor();await fits();
    await page.screenshot({path:resolve(out,'reports-'+width+'.png')});

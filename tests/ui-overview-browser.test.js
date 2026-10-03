@@ -62,7 +62,7 @@ test('local browser: overview independent recovery, period state and disposal',{
     let fail=true;
     await withPage(async({page,start,ready,counts,payloads})=>{
      await start();await ready();
-     assert.equal(await page.locator('.overview-heading h1').innerText(),'Bugün, her şey elinin altında.');
+     assert.equal(await page.locator('.overview-heading h1').innerText(),'Genel durum');
      assert.equal(await page.locator('.attention-center').count(),1);
      assert.equal(await page.locator('[data-overview-retry="'+failed+'"]').count(),1);
      const retry=page.locator('[data-overview-retry="'+failed+'"]');

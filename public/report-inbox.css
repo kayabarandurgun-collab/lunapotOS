@@ -1,126 +1,216 @@
-/* Rapor Kutusu — e-ticaret paneli. Satır içi stil yok (CSP style-src 'self'). */
-.rb{display:grid;gap:16px}
-.rb-tabs{display:flex;flex-wrap:wrap;gap:6px;border-bottom:1px solid var(--line,#d8ded8);padding-bottom:8px}
-.rb-tabs button{border:1px solid var(--line,#d8ded8);background:transparent;border-radius:var(--radius-dugme);padding:7px 14px;cursor:pointer;font-family:inherit;font-size:var(--yazi-dugme-kucuk);font-weight:var(--kalinlik-dugme)}
-.rb-tabs button.active{background:var(--ink,#1f2a24);color:var(--paper,#fff);border-color:var(--ink,#1f2a24)}
-.rb-intro{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:18px}
-.rb-intro h2{margin:0 0 6px}
-.rb-facts{margin:0;padding-left:18px;display:grid;gap:6px}
-.rb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;align-items:end;margin:10px 0}
-.rb-grid label,.rb-add label{display:grid;gap:4px}
-.rb-add{margin:6px 0 12px}
-.rb-add summary{cursor:pointer;font-weight:600}
-.rb-drop{display:grid;place-items:center;gap:4px;text-align:center;border:2px dashed var(--line,#b9c4bb);border-radius:14px;padding:34px 18px;cursor:pointer;margin:10px 0}
-.rb-drop:hover,.rb-drop.over{border-color:var(--accent,#2e6a4e);background:var(--accent-soft,#e4efe7)}
-.rb-drop:focus-within{outline:3px solid var(--accent,#2e6a4e);outline-offset:2px}
-.rb-muted,.rb-drop span{color:var(--muted,#5e6b63)}
-.rb-alert{margin:0;padding:10px 14px;border-radius:10px;border:1px solid transparent}
-.rb-alert.ok{background:#e1f0e5;border-color:#b9dcc3;color:#1f5a3a}
-.rb-alert.warn{background:#f7ecd5;border-color:#e6cf9e;color:#6d4a0f}
-.rb-alert.error{background:#f7e0dc;border-color:#e7b3ab;color:#7a2a22}
-.rb-chip{display:inline-block;font-size:var(--yazi-rozet);padding:2px 8px;border-radius:var(--radius-rozet);background:#e8ece9;color:#44524a;vertical-align:middle}
-.rb-chip.warn{background:#f7ecd5;color:#6d4a0f}
-.rb-req{font-size:12px;color:#7a2a22}
-.rb-sample{color:var(--muted,#5e6b63);max-width:260px;overflow-wrap:anywhere}
+/* Shared document primitives below are also consumed by bank and invoice-document screens. */
+.rb:not(.rb-document-workbench){display:grid;gap:16px}
+.rb:not(.rb-document-workbench) .v2-card{padding:var(--dolgu-kart)}
+.rb:not(.rb-document-workbench) .v2-card>h2,.rb:not(.rb-document-workbench) .v2-card>h3{margin:0 0 8px;font-size:17px}
+/* Report document workbench — scoped component rules; independent of the shared shell. */
+body.workspace-redesign .rb-document-workbench.rb{--rb-accent:var(--brand,#315bea);--rb-soft:var(--brand-soft,#edf2ff);display:grid;gap:20px;min-width:0;color:var(--ink,#18232e)}
+body.workspace-redesign .rb-document-workbench .rb-pagehead{margin:0!important;align-items:center;flex-direction:row;text-align:left}
+body.workspace-redesign .rb-document-workbench .rb-pagehead h1{font-size:26px;line-height:1.2;letter-spacing:-.7px}
+body.workspace-redesign .rb-document-workbench .rb-pagehead p{margin:6px 0 0;font-size:14px;color:var(--muted,#667382)}
+body.workspace-redesign .rb-document-workbench .rb-orders-link{text-decoration:none;white-space:nowrap}
+body.workspace-redesign .rb-document-workbench .rb-tabs{display:flex;flex-wrap:nowrap;gap:8px;padding:0 0 8px;border-bottom:1px solid var(--line,#e3e7ed);overflow:auto;min-width:0;scrollbar-width:thin}
+body.workspace-redesign .rb-document-workbench .rb-tabs button{flex:none;display:flex;align-items:center;gap:8px;min-height:40px;padding:8px 13px;border:0;border-radius:var(--radius-dugme);background:transparent;color:var(--muted,#667382);font-family:inherit;font-size:var(--yazi-dugme-kucuk);font-weight:var(--kalinlik-dugme);white-space:nowrap}
+body.workspace-redesign .rb-document-workbench .rb-tabs button.active{background:var(--rb-soft);color:var(--rb-accent);box-shadow:none}
+body.workspace-redesign .rb-document-workbench .rb-tab-count{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 4px;border-radius:6px;background:#fff;font-size:11px}
+body.workspace-redesign .rb-document-workbench .v2-card{padding:var(--dolgu-kart);border:1px solid var(--line,#e3e7ed);border-radius:var(--radius-kart);box-shadow:none;background:#fff;min-width:0}
+body.workspace-redesign .rb-document-workbench .v2-card>h2,body.workspace-redesign .rb-document-workbench .v2-card>h3{margin:0 0 8px;font-size:18px;letter-spacing:-.3px}
+body.workspace-redesign .rb-document-workbench .v2-card>h3+.rb-muted,body.workspace-redesign .rb-document-workbench .v2-card>h2+p{margin-top:0}
+body.workspace-redesign .rb-document-workbench .v2-card h4{margin:16px 0 6px;font-size:14px}
+body.workspace-redesign .rb-document-workbench .rb-workbench{display:grid;grid-template-columns:minmax(0,1fr) minmax(250px,30%);padding:0;overflow:hidden}
+body.workspace-redesign .rb-document-workbench .rb-upload-main{min-width:0;padding:24px}
+body.workspace-redesign .rb-document-workbench .rb-upload-context{padding:24px;border-left:1px solid var(--line,#e3e7ed);background:#fafbfe;min-width:0}
+body.workspace-redesign .rb-document-workbench .rb-section-head{position:static;min-height:0;height:auto;top:auto;z-index:auto;border:0;box-shadow:none;background:transparent;padding:0;display:flex;justify-content:space-between;align-items:center;gap:16px;margin:0 0 18px}
+body.workspace-redesign .rb-document-workbench .rb-section-head>div{min-width:0}
+body.workspace-redesign .rb-document-workbench .rb-section-head :is(h2,h3){font-size:16px;line-height:1.4;margin:0;letter-spacing:-.2px}
+body.workspace-redesign .rb-document-workbench .rb-section-head p{font-size:13px;color:var(--muted,#667382);margin:4px 0 0;line-height:1.5}
+body.workspace-redesign .rb-document-workbench .rb-section-head>button{flex-shrink:0}
+body.workspace-redesign .rb-document-workbench .rb-format{font-size:10px;letter-spacing:.5px;font-weight:600;color:var(--muted,#667382);border:1px solid var(--line,#e3e7ed);border-radius:5px;padding:4px 6px;white-space:nowrap}
+body.workspace-redesign .rb-document-workbench .rb-drop{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;margin:0;padding:28px 16px;min-height:208px;border:1px dashed #b3c4e9;border-radius:12px;background:#f7f9ff;cursor:pointer}
+body.workspace-redesign .rb-document-workbench .rb-drop:hover,body.workspace-redesign .rb-document-workbench .rb-drop.over{background:#edf2ff;border-color:var(--rb-accent)}
+body.workspace-redesign .rb-document-workbench .rb-drop:focus-within{outline:3px solid var(--rb-accent);outline-offset:3px}
+body.workspace-redesign .rb-document-workbench .rb-drop input[type=file]{position:absolute;inset:0;margin:0;display:block;opacity:0;width:100%;height:100%;min-height:0;padding:0;cursor:pointer;font-size:16px}
+body.workspace-redesign .rb-document-workbench .rb-drop .rb-upload-icon{display:grid;place-items:center;width:38px;height:38px;background:#fff;border:1px solid #dce5f6;border-radius:10px;color:var(--rb-accent);box-shadow:0 2px 4px #18232e05}
+body.workspace-redesign .rb-document-workbench .rb-upload-icon svg{width:22px;height:22px}
+body.workspace-redesign .rb-document-workbench .rb-drop strong{font-size:16px;font-weight:600}
+body.workspace-redesign .rb-document-workbench .rb-drop .rb-choose{display:inline-block;padding:8px 14px;border-radius:8px;background:var(--rb-accent);color:white;font-size:13px;font-weight:600}
+body.workspace-redesign .rb-document-workbench #rb-file-help{font-size:11px;color:var(--muted,#667382);line-height:1.5}
+body.workspace-redesign .rb-document-workbench .rb-upload-note{margin:12px 0;color:var(--muted,#667382);font-size:12px;line-height:1.6}
+body.workspace-redesign .rb-document-workbench .rb-source{margin:0;border-top:1px solid var(--line,#e3e7ed)}
+body.workspace-redesign .rb-document-workbench .rb-source>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px}
+body.workspace-redesign .rb-document-workbench .rb-source>summary:before{content:'›';font-size:16px;transform:rotate(90deg)}
+body.workspace-redesign .rb-document-workbench .rb-source>summary span{margin-left:auto;font-weight:400;color:var(--muted,#667382)}
+body.workspace-redesign .rb-document-workbench .rb-context-details>summary{cursor:pointer;font-size:13px;font-weight:600;line-height:1.5;padding:0 0 18px}
+body.workspace-redesign .rb-document-workbench .rb-context-details:not([open])>summary{padding-bottom:0}
+body.workspace-redesign .rb-document-workbench .rb-context-details .rb-report-guide>h3{display:none}
+body.workspace-redesign .rb-document-workbench .rb-report-guide{display:grid;gap:16px;min-width:0}
+body.workspace-redesign .rb-document-workbench .rb-report-guide>h3{margin:0;font-size:15px}
+body.workspace-redesign .rb-document-workbench .rb-guide-item{display:flex;gap:12px}
+body.workspace-redesign .rb-document-workbench .rb-guide-item p{margin:0;display:grid;gap:5px;line-height:1.55;font-size:12px;color:var(--muted,#667382)}
+body.workspace-redesign .rb-document-workbench .rb-guide-item strong{color:var(--ink,#18232e);font-weight:600}
+body.workspace-redesign .rb-document-workbench .rb-guide-mark{color:#9aa6ba;font-size:11px;font-weight:600;line-height:21px;flex:none;font-variant-numeric:tabular-nums}
+body.workspace-redesign .rb-document-workbench .rb-guide-link{font-size:12px;color:var(--rb-accent);line-height:1.6;text-decoration:none}
+body.workspace-redesign .rb-document-workbench .rb-guide-link:hover{text-decoration:underline}
+body.workspace-redesign .rb-document-workbench .rb-help summary{font-size:12px;font-weight:500;cursor:pointer;color:var(--muted,#667382)}
+body.workspace-redesign .rb-document-workbench .rb-help .rb-facts{font-size:12px;line-height:1.6;margin-top:10px}
+body.workspace-redesign .rb-document-workbench .rb-new-store{margin:16px 0 0;border-top:1px solid var(--line,#e3e7ed)}
+body.workspace-redesign .rb-document-workbench .rb-add>summary,.rb-maintenance>summary{min-height:44px;padding-block:12px;cursor:pointer;font-size:13px;font-weight:500;line-height:1.5}
+body.workspace-redesign .rb-document-workbench .rb-add .rb-grid{margin-top:4px}
+body.workspace-redesign .rb-document-workbench .rb-upload-context .rb-grid{grid-template-columns:minmax(0,1fr)}
+body.workspace-redesign .rb-document-workbench .rb-next-step{display:flex;align-items:center;gap:12px;padding:12px 16px;background:#fffbf2;border:1px solid #eedcb2;border-radius:10px}
+body.workspace-redesign .rb-document-workbench .rb-next-step p{margin:0;flex:1;font-size:12px;line-height:1.6;color:#7c6127}
+body.workspace-redesign .rb-document-workbench .rb-next-step strong{font-weight:600}
+body.workspace-redesign .rb-document-workbench .rb-next-dot{height:7px;width:7px;flex:none;background:#cb9a3b;border-radius:50%}
+body.workspace-redesign .rb-document-workbench .rb-next-step button{white-space:nowrap}
+body.workspace-redesign .rb-document-workbench .rb-files{padding:0;overflow:hidden}
+body.workspace-redesign .rb-document-workbench .rb-files>.rb-section-head{padding:20px 22px;margin:0}
+body.workspace-redesign .rb-document-workbench .rb-file-filters{display:flex;gap:10px;align-items:end;padding:0 22px 18px}
+body.workspace-redesign .rb-document-workbench .rb-file-filters label{display:grid;gap:5px;font-size:12px;min-width:0;flex:1}
+body.workspace-redesign .rb-document-workbench .rb-file-filters label:first-child{flex:2}
+body.workspace-redesign .rb-document-workbench .rb-file-filters input,body.workspace-redesign .rb-document-workbench .rb-file-filters select{min-width:0;width:100%}
+body.workspace-redesign .rb-document-workbench .rb-file-list{border-top:1px solid var(--line,#e3e7ed)}
+body.workspace-redesign .rb-document-workbench .rb-file-row{display:grid;grid-template-columns:32px minmax(0,1.5fr) minmax(90px,.65fr) minmax(145px,.85fr) auto;gap:4px 14px;align-items:center;padding:16px 22px;border-bottom:1px solid var(--line,#e3e7ed)}
+body.workspace-redesign .rb-document-workbench .rb-file-row:last-child{border-bottom:0}
+body.workspace-redesign .rb-document-workbench .rb-file-icon{display:grid;place-items:center;width:32px;height:38px;border:1px solid var(--line,#e3e7ed);border-radius:7px;background:#f8faff;color:#7f92ae}
+body.workspace-redesign .rb-document-workbench .rb-file-icon svg{width:19px;height:19px}
+body.workspace-redesign .rb-document-workbench .rb-file-name,body.workspace-redesign .rb-document-workbench .rb-file-source,body.workspace-redesign .rb-document-workbench .rb-file-state{min-width:0}
+body.workspace-redesign .rb-document-workbench .rb-file-name strong{display:block;font-size:13px;font-weight:600;line-height:1.5;overflow-wrap:anywhere}
+body.workspace-redesign .rb-document-workbench .rb-file-row small{display:block;margin-top:4px;font-size:11px;color:var(--muted,#667382);line-height:1.5}
+body.workspace-redesign .rb-document-workbench .rb-file-source{font-size:12px}
+body.workspace-redesign .rb-document-workbench .rb-file-state{font-variant-numeric:tabular-nums}
+body.workspace-redesign .rb-document-workbench .rb-file-badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:#187b60}
+body.workspace-redesign .rb-document-workbench .rb-file-badge i{width:5px;height:5px;border-radius:50%;background:currentColor}
+body.workspace-redesign .rb-document-workbench .rb-file-badge.is-pending{color:#a47728}
+body.workspace-redesign .rb-document-workbench .rb-file-detail{grid-column:2/-1;min-width:0}
+body.workspace-redesign .rb-document-workbench .rb-file-detail>summary{display:inline-block;padding:6px 0 0;color:var(--muted,#667382);font-size:11px;cursor:pointer}
+body.workspace-redesign .rb-document-workbench .rb-file-detail>summary:after{content:' +';margin-left:4px}
+body.workspace-redesign .rb-document-workbench .rb-file-detail[open]>summary:after{content:' −'}
+body.workspace-redesign .rb-document-workbench .rb-file-detail>div{margin-top:8px;padding:12px 14px;border-radius:8px;background:#f6f8fb;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+body.workspace-redesign .rb-document-workbench .rb-file-detail p{margin:0 0 5px}
+body.workspace-redesign .rb-document-workbench .rb-file-outcomes{display:flex;flex-wrap:wrap;gap:8px 20px;margin:0}
+body.workspace-redesign .rb-document-workbench .rb-file-outcomes>div{display:flex;gap:8px}
+body.workspace-redesign .rb-document-workbench .rb-file-outcomes dd{margin:0;font-weight:600}
+body.workspace-redesign .rb-document-workbench .rb-files-empty{padding:30px 20px;text-align:center}
+body.workspace-redesign .rb-document-workbench .rb-files-empty .rb-file-icon{margin:0 auto 10px}
+body.workspace-redesign .rb-document-workbench .rb-files-empty h3{font-size:14px;margin:0 0 6px}
+body.workspace-redesign .rb-document-workbench .rb-files-empty p{font-size:12px;color:var(--muted,#667382);margin:0}
+.rb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:12px;align-items:end;margin:10px 0}
+.rb-grid label,body.workspace-redesign .rb-document-workbench .rb-add label{display:grid;gap:5px;min-width:0;font-size:13px}
+.rb-grid input,.rb-grid select{min-width:0;max-width:100%}
+.rb-muted{color:var(--muted,#667382);font-size:13px;line-height:1.6}
+.rb-alert{margin:0;padding:12px 16px;border-radius:10px;border:1px solid transparent;font-size:13px;line-height:1.6}
+.rb-alert.ok{background:#eef8f3;border-color:#cce8db;color:#187b60}
+.rb-alert.warn{background:#fffbf2;border-color:#eedcb2;color:#7c6127}
+.rb-alert.error{background:#fff4f3;border-color:#edceca;color:#a54137}
+.rb-chip{display:inline-block;font-size:var(--yazi-rozet);padding:2px 8px;border-radius:var(--radius-rozet);background:#eef2f7;color:#667382;vertical-align:middle}
+.rb-chip.warn{background:#fff4d9;color:#7c6127}
+.rb-req{font-size:12px;color:#a54137}
+.rb-sample{color:var(--muted);max-width:260px;overflow-wrap:anywhere}
 .rb-check{display:flex!important;align-items:center;gap:8px}
 .rb-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px;margin-top:14px}
 .rb-kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:10px 0}
-.rb-kv div{border:1px solid var(--line,#d8ded8);border-radius:10px;padding:10px 12px}
-.rb-kv dt{font-size:13px;color:var(--muted,#5e6b63)}
-.rb-kv dd{margin:2px 0 0;font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
-.rb-kv.small dd{font-size:14px;font-weight:600;overflow-wrap:anywhere}
-.rb-o-review dd{color:#7a2a22}.rb-o-new dd{color:#1f5a3a}
-.rb-num{font-variant-numeric:tabular-nums;white-space:nowrap}
-.rb-list{margin:6px 0;padding-left:18px;display:grid;gap:4px}
-.rb-warn{color:#7a2a22}
-.rb-review{border:1px solid var(--line,#d8ded8);border-radius:12px;padding:14px;margin:10px 0}
+.rb-kv div{border:1px solid var(--line,#e3e7ed);border-radius:10px;padding:10px 12px}
+.rb-kv dt{font-size:12px;color:var(--muted)}
+.rb-kv dd{margin:3px 0 0;font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+.rb-kv.small dd{font-size:14px;overflow-wrap:anywhere}
+.rb-o-review dd{color:#a54137}
+.rb-o-new dd{color:#187b60}
+.rb-num{font-variant-numeric:tabular-nums;white-space:normal}
+.rb-list,.rb-facts{margin:6px 0;padding-left:18px;display:grid;gap:6px}
+.rb-warn{color:#a54137}
+.rb-review{border:1px solid var(--line);border-radius:12px;padding:16px;margin:10px 0}
 .rb-review header{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px}
-.rb-compare{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
-.rb progress{width:100%;height:10px}
-.rb td small{display:block;color:var(--muted,#5e6b63)}
-.rb-busy{position:fixed;right:18px;bottom:18px;background:var(--ink,#1f2a24);color:#fff;padding:8px 14px;border-radius:999px;margin:0}
-@media (max-width:760px){.rb-intro{grid-template-columns:1fr}}
-
-/* Codex görsel incelemesi: kart metinleri kenara dayanıyordu; ortak iç boşluk ve başlık ölçeği.
-   Mobilde önce YÜKLEME görünsün: açıklamalar açılır kutuya iner. */
-.rb .v2-card{padding:var(--dolgu-kart)}
-.rb .v2-card>h2,.rb .v2-card>h3{margin:0 0 8px;font-size:17px;letter-spacing:-.2px}
-.rb .v2-card>h3+.rb-muted,.rb .v2-card>h2+p{margin-top:0}
-.rb .v2-card h4{margin:16px 0 6px;font-size:14px}
-.rb-intro{padding:20px 22px}
-.rb-help summary{cursor:pointer;font-weight:600;font-size:13px;color:var(--brand,#4e56a6)}
-.rb-help[open] summary{margin-bottom:8px}
-/* Sayılı durum kartları: bekleyen iş görünür olsun. */
+.rb-review header>*,.rb-list li{overflow-wrap:anywhere}
+.rb-compare{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:12px}
+body.workspace-redesign .rb-document-workbench progress{width:100%;height:8px;accent-color:var(--rb-accent)}
+body.workspace-redesign .rb-document-workbench td small{display:block;color:var(--muted)}
+body.workspace-redesign .rb-busy{position:fixed;right:20px;bottom:20px;z-index:30;background:#18232e;color:#fff;padding:12px 18px;border-radius:10px;margin:0;font-size:13px;box-shadow:0 4px 18px #18232e1a}
 .rb-status{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:0 0 4px}
-.rb-status a,.rb-status button{text-align:left;border:1px solid var(--line,#d8ded8);border-radius:var(--radius-dugme);padding:12px 14px;background:#fff;display:grid;gap:3px;font-family:inherit;font-size:var(--yazi-dugme);font-weight:var(--kalinlik-dugme);cursor:pointer}
-.rb-status button:hover{border-color:var(--brand,#4e56a6);background:var(--brand-soft,#eff0fa)}
-.rb-status span{font-size:12px;color:var(--muted,#5e6b63)}
-.rb-status strong{font-size:23px;font-variant-numeric:tabular-nums}
-.rb-status .warn strong{color:#7a2a22}
-/* Sipariş sonuçları: arama satırı ve sayfalama. */
+.rb-status a,.rb-status button,.rb-status>div{text-align:left;border:1px solid var(--line);border-radius:var(--radius-dugme);padding:12px 14px;background:#fff;display:grid;gap:3px;font-family:inherit;font-size:var(--yazi-dugme);font-weight:var(--kalinlik-dugme)}
+.rb-status button{cursor:pointer}
+.rb-status button:hover{background:var(--rb-soft)}
+.rb-status span,.rb-status small{font-size:12px;color:var(--muted)}
+.rb-status strong{font-size:22px;font-variant-numeric:tabular-nums}
+.rb-status .warn strong{color:#a54137}
 .rb-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin:10px 0}
 .rb-toolbar label{display:grid;gap:4px;flex:1 1 190px;min-width:0}
-.rb-toolbar button{flex:0 0 auto}
+.rb-toolbar button{flex:none}
 .rb-pager{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-top:12px}
 .rb-pager .rb-muted{margin:0}
-@media (max-width:760px){
- .rb .v2-card,.rb-intro{padding:16px}
- .rb-tabs{gap:4px;padding-bottom:6px}
- .rb-tabs button{padding:6px 11px;font-size:var(--yazi-dugme-kucuk)}
- .rb-drop{padding:22px 14px}
- .rb-grid{gap:10px;margin:8px 0}
- .rb-kv{grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:8px}
- .rb-kv dd{font-size:17px}
- .rb-status{grid-template-columns:repeat(2,minmax(0,1fr))}
- .rb-status strong{font-size:19px}
- .rb-actions{justify-content:stretch}
- .rb-actions button{flex:1 1 auto}
+.rb-kind,.rb-kind-change{display:flex;flex-wrap:wrap;align-items:center;gap:8px;overflow-wrap:anywhere}
+.rb-kind-change select{max-width:100%}
+.rb-maintenance>summary{font-weight:600}
+
+@media(max-width:1050px){body.workspace-redesign .rb-document-workbench .rb-file-row{grid-template-columns:30px minmax(0,1fr) minmax(120px,.6fr) auto}
+body.workspace-redesign .rb-document-workbench .rb-file-source{grid-column:2;grid-row:2;display:flex;gap:6px;align-items:baseline}
+body.workspace-redesign .rb-document-workbench .rb-file-source small{margin:0}
+body.workspace-redesign .rb-document-workbench .rb-file-state{grid-column:3;grid-row:1/3}
+body.workspace-redesign .rb-document-workbench .rb-file-action{grid-column:4;grid-row:1/3}
+body.workspace-redesign .rb-document-workbench .rb-file-detail{grid-row:3}
 }
-/* Günlük rapor ve sipariş akışları; yalnız bu iki ekranın yerel sınıfları. */
-.rb .rb-upload-card>h2{font-size:22px;line-height:1.3}
-.rb .rb-upload-card .rb-drop{margin:16px 0 10px;background:var(--brand-soft,#edf3ed);border-color:var(--brand,#315c45)}
-.rb .rb-upload-card .rb-drop input[type=file]{min-height:48px}
-.rb .rb-upload-card .rb-drop strong{font-size:18px}
-.rb .rb-report-guide{display:grid;gap:10px;margin:18px 0;padding:16px 0;border-block:1px solid var(--line,#d8ded8)}
-.rb .rb-report-guide p{margin:0;line-height:1.65}
-.rb .rb-report-guide summary,.rb .rb-add summary,.rb .rb-maintenance>summary{padding-block:10px;min-height:44px;cursor:pointer;line-height:1.5}
-.rb .rb-report-guide .rb-help summary{font-size:14px;color:var(--brand,#315c45)}
-.rb .rb-report-guide .rb-facts{margin-top:8px}
-.rb .rb-status>div{display:grid;gap:3px;padding:12px 14px;border:1px solid var(--line,#d8ded8);border-radius:var(--radius-kart);background:var(--paper,#fff)}
-.rb .rb-status>div small{font-size:12px;color:var(--muted)}
-.rb .rb-maintenance>summary{font-weight:600}
-.rb .rb-grid{grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr))}
-.rb .rb-compare{grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr))}
-.rb .rb-kind,.rb .rb-kind-change{display:flex;flex-wrap:wrap;align-items:center;gap:8px;overflow-wrap:anywhere}
-.rb .rb-kind-change select{max-width:100%}
-.rb .rb-review header>*,.rb .rb-list li{overflow-wrap:anywhere}
-.rb .rb-num{white-space:normal}
-.rb .rb-tabs button{min-height:44px}
-.workflow-orders.ol-daily .ol-open-order{display:block;width:100%;text-align:left;padding:0;background:transparent;border:0;color:var(--ink);text-decoration:none}
-.workflow-orders.ol-daily .ol-open-hint{display:block;color:var(--brand,#315c45);font-size:12px;font-weight:600;margin-top:6px}
-.workflow-orders.ol-daily .ol-open-order:hover .ol-open-hint{text-decoration:underline}
-.workflow-orders.ol-daily .ol-open-order .ol-urun{font-size:14px;font-weight:600;line-height:1.6}
-.workflow-orders.ol-daily .ol-seg button{min-height:44px}
-.workflow-orders.ol-daily .ol-c-durum .error{color:var(--danger,#9c3228)}
-dialog.ol-daily-dialog .order-copy-row{display:flex;flex-wrap:wrap;gap:8px}
-dialog.ol-daily-dialog .order-copy-row button{overflow-wrap:anywhere;min-height:44px}
-dialog.ol-daily-dialog .ol-detay-islem button{min-height:44px}
-dialog.ol-daily-dialog .breakdown-collapsible>summary{cursor:pointer;min-height:48px}
-@media(max-width:760px){
- .rb .rb-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
- .rb .rb-tabs button{text-align:center;padding:8px}
- .rb .rb-upload-card>h2{font-size:20px}
- .rb .rb-report-guide{font-size:14px}
- .rb .rb-grid,.rb .rb-compare{grid-template-columns:minmax(0,1fr)}
- .rb .rb-review{padding:12px}
- .rb .rb-kv.small{grid-template-columns:minmax(0,1fr)}
- .rb-busy{left:12px;right:12px;bottom:calc(80px + env(safe-area-inset-bottom));border-radius:12px;text-align:center;overflow-wrap:anywhere;z-index:30}
- .workflow-orders.ol-daily .ol-table tbody tr{gap:14px}
- .workflow-orders.ol-daily .ol-c-tutar,.workflow-orders.ol-daily .ol-c-cep{font-size:14px;line-height:1.6}
- .workflow-orders.ol-daily .ol-table td small{font-size:12px}
- .workflow-orders.ol-daily .ol-pager .ac-actions{width:100%;justify-content:space-between;flex-wrap:wrap}
- .workflow-orders.ol-daily .ol-pager button{min-height:44px}
- dialog.ol-daily-dialog .order-timeline{display:flex;flex-wrap:wrap;gap:8px}
- dialog.ol-daily-dialog .order-timeline li{flex:1 1 100px;white-space:normal}
- dialog.ol-daily-dialog .order-profit-card strong{font-size:26px}
+
+@media(max-width:879px){body.workspace-redesign .rb-document-workbench.rb{gap:16px}
+body.workspace-redesign .rb-document-workbench .rb-workbench{grid-template-columns:minmax(0,1fr)}
+body.workspace-redesign .rb-document-workbench .rb-upload-context{border-left:0;border-top:1px solid var(--line);padding:0 20px}
+body.workspace-redesign .rb-document-workbench .rb-context-details>summary,body.workspace-redesign .rb-document-workbench .rb-context-details:not([open])>summary{padding:14px 0;min-height:44px}
+body.workspace-redesign .rb-document-workbench .rb-context-details[open]{padding-bottom:16px}
+body.workspace-redesign .rb-document-workbench .rb-upload-context .rb-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+body.workspace-redesign .rb-document-workbench .rb-context-details .rb-report-guide{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+body.workspace-redesign .rb-document-workbench .rb-report-guide .rb-help,body.workspace-redesign .rb-document-workbench .rb-report-guide .rb-guide-link{grid-column:1/-1}
+body.workspace-redesign .rb-document-workbench .rb-upload-main{padding:20px}
+body.workspace-redesign .rb-document-workbench .rb-file-row{padding:14px 20px}
+}
+
+@media(max-width:600px){body.workspace-redesign .rb-document-workbench .rb-pagehead h1{font-size:26px}
+body.workspace-redesign .rb-document-workbench .rb-pagehead p{font-size:12px}
+body.workspace-redesign .rb-document-workbench .rb-orders-link{display:none}
+body.workspace-redesign .rb-document-workbench .rb-tabs{gap:2px;margin-bottom:0}
+body.workspace-redesign .rb-document-workbench .rb-tabs button{min-height:42px;padding:8px 10px}
+body.workspace-redesign .rb-document-workbench .rb-upload-main{padding:16px}
+body.workspace-redesign .rb-document-workbench .rb-section-head{gap:8px;margin-bottom:14px}
+body.workspace-redesign .rb-document-workbench .rb-section-head p{font-size:12px}
+body.workspace-redesign .rb-document-workbench .rb-format{display:none}
+body.workspace-redesign .rb-document-workbench .rb-drop{min-height:144px;padding:14px 12px;gap:6px}
+body.workspace-redesign .rb-document-workbench .rb-drop strong{font-size:14px}
+body.workspace-redesign .rb-document-workbench .rb-drop .rb-upload-icon{width:32px;height:32px;border-radius:8px}
+body.workspace-redesign .rb-document-workbench .rb-drop .rb-choose{padding:7px 13px}
+body.workspace-redesign .rb-document-workbench #rb-file-help{font-size:10px}
+body.workspace-redesign .rb-document-workbench .rb-upload-note{font-size:11px;margin:10px 0}
+body.workspace-redesign .rb-document-workbench .rb-upload-context{padding:0 16px}
+body.workspace-redesign .rb-document-workbench .rb-context-details .rb-report-guide{grid-template-columns:minmax(0,1fr)}
+body.workspace-redesign .rb-document-workbench .rb-upload-context .rb-grid,.rb-grid,.rb-compare{grid-template-columns:minmax(0,1fr)}
+body.workspace-redesign .rb-document-workbench .rb-source>summary span{max-width:48%;text-align:right}
+body.workspace-redesign .rb-document-workbench .rb-next-step{padding:10px 12px;gap:9px;flex-wrap:wrap}
+body.workspace-redesign .rb-document-workbench .rb-next-step p{flex:1;min-width:180px;font-size:11px}
+body.workspace-redesign .rb-document-workbench .rb-next-step button{margin-left:16px;min-height:32px}
+body.workspace-redesign .rb-document-workbench .rb-files>.rb-section-head{padding:16px;margin:0}
+body.workspace-redesign .rb-document-workbench .rb-files>.rb-section-head h3{font-size:14px}
+body.workspace-redesign .rb-document-workbench .rb-files>.rb-section-head p{display:none}
+body.workspace-redesign .rb-document-workbench .rb-files>.rb-section-head .rb-file-scope{display:block;font-size:11px}
+body.workspace-redesign .rb-document-workbench .rb-files>.rb-section-head>button{padding:5px 0}
+body.workspace-redesign .rb-document-workbench .rb-file-row{grid-template-columns:26px minmax(0,1fr) auto;gap:5px 10px;padding:14px 16px}
+body.workspace-redesign .rb-document-workbench .rb-file-icon{width:26px;height:32px}
+body.workspace-redesign .rb-document-workbench .rb-file-name{grid-column:2/-1;grid-row:1}
+body.workspace-redesign .rb-document-workbench .rb-file-name strong{font-size:12px}
+body.workspace-redesign .rb-document-workbench .rb-file-name small{font-size:10px;margin-top:3px}
+body.workspace-redesign .rb-document-workbench .rb-file-source{grid-column:2/-1;grid-row:2;font-size:10px}
+body.workspace-redesign .rb-document-workbench .rb-file-source small{font-size:10px}
+body.workspace-redesign .rb-document-workbench .rb-file-state{grid-column:2;grid-row:3}
+body.workspace-redesign .rb-document-workbench .rb-file-state small{font-size:10px}
+body.workspace-redesign .rb-document-workbench .rb-file-action{grid-column:3;grid-row:3}
+body.workspace-redesign .rb-document-workbench .rb-file-action button{padding:7px 10px;min-height:40px}
+body.workspace-redesign .rb-document-workbench .rb-file-badge{font-size:10px}
+body.workspace-redesign .rb-document-workbench .rb-file-detail{grid-row:4;grid-column:2/-1}
+body.workspace-redesign .rb-document-workbench .rb-file-detail summary{font-size:10px}
+body.workspace-redesign .rb-document-workbench .rb-file-filters{padding:0 16px 16px;display:grid;grid-template-columns:minmax(0,1fr) auto}
+body.workspace-redesign .rb-document-workbench .rb-file-filters label:first-child{grid-column:1/-1}
+body.workspace-redesign .rb-document-workbench .rb-file-filters input,body.workspace-redesign .rb-document-workbench .rb-file-filters select{font-size:16px}
+body.workspace-redesign .rb-document-workbench .v2-card:not(.rb-workbench):not(.rb-files){padding:16px}
+.rb-kv{grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.rb-kv.small{grid-template-columns:minmax(0,1fr)}
+.rb-kv dd{font-size:17px}
+.rb-status{grid-template-columns:repeat(2,minmax(0,1fr))}
+.rb-status strong{font-size:19px}
+.rb-actions{justify-content:stretch}
+.rb-actions button{flex:1 1 auto}
+body.workspace-redesign .rb-busy{left:12px;right:12px;bottom:calc(80px + env(safe-area-inset-bottom));text-align:center;overflow-wrap:anywhere}
 }

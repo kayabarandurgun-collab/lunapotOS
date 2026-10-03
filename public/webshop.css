@@ -9,3 +9,47 @@ body.webstore-admin{--ws-paper:#f5f6f2;--ws-ink:#20342f;--ws-green:#315c45;--ws-
 @media(prefers-reduced-motion:reduce){.webstore-admin *{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
 .webstore-admin .ws-navigation>summary{display:none}.webstore-admin .ws-navigation>summary span{color:#315c45}
 @media(max-width:760px){.webstore-admin .ws-navigation{border:1px solid var(--ws-line);border-radius:12px;background:#fff;padding:0 14px}.webstore-admin .ws-navigation>summary{display:flex;align-items:center;justify-content:space-between;gap:16px;font-size:12px;min-height:48px}.webstore-admin .ws-navigation>summary:after{content:'+';font-size:20px;color:#315c45}.webstore-admin .ws-navigation[open]>summary:after{content:'−'}.webstore-admin .ws-navigation #ws-nav{padding-bottom:14px}.webstore-admin .ws-shell>aside{margin-bottom:20px}.webstore-admin .ws-module-title{margin-bottom:14px}.webstore-admin .side-note{margin:12px 0}.webstore-admin .ws-top>div{flex-direction:row;justify-content:flex-end;gap:6px 12px;max-width:220px}.webstore-admin .ws-top>div a{min-height:30px;padding:4px 0;font-size:11px}.webstore-admin .ws-top .workspace-switch{min-height:40px;padding:8px 12px}}
+
+/* Business administration uses the shared foundation tokens. */
+body.webstore-admin{--ws-paper:var(--canvas);--ws-ink:var(--ink);--ws-green:var(--brand);--ws-line:var(--line);--ws-muted:var(--muted)}
+body.webstore-admin #ws-nav a[aria-current]{background:var(--brand-soft);color:var(--brand);box-shadow:inset 3px 0 var(--brand);border-color:var(--brand-border)}
+body.webstore-admin #ws-nav a:hover{background:var(--brand-soft)}
+body.webstore-admin .ws-navigation>summary span{color:var(--brand)}
+body.webstore-admin .ws-operations{border:1px solid var(--line);border-radius:12px;background:var(--surface);margin:0 0 26px;overflow:hidden}
+body.webstore-admin .ws-operations-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:20px 22px;border-bottom:1px solid var(--line)}
+body.webstore-admin .ws-operations-heading h2{font-size:19px;margin:6px 0 0}
+body.webstore-admin .ws-operation{display:grid;grid-template-columns:34px minmax(0,1fr) auto auto;gap:16px;align-items:center;min-height:94px;padding:20px 22px;color:var(--ink)}
+body.webstore-admin .ws-operation+.ws-operation{border-top:1px solid var(--line)}
+body.webstore-admin .ws-operation:hover{background:var(--brand-soft)}
+body.webstore-admin .ws-operation-icon{display:grid;place-items:center;width:32px;height:32px;border:1px solid var(--line);border-radius:8px;font-size:11px;color:var(--brand)}
+body.webstore-admin .ws-operation strong{display:block;font-size:14px}
+body.webstore-admin .ws-operation small{display:block;color:var(--muted);font-size:12px;line-height:1.6;margin-top:5px}
+body.webstore-admin .ws-operation b{font-size:12px;font-weight:500;color:var(--brand)}
+body.webstore-admin .ws-operation:last-child>span:last-child{grid-column:4}
+body.webstore-admin .ws-summary-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+body.webstore-admin .ws-summary-heading h2{font-size:16px;margin:0}
+body.webstore-admin .ws-summary-heading span{font-size:11px;color:var(--muted)}
+body.webstore-admin #ws-app[data-view=overview] .stats{gap:12px;margin-top:0}
+body.webstore-admin #ws-app[data-view=overview] .stat{padding:18px;display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+body.webstore-admin #ws-app[data-view=overview] .stat strong{font-size:26px;margin:5px 0}
+body.webstore-admin #ws-app[data-view=overview] .stat p{margin:0;font-size:11px}
+body.webstore-admin #ws-app[data-view=orders] th:first-child{width:24%}
+body.webstore-admin #ws-app[data-view=orders] th:nth-child(2){width:27%}
+body.webstore-admin #ws-app[data-view=catalog] th:first-child{width:35%}
+@media(max-width:760px){
+ body.webstore-admin .ws-shell>aside{margin-bottom:16px}
+ body.webstore-admin .ws-module-title{font-size:19px;margin-bottom:12px}
+ body.webstore-admin .ws-shell>aside>.back,body.webstore-admin .ws-shell>aside>.eyebrow{display:none}
+ body.webstore-admin .side-note{margin:8px 0}
+ body.webstore-admin .test-banner{margin-bottom:20px;padding:10px 12px}
+ body.webstore-admin .ws-operations-heading{padding:16px;flex-wrap:wrap}
+ body.webstore-admin .ws-operation{grid-template-columns:28px minmax(0,1fr) auto;padding:16px;gap:10px;min-height:100px}
+ body.webstore-admin .ws-operation-icon{width:28px;height:28px}
+ body.webstore-admin .ws-operation b{grid-column:2;grid-row:2}
+ body.webstore-admin .ws-operation>span:last-child,body.webstore-admin .ws-operation:last-child>span:last-child{grid-column:3;grid-row:1}
+ body.webstore-admin .ws-summary-heading{align-items:flex-start;flex-direction:column;gap:5px}
+ body.webstore-admin #ws-app[data-view=overview] .stats{grid-template-columns:1fr}
+ body.webstore-admin #ws-app[data-view=overview] .stat{display:grid;grid-template-columns:1fr auto;align-items:center}
+ body.webstore-admin #ws-app[data-view=overview] .stat p{grid-column:1/-1}
+ body.webstore-admin #ws-app[data-view=overview] .stat strong{font-size:24px;margin:0}
+}

@@ -76,7 +76,7 @@ test('form states: invoice access, filtered results, costs and recipe draft dism
    try{
     const rows=page.locator('#ac-view tbody tr');await rows.first().waitFor();const before=await rows.count();
     const filters=page.locator('[data-ac-form="invoice-filters"]');await filters.locator('[name="q"]').fill('NO-MATCH-SYNTHETIC-FORMS');
-    await filters.locator('[name="status"]').selectOption('cancelled');await filters.locator('[type="submit"]').click();
+    await filters.locator('.invoice-filter-options>summary').click();await filters.locator('[name="status"]').selectOption('cancelled');await filters.locator('[type="submit"]').click();
     await page.locator('[data-ac="invoice-reset"]').waitFor();
     assert.match(await page.locator('#ac-view .empty').innerText(),/Bu filtrelerle kayıt bulunamadı/);
     assert.doesNotMatch(await page.locator('#ac-view .empty').innerText(),/Henüz/);

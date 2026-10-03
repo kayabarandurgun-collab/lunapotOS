@@ -7,8 +7,10 @@ const key='ab'.repeat(32),credentials={seller_id:'1234',key:'sample-api-key',sec
 function fixture(){
  const sqlite=new DatabaseSync(':memory:');sqlite.exec('PRAGMA foreign_keys=ON');
  for(const file of readdirSync(new URL('../migrations/',import.meta.url)).filter(f=>f.endsWith('.sql')).sort())sqlite.exec(readFileSync(new URL('../migrations/'+file,import.meta.url),'utf8'));
+ // D1 batch returns each statement's result rows, including INSERT ... RETURNING.
+ // node:sqlite run() returns only changes metadata and silently drops those rows.
  let queryCount=0;
- const DB={prepare(sql){for(const table of ['catalog_mappings','catalog_mapping_components','order_line_components','provider_connections','provider_records','provider_cursors','integration_runs','order_packages','order_lines','products'])sql=sql.replace(new RegExp('\\b'+table+'\\b','g'),'ec_'+table);return {values:[],bind(...v){this.values=v;return this;},first(){queryCount++;return sqlite.prepare(sql).get(...this.values)||null;},all(){queryCount++;return {results:sqlite.prepare(sql).all(...this.values)};},run(){queryCount++;return sqlite.prepare(sql).run(...this.values);}};},async batch(items){sqlite.exec('BEGIN');try{const result=items.map(i=>i.run());sqlite.exec('COMMIT');return result;}catch(e){sqlite.exec('ROLLBACK');throw e;}}};
+ const DB={prepare(sql){for(const table of ['catalog_mappings','catalog_mapping_components','order_line_components','provider_connections','provider_records','provider_cursors','integration_runs','order_packages','order_lines','products'])sql=sql.replace(new RegExp('\\b'+table+'\\b','g'),'ec_'+table);return {values:[],bind(...v){this.values=v;return this;},first(){queryCount++;return sqlite.prepare(sql).get(...this.values)||null;},all(){queryCount++;return {results:sqlite.prepare(sql).all(...this.values)};},run(){queryCount++;return sqlite.prepare(sql).run(...this.values);}};},async batch(items){sqlite.exec('BEGIN');try{const result=items.map(i=>i.all());sqlite.exec('COMMIT');return result;}catch(e){sqlite.exec('ROLLBACK');throw e;}}};
  const env={DB,WORKSPACE:'ec',CREDENTIAL_KEY:key};
  const call=(path='',body)=>connectionsApi(new Request('https://test.local/api/connections'+path,{method:body===undefined?'GET':'POST'}),env,'/api/connections'+path.split('?')[0],async()=>body);
  return {sqlite,env,call,queryCount:()=>queryCount,resetQueries:()=>{queryCount=0;}};
@@ -97,15 +99,15 @@ test('TY finance source precision retained; PaymentOrder is never bank posted',a
   assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ec_sale_entries').get().n,0);
  }finally{f.sqlite.close();}
 });
-test('50 source records fit Free D1 query budget and repeated page advances bounded draft imports',async()=>{
+test('50 source records fit Free D1 query budget and repeated page advances bounded draft imports',async(t)=>{
  const f=fixture();try{
   await f.call('/trendyol/configure',credentials);
   const content=Array.from({length:50},(_,i)=>order({shipmentPackageId:i+100,orderNumber:'ORDER-'+i}));
   const fetcher=async()=>Response.json({content,totalPages:1,totalElements:50});
-  f.resetQueries();const first=await syncProvider(f.env,'trendyol',query,fetcher);assert.ok(f.queryCount()<45,'Query count '+f.queryCount());
+  f.resetQueries();const first=await syncProvider(f.env,'trendyol',query,fetcher);t.diagnostic('First page query count: '+f.queryCount());assert.ok(f.queryCount()<45,'Query count '+f.queryCount());assert.ok(first.orders,first.message);
   assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ec_provider_records').get().n,50);assert.ok(first.orders.created>0);assert.ok(first.deferredOrders>0);
   const firstCount=f.sqlite.prepare('SELECT count(*) n FROM ec_order_packages').get().n;
-  f.resetQueries();const second=await syncProvider(f.env,'trendyol',query,fetcher);assert.ok(f.queryCount()<45);assert.ok(second.orders.created>0);assert.ok(f.sqlite.prepare('SELECT count(*) n FROM ec_order_packages').get().n>firstCount);assert.ok(second.deferredOrders<first.deferredOrders);
+  f.resetQueries();const second=await syncProvider(f.env,'trendyol',query,fetcher);t.diagnostic('Repeated page query count: '+f.queryCount());assert.ok(f.queryCount()<45);assert.ok(second.orders,second.message);assert.ok(second.orders.created>0);assert.ok(f.sqlite.prepare('SELECT count(*) n FROM ec_order_packages').get().n>firstCount);assert.ok(second.deferredOrders<first.deferredOrders);
  }finally{f.sqlite.close();}
 });
 test('Malformed pages, lossy IDs, duplicate lines and cross-seller data never mark a source page complete',async()=>{
@@ -540,6 +542,7 @@ test('Yerelde paketi olmayan sipariş eskisi gibi taslak açar; tanınan ve yeni
 
   assert.equal(sonuc.alreadyKnownOrders, 1, 'yalnız ORD-1 tanınmalı');
   assert.equal(sonuc.importableOrders, 1, 'ORD-2 gerçekten yeni: taslak açılmalı');
+  assert.ok(sonuc.orders, sonuc.message);
   assert.equal(sonuc.orders.created, 1);
   assert.equal(f.sqlite.prepare('SELECT count(*) n FROM ec_order_packages').get().n, 2, 'yalnız bir paket eklenmeli');
   assert.ok(paketOku(f, 12), 'yeni sipariş için paket açılmalı');

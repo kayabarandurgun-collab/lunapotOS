@@ -1,5 +1,5 @@
 import {pendingPackageScopeSql} from './stock-availability.js';
-import {buildSalesPresentation, pendingSalesSummary} from './sales-presentation.js';
+import {allocateCents, buildSalesPresentation, pendingSalesSummary} from './sales-presentation.js';
 import {effectiveNet} from './purchase-adjustment-api.js';
 import {packageProfit} from './package-profit.js';
 import {compositionKey,estimatePackage,parcelTemplateKey,useParcelTemplate} from './order-estimate-api.js';
@@ -27,15 +27,16 @@ const DONEN=`channel IN ('trendyol','hepsiburada') AND status IN ('shipped','res
 // Kargodaki tahminde maliyet: stok ortalaması; stok sıfır/eksiyse (faturası gelmemiş mal) ürünün son alış fiyatı.
 const birimMaliyet=c=>c.stock_quantity_milli>0&&c.value_cents>0?Math.round(c.value_cents*c.quantity_milli/c.stock_quantity_milli):c.son_alis?Math.round(c.son_alis*c.quantity_milli/1000):null;
 // KARGODAKİ TAHMİNİN ÜRÜN PAYLARI: ürünün KDV dahil satışı − KDV dahil maliyeti; paket düzeyindeki kesinti,
-// stopaj ve yuvarlama artığı ürünlere KDV dahil satış oranında dağılır, son ürün artığı alır. Toplam her
+// stopaj ve yuvarlama artığı ürünlere KDV dahil satış oranında, en büyük kalan yöntemiyle dağılır. Toplam her
 // zaman paketin cash_cents'idir. Kaynak: paketin kendi satış kayıtları, yoksa ilan satırı ve stok maliyeti.
-function urunPaylari(row,own,lines,parts,v,mv,maliyet){
+function urunPaylari(row,own,lines,parts,v,maliyet){
  const m=new Map(),inc=(x,b)=>Math.round(x*(10000+b)/10000);
  const ekle=(id,q,gelir,gider,b)=>{const u=m.get(id)||{product_id:id,qty_milli:0,revenue_gross_cents:0,cash_cents:0},brut=inc(gelir,v);u.qty_milli+=q;u.revenue_gross_cents+=brut;u.cash_cents+=brut-inc(gider,b);m.set(id,u);};
- if(own.length)for(const e of own)ekle(e.product_id,e.quantity_milli,e.revenue_cents,e.cost_cents,mv);
- else for(const c of parts)ekle(c.product_id,c.quantity_milli,Math.round((lines.find(l=>l.id===c.line_id)?.net_revenue_cents||0)*c.revenue_share_bps/10000),maliyet(c)||0,mv);
- const urunler=[...m.values()],pay=urunler.reduce((t,u)=>t+Math.max(0,u.revenue_gross_cents),0),artik=row.cash_cents-urunler.reduce((t,u)=>t+u.cash_cents,0);let kalan=artik;
- urunler.forEach((u,i)=>{const d=i===urunler.length-1?kalan:Math.round(artik*Math.max(0,u.revenue_gross_cents)/(pay||1));u.cash_cents+=d;kalan-=d;});
+ if(own.length)for(const e of own)ekle(e.product_id,e.quantity_milli,e.revenue_cents,e.cost_cents,e.vat_bps);
+ else for(const c of parts)ekle(c.product_id,c.quantity_milli,Math.round((lines.find(l=>l.id===c.line_id)?.net_revenue_cents||0)*c.revenue_share_bps/10000),maliyet(c)||0,c.urun_kdv);
+ const urunler=[...m.values()],artik=row.cash_cents-urunler.reduce((t,u)=>t+u.cash_cents,0);
+ const paylar=allocateCents(artik,urunler.map(u=>u.revenue_gross_cents));
+ urunler.forEach((u,i)=>{u.cash_cents+=paylar[i];});
  return urunler;
 }
 // ÇİFT AKTARIM KOPYASI: satışlarının tamamı DUZELTME-CIFT ile sıfırlanmış paket. Teknik ters kayıttır;
@@ -270,7 +271,7 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
  const urunAdi=new Map((await adSoz).map(u=>[u.id,u.name]));
  const urunOzet=parts=>{const m=new Map();for(const c of parts)m.set(c.product_id,(m.get(c.product_id)||0)+c.quantity_milli);
   return [...m].map(([id,q])=>(q===1000?'':(q/1000).toLocaleString('tr-TR')+' × ')+(urunAdi.get(id)||'Ürün')).join(', ');};
- const pendingLineQuotes=new Map();
+ const pendingLineQuotes=new Map(),pendingCostSources=new Map();
  const rows=packages.map(p=>{
   const packageLines=lineMap.get(p.id)||[],parts=partMap.get(p.id)||[];let entries=saleMap.get(p.id)||[];
   const row={twin_of:p.twin_of||null,id:p.id,channel:p.channel,order_no:p.order_no,external_id:p.external_id,status:p.status,occurred_on:p.occurred_on,delivered_on:p.delivered_on,urun:urunOzet(parts),teslim_edilemedi:!!p.teslim_edilemedi,profit_cents:null,cash_cents:null,cash_note:null,missing:[],revenue_net_cents:null,cost_net_cents:null,shipping_cents:null,commission_cents:null,other_cents:null,commission_rate_bps:null};
@@ -302,9 +303,16 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
    const eksikKesinti=entries.some(s=>s.kind==='sale'&&(s.shipping_cents===null||s.commission_cents===null||s.other_cents===null));
    const h=eksikKesinti&&profit.status==='pending'?tahmin(p.channel,parts):null;
    if(h){
-    const satislar=entries.filter(s=>s.kind==='sale'),ciro=satislar.reduce((t,s)=>t+s.revenue_cents,0)||1;
-    const pay=(tutar,s)=>Math.round(tutar*s.revenue_cents/ciro);
-    entries=entries.map(s=>s.kind!=='sale'?s:{...s,shipping_cents:s.shipping_cents??pay(h.shipping,s),other_cents:s.other_cents??pay(h.other,s),commission_cents:s.commission_cents??Math.round(s.revenue_cents*h.commissionRate)});
+    const satislar=entries.filter(s=>s.kind==='sale'),ciro=satislar.reduce((t,s)=>t+s.revenue_cents,0);
+    // History estimates the WHOLE parcel. Keep recorded amounts, allocate only its remaining
+    // estimated cost to missing entries, and preserve integer cents at every split.
+    const paylar=new Map(satislar.map(s=>[s.id,{}]));
+    for(const [key,tutar] of [['shipping_cents',h.shipping],['other_cents',h.other],['commission_cents',Math.round(ciro*h.commissionRate)]]){
+     const eksik=satislar.filter(s=>s[key]===null),bilinen=satislar.reduce((t,s)=>t+(s[key]??0),0);
+     const pay=allocateCents(Math.max(0,tutar-bilinen),eksik.map(s=>s.revenue_cents));
+     eksik.forEach((s,i)=>{paylar.get(s.id)[key]=pay[i];});
+    }
+    entries=entries.map(s=>s.kind!=='sale'?s:{...s,...paylar.get(s.id)});
     saleMap.set(p.id,entries); // Presentation uses the same estimated fee entries as the authoritative package.
     const tahminli=packageProfit(p,packageLines,parts,entries);
     Object.assign(profit,{profit_cents:tahminli.estimated_profit_cents,reasons:[]});
@@ -365,7 +373,7 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
     // "tahmini" işaretlidir (row.fees_estimated) ve oran da o tahmine aittir.
     row.commission_rate_bps=komisyonOraniBps(row.commission_gross_cents,row.revenue_gross_cents);
     // Ürün bazında katkı: aynı satır formülü; stopaj ürünlere KDV dahil satış oranında dağılır,
-    // yuvarlama artığı son ürüne yazılır. Toplamı her zaman paketin cash_cents'ine eşittir.
+    // yuvarlama artığı en büyük kesir paylarına yazılır. Toplamı paketin cash_cents'ine eşittir.
     if(detay){
      const m=new Map();
      for(const e of entries){
@@ -378,8 +386,8 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
       u.cash_cents+=brut-incl(e.cost_cents,e.vat_bps)-incl(e.commission_cents??0,fv)-incl(e.shipping_cents??0,fv)-incl(e.other_cents??0,fv);
       m.set(e.product_id,u);
      }
-     const urunler=[...m.values()],pay=urunler.reduce((t,u)=>t+Math.max(0,u.revenue_gross_cents),0);let kalan=stopaj;
-     urunler.forEach((u,i)=>{const d=i===urunler.length-1?kalan:Math.round(stopaj*Math.max(0,u.revenue_gross_cents)/(pay||1));u.cash_cents-=d;kalan-=d;});
+     const urunler=[...m.values()],paylar=allocateCents(stopaj,urunler.map(u=>u.revenue_gross_cents));
+     urunler.forEach((u,i)=>{u.cash_cents-=paylar[i];});
      row.urunler=urunler;
     }
    }
@@ -411,13 +419,15 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
     const oranlar=[...new Set(packageLines.map(l=>l.vat_bps))],fv=feeVat.get(p.channel);
     if(oranlar.length!==1||oranlar[0]===null||oranlar[0]===undefined)row.cash_note='Paketin satırları farklı KDV oranında; nakit sonuç hesaplanmadı.';
     else if(fv===null||fv===undefined)row.cash_note='Bu pazaryerinin kesinti KDV durumu beyan edilmedi; nakit sonuç hesaplanmadı.';
+    else if((own.length?own.map(e=>e.vat_bps):parts.map(c=>c.urun_kdv)).some(v=>!Number.isSafeInteger(v)))row.cash_note='Ürünün alış KDV oranı tanımlı değil; nakit sonuç hesaplanmadı.';
     else{
-     const v=oranlar[0],inc=(x,b)=>Math.round(x*(10000+b)/10000),mvs=[...new Set(parts.map(c=>c.urun_kdv))],mv=mvs.length===1&&mvs[0]!==null&&mvs[0]!==undefined?mvs[0]:v;
-     row.revenue_gross_cents=inc(revenue,v);row.cost_gross_cents=inc(cost,mv);row.shipping_gross_cents=inc(h.shipping,fv);row.commission_gross_cents=inc(commission,fv);row.other_gross_cents=inc(h.other,fv);
+     const v=oranlar[0],inc=(x,b)=>Math.round(x*(10000+b)/10000);
+     const maliyetBrut=own.length?own.reduce((t,e)=>t+inc(e.cost_cents,e.vat_bps),0):parts.reduce((t,c)=>t+inc(birimMaliyet(c),c.urun_kdv),0);
+     row.revenue_gross_cents=inc(revenue,v);row.cost_gross_cents=maliyetBrut;row.shipping_gross_cents=inc(h.shipping,fv);row.commission_gross_cents=inc(commission,fv);row.other_gross_cents=inc(h.other,fv);
      row.commission_rate_bps=komisyonOraniBps(row.commission_gross_cents,row.revenue_gross_cents);
      const stopaj=Math.round(row.revenue_gross_cents*h.withholdingRate);row.withholding_cents=stopaj?-stopaj:0;
      row.cash_cents=row.revenue_gross_cents-row.cost_gross_cents-row.shipping_gross_cents-row.commission_gross_cents-row.other_gross_cents-stopaj;
-     if(detay)row.urunler=urunPaylari(row,own,packageLines,parts,v,mv,birimMaliyet);
+     if(detay)row.urunler=urunPaylari(row,own,packageLines,parts,v,birimMaliyet);
     }
     return row;
    }
@@ -436,12 +446,19 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
     else{
      const v=oranlar[0],incl=x=>Math.round(x*(10000+v)/10000);
      const kendiGider=q.packaging_net_cents+q.other_net_cents;
-     row.cash_cents=q.estimated_payout_cents-incl(q.cost_net_cents)-incl(kendiGider);
-     row.revenue_gross_cents=q.price_cents;row.cost_gross_cents=incl(q.cost_net_cents);
+     const own=(saleMap.get(p.id)||[]).filter(e=>e.kind==='sale'),brut=(n,b)=>Math.round(n*(10000+(b??v))/10000);
+     // Use the tariff engine's validated cost basis, including a genuinely zero stock value.
+     // A replacement-price fallback here would silently disagree with q.cost_net_cents.
+     const componentCost=c=>estimate.cost_basis==='shipment_snapshot'?c.sale_cost_cents:Number((BigInt(c.value_cents)*BigInt(c.quantity_milli)*2n+BigInt(c.stock_quantity_milli))/(BigInt(c.stock_quantity_milli)*2n));
+     pendingCostSources.set(p.id,{componentCost,costVatFallback:v});
+     const maliyetBrut=own.length?own.reduce((t,e)=>t+brut(e.cost_cents,e.vat_bps),0):parts.reduce((t,c)=>t+brut(componentCost(c),c.urun_kdv),0);
+     if((own.length?own.map(e=>e.vat_bps):parts.map(c=>c.urun_kdv)).some(b=>!Number.isSafeInteger(b)))row.cash_note='Tarife senaryosu: alış KDV bilgisi olmayan bileşende, girilen satış KDV oranı maliyet varsayımı olarak kullanıldı.';
+     row.cash_cents=q.estimated_payout_cents-maliyetBrut-incl(kendiGider);
+     row.revenue_gross_cents=q.price_cents;row.cost_gross_cents=maliyetBrut;
      row.shipping_gross_cents=q.shipping_gross_cents;row.commission_gross_cents=q.commission_gross_cents;
      row.commission_rate_bps=komisyonOraniBps(row.commission_gross_cents,row.revenue_gross_cents);
      row.other_gross_cents=incl(kendiGider);row.withholding_cents=q.withholding_cents?-q.withholding_cents:0;
-     if(detay)row.urunler=urunPaylari(row,(saleMap.get(p.id)||[]).filter(e=>e.kind==='sale'),packageLines,parts,v,v,birimMaliyet);
+     if(detay)row.urunler=urunPaylari(row,own.map(e=>({...e,vat_bps:e.vat_bps??v})),packageLines,parts.map(c=>({...c,urun_kdv:c.urun_kdv??v})),v,componentCost);
     }
    }catch{row.missing.push('Kayıtlı paket varsayımları hesaplanamadı; sipariş özetinden yenileyin.');}
   }
@@ -454,7 +471,7 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
   else for(const c of partMap.get(row.id)||[])ekle(c.product_id,c.quantity_milli);
   row.urunler_eksik=[...m.values()];
  }
- for(const row of rows)buildSalesPresentation(row,lineMap.get(row.id)||[],partMap.get(row.id)||[],saleMap.get(row.id)||[],{names:urunAdi,feeVat:feeVat.get(row.channel),pending:mode==='pending',componentCost:birimMaliyet,lineQuotes:pendingLineQuotes.get(row.id)||[]});
+ for(const row of rows)buildSalesPresentation(row,lineMap.get(row.id)||[],partMap.get(row.id)||[],saleMap.get(row.id)||[],{names:urunAdi,feeVat:feeVat.get(row.channel),pending:mode==='pending',componentCost:pendingCostSources.get(row.id)?.componentCost||birimMaliyet,costVatFallback:pendingCostSources.get(row.id)?.costVatFallback??null,lineQuotes:pendingLineQuotes.get(row.id)||[]});
  // Paket sonucu (liste/pencere) için özet sorguları gerekmez.
  const ozetli=mode==='delivered'&&!paketIdleri;
  // TESLIM ONAYI GELMEYEN PAKETLER. Kar yalniz teslim edilmis pakette hesaplanir; kargoda

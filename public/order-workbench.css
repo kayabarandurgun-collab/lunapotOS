@@ -1,0 +1,171 @@
+/* Order workbench — scoped component rules; independent of the shared shell. */
+body.workspace-redesign .workflow-orders.ol-workbench{display:grid;gap:18px;min-width:0;color:var(--ink,#18232e)}
+body.workspace-redesign .ol-workbench .ol-heading{margin:0!important;align-items:center;flex-direction:row;flex-wrap:nowrap}
+body.workspace-redesign .ol-workbench .ol-heading h1{font-size:26px;line-height:1.2;letter-spacing:-.7px}
+body.workspace-redesign .ol-workbench .ol-heading p{font-size:14px;line-height:1.5;margin:6px 0 0;color:var(--muted,#667382)}
+body.workspace-redesign .ol-workbench .ol-heading-actions{display:flex;align-items:center;gap:8px}
+body.workspace-redesign .ol-workbench .ol-heading-actions a{text-decoration:none;white-space:nowrap}
+body.workspace-redesign .ol-workbench .ol-card{padding:0;overflow:hidden;background:#fff;border:1px solid var(--line,#e3e7ed);border-radius:var(--radius-kart);box-shadow:none;min-width:0}
+body.workspace-redesign .ol-workbench .ol-chips{display:flex;flex-wrap:nowrap;gap:4px;overflow-x:auto;min-width:0;scrollbar-width:thin;margin:0;padding:12px 16px;border-bottom:1px solid var(--line,#e3e7ed)}
+body.workspace-redesign .ol-workbench .ol-chip{position:relative;display:inline-flex;align-items:center;gap:7px;flex:none;white-space:nowrap;min-height:36px;padding:7px 11px;border:0;border-radius:var(--radius-dugme);font-size:var(--yazi-dugme-kucuk);font-weight:var(--kalinlik-dugme);color:var(--muted,#667382);background:transparent;box-shadow:none}
+body.workspace-redesign .ol-workbench .ol-chip b{display:inline-block;background:#f2f4f8;color:var(--muted,#667382);border-radius:5px;padding:2px 5px;font-size:11px;line-height:1.2;font-weight:500}
+body.workspace-redesign .ol-workbench .ol-chip:hover{background:#f6f8fc}
+body.workspace-redesign .ol-workbench .ol-chip[aria-pressed=true]{color:var(--brand,#315bea);background:var(--brand-soft,#edf2ff)}
+body.workspace-redesign .ol-workbench .ol-chip[aria-pressed=true] b{background:#fff;color:var(--brand,#315bea)}
+body.workspace-redesign .ol-workbench .ol-toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;padding:18px 20px 12px;border:0;align-items:center}
+body.workspace-redesign .ol-workbench .ol-search{display:flex;gap:8px;align-items:center;min-width:0;width:100%;margin:0}
+body.workspace-redesign .ol-workbench .ol-search label{position:relative;display:block;flex:1;min-width:0;margin:0}
+body.workspace-redesign .ol-workbench .ol-search input[type=search]{width:100%;min-height:40px;padding:10px 12px 10px 38px;border-radius:var(--radius-dugme);background:#fff;border:1px solid var(--line,#e3e7ed);font-size:13px}
+body.workspace-redesign .ol-workbench .ol-search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);width:17px;height:17px;color:#92a0b2;pointer-events:none}
+body.workspace-redesign .ol-workbench .ol-sr-label{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+body.workspace-redesign .ol-workbench .ol-search button{padding:9px 14px;min-height:40px}
+body.workspace-redesign .ol-workbench .ol-sort{display:flex;gap:9px;align-items:center;font-size:12px;min-width:0}
+body.workspace-redesign .ol-workbench .ol-sort select[data-ol-sort]{margin:0;width:215px;max-width:100%;padding:9px 30px 9px 10px;min-height:40px;font-size:12px}
+body.workspace-redesign .ol-workbench .ol-sort span{color:var(--muted,#667382)}
+body.workspace-redesign .ol-workbench .ol-mobile-channel{display:none}
+body.workspace-redesign .ol-workbench .ol-filterbar{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:0 20px 14px}
+body.workspace-redesign .ol-workbench .ol-seg{display:flex;gap:3px;border:0;border-radius:var(--radius-dugme);overflow:visible;background:transparent;min-width:0}
+body.workspace-redesign .ol-workbench .ol-seg button{border:0;border-radius:var(--radius-dugme);color:var(--muted,#667382);background:transparent;font-size:var(--yazi-dugme-kucuk);font-weight:var(--kalinlik-dugme);min-height:34px;padding:6px 10px;white-space:nowrap}
+body.workspace-redesign .ol-workbench .ol-seg button[aria-pressed=true]{color:var(--ink,#18232e);background:#f1f4f8}
+body.workspace-redesign .ol-workbench .ol-seg button:hover{background:#f6f8fc}
+body.workspace-redesign .ol-workbench .ol-seg-sonuc button[data-ol-sonuc-sec=kar][aria-pressed=true]{color:#187b60;background:#ecf7f2}
+body.workspace-redesign .ol-workbench .ol-seg-sonuc button[data-ol-sonuc-sec=zarar][aria-pressed=true]{color:#a54137;background:#fff0ee}
+body.workspace-redesign .ol-workbench .ol-say{font-size:11px;color:inherit}
+body.workspace-redesign .ol-workbench .ol-more{background:transparent;border:0;margin:0;min-width:0;max-width:100%}
+body.workspace-redesign .ol-workbench .ol-more>summary{font-size:12px;white-space:nowrap;text-align:right;min-height:34px;padding:6px 0 6px 12px;color:var(--muted,#667382);line-height:22px;cursor:pointer;list-style-position:inside}
+body.workspace-redesign .ol-workbench .ol-more[open]{flex:1}
+body.workspace-redesign .ol-workbench .ol-filterbar:has(.ol-more[open]){flex-wrap:wrap}
+body.workspace-redesign .ol-workbench .ol-filterbar:has(.ol-more[open]) .ol-more{flex-basis:100%}
+body.workspace-redesign .ol-workbench .ol-more[open]>summary{padding:8px 0;text-align:left;border-top:1px solid var(--line,#e3e7ed)}
+body.workspace-redesign .ol-workbench .ol-filter-panel{display:grid;gap:12px;background:#f8faff;border:1px solid var(--line,#e3e7ed);border-radius:10px;padding:14px}
+body.workspace-redesign .ol-workbench .ol-result-filter{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+body.workspace-redesign .ol-workbench .ol-result-filter>span{font-size:12px;color:var(--muted,#667382)}
+body.workspace-redesign .ol-workbench .ol-more-form{display:grid;grid-template-columns:1fr 1fr 1.4fr auto;align-items:end;gap:12px;padding:0}
+body.workspace-redesign .ol-workbench .ol-more-form label{display:grid;gap:5px;min-width:0;font-size:12px}
+body.workspace-redesign .ol-workbench .ol-more-form :is(input,select){width:100%;min-width:0;max-width:100%;font-size:13px;background:#fff}
+body.workspace-redesign .ol-workbench .ol-more-actions{gap:6px}
+body.workspace-redesign .ol-workbench .ol-more-actions button{padding:8px 12px;min-height:40px}
+body.workspace-redesign .ol-workbench .ol-list-caption{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 20px;background:#fafbfd;border-top:1px solid var(--line,#e3e7ed);font-size:11px;color:var(--muted,#667382)}
+body.workspace-redesign .ol-workbench .ol-list-caption p{margin:0;overflow-wrap:anywhere}
+body.workspace-redesign .ol-workbench .ol-list-caption>span{white-space:nowrap}
+body.workspace-redesign .ol-workbench .ol-table-wrap{min-width:0;overflow-x:auto}
+body.workspace-redesign .ol-workbench .ol-table{border-collapse:collapse;width:100%;font-size:13px;table-layout:fixed}
+body.workspace-redesign .ol-workbench .ol-table th{padding:0 16px;height:40px;background:#fafbfd;font-size:11px;color:var(--muted,#667382);border-bottom:1px solid var(--line,#e3e7ed);font-weight:500}
+body.workspace-redesign .ol-workbench .ol-table th:first-child{padding-left:20px}
+body.workspace-redesign .ol-workbench .ol-table th:last-child{padding-right:20px}
+body.workspace-redesign .ol-workbench .ol-h-urun{width:35%}
+body.workspace-redesign .ol-workbench .ol-h-kanal{width:7%}
+body.workspace-redesign .ol-workbench .ol-h-date{width:10%}
+body.workspace-redesign .ol-workbench .ol-h-durum{width:16%}
+body.workspace-redesign .ol-workbench .ol-h-amount{width:17%}
+body.workspace-redesign .ol-workbench .ol-h-profit{width:15%}
+body.workspace-redesign .ol-workbench .ol-table td{padding:16px;border-bottom:1px solid var(--line,#e3e7ed);vertical-align:top;line-height:1.5}
+body.workspace-redesign .ol-workbench .ol-table td:first-child{padding-left:20px;min-width:0;max-width:none}
+body.workspace-redesign .ol-workbench .ol-table td:last-child{padding-right:20px}
+body.workspace-redesign .ol-workbench .ol-table tbody tr:hover{background:#fafcff}
+body.workspace-redesign .ol-workbench .ol-table tbody tr:last-child td{border-bottom:0}
+body.workspace-redesign .ol-workbench .ol-table td small{display:block;color:var(--muted,#667382);font-size:11px;font-weight:400;line-height:1.55;margin-top:5px;white-space:normal}
+body.workspace-redesign .ol-workbench .ol-table td.ol-c-kanal,body.workspace-redesign .ol-workbench .ol-table td.ol-c-tarih{font-size:11px;white-space:nowrap;padding-top:20px}
+body.workspace-redesign .ol-workbench .ol-table td.ol-c-cep,body.workspace-redesign .ol-workbench .ol-table td.ol-c-tutar{font-size:13px;white-space:normal;font-variant-numeric:tabular-nums}
+body.workspace-redesign .workflow-orders.ol-workbench .ol-open-order{display:block;width:100%;padding:0;min-height:0;background:transparent;border:0;color:var(--ink,#18232e);text-align:left;text-decoration:none;white-space:normal}
+body.workspace-redesign .ol-workbench .ol-order-id{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.5;overflow-wrap:anywhere}
+body.workspace-redesign .ol-workbench .ol-open-arrow{font-size:14px;color:#9ca8b8;font-weight:400}
+body.workspace-redesign .ol-workbench .ol-open-order:hover .ol-order-id{color:var(--brand,#315bea)}
+body.workspace-redesign .workflow-orders.ol-workbench .ol-open-order .ol-urun{display:block;margin-top:5px;font-size:12px;font-weight:400;line-height:1.65;color:#627085;overflow-wrap:anywhere}
+body.workspace-redesign .ol-workbench .ol-open-hint{display:none}
+body.workspace-redesign .ol-workbench .ol-mobile-meta{display:none!important}
+body.workspace-redesign .ol-workbench .ol-table .offering-components{margin:5px 0 0;padding:0;border:0;border-radius:0;background:transparent;font-size:11px}
+body.workspace-redesign .ol-workbench .ol-table .offering-components summary{font-size:11px;min-height:0;padding:3px 0;color:#8290a2}
+body.workspace-redesign .ol-workbench .ol-table .offering-components p,body.workspace-redesign .ol-workbench .ol-table .offering-components li{font-size:11px;line-height:1.6}
+body.workspace-redesign .ol-workbench .ol-kanal{font-size:10px;padding:3px 5px;border-radius:4px;font-weight:500}
+body.workspace-redesign .ol-workbench .ol-kanal-trendyol{background:#fff1e7;color:#b36b30}
+body.workspace-redesign .ol-workbench .ol-kanal-hepsiburada{background:#fff2e7;color:#ad6631}
+body.workspace-redesign .ol-workbench .ol-kanal-other{background:#f1f4f8;color:#667382}
+body.workspace-redesign .ol-workbench .ol-c-durum .v2-badge{font-size:10px;padding:4px 7px;border-radius:5px;font-weight:500;line-height:1.5;white-space:normal}
+body.workspace-redesign .ol-workbench .ol-c-durum .error{color:#a54137}
+body.workspace-redesign .ol-workbench .ol-pos{color:#187b60;font-weight:600}
+body.workspace-redesign .ol-workbench .ol-neg{color:#a54137;font-weight:600}
+body.workspace-redesign .ol-workbench .ol-pager{padding:14px 20px;border-top:1px solid var(--line,#e3e7ed);font-size:12px;gap:12px}
+body.workspace-redesign .ol-workbench .ol-pager .ac-actions{display:flex;align-items:center;gap:8px}
+body.workspace-redesign .ol-workbench .ol-pager button{padding:7px 10px;min-height:36px}
+body.workspace-redesign .ol-workbench .ol-page{font-size:11px}
+body.workspace-redesign .ol-workbench .ol-scope-note{margin:0;color:var(--muted,#667382);font-size:11px;line-height:1.6;padding:0 2px;background:none;border:0}
+body.workspace-redesign dialog.ol-daily-dialog .order-copy-row{display:flex;flex-wrap:wrap;gap:8px}
+body.workspace-redesign dialog.ol-daily-dialog .order-copy-row button{overflow-wrap:anywhere;min-height:44px}
+body.workspace-redesign dialog.ol-daily-dialog .ol-detay-islem button{min-height:44px}
+body.workspace-redesign dialog.ol-daily-dialog .breakdown-collapsible>summary{cursor:pointer;min-height:48px}
+
+@media(max-width:1050px){body.workspace-redesign .ol-workbench .ol-sort span{display:none}
+body.workspace-redesign .ol-workbench .ol-sort select[data-ol-sort]{width:190px}
+body.workspace-redesign .ol-workbench .ol-table th,body.workspace-redesign .ol-workbench .ol-table td{padding-left:12px;padding-right:12px}
+body.workspace-redesign .ol-workbench .ol-h-urun{width:31%}
+body.workspace-redesign .ol-workbench .ol-h-amount{width:18%}
+body.workspace-redesign .ol-workbench .ol-h-profit{width:18%}
+body.workspace-redesign .ol-workbench .ol-more-form{grid-template-columns:1fr 1fr}
+body.workspace-redesign .ol-workbench .ol-more-actions{justify-content:flex-end}
+}
+
+@media(max-width:760px){body.workspace-redesign .workflow-orders.ol-workbench{gap:14px}
+body.workspace-redesign .ol-workbench .ol-heading{align-items:flex-start}
+body.workspace-redesign .ol-workbench .ol-heading h1{font-size:26px}
+body.workspace-redesign .ol-workbench .ol-heading p{font-size:12px}
+body.workspace-redesign .ol-workbench .ol-heading-actions a{display:none}
+body.workspace-redesign .ol-workbench .ol-heading-actions button{font-size:var(--yazi-dugme-kucuk);min-height:40px;padding:8px 12px}
+body.workspace-redesign .ol-workbench .ol-chips{padding:8px;gap:2px}
+body.workspace-redesign .ol-workbench .ol-chip{min-height:42px;padding:8px 10px;gap:5px}
+body.workspace-redesign .ol-workbench .ol-toolbar{grid-template-columns:minmax(0,1fr);padding:14px 14px 8px;gap:8px}
+body.workspace-redesign .ol-workbench .ol-search input[type=search]{font-size:16px;min-height:44px;padding-left:36px}
+body.workspace-redesign .ol-workbench .ol-search button{min-height:44px;padding:8px 12px}
+body.workspace-redesign .ol-workbench .ol-sort{display:flex;justify-content:flex-end;flex:initial;font-size:11px}
+body.workspace-redesign .ol-workbench .ol-sort span{display:block}
+body.workspace-redesign .ol-workbench .ol-sort select[data-ol-sort]{flex:initial;font-size:12px;min-height:34px;width:auto;max-width:220px;padding:6px 24px 6px 8px;border-color:transparent;background-color:transparent}
+body.workspace-redesign .ol-workbench .ol-filterbar{padding:0 14px 10px;gap:6px;align-items:center;flex-wrap:wrap}
+body.workspace-redesign .ol-workbench .ol-filterbar>.ol-seg{display:none}
+body.workspace-redesign .ol-workbench .ol-mobile-channel{display:flex;align-items:center;gap:8px;flex:1;min-width:0;font-size:12px;color:var(--muted,#667382)}
+body.workspace-redesign .ol-workbench .ol-mobile-channel select[data-ol-channel-select]{margin:0;width:auto;max-width:200px;min-width:0;min-height:44px;font-size:14px;border-color:transparent;background-color:transparent;padding:7px 26px 7px 6px}
+body.workspace-redesign .ol-workbench .ol-filterbar>.ol-seg button{flex:initial;min-height:36px;padding:6px;font-size:var(--yazi-dugme-kucuk)}
+body.workspace-redesign .ol-workbench .ol-more>summary{min-height:36px;padding:6px 0;font-size:12px}
+body.workspace-redesign .ol-workbench .ol-more .ol-seg{width:100%;display:flex;flex-wrap:wrap}
+body.workspace-redesign .ol-workbench .ol-more .ol-seg button{flex:1;min-height:40px;padding:6px 8px}
+body.workspace-redesign .ol-workbench .ol-result-filter{gap:6px}
+body.workspace-redesign .ol-workbench .ol-filter-panel{padding:12px}
+body.workspace-redesign .ol-workbench .ol-more-form{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 8px}
+body.workspace-redesign .ol-workbench .ol-more-form label{min-width:0;flex:initial}
+body.workspace-redesign .ol-workbench .ol-more-form label:nth-child(3){grid-column:1/-1}
+body.workspace-redesign .ol-workbench .ol-more-form input,body.workspace-redesign .ol-workbench .ol-more-form select{font-size:16px;min-height:44px}
+body.workspace-redesign .ol-workbench .ol-more-actions{grid-column:1/-1}
+body.workspace-redesign .ol-workbench .ol-list-caption{padding:9px 14px;font-size:10px;gap:8px}
+body.workspace-redesign .ol-workbench .ol-list-caption>span{font-size:9px}
+body.workspace-redesign .ol-workbench .ol-table-wrap{overflow:visible}
+body.workspace-redesign .ol-workbench .ol-table,body.workspace-redesign .ol-workbench .ol-table tbody{display:block}
+body.workspace-redesign .ol-workbench .ol-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+body.workspace-redesign .ol-workbench .ol-table tbody tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"urun urun" "bilgi bilgi" "tutar cep";gap:10px 16px;padding:16px 14px;border-bottom:1px solid var(--line,#e3e7ed)}
+body.workspace-redesign .ol-workbench .ol-table tbody tr:last-child{border-bottom:0}
+body.workspace-redesign .ol-workbench .ol-table td,body.workspace-redesign .ol-workbench .ol-table td:first-child,body.workspace-redesign .ol-workbench .ol-table td:last-child{display:block;padding:0;border:0;min-width:0;max-width:none;white-space:normal}
+body.workspace-redesign .ol-workbench .ol-table td.ol-c-urun{grid-area:urun}
+body.workspace-redesign .ol-workbench .ol-table td.ol-c-durum{grid-area:bilgi;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+body.workspace-redesign .ol-workbench .ol-c-durum .ol-iade{margin-left:0}
+body.workspace-redesign .ol-workbench .ol-table td.ol-c-durum small{margin:0;font-size:11px}
+body.workspace-redesign .ol-workbench .ol-table td.ol-c-tutar{grid-area:tutar;text-align:left!important;font-size:14px}
+body.workspace-redesign .ol-workbench .ol-table td.ol-c-cep{grid-area:cep;text-align:right;font-size:14px}
+body.workspace-redesign .ol-workbench .ol-table td.ol-c-kanal,body.workspace-redesign .ol-workbench .ol-table td.ol-c-tarih{display:none}
+body.workspace-redesign .ol-workbench .ol-table td:is(.ol-c-tutar,.ol-c-cep):before{content:attr(data-label);display:block;margin-bottom:4px;font-size:10px;font-weight:400;color:var(--muted,#667382)}
+body.workspace-redesign .ol-workbench .ol-mobile-meta{display:flex!important;align-items:center;gap:8px;margin-top:7px;font-size:10px}
+body.workspace-redesign .ol-workbench .ol-order-id{font-size:14px;justify-content:space-between}
+body.workspace-redesign .workflow-orders.ol-workbench .ol-open-order .ol-urun{font-size:12px;line-height:1.6}
+body.workspace-redesign .ol-workbench .ol-table .offering-components{margin-top:4px}
+body.workspace-redesign .ol-workbench .ol-table .offering-components summary{font-size:10px;padding:6px 0;min-height:30px}
+body.workspace-redesign .ol-workbench .ol-pager{padding:12px 14px;gap:12px}
+body.workspace-redesign .ol-workbench .ol-pager .ac-actions{width:100%;justify-content:space-between}
+body.workspace-redesign .ol-workbench .ol-pager button{min-height:44px}
+body.workspace-redesign .ol-workbench .ol-scope-note{font-size:10px}
+body.workspace-redesign dialog.ol-daily-dialog .order-timeline{display:flex;flex-wrap:wrap;gap:8px}
+body.workspace-redesign dialog.ol-daily-dialog .order-timeline li{flex:1 1 100px;white-space:normal}
+body.workspace-redesign dialog.ol-daily-dialog .order-profit-card strong{font-size:26px}
+}
+
+@media(prefers-reduced-motion:reduce){body.workspace-redesign .ol-workbench .ol-table tbody tr{transition:none}
+}
+
+/* Touch controls keep one minimum target across the 800px shell breakpoint. */
+@media(max-width:800px){body.workspace-redesign .ol-workbench :is(input:not([type=checkbox]),select,button){min-height:44px!important}body.workspace-redesign .ol-workbench :is(input:not([type=checkbox]),select){font-size:16px!important}}

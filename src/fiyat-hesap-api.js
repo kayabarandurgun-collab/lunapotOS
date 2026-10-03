@@ -51,7 +51,14 @@ export async function fiyatHesapApi(request, env, path) {
     const komisyon = Math.round(P * 10000 / (10000 + v) * h.commissionRate * (10000 + fv) / 10000), stopaj = Math.round(P * h.withholdingRate);
     return {fiyat: P, maliyet, kargo, hizmet, komisyon, stopaj, paketleme, diger, cebine: P - sabit - komisyon - stopaj};
   };
-  const fiyatFor = hedef => degisken > 0 ? Math.ceil((hedef + sabit) / degisken) : null;
+  const fiyatFor = hedef => {
+    if (degisken <= 0) return null;
+    let P = Math.ceil((hedef + sabit) / degisken);
+    // Commission and withholding round independently; the algebraic floor may miss by a cent.
+    for (let i = 0; i < 4 && Number.isSafeInteger(P) && dokum(P).cebine < hedef; i++)
+      P += Math.max(1, hedef - dokum(P).cebine);
+    return Number.isSafeInteger(P) && dokum(P).cebine >= hedef ? P : null;
+  };
   const sonuc = {
     fiyatla: price !== null ? dokum(price) : null,
     basabas: fiyatFor(0) === null ? null : dokum(fiyatFor(0)),

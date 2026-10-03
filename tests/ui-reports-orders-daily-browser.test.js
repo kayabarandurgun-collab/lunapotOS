@@ -44,13 +44,16 @@ test('daily report upload and orders: intents, recovery, mobile detail and lifec
    assert.equal(new URL(page.url()).hash,'#reports?keep=1','consume upload only, preserve other parameters');
    const file=await page.locator('[data-rb="file"]').boundingBox();assert.ok(file.y+file.height<844,'file picker fits first viewport');
    assert.equal(await page.locator('[data-rb-source-settings]').getAttribute('open'),null,'source settings are progressive');
+   const guide=page.locator('[data-rb-context]');
+   if(width===390){assert.equal(await guide.getAttribute('open'),null,'mobile guidance starts collapsed');await guide.locator('summary').first().click();}
    assert.match(await page.locator('.rb-upload-card').innerText(),/Sipariş raporu:[\s\S]*Finans \/ hakediş raporu:/);
+   if(width===390)await guide.locator('summary').first().click();
    await page.evaluate(()=>{window.__reportRoot=document.querySelector('.rb').parentElement;});
-   await page.locator('[data-rb-tab="files"]').click();await page.locator('.rb h3').filter({hasText:'Yüklenen dosyalar'}).waitFor();
+   await page.locator('.rb-tabs [data-rb-tab="files"]').click();await page.locator('.rb h3').filter({hasText:'Yüklenen dosyalar'}).waitFor();
    await go(page,'#reports?action=upload&keep=1');await readyReports(page);
    assert.equal(await page.evaluate(()=>window.__reportRoot===document.querySelector('.rb').parentElement),true,'same route keeps mounted module');
    await page.locator('[data-rb="snapshot"]').evaluate(e=>{e.value='2026-09-25T10:00';e.dispatchEvent(new Event('change',{bubbles:true}));});
-   await page.locator('[data-rb-tab="files"]').click();
+   await page.locator('.rb-tabs [data-rb-tab="files"]').click();
    await page.evaluate(()=>{history.replaceState(history.state,'','#reports?action=upload&keep=1');window.dispatchEvent(new HashChangeEvent('hashchange'));});
    await readyReports(page);assert.equal(await page.locator('[data-rb="snapshot"]').inputValue(),'2026-09-25T10:00');
    await noOverflow(page,'.rb');await screenshot(page,'reports-'+width);
@@ -73,14 +76,14 @@ test('daily report upload and orders: intents, recovery, mobile detail and lifec
    await form.locator('[name="kind"]').waitFor();assert.equal(await form.locator('[name="store"]').count(),0);
    await form.locator('[name="kind"]').selectOption('finance');await form.locator('button[type="submit"]').click();
    await page.locator('[data-rb-form="map"]').waitFor();assert.match(await page.locator('.rb-kind').innerText(),/Finans \/ hakediş/);
-   await page.locator('[data-rb-tab="files"]').click();await go(page,'#reports?action=upload');
+   await page.locator('.rb-tabs [data-rb-tab="files"]').click();await go(page,'#reports?action=upload');
    await page.locator('[data-rb-form="map"]').waitFor();assert.match(await page.locator('.rb-kind').innerText(),/ornek-rapor.csv/);
    await noOverflow(page,'.rb');
   }));
 
   await t.test('first store, no files and no results have usable next steps',()=>withPage(async page=>{
    await page.locator('[data-rb-form="store"]').waitFor();assert.equal(await page.locator('[data-rb="file"]').count(),0);
-   await page.locator('[data-rb-tab="files"]').click();await page.getByRole('heading',{name:'Henüz rapor yüklenmedi.'}).waitFor();
+   await page.locator('.rb-tabs [data-rb-tab="files"]').click();await page.getByRole('heading',{name:'Henüz rapor yüklenmedi.'}).waitFor();
    await page.locator('.v2-empty [data-rb-tab="upload"]').click();await page.locator('[data-rb-form="store"]').waitFor();
    await go(page,'#orders');await readyOrders(page);assert.match(await page.locator('[data-order-list]').innerText(),/Henüz sipariş yok/);
    await page.locator('[data-order-list] [data-order="new"]').click();await page.locator('dialog[open]').waitFor();
