@@ -19,6 +19,8 @@ const BASE64_TAVAN = 780 * 1024;
 // Fatura yazısı küçüktür: ilk kademe ÇÖZÜNÜRLÜĞÜ yüksek tutar, boyut sınırına sığmazsa düşülür.
 // 1700 px'te model yalnız birkaç rakam okuyabildi; ince baskı için daha fazlası gerekiyor.
 const KADEMELER = [{kenar: 2400, kalite: 0.78}, {kenar: 1900, kalite: 0.7}, {kenar: 1400, kalite: 0.6}, {kenar: 1000, kalite: 0.5}];
+// Fatura no, tarih ve ETTN sayfanın üst kısmındadır. Bu oran kadarı ayrıca ve büyütülmüş okunur.
+const UST_BOLGE_ORANI = 0.42;
 
 let pdfjsSoz = null;
 // Kütüphane ancak GEREKTİĞİNDE yüklenir: harf taşıyan normal faturada 1,7 MB indirilmez.
@@ -40,13 +42,17 @@ function canvasBase64(canvas, kalite) {
   }, 'image/jpeg', kalite));
 }
 
-async function kademeyleCiz(sayfa, kenar, kalite) {
+// oran < 1 ise sayfanın yalnız ÜST bölgesi çizilir: tuval kısa tutulur, gerisi kırpılır.
+// Aynı bayt bütçesi dar bir alana harcandığı için yazı büyür ve ince baskı okunur hâle gelir.
+async function kademeyleCiz(sayfa, kenar, kalite, oran = 1) {
   const ilk = sayfa.getViewport({scale: 1});
-  const olcek = Math.max(0.3, Math.min(kenar / Math.max(ilk.width, ilk.height), 3));
+  // Üst bölgede ölçek GENİŞLİĞE göre: yükseklik kırpıldığı için uzun kenara bakmak ölçeği düşürürdü.
+  const taban = oran < 1 ? ilk.width : Math.max(ilk.width, ilk.height);
+  const olcek = Math.max(0.3, Math.min(kenar / taban, 4));
   const viewport = sayfa.getViewport({scale: olcek});
   const canvas = document.createElement('canvas');
   canvas.width = Math.ceil(viewport.width);
-  canvas.height = Math.ceil(viewport.height);
+  canvas.height = Math.ceil(viewport.height * oran);
   const ctx = canvas.getContext('2d');
   // ZEMİN BEYAZ: saydam zemin JPEG'e çevrilince siyah olur ve yazı okunmaz hâle gelir.
   ctx.fillStyle = '#ffffff';
@@ -58,11 +64,11 @@ async function kademeyleCiz(sayfa, kenar, kalite) {
   return b64;
 }
 
-/** Tek sayfayı sunucunun kabul edeceği boyuta sığacak şekilde resme çevirir; sığmazsa null. */
-async function sayfayiSigdir(sayfa) {
+/** Sayfayı (ya da üst bölgesini) sunucunun kabul edeceği boyuta sığdırır; sığmazsa null. */
+async function sayfayiSigdir(sayfa, oran = 1) {
   let son = null;
   for (const k of KADEMELER) {
-    son = await kademeyleCiz(sayfa, k.kenar, k.kalite);
+    son = await kademeyleCiz(sayfa, k.kenar, k.kalite, oran);
     if (son.length <= BASE64_TAVAN) return son;
   }
   return null;
@@ -88,14 +94,27 @@ export async function ocrIleOku(bytes, api, {ilerleme} = {}) {
     const adet = Math.min(belge.numPages, SAYFA_SINIRI);
     for (let i = 1; i <= adet; i++) {
       if (ilerleme) ilerleme(i, adet);
-      let b64;
+      let b64, ustB64 = null;
       try {
         const sayfa = await belge.getPage(i);
         b64 = await sayfayiSigdir(sayfa);
+        // FATURA NO VE TARİH SAYFANIN ÜSTÜNDE, İNCE BASKIDIR. Tam sayfa 2400 px'e sığdırılınca
+        // model o köşeyi hiç okuyamadı (canlıda 03.10.2026, üst üste üç deneme). Bu yüzden İLK
+        // SAYFANIN ÜST BÖLGESİ ayrıca ve büyütülmüş olarak okunur. Modele yeni bir SORU
+        // sorulmuyor — aynı "olduğu gibi yaz" işi, yalnız daha büyük yazıyla; uydurma riski artmaz.
+        if (i === 1) ustB64 = await sayfayiSigdir(sayfa, UST_BOLGE_ORANI);
         try { sayfa.cleanup(); } catch { /* temizlik sonucu etkilemez */ }
       } catch (e) { atlanan.push(i + '. sayfa çevrilemedi'); continue; }
       if (!b64) { atlanan.push(i + '. sayfa küçültülse de boyut sınırına sığmadı'); continue; }
-      // HER SAYFA KENDİ İSTEĞİNDE: hepsi bir arada gövde sınırını aşıyordu.
+      // HER GÖRÜNTÜ KENDİ İSTEĞİNDE: hepsi bir arada gövde sınırını aşıyordu.
+      // Üst bölge ÖNCE eklenir: guessHeader ilk eşleşmeyi aldığı için net okunan hâli kazansın.
+      if (ustB64) {
+        try {
+          const ust = await api('/invoices/documents/ocr', {images: [ustB64]});
+          const ustMetin = String(ust.text || '').trim();
+          if (ustMetin) parcalar.push(ustMetin);
+        } catch (e) { atlanan.push('üst bölge okunamadı (' + (e.message || 'model yanıt vermedi') + ')'); }
+      }
       try {
         const sonuc = await api('/invoices/documents/ocr', {images: [b64]});
         const metin = String(sonuc.text || '').trim();
