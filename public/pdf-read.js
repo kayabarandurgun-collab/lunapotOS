@@ -485,7 +485,10 @@ export function guessHeader(lines, own = {}) {
   const date = ['Fatura\\s*Tarihi', 'D[üu]zenleme\\s*Tarihi', 'Tarih'].map(l => new RegExp('(?:' + l + ')' + DATE, 'i').exec(text)).find(Boolean);
   if (date) out.invoice_date = date[3] + '-' + date[2] + '-' + date[1]; else out.uncertain.push('invoice_date');
   // VKN 10, TCKN 11 hane. Kendi numaramız da belgede geçer: alıcıdır, tedarikçi değil.
-  const ids = [...new Set([...text.matchAll(/(?:VKN|TCKN|Vergi\s*(?:Kimlik\s*)?No)\s*[:.]?\s*(\d{10,11})\b/gi)].map(m => m[1]))];
+  // [VW]KN: görüntüden okunan belgede "VKN" bazen "WKN" çıkıyor (canlıda 03.10.2026 görüldü;
+  // V'nin iki çizgisi W sanılıyor). Tek harflik bu karışıklık yüzünden tedarikçinin vergi
+  // numarası hiç bulunamıyordu. Rakam şartı aynen duruyor: 10-11 hane olmayan hiçbir şey geçmez.
+  const ids = [...new Set([...text.matchAll(/(?:[VW]KN|TCKN|Vergi\s*(?:Kimlik\s*)?No)\s*[:.]?\s*(\d{10,11})\b/gi)].map(m => m[1]))];
   // 11111111111 e-Arşiv'de nihai tüketiciye verilen genel numaradır; tedarikçi olamaz.
   const theirs = ids.filter(id => !ownIds.has(id) && !/^1{10,11}$/.test(id));
   const mine = ids.find(id => ownIds.has(id));

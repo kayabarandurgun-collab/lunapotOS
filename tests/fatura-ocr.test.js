@@ -123,3 +123,17 @@ test('OCR ucu: model askida kalirsa istek sonsuza kadar beklemez', async () => {
     assert.ok(Date.now() - basla < 5000, 'zaman asimi devrede');
   } finally { f.close(); }
 });
+
+test('Goruntuden okunan belgede VKN tek harf hatasiyla gelse de tedarikci numarasi bulunur', async () => {
+  // Canlida (03.10.2026): model saticinin "VKN"ini "WKN" okudu, ayiklayici tanimadi ve ekran
+  // "Tedarikci VKN okunamadi" dedi. Alicinin VKN'i duzgun okundugu icin tek bulunan o oldu.
+  const {guessHeader} = await import('../public/pdf-read.js');
+  const satirlar = ['KARAKUS AKSESUAR SANAYI VE TICARET LIMITED SIRKETI', 'WKN: 5166070631',
+    'SAYIN', 'DEKOVIL MIMARLIK INSAAT', 'VKN: 2731455087'];
+  const h = guessHeader(satirlar, {taxIds: ['2731455087'], name: 'Dekovil'});
+  assert.equal(h.supplier_tax_id, '5166070631', 'satici numarasi WKN yazsa da bulunmali');
+  assert.equal(h.receiver_tax_id, '2731455087', 'alici bizim numaramiz');
+  // RAKAM SARTI GEVSEMEDI: harf toleransi sayi uydurmaya kapi acmamali.
+  const bos = guessHeader(['WKN: 12345', 'VKN: abcdefghij'], {taxIds: [], name: ''});
+  assert.equal(bos.supplier_tax_id, '', 'eksik haneli numara kabul edilmez');
+});

@@ -47,9 +47,16 @@ const OCR_TIMEOUT_MS = 50000;
 // model canlıda (30.09.2026) o örneği okumuş gibi geri yazdı — yani prompt'un kendisi uydurma
 // kaynağı oldu. Komut KISA ve DOĞRUDAN tutulur: küçük görsel modeller uzun kural listesini
 // özetleyerek yanıtlıyor, istenen ise özet değil birebir döküm.
+// MARKDOWN YASAK: model canlıda (03.10.2026) ürün satırlarını "| 1 | Gartengold | ... |" diye
+// markdown tablosu yazdı; satır ayıklayıcı bu biçimi tanımıyor ve 4 satırın hiçbiri çıkmadı.
+// FATURA NO ve TARİH ayrıca vurgulanıyor: aynı denemede sayfanın o köşesi hiç dökülmemişti.
 const OCR_PROMPT = 'Transcribe every piece of text visible in this invoice image, exactly as printed, '
-  + 'line by line from top to bottom. Include the company name, tax number, invoice number, date, '
-  + 'every product row and every amount. Output only the transcribed text, nothing else. '
+  + 'line by line from top to bottom. Look at every corner of the page, including the top right: '
+  + 'the invoice number and the invoice date are printed there and you must include them. '
+  + 'Also include the company names, the tax numbers, every product row and every amount. '
+  + 'Write plain text only: no markdown, no tables, no pipe characters, no bullet points. '
+  + 'Put each product row on its own line with its columns separated by a single space. '
+  + 'Output only the transcribed text, nothing else. '
   + 'Do not summarise, do not explain, do not invent anything that is not visible.';
 // Yanıttan metni çıkarma. Bilinen alanlar önce denenir ("reasoning" gibi düşünme alanları asıl
 // cevaptan uzun olabilir, körlemesine en uzunu almak yanlış metni seçerdi); hiçbiri tutmazsa
