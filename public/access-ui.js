@@ -19,7 +19,12 @@ export function accessAllowed(user,ns,root){
    for(const b of document.querySelectorAll('[data-rb-act=accept],[data-rb-act=reject],[data-rb-act=apply],[data-rb-act=backfill],[data-rb-act=fees-apply],[data-rb-act=remap],[data-rb-act=restart],[data-rb-act=stock-link-apply],[data-rb-act=sync-deliveries],[data-rb-act=sync-go],[data-rb-act=upload],[data-rb-act=verify],[data-rb=complete-package],[data-rb-form=map] button[type=submit],[data-rb-form=store] button[type=submit],[data-bank-act=upload],[data-bank-form=account] button[type=submit]')){b.disabled=true;b.title='Bu hesap yalnızca görüntüleyebilir.';}
    const groups={catalog:['new','edit','archive'],business:['party','account','entry','cash','allocation','reverse','profile','shipping','commission','archive'],order:['new','invoice-draft','source','map','reserve','ship','deliver','cancel'],reconcile:['allocate','reverse'],production:['new','material','reverse'],op:['configure','sync','resume-sync','backup']};
    for(const [group,actions] of Object.entries(groups))for(const action of actions)document.querySelectorAll('[data-'+group+'="'+action+'"]').forEach(b=>{b.disabled=true;b.title='Bu hesap yalnızca görüntüleyebilir.';});
-   document.querySelectorAll('dialog button[type="submit"],input[type="file"]').forEach(b=>{b.disabled=true;});
+   document.querySelectorAll('dialog button[type="submit"],input[type="file"]').forEach(b=>{
+    // This stock-page form writes the supplier ledger, with its own permission.
+    // Do not re-enable controls: the form still owns pending/validation disabling.
+    const incoming=ns==='ec'&&b.closest('[data-ac-form="unbilled"]')&&can(user,ns,'stock')&&can(user,ns,'ledger',true);
+    if(!incoming)b.disabled=true;
+   });
    document.querySelectorAll('[data-edit],[data-delete],[data-action^="new-"],[data-ac="invoice"],[data-ac="product"],[data-ac="stock"],[data-ac="edit-product"],[data-ac="sale"],[data-ac="return"],[data-ac="fees"],[data-ac="expense"],[data-ac="receive-invoice"],[data-ac="purchase-return"],[data-ac="reverse-receipt"],[data-ac="reverse-purchase-return"],[data-ac="purchase-adjustment"],[data-ac="reverse-adjustment"],[data-ac="post-invoice"],[data-ac="cancel-invoice"]').forEach(b=>{b.disabled=true;b.title='Bu hesap yalnızca görüntüleyebilir.';});
   }
  };

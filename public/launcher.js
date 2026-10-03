@@ -1,3 +1,4 @@
+import {dailyTasks,dailyTaskMarkup} from './daily-actions.js';
 import {can} from './permissions.js';
 // Preserve saved links to the original production panel, including setup links.
 if(location.hash.length>1)location.replace('/uretim/'+location.search+location.hash);
@@ -11,4 +12,9 @@ function online(){status.textContent=navigator.onLine?'':'İnternet bağlantıs�
 window.addEventListener('online',online);window.addEventListener('offline',online);online();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
 
-fetch('/api/auth/status').then(r=>r.json()).then(s=>{if(s.user?.owner)document.querySelector('#manage-access').hidden=false;if(s.authenticated&&s.user){const quick=document.querySelector('#quick-start');let count=0;for(const a of quick.querySelectorAll('[data-quick-permission]')){const [ns,key]=a.dataset.quickPermission.includes(':')?a.dataset.quickPermission.split(':'):['ec',a.dataset.quickPermission];a.hidden=!can(s.user,ns,key);if(!a.hidden)count++;}quick.hidden=!count;}if(s.user&&!s.user.owner){if(!can(s.user,'ec','webshop'))document.querySelector('.application.webstore').hidden=true;for(const [ns,selector] of [['lp','.application.production'],['ec','.application.commerce']])if(s.user[ns+'_access']==='none')document.querySelector(selector).hidden=true;}}).catch(()=>{});
+fetch('/api/auth/status').then(r=>r.json()).then(s=>{
+ if(s.user?.owner)document.querySelector('#manage-access').hidden=false;
+ const quick=document.querySelector('#quick-start');
+ if(s.authenticated&&s.user){const tasks=dailyTasks(s.user,'ec');quick.innerHTML=dailyTaskMarkup(tasks,{prefix:'/eticaret/'});quick.hidden=!tasks.length;}
+ if(s.user&&!s.user.owner){if(!can(s.user,'ec','webshop'))document.querySelector('.application.webstore').hidden=true;for(const [ns,selector] of [['lp','.application.production'],['ec','.application.commerce']])if(s.user[ns+'_access']==='none')document.querySelector(selector).hidden=true;}
+}).catch(()=>{});

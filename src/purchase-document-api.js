@@ -276,13 +276,15 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
     // (03.10.2026: "KRK20260000009027" okundu, o tedarikçinin bütün faturaları 16 hane).
     // Numara DEĞİŞTİRİLMEZ ve iş durdurulmaz — yanlış olabileceği yalnız SÖYLENİR; tedarikçinin
     // kendi geçmişi tek tip bir kalıp gösteriyorsa ondan sapma kullanıcının gözüne sokulur.
-    let bicimUyarisi = '';
+    // Uyarı olmaması OCR kapısında olumlu kanıt sayılır. Geçmiş yoksa doğrulanmış değildir.
+    let bicimUyarisi = 'Fatura numarasının biçimi tedarikçi geçmişiyle doğrulanamadı; belgeyle karşılaştırın.';
     if (docNo && taxId) {
       const onceki = (await db.prepare(
         `SELECT i.invoice_no FROM purchase_invoices i JOIN suppliers s ON s.id=i.supplier_id
          WHERE s.tax_id=? AND i.invoice_no<>'' ORDER BY i.invoice_date DESC LIMIT 20`).bind(taxId).all()).results.map(r => r.invoice_no);
       const kalip = n => (String(n).match(/^[A-Za-z]+/) || [''])[0] + '/' + String(n).length;
       const kaliplar = [...new Set(onceki.map(kalip))];
+      if (onceki.length >= 3 && kaliplar.length === 1 && kaliplar[0] === kalip(docNo)) bicimUyarisi = '';
       if (onceki.length >= 3 && kaliplar.length === 1 && kaliplar[0] !== kalip(docNo)) {
         const [onEk, boy] = kaliplar[0].split('/');
         bicimUyarisi = 'Fatura numarası "' + docNo + '" bu tedarikçinin önceki ' + onceki.length
@@ -295,7 +297,7 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
     // tedarikçi VKN + fatura no. Dosya adı değişse de belge yakalanır.
     const same = await db.prepare(`SELECT d.id,d.status,d.filename,d.invoice_id,
       EXISTS(SELECT 1 FROM purchase_document_pages p WHERE p.document_id=d.id) paged FROM purchase_documents d WHERE d.sha256=?`).bind(x.sha256).first();
-    if (same?.status === 'receiving') return {id: same.id, resume: true};
+    if (same?.status === 'receiving') return {id: same.id, resume: true, format_warning: bicimUyarisi};
     // Saklanmış ama HİÇBİR faturaya bağlanmamış belge yeniden okunabilir: eski okuyucu belgeyi
     // "taranmış" sanıp tek fatura çıkaramadıysa dosya burada kilitli kalıyordu. Çift kayıt
     // koruması fatura düzeyindedir (fatura no + VKN ve ETTN kaydı); belge yeniden okununca

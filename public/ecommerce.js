@@ -10,7 +10,7 @@ let loggingOut=false,startupRetry=start;
 const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // Menu sirasi ve adlari: once gunluk karar isleri, sonra kayit tutma. Anahtarlar degismez;
 // mevcut #adres baglantilari ve hizli gecis aynen calisir. Ekran yetkileri ve verileri birlesmez.
-const views={overview:'Genel durum',performance:'Satış ve kâr',orders:'Siparişler',reports:'Rapor Kutusu',pricing:'Satış fiyatı hesapla',stock:'Depomdaki ürünler',catalog:'Ürünler ve setler',invoices:'Alış faturaları',documents:'Fatura belgeleri',sales:'Satış ve kesinti kayıtları',reconciliation:'Kesinti eşleştirme',ledger:'Cariler ve nakit',bank:'Banka ekstresi',offers:'Teklif ve belgeler',expenses:'Genel giderler',integrations:'Bağlantılar',settings:'Şirket ve yedek'};
+const views={overview:'Genel durum',performance:'Satış ve kâr',orders:'Siparişler',reports:'Rapor yükleme',pricing:'Satış fiyatı hesapla',stock:'Depomdaki ürünler',catalog:'Ürünler ve setler',invoices:'Alış faturaları',documents:'Fatura belgeleri',sales:'Satış ve kesinti kayıtları',reconciliation:'Kesinti eşleştirme',ledger:'Cariler ve nakit',bank:'Banka ekstresi',offers:'Teklif ve belgeler',expenses:'Genel giderler',integrations:'Bağlantılar',settings:'Şirket ve yedek'};
 function resetSession(){
  const owner=session.begin();authenticated=false;currentUser=null;mountedRoute='';loggingOut=false;
  disposeQuickLogin?.();disposeQuickLogin=null;routeLoader.begin();return owner;

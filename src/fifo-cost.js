@@ -48,6 +48,10 @@ export async function fifoHesap(db, productId) {
     oku('SELECT value_cents v FROM ec_stock_balances WHERE product_id=?', productId),
     oku('SELECT movement_id,kind,SUM(value_cents) v FROM ec_close_cost_revaluations WHERE product_id=? GROUP BY movement_id,kind', productId)
   ]);
+  // 0065 kısmi teslimleri aynı kaynak değeri birikimli böler: son kuruş son payda kalır.
+  const closePlan = mv.some(m => m.kind === 'purchase' && m.quantity_milli < 0 && m.reference.includes(':FA65-'))
+    ? await oku('SELECT reference,value_cents FROM ec_provisional_closure_plan WHERE product_id=?', productId) : [];
+  const closeValues = new Map(closePlan.map(p => [p.reference, p.value_cents]));
   const tamamlanan = new Map(tamamR.map(r => [r.kind + ':' + r.movement_id, r.v]));
   const tamamla = [];          // kapanış tamamlamaları {movement_id, kind, value} (bkz. 0049)
   const sales = new Map(entries.map(s => [s.id, s]));
@@ -151,7 +155,7 @@ export async function fifoHesap(db, productId) {
     const rq = -m.quantity_milli, sm = mv.find(x => x.id === sayim);
     // Kapanışın olması gereken değeri sayımın kendi birim değeridir; kayıttaki değer o anki bakiye
     // yetmediyse eksik yazılmıştır. Eksik kısım (daha önce tamamlanmamışsa) tamamlama kaydıyla düşülür.
-    const ideal = sm ? yuvarla(sm.value_cents * rq / sm.quantity_milli) : -m.value_cents;
+    const ideal = closeValues.get(m.reference) ?? (sm ? yuvarla(sm.value_cents * rq / sm.quantity_milli) : -m.value_cents);
     const eksik = ideal + m.value_cents - (tamamlanan.get('tamamla:' + m.id) || 0);
     if (eksik > 0) tamamla.push({movement_id: m.id, kind: 'tamamla', value: eksik});
     const kayitli = Math.max(-m.value_cents, ideal);
@@ -213,6 +217,12 @@ export async function fifoHesap(db, productId) {
   };
 
   const KAPANIS = /^provisional-close:([^:]+):([^:]+):([\s\S]*)$/;
+  // 0065 kapanışı tam teslim kimliğine bağlıdır. Aynı ürünün farklı fiyatlı fatura
+  // satırları aynı kullanıcı referansını taşısa bile maliyetleri birbirine karışmaz.
+  for (const m of mv) {
+    const k = m.kind === 'purchase' && m.quantity_milli < 0 && KAPANIS.exec(m.reference || '');
+    if (k && k[3].startsWith('FA65-')) { const g = kabul.get(k[3].slice(5)); if (g?.invoice_id === k[2]) g.reference = k[3]; }
+  }
   const kapanisAdet = new Map(); // fatura:teslim referansı → geçici sayımla kapanan adet
   const ciftler = new Map();     // fatura:teslim referansı → kapanışı bekleyen (sayımla aynı) teslim parçaları
   for (const m of mv) { const k = m.kind === 'purchase' && m.quantity_milli < 0 && KAPANIS.exec(m.reference || ''); if (k) kapanisAdet.set(k[2] + ':' + k[3], (kapanisAdet.get(k[2] + ':' + k[3]) || 0) - m.quantity_milli); }

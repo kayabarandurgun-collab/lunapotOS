@@ -36,7 +36,8 @@ function esitle(u, field, total, gruplar) {
 
 export function offeringComposition(line, parts, names = new Map()) {
   const grouped = new Map();
-  for (const c of parts) {
+  // İkame/hediye fiziksel maliyettir; müşteriye satılan ilanın bileşimini değiştirmez.
+  for (const c of parts.filter(c => !c.correction_kind)) {
     const k = JSON.stringify([c.product_id, c.stock_unit]);
     const x = grouped.get(k) || {product_id: c.product_id, name: names.get(c.product_id) || c.product_id, quantity_milli: 0, stock_unit: c.stock_unit};
     x.quantity_milli += c.quantity_milli; grouped.set(k, x);
@@ -69,7 +70,13 @@ export function buildSalesPresentation(row, lines, parts, entries, {names = new 
       const returned = es.filter(e => e.kind === 'return' && !String(e.external_id || '').startsWith('DUZELTME-')).reduce((n, e) => n + e.quantity_milli, 0);
       const corrected = es.filter(e => e.kind === 'return' && String(e.external_id || '').startsWith('DUZELTME-')).reduce((n, e) => n + e.quantity_milli, 0);
       item.technical_correction ||= corrected > 0;
-      ratios.push({n: returned + corrected, d: c.quantity_milli});
+      if (!c.correction_kind) {
+        const replacements = cs.filter(r => r.correction_kind === 'ikame' && r.replaces_component_id === c.id);
+        if (replacements.length) for (const r of replacements) {
+          const realReturns = entries.filter(e => e.parent_id === r.sale_id && e.kind === 'return' && !String(e.external_id || '').startsWith('DUZELTME-'));
+          ratios.push({n: realReturns.reduce((n, e) => n + e.quantity_milli, 0), d: r.quantity_milli});
+        } else ratios.push({n: returned + corrected, d: c.quantity_milli});
+      }
       if (returned) item.component_returns.push({product_id: c.product_id, stock_unit: c.stock_unit, quantity_milli: returned});
       const x = {id: c.id, item, product_id: c.product_id, qty_milli: c.quantity_milli - returned - corrected,
         revenue_gross_cents: null, cost_gross_cents: null, cash_cents: null, return_cash_cents: null};
@@ -77,7 +84,8 @@ export function buildSalesPresentation(row, lines, parts, entries, {names = new 
         const values = es.map(e => {
           const revenue = inc(e.revenue_cents, e.satir_kdv ?? line.vat_bps ?? e.vat_bps), cost = inc(e.cost_cents, e.vat_bps);
           const fees = ['commission_cents', 'shipping_cents', 'other_cents'].map(k => inc(e[k], feeVat));
-          return {kind: e.kind, revenue_gross_cents: revenue, cost_gross_cents: cost,
+          // İkamenin maliyet ters kaydı satış maliyetini düzeltir; müşteri iade kazancı değildir.
+          return {kind: String(e.external_id || '').startsWith('DUZELTME-IKAME-') ? 'correction' : e.kind, revenue_gross_cents: revenue, cost_gross_cents: cost,
             cash_cents: money(revenue) && money(cost) && fees.every(money) ? revenue - cost - fees.reduce((n, v) => n + v, 0) : null};
         });
         x.revenue_gross_cents = sum(values, 'revenue_gross_cents'); x.cost_gross_cents = sum(values, 'cost_gross_cents');

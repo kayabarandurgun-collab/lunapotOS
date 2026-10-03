@@ -1,3 +1,4 @@
+import {provisionalReceipts} from './provisional-inventory.js';
 import {cents} from '../public/accounting-math.js';
 import {invoiceDebtStatement} from './accounting.js';
 
@@ -13,7 +14,7 @@ const sayi=x=>{if(typeof x==='number')return x;if(typeof x!=='string'||!x.trim()
 const costCents=x=>{const v=sayi(x);if(!Number.isFinite(v))fail('Birim maliyeti kontrol edin.');let n;try{n=cents(v);}catch{fail('Birim maliyeti kontrol edin.');}if(!Number.isSafeInteger(n)||n<0||n>100000000000)fail('Birim maliyet geçersiz.');return n;};
 const vatBps=x=>{const n=x===undefined||x===null||x===''?2000:Number(x);if(!Number.isSafeInteger(n)||n<0||n>10000)fail('KDV oranı geçersiz.');return n;};
 const positive=x=>{const n=money(x);if(n<0)fail('Tutar pozitif olmalı.');return n;};
-async function execute(db,items){try{return await db.batch(items);}catch(error){const m=String(error.message);if(/CHEQUE_DUE_REQUIRED/.test(m))fail('Çek için vade tarihi girin.');if(/INVALID_DUE_DATE|INVALID_PLAN_DATE/.test(m))fail('Geçerli tarih girin.');if(/PAYMENT_ENTRY_REQUIRED/.test(m))fail('Ödeme yöntemi yalnızca ödeme hareketine yazılabilir.',409);if(/DEBT_ENTRY_REQUIRED/.test(m))fail('Planlanan ödeme tarihi yalnızca açık borca eklenebilir.',409);if(/OVER_ALLOCATION/.test(m))fail('Kapama tutarı belgenin kalan tutarını aşıyor.',409);if(/ENTRY_ALLOCATED/.test(m))fail('Önce bu hareketin belge kapamalarını geri alın.',409);if(/INVALID_ALLOCATION/.test(m))fail('Aynı cariye ait bir alacak ve bir borç hareketini seçin.',409);if(/INVALID_CASH_ENTRY/.test(m))fail('Kasa/banka hareketi bağlandığı cari hareketiyle eşleşmiyor.',409);if(/REVERSAL|REVERSED_ENTRY/.test(m))fail('Bu hareket için ters kayıt oluşturulamaz.',409);if(/UNIQUE constraint/.test(m))fail('Bu referans veya kayıt daha önce işlendi.',409);if(/FOREIGN KEY/.test(m))fail('Seçilen kayıt bu çalışma alanında bulunamadı.',404);throw error;}}
+async function execute(db,items){try{return await db.batch(items);}catch(error){const m=String(error.message);if(/PROVISIONAL_/.test(m))fail('Faturasız girişin bağlı fatura ve teslim kayıtları korunuyor. Bu işlem yapılamaz.',409);if(/CHEQUE_DUE_REQUIRED/.test(m))fail('Çek için vade tarihi girin.');if(/INVALID_DUE_DATE|INVALID_PLAN_DATE/.test(m))fail('Geçerli tarih girin.');if(/PAYMENT_ENTRY_REQUIRED/.test(m))fail('Ödeme yöntemi yalnızca ödeme hareketine yazılabilir.',409);if(/DEBT_ENTRY_REQUIRED/.test(m))fail('Planlanan ödeme tarihi yalnızca açık borca eklenebilir.',409);if(/OVER_ALLOCATION/.test(m))fail('Kapama tutarı belgenin kalan tutarını aşıyor.',409);if(/ENTRY_ALLOCATED/.test(m))fail('Önce bu hareketin belge kapamalarını geri alın.',409);if(/INVALID_ALLOCATION/.test(m))fail('Aynı cariye ait bir alacak ve bir borç hareketini seçin.',409);if(/INVALID_CASH_ENTRY/.test(m))fail('Kasa/banka hareketi bağlandığı cari hareketiyle eşleşmiyor.',409);if(/REVERSAL|REVERSED_ENTRY/.test(m))fail('Bu hareket için ters kayıt oluşturulamaz.',409);if(/UNIQUE constraint/.test(m))fail('Bu referans veya kayıt daha önce işlendi.',409);if(/FOREIGN KEY/.test(m))fail('Seçilen kayıt bu çalışma alanında bulunamadı.',404);throw error;}}
 async function requireParty(db,key){if(!await stmt(db,'SELECT id FROM suppliers WHERE id=?',[key]).first())fail('Cari bu çalışma alanında bulunamadı.',404);}
 // ARŞİVLİ KART YENİ KAYITTA SEÇİLEMEZ, GEÇMİŞTE GÖRÜNÜR. Okuma yollarında (süzgeç, ekstre, geçmiş
 // hareket) arşiv sorulmaz; yalnız YENİ hareket, ödeme ve mal girişi yazarken sorulur. Bu yüzden
@@ -66,6 +67,10 @@ export async function ledgerApi(request,env,path,readBody){
  if(!path.startsWith('/api/ledger'))return null;
  if(!['ec','lp'].includes(env.WORKSPACE))fail('Çalışma alanı geçersiz.',403);
  const db=env.DB,method=request.method;
+ if(path==='/api/ledger/provisional'&&method==='GET'){
+  if(env.WORKSPACE!=='ec')fail('Faturasız mal girişi e-ticaret alanına aittir.',403);
+  return {receipts:await provisionalReceipts(db),notice:'Kalan miktar aynı tedarikçi ve ürünün faturalarına eskiden yeniye bağlanır.'};
+ }
  if(path==='/api/ledger'&&method==='GET'){
   const url=new URL(request.url),party=url.searchParams.get('party_id');if(party)await requireParty(db,party);
   // Cari hareket araması ve sayfalama sunucudadır; eski kayıtlar 500 sınırının ardında kalmaz.
@@ -106,6 +111,8 @@ export async function ledgerApi(request,env,path,readBody){
    db.prepare(`SELECT p.party_id,max(p.occurred_on||'#'||p.created_at||'#'||printf('%020d',p.rowid)) ordinal,p.id entry_id,p.occurred_on,p.amount_cents,p.reference,m.method,m.note,m.due_on FROM party_entries p LEFT JOIN party_payment_methods m ON m.entry_id=p.id WHERE ${PAYMENT('p')} AND ${live('p')} GROUP BY p.party_id`)
   ]);
   const [parties,accounts,entries,allocations,cash,invoiceRows,chequeRows,paymentRows]=results.map(r=>r.results);
+  const provisional=env.WORKSPACE==='ec'?await provisionalReceipts(db,{entryIds:entries.filter(e=>e.source_key.startsWith('gecici:')).map(e=>e.id)}):[];
+  const provisionalByEntry=new Map(provisional.map(r=>[r.entry_id,r]));
   // Ödeme → kapattığı faturalar. Yalnızca bu sayfadaki ödemeler sorulur: liste eksik kalmaz, sınıra takılmaz.
   // Tutar yetkisi olmayan personelde amount_cents gizlenir, fatura numarası kalır.
   const paid=entries.filter(e=>e.amount_cents>0&&e.allocated_cents>0).map(e=>e.id);
@@ -131,6 +138,8 @@ export async function ledgerApi(request,env,path,readBody){
   const products=(await stmt(db,'SELECT id,name,sku FROM products ORDER BY name LIMIT 2000').all()).results;
   return {products,parties:parties.map(p=>({...p,remaining_cents:p.debt_cents-p.paid_cents,last_payment:lastPayment.get(p.id)||null})),accounts,entries:entries.map(e=>{
    const row={...e,remaining_cents:Math.abs(e.amount_cents)-e.allocated_cents,closed_invoices:closedBy.get(e.id)||[]};
+   const provisional=provisionalByEntry.get(e.id);
+   if(provisional)Object.assign(row,{provisional_status:provisional.provisional_status,provisional_released_cents:provisional.released_cents,provisional_remaining_cents:provisional.remaining_cents,provisional_lines:provisional.lines});
    // Ödenen tutar yalnızca borç satırında anlamlıdır; ödeme satırına sıfır yazılmaz.
    if(e.amount_cents<0)row.paid_cents=e.allocated_cents;
    return row;
@@ -329,10 +338,9 @@ export async function ledgerApi(request,env,path,readBody){
 
  // FATURASIZ MAL GİRİŞİ. Vadeli tedarikçi malı önce gönderir, faturayı vade gününde keser.
  // Mal buradan girilir: stok 'GECICI-SAYIM-<referans>' sayımıyla artar, cariye geçici borç yazılır.
- // Gerçek fatura muhasebeleşince geçici borç ters kayıtla kapanır (accounting.js '/post'), teslim
- // yapılınca da geçici sayım provisionalClose ile düşer. Çift giriş bu yüzden oluşamaz: her iki taraf
- // da karşılığı doğduğu anda kapanır ve kapanış kayıtları tekildir.
+ // 0065: fatura ve teslim, aynı tedarikçi/ürün/kalan miktar tahsisinden borcu ve stoğu kapatır.
  if(path==='/api/ledger/provisional'){
+  if(env.WORKSPACE!=='ec')fail('Faturasız mal girişi yalnız e-ticaret alanında kullanılabilir.',403);
   // Gövde ve key yukarıda bir kez okunur (satır 113); ikinci readBody isteği kilitler.
   const party=text(x.supplier_id,'Tedarikçi');
   await livingParty(db,party);
@@ -360,13 +368,14 @@ export async function ledgerApi(request,env,path,readBody){
     description:'Faturasız mal girişi · '+reference,source_key:'gecici:'+key,source:'manual'}),
    stmt(db,'INSERT INTO provisional_receipts(id,supplier_id,occurred_on,reference,notes,entry_id) VALUES(?,?,?,?,?,?)',[key,party,date,reference,notes,entry])];
   for(const r of rows){
+   const movementId=id();
    statements.push(stmt(db,'INSERT INTO stock_movements(id,product_id,quantity_milli,value_cents,kind,reference,notes,occurred_on) VALUES(?,?,?,?,?,?,?,?)',
-    [id(),r.product,r.qty,r.value,'count','GECICI-SAYIM-'+reference,'Faturasız mal girişi · fatura gelince kapanır',date]));
-   statements.push(stmt(db,'INSERT INTO provisional_receipt_lines(id,receipt_id,product_id,quantity_milli,unit_cost_cents,vat_bps) VALUES(?,?,?,?,?,?)',
-    [id(),key,r.product,r.qty,r.unit,r.vat]));
+    [movementId,r.product,r.qty,r.value,'count','GECICI-SAYIM-'+reference,'Faturasız mal girişi · fatura gelince kapanır',date]));
+   statements.push(stmt(db,'INSERT INTO provisional_receipt_lines(id,receipt_id,product_id,quantity_milli,unit_cost_cents,vat_bps,movement_id) VALUES(?,?,?,?,?,?,?)',
+    [id(),key,r.product,r.qty,r.unit,r.vat,movementId]));
   }
   await execute(db,statements);
-  return {id:key,amount_cents:-brut};
+  return {id:key,amount_cents:-brut,provisional_status:'open'};
  }
  if(path==='/api/ledger/allocations'){
   await execute(db,[stmt(db,'INSERT INTO payment_allocations(id,positive_entry_id,negative_entry_id,amount_cents,reference) VALUES(?,?,?,?,?)',[key,text(x.positive_entry_id,'Alacak hareketi'),text(x.negative_entry_id,'Borç hareketi'),positive(x.amount),text(x.reference,'Referans',200)])]);return {id:key};

@@ -43,20 +43,20 @@ export async function settingsApi(request,env,path,readBody){
   return {ok:true};
  }
  if(path==='/api/settings/backup'&&request.method==='GET'){
-  const all=(await db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all()).results.map(x=>x.name);
+  const schema=(await db.prepare("SELECT name,(SELECT json_group_array(name) FROM pragma_table_info(m.name)) columns_json FROM sqlite_master m WHERE type='table' ORDER BY name").all()).results;
+  const all=schema.map(x=>x.name),columns=new Map(schema.map(x=>[x.name,JSON.parse(x.columns_json)]));
   // Authentication tokens and integration secrets never enter business exports.
   // Rapor Kutusu, alış belgeleri ve ürün ailesi tabloları bu küçük JSON dışa aktarımına girmez:
-  // e-ticaret alanı 40 tablo sınırındadır (D1 sorgu kotası). Ham belge parçaları zaten bu boyuttaki
+  // tablolar küçük gruplar halinde sorgulanır (D1 sorgu kotası). Ham belge parçaları zaten bu boyuttaki
   // bir JSON'a sığmaz. Hepsi tam D1 yedeğinde ve zaman yolculuğu geri sarmasında durur. Açık maliyet
   // ve kapanış kayıtları da ara hesaptır: sonuç maliyet satış satırlarında (cost_cents) zaten vardır.
   // Ödeme yöntemi/çek vadesi ve planlanan ödeme tarihi cari hareketin yan bilgisidir; tutar, tarih ve
-  // kapama zaten party_entries/payment_allocations ile dışa aktarılır. Faturasız mal girişinin BAŞLIĞI yedekte kalır (açık girişin faturaya bağlanması ve kapanış
-  // durumu başka tablodan kurulamaz); SATIRLARI çıkarılır, çünkü ürün/miktar/değer zaten
-  // stock_movements’taki GECICI-SAYIM referansındadır. Sorgu bütçesi (<45) böyle korunur.
+  // kapama zaten party_entries/payment_allocations ile dışa aktarılır. Faturasız girişin
+  // başlığı, satırları ve miktar tahsisleri birlikte korunur; gruplama sorgu bütçesini korur.
   // Hakediş–banka eşleştirmesi (bank_matches) ham ekstre satırına bakar; bank_lines bu küçük
   // JSON'a girmediği için eşleştirme satırı tek başına boşa düşerdi. PARANIN KENDİSİ zaten
   // cash_transactions ile dışa aktarılıyor; eşleştirme izi tam D1 yedeğinde durur.
-  const names=all.filter(n=>n.startsWith(ns+'_')&&!/connections|cursors|records|_report_|purchase_document|sales_document|product_famil|purchase_family|import_batches|import_items|bank_files|bank_lines|bank_matches|open_costs|cost_settlements|cost_dirty|cost_revaluations|party_payment_methods|party_entry_plans|provisional_receipt_lines|expense_schedules/.test(n));
+  const names=all.filter(n=>n.startsWith(ns+'_')&&!/connections|cursors|records|_report_|purchase_document|sales_document|product_famil|purchase_family|import_batches|import_items|bank_files|bank_lines|bank_matches|open_costs|cost_settlements|cost_dirty|cost_revaluations|party_payment_methods|party_entry_plans|expense_schedules/.test(n));
   if(ns==='lp')names.push('products','materials','recipes','recipe_items');
   if(names.some(n=>!/^\w+$/.test(n)))fail('Yedek tablo adı doğrulanamadı.',500);
   if(!names.length||names.length>45)fail('Bu dışa aktarma en fazla 45 veri tablosunu destekler; D1 dışa aktarımını kullanın.',409);
@@ -64,9 +64,17 @@ export async function settingsApi(request,env,path,readBody){
   // Scalar counts use one query without UNION and leave Free-tier query headroom.
   const counts=await db.prepare('SELECT '+names.map(n=>'(SELECT COUNT(*) FROM '+n+')').join(' + ')+' AS total_rows').first();
   if(counts.total_rows>25000)fail('Bu dışa aktarma 25.000 satırı destekler. Büyük yedek için D1 dışa aktarımı gerekir.',409);
-  const rows=await db.batch(names.map(n=>db.prepare('SELECT * FROM '+n+' LIMIT 25001')));
-  if(rows.reduce((sum,r)=>sum+r.results.length,0)>25000)fail('Yedek sınırı aşıldı. Daha sonra tekrar deneyin.',409);
-  return {format:'lunapot-business-export',version:2,workspace:ns,exported_at:new Date().toISOString(),tables:Object.fromEntries(names.map((n,i)=>[n,rows[i].results])),note:'İş verileri dışa aktarımı; şifreler ve bağlantı anahtarları dahil değildir.'};
+  // Four SELECT terms per query keep both the D1 compound-term and request budgets small.
+  // Column names come from SQLite metadata; quote identifiers and JSON keys independently.
+  const identifier=v=>'"'+v.replaceAll('"','""')+'"',literal=v=>"'"+v.replaceAll("'","''")+"'";
+  const statements=[];
+  for(let i=0;i<names.length;i+=4)statements.push(db.prepare(names.slice(i,i+4).map(n=>
+   'SELECT '+literal(n)+' AS table_name,json_object('+columns.get(n).map(c=>literal(c)+','+identifier(c)).join(',')+') AS row_json FROM (SELECT * FROM '+identifier(n)+' LIMIT 25001)'
+  ).join(' UNION ALL ')));
+  const results=await db.batch(statements),tables=Object.fromEntries(names.map(n=>[n,[]]));
+  if(results.reduce((sum,r)=>sum+r.results.length,0)>25000)fail('Yedek sınırı aşıldı. Daha sonra tekrar deneyin.',409);
+  for(const batch of results)for(const row of batch.results)tables[row.table_name].push(JSON.parse(row.row_json));
+  return {format:'lunapot-business-export',version:2,workspace:ns,exported_at:new Date().toISOString(),tables,note:'İş verileri dışa aktarımı; şifreler ve bağlantı anahtarları dahil değildir.'};
  }
  fail('Ayar işlemi bulunamadı.',404);
 }

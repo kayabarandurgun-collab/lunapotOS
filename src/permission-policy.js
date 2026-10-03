@@ -7,6 +7,10 @@ export function permit(user,path,method){
  const match=path.match(/^\/api\/(ec|lp)(\/.*)?$/),ns=match?.[1]||'lp',sub=match?(match[2]||''):path.slice(4);
  if(user[ns+'_access']==='none')deny();
  const write=!['GET','HEAD'].includes(method),parts=sub.split('/').filter(Boolean),head=parts[0];
+ // Ham belge/PDF ve OCR metninin içindeki tutarlar anahtar bazlı gizlenemez.
+ // Liste ve sayfa bağlantıları açık kalır; içerik ayrıca mevcut tutar iznini ister.
+ if(match&&(/^\/invoices\/documents\/[\w-]+(?:\/part)?$/.test(sub)&&!write
+   ||sub==='/invoices/documents/ocr'&&method==='POST')&&!can(user,ns,'amounts'))deny();
  if(!head||!match&&head==='data'){if(write)deny();return;}
  if(['settings','connections','integrations','recovery','attention'].includes(head)){if(head==='settings'&&!write&&sub==='/settings'&&can(user,ns,ns==='ec'?'invoices':'accounts'))return;deny();}
  // Banka ekstresi ve hakediş–banka eşleştirme YALNIZ e-ticarettedir ve cari/nakit (ledger)

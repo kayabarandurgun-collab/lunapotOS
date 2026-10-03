@@ -118,7 +118,7 @@ async function r03kur(f) {
   await f.ok('/ec/invoices/' + eski + '/post', {});
   await f.ok('/ec/invoices/' + eski + '/receive', {occurred_on: '2026-09-01', reference: 'TESLIM-ESKI', lines: [{id: (await f.ok('/ec/invoices/' + eski)).lines[0].id, quantity: 1}]});
   // Mal fatura gelmeden raftaydı: geçici sayım +10.
-  await f.ok('/ec/stock', {product_id: product, quantity: 11, unit_cost: 100, kind: 'count', reference: 'GECICI-SAYIM-TS1', notes: 'Fatura ay sonunda', occurred_on: '2026-09-05'});
+  await f.ok('/ec/ledger/provisional', {supplier_id: supplier, occurred_on: '2026-09-05', reference: 'TS1', lines: [{product_id: product, quantity: 10, unit_cost: 100, vat_bps: 2000}]});
   const taslak = (await f.ok('/ec/invoices', {supplier_id: supplier, invoice_no: 'AYSONU-10', uuid: '', invoice_date: '2026-09-15', currency: 'TRY', source: 'pdf', notes: '',
     lines: [{description: 'Torf 210 Litre', external_code: '', invoice_quantity: 10, invoice_unit: 'adet', net: 1000, tax: 200, line_type: 'product'}]})).id;
   return {supplier, product, taslak};
@@ -155,10 +155,10 @@ test('R03: kapanış adımı hata verirse yeniden deneme tek kabul + tek kapanı
   } finally { f.close(); }
 });
 
-test('R03: eski sürümden kalan yarım iş (kabul var, kapanış yok) otomatik tamamlamada kapanır', async () => {
+test('R03: tahsisli yarım iş (kabul var, kapanış yok) otomatik tamamlamada kapanır', async () => {
   const f = appFixture(); await f.setup(); try {
     const {product, taslak} = await r03kur(f);
-    // Eski kodun bıraktığı durum: fatura muhasebeleşmiş, kabul yazılmış, kapanış yazılamamış.
+    // Sentetik kesinti: fatura/tahsis ve kabul var; uygulamanın kapanış adımı henüz çalışmamış.
     const detay = await f.ok('/ec/invoices/' + taslak);
     f.sqlite.prepare('UPDATE ec_purchase_lines SET product_id=?,quantity_milli=10000 WHERE id=?').run(product, detay.lines[0].id);
     f.sqlite.prepare("UPDATE ec_purchase_invoices SET status='posted' WHERE id=?").run(taslak);

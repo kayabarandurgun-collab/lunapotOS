@@ -27,7 +27,7 @@ test('navigation requires an explicit workspace envelope and preserves existing 
   assert.deepEqual(navigationGroups('ec',ec,user),[]);assert.deepEqual(navigationGroups('lp',lp,user),[]);
  }
  const staff={ec_access:'read',lp_access:'read',permissions:{ec:{orders:'read'},lp:{recipes:'read'}}};
- assert.deepEqual(navigationGroups('ec',ec,staff).flatMap(g=>g.routes),['overview','orders','reports']);
+ assert.deepEqual(navigationGroups('ec',ec,staff).flatMap(g=>g.routes),['overview','reports','orders']);
  assert.deepEqual(navigationGroups('lp',lp,staff).flatMap(g=>g.routes),['dashboard','recipes','barcodes','lots']);
 });
 
@@ -88,8 +88,8 @@ test('local browser: navigation discovery, permissions, current page, keyboard a
     await page.waitForURL(url=>url.hash==='#orders?'+range);
     await page.locator('#sidebar a[href="#orders"][aria-current]').waitFor({state:'attached'});
     assert.equal(await page.locator('.mobile-dock a[href="#stock"]').getAttribute('aria-label'),'Depomdaki ürünler');
-    assert.equal(await page.locator('.mobile-dock a[href="#performance"] span').innerText(),'Satış ve kâr');
-    if(width<800)await page.locator('.mobile-dock a[href="#performance"]').click();
+    assert.equal(await page.locator('.mobile-dock a[href="#invoices"] span').innerText(),'Faturalar');
+    if(width<800){await page.locator('[data-dock-menu]').click();await page.locator('#sidebar a[href="#performance"]').click();}
     else await page.locator('#sidebar a[href="#performance"]').click();
     await page.waitForURL(url=>url.hash==='#performance?'+range);
     await page.waitForLoadState('networkidle');await open(page);
@@ -132,9 +132,9 @@ test('local browser: navigation discovery, permissions, current page, keyboard a
   await t.test('restricted browser fixture exposes only assigned destinations, including collapsed aliases',()=>withPage(390,async(page,start)=>{
    await start('/eticaret/#overview','reader');await open(page);
    const routes=await page.locator('.ui-command-result[href^="/eticaret/#"]').evaluateAll(links=>links.map(a=>a.hash));
-   assert.deepEqual(routes,['#overview','#orders','#reports']);
+   assert.deepEqual(routes,['#overview','#reports','#orders']);
    await close(page);
-   assert.deepEqual(await page.locator('.mobile-dock a').evaluateAll(links=>links.map(a=>a.hash)),['#overview','#orders']);
+   assert.deepEqual(await page.locator('.mobile-dock a').evaluateAll(links=>links.map(a=>a.hash)),['#overview','#reports']);
    await page.locator('.workspace-switch').click();
    assert.deepEqual(await page.locator('.workspace-switch-list a').evaluateAll(links=>links.map(a=>a.getAttribute('href'))),['/','/eticaret/#overview','/access']);
    await page.keyboard.press('Escape');await page.locator('.workspace-switch-dialog').waitFor({state:'detached'});

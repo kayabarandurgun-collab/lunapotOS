@@ -2,10 +2,10 @@ import {prepareWorkflow} from './product-list.js';
 // Alış belgesi çalışma alanı: PDF (ya da XML) yükle → tedarikçi/belge → satırlar → çeşit dağılımı → onay.
 //
 // Kurallar:
-//  · Belgeden okunan her şey ADAYDIR; kullanıcı onaylamadan hiçbir tutar/miktar kaydedilmez.
+//  · Belgeden okunanlar otomatik kontrol kapısından geçer; belirsiz belge kullanıcıya açılır.
 //  · Okunamayan alan BOŞ bırakılır, uydurulmaz; belirsiz alan işaretlenir.
 //  · Bu ekran EDM'den fatura ÇEKMEZ, fatura kesmez/iptal etmez. Belgeyi kullanıcı yükler.
-//  · Taslak kaydı borç ve stok yazmaz: borç muhasebeleştirmede, stok mal tesliminde oluşur.
+//  · Otomatik tamamlanan belgede borç ve teslim yazılabilir; taslak durumunda yazılmaz.
 //  · Çeşit adetleri hiçbir zaman hatırlanmaz; her belgede yeniden girilir ve onaylanır.
 import {readPdf, guessHeader, guessLines, guessTotals, splitInvoices, sha256Hex, PDF_LIMITS} from './pdf-read.js';
 import {ocrIleOku} from './pdf-ocr.js';
@@ -65,6 +65,13 @@ export function otomatikEngelKarari(state) {
   return null;
 }
 
+// Clear all file-specific identities before another file; queue/catalog belong to the session.
+export function resetPurchaseFile(state){
+ Object.assign(state,{file:null,bytes:null,header:null,lines:[],totals:null,docId:null,supplierId:null,sayfaNo:null,parts:null,extracted:null,previewUrl:null,ocr:false,formatWarning:'',warnings:[],lastAuto:null,lastNotes:[]});
+}
+export function purchaseQueueResult(auto,{ad,fatura,notes=[]}){
+ return {ad,fatura,sonuc:auto?.status==='posted'?(auto.received?'islendi':'muhasebelesti'):'taslak',sebep:[auto?.reason,...notes].filter(Boolean).join(' '),eslesen:auto?.mapped||[]};
+}
 export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
   const controller = new AbortController(), signal = controller.signal;
   const state = {step: 'pick', busy: false, message: '', error: '', file: null, bytes: null, kind: 'pdf',
@@ -112,29 +119,30 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
   }
 
   function pickView() {
-    return `<section class="v2-card v2-card-body">
-      <h2>Alış faturası yükle</h2>
-      <p class="pd-muted">Tedarikçinin gönderdiği faturanın PDF'ini buraya bırak. Belge özgün hâliyle saklanır. Okunan satırlar belgenin toplamıyla tutuyor ve ürünler geçmiş alışlardan biliniyorsa fatura kendiliğinden işlenir (borç + stok); emin olunamayan yerde durup sana sorar.</p>
+    return `<section class="v2-card v2-card-body pd-intake">
+      <h2>Tedarikçinin faturasını seç</h2>
+      <p class="pd-muted">PDF veya UBL XML yükleyebilirsin. Birden fazla dosya seçersen sırayla işlenir.</p>
       <label class="pd-drop" data-pd-drop><input type="file" accept=".pdf,application/pdf" data-pd="file" multiple aria-label="Alış faturası PDF dosyalarını seç">
-        <strong>PDF faturaları buraya sürükle — birden fazla seçebilirsin</strong><span>ya da tıklayıp seç · en çok ${PDF_LIMITS.fileBytes / 1024 / 1024} MB</span></label>
+        <strong>PDF dosyası seç</strong><span>Bilgisayarda buraya da sürükleyebilirsin · dosya başına en çok ${PDF_LIMITS.fileBytes / 1024 / 1024} MB</span></label>
       <div class="pd-alt">
-        <span class="pd-muted">Başka yol:</span>
-        <label class="secondary pd-file">UBL XML yükle<input type="file" accept=".xml,application/xml,text/xml" data-pd="xml" multiple></label>
-        <button class="secondary" type="button" data-pd="manual">Elle fatura gir</button>
+        <label class="secondary pd-file">UBL XML seç<input type="file" accept=".xml,application/xml,text/xml" data-pd="xml" multiple aria-label="Alış faturası UBL XML dosyalarını seç"></label>
+        <button class="secondary" type="button" data-pd="manual">Dosyam yok, elle gireceğim</button>
       </div>
-      <p class="pd-alert info">Harf taşımayan faturada (taranmış, fotoğraflanmış ya da yazısı çizim olarak gömülmüş) sayfa görüntüsünden okunur. Görüntüden okunan her alan <strong>kontrol et</strong> işaretiyle gelir ve sen onaylamadan hiçbir tutar kaydedilmez; okunamazsa belge yine saklanır, ekranda görür ve elle girersin.</p>
+      <p class="pd-alert info"><strong>Yükleyince ne olur?</strong> Belge saklanır. Satırlar ve toplamlar doğrulanır, ürünler eşleşirse fatura otomatik muhasebeleşir ve fatura tarihiyle stoğa alınabilir. Eksik veya şüpheli bilgide işlem durur, kontrol ekranı açılır.</p>
+      <details class="workflow-details"><summary>Taranmış PDF ve teslimat hakkında</summary><p>Yazısı okunamayan PDF sayfa görüntüsünden okunur. Görüntüden okunan belirsiz bilgiler işaretlenir. Otomatik doğrulama tamamlanamazsa senin kontrolüne açılır. Doğrudan JPG/PNG fotoğraf yerine PDF veya XML seç.</p><p>Mal henüz gelmediyse elle fatura girişini kullan; teslim aldıkça kayıtlı faturadan “Mal teslimi” gir. Faturasız kaydettiğin malı ikinci kez sayımdan ekleme.</p></details>
     </section>`;
   }
 
   function documentView() {
     const h = state.header, suppliers = state.catalog?.suppliers || [];
     const matched = h.supplier_tax_id ? suppliers.find(s => s.tax_id === h.supplier_tax_id) : null;
+    const selectedSupplier=state.supplierId??matched?.id??'';
     const unsure = k => h.uncertain?.includes(k);
     return `<section class="v2-card v2-card-body"><h2>1 · Tedarikçi ve belge</h2>
       <p class="pd-muted">Belgeden okunanlar aşağıda. <span class="pd-flag">kontrol et</span> işaretli alanlar kesin okunamadı.</p>
       <form data-pd-form="document"><div class="pd-grid">
         <label>Tedarikçi<select name="supplier_id"><option value="">— yeni tedarikçi —</option>
-          ${suppliers.map(s => `<option value="${esc(s.id)}" ${matched?.id === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
+          ${suppliers.map(s => `<option value="${esc(s.id)}" ${selectedSupplier === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
         <label>Yeni tedarikçi unvanı<input name="supplier_name" value="${esc(h.supplier_name || '')}" maxlength="200"></label>
         <label>Tedarikçi VKN / TCKN ${flag(unsure('supplier_tax_id'), 'kontrol et')}<input name="supplier_tax_id" value="${esc(h.supplier_tax_id || '')}" pattern="[0-9]{10,11}"></label>
         <label>Fatura numarası ${flag(unsure('invoice_no'), 'kontrol et')}<input name="invoice_no" value="${esc(h.invoice_no || '')}" required maxlength="60"></label>
@@ -155,10 +163,10 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
       <label>Faturadaki açıklama<input name="description" value="${esc(line.description || '')}" required maxlength="300"></label>
       <div class="pd-cols">
         <label>Tedarikçi kodu<input name="external_code" value="${esc(line.external_code || '')}" maxlength="100"></label>
-        <label>Miktar<input name="invoice_quantity" type="number" step="0.001" min="0.001" value="${esc(line.invoice_quantity ?? '')}" required></label>
+        <label>Faturadaki miktar<input name="invoice_quantity" type="number" step="0.001" min="0.001" value="${esc(line.invoice_quantity ?? '')}" required></label>
         <label>Birim<input name="invoice_unit" value="${esc(line.invoice_unit || 'adet')}" required maxlength="30"></label>
-        <label>Net tutar ${flag(unsure('net'), 'kontrol et')}<input name="net" type="number" step="0.01" min="0" value="${esc(line.net ?? '')}" required></label>
-        <label>KDV tutarı ${flag(unsure('tax'), 'kontrol et')}<input name="tax" type="number" step="0.01" min="0" value="${esc(line.tax ?? '')}" required></label>
+        <label>Satır toplamı · KDV hariç ${flag(unsure('net'), 'kontrol et')}<input name="net" type="number" step="0.01" min="0" value="${esc(line.net ?? '')}" required></label>
+        <label>Satır KDV toplamı ${flag(unsure('tax'), 'kontrol et')}<input name="tax" type="number" step="0.01" min="0" value="${esc(line.tax ?? '')}" required></label>
       </div>
       <div class="pd-cols">
         <label>Satır türü<select name="line_type">
@@ -174,7 +182,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
       <div class="pd-cols">
         <label>Bizdeki ürün<select name="product_id"><option value="">— eşleştirilmedi —</option>
           ${products.map(p => `<option value="${esc(p.id)}" ${line.product_id === p.id ? 'selected' : ''}>${esc(p.name)} · ${esc(p.sku)} (${esc(p.stock_unit)})</option>`).join('')}</select></label>
-        <label>Stok miktarı<input name="stock_quantity" type="number" step="0.001" min="0.001" value="${esc(line.stock_quantity ?? line.invoice_quantity ?? '')}"></label>
+        <label>Bu satırla gelen stok miktarı<input name="stock_quantity" type="number" step="0.001" min="0.001" value="${esc(line.stock_quantity ?? line.invoice_quantity ?? '')}"></label>
         <label>Çeşitlere dağıtılacak aile<select name="family_id"><option value="">— tek ürün —</option>
           ${families.map(fam => `<option value="${esc(fam.id)}" ${line.family_id === fam.id ? 'selected' : ''}>${esc(fam.name)}${fam.size_label ? ' · ' + esc(fam.size_label) : ''}</option>`).join('')}</select></label>
       </div>
@@ -214,17 +222,12 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
   }
 
   function ozetView() {
-    const d = state.queueDone, islendi = d.filter(x => x.sonuc === 'islendi'), taslak = d.filter(x => x.sonuc === 'taslak'),
-      atlanan = d.filter(x => x.sonuc !== 'taslak' && x.sonuc !== 'islendi');
-    const eslesme = x => (x.eslesen || []).length ? `<br><span class="pd-muted">${x.eslesen.map(m => esc(m.description) + ' → ' + esc(m.product_name) + ' (' + esc(m.how) + ')').join('<br>')}</span>` : '';
-    return `<section class="v2-card v2-card-body"><h2>Toplu yükleme bitti</h2>
-      <p class="pd-alert ${atlanan.length || taslak.length ? 'info' : 'ok'}">${islendi.length} fatura muhasebeleşti ve stoğa girdi${taslak.length ? `, ${taslak.length} fatura taslakta bekliyor` : ''}${atlanan.length ? `, ${atlanan.length} dosya işlenmedi` : ''}.</p>
-      ${islendi.length ? `<h3>Muhasebeleşti ve stoğa girdi</h3><ul class="pd-list">${islendi.map(x => `<li>${esc(x.fatura || x.ad)}${eslesme(x)}</li>`).join('')}</ul>` : ''}
-      ${taslak.length ? `<h3>Taslakta bekleyenler</h3><ul class="pd-list">${taslak.map(x => `<li>${esc(x.fatura || x.ad)}${x.sebep ? ' — ' + esc(x.sebep) : ''}</li>`).join('')}</ul>` : ''}
-      ${atlanan.length ? `<h3>İşlenmeyenler</h3><ul class="pd-list">${atlanan.map(x => `<li>${esc(x.ad)} — ${esc(x.sebep || '')}</li>`).join('')}</ul>
-        <p class="pd-muted">Bunları tek tek yükleyip tamamlayabilirsin. Aynı belge ikinci kez kayıt yaratmaz.</p>` : ''}
-      <div class="pd-actions"><button class="secondary" type="button" data-pd="restart">Yeni dosya yükle</button>
-        <button class="primary" type="button" data-pd="close">Alış faturalarına dön</button></div></section>`;
+    const groups=[['islendi','Muhasebeleşti ve stoğa girdi'],['muhasebelesti','Muhasebeleşti · teslimat durumunu kontrol et'],['taslak','Kontrol bekleyen taslaklar'],['atlandi','İşlenemeyen dosyalar'],['bekliyor','Kontrol bekliyor']];
+    return `<section class="v2-card v2-card-body"><h2>Yükleme sonuçları</h2>
+      <p class="pd-alert info">${state.queueDone.length} dosya / fatura sonucu. Stok ve borç durumunu aşağıdan kontrol et.</p>
+      ${groups.map(([key,title])=>{const rows=state.queueDone.filter(x=>x.sonuc===key);return rows.length?`<h3>${title} · ${rows.length}</h3><ul class="pd-list">${rows.map(x=>`<li><strong>${esc(x.fatura||x.ad)}</strong>${x.sebep?' — '+esc(x.sebep):''}${(x.eslesen||[]).length?`<details><summary>Ürün eşleşmeleri</summary>${x.eslesen.map(m=>`<p>${esc(m.description)} → ${esc(m.product_name)}</p>`).join('')}</details>`:''}</li>`).join('')}</ul>`:'';}).join('')}
+      <p class="pd-muted">Kontrol bekleyen faturaları Alış faturaları → İncele ile tamamla. İşlenemeyen dosyaları düzeltip yeniden yükleyebilirsin.</p>
+      <div class="pd-actions"><button class="secondary" type="button" data-pd="restart">Yeni dosya yükle</button><button class="primary" type="button" data-pd="close">Alış faturalarına dön</button></div></section>`;
   }
 
   function allocateView() {
@@ -386,7 +389,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     state.lines = guessLines(b.satirlar).map(l => ({...l, line_type: 'product', expense_category: 'other', source: l.description}));
     if (!state.lines.length) state.lines = [{description: '', invoice_quantity: 1, invoice_unit: 'adet', net: '', tax: '', line_type: 'product', expense_category: 'other', uncertain: []}];
     state.sayfaNo = b.sayfalar[0];
-    state.supplierId = '';
+    state.supplierId = null;
     state.step = 'document';
   }
 
@@ -401,6 +404,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     if (!sonraki) { state.step = 'summary'; render(); return; }
     const sira = state.queueTotal - state.queue.length;
     const ad = sonraki.bolum ? sonraki.dosyaAdi + ' · ' + (sonraki.bolum.no || 'fatura') : sonraki.file.name;
+    state.currentQueueName=ad;
     ilerle(state.queueTotal > 1 ? ad + ' — ' + sira + ' / ' + state.queueTotal : ad);
     try {
       if (sonraki.bolum) bolumuAc(sonraki);
@@ -425,8 +429,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     try {
       await saveDraft();
       const auto = state.lastAuto || {};
-      state.queueDone.push({ad, sonuc: auto.status === 'posted' && auto.received ? 'islendi' : 'taslak', fatura: state.header.invoice_no,
-        sebep: auto.status === 'posted' && auto.received ? '' : auto.reason || '', eslesen: auto.mapped || []});
+      state.queueDone.push(purchaseQueueResult(auto,{ad,fatura:state.header.invoice_no,notes:state.lastNotes}));
     } catch (e) {
       state.queueDone.push({ad, sonuc: 'atlandi', sebep: e.message});
     }
@@ -452,6 +455,8 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
   }
 
   async function takeFile(file, kind) {
+    if(state.previewUrl)URL.revokeObjectURL(state.previewUrl);
+    resetPurchaseFile(state);
     if (file.size > PDF_LIMITS.fileBytes) throw new Error('Belge 20 MB sınırını aşıyor.');
     const bytes = new Uint8Array(await file.arrayBuffer());
     state.file = file; state.bytes = bytes; state.kind = kind; state.warnings = [];
@@ -662,13 +667,14 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     say(x.notice || (archive ? 'Aile arşivlendi.' : 'Aile arşivden geri alındı.'));
   }
 
-  /** Taslağı oluşturur, çeşitleri dağıtır ve belgeyi kayda bağlar. Borç/stok YAZMAZ. */
+  /** Taslak, belge bağlantısı ve mevcut otomatik tamamlama akışı. */
   async function saveDraft() {
     const h = state.header;
     let supplier = state.supplierId;
     if (!supplier) {
       if (!h.supplier_name) throw new Error('Tedarikçiyi seçin ya da yeni tedarikçi unvanını yazın.');
       supplier = (await api('/suppliers', {name: h.supplier_name, tax_id: h.supplier_tax_id || ''})).id;
+      state.supplierId=supplier;
       state.catalog = await api('/catalog');
     }
     const payload = state.lines.map(l => ({
@@ -709,24 +715,27 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     state.lastAuto = null;
     try { state.lastAuto = await api('/invoices/' + invoice.id + '/autocomplete', {}); }
     catch (e) { state.lastAuto = {status: 'draft', reason: 'Otomatik tamamlanamadı: ' + e.message}; }
-    const auto = state.lastAuto;
-    say(auto?.status === 'posted'
+    const auto = state.lastAuto;state.lastNotes=notes;
+    say((auto?.status === 'posted'
       ? (auto.received ? 'Fatura muhasebeleşti ve ' + h.invoice_date + ' tarihiyle stoğa girdi.' : auto.reason || 'Fatura muhasebeleşti.')
-      : 'Taslak oluşturuldu; cari borç ve stok henüz yazılmadı. ' + (auto?.reason || '')
+      : 'Taslak oluşturuldu; cari borç ve stok henüz yazılmadı. ' + (auto?.reason || ''))
     + (notes.length ? ' ' + notes.join(' ') : ''));
     // Otomatik akışta kuyruğu siradakini() ilerletir ve sonucu o yazar. Burada da ilerletilirse
     // her fatura özete iki kez yazılıyordu ("8 taslak" — gerçekte 4).
     if (state.auto) return;
+    const result=purchaseQueueResult(auto,{ad:state.currentQueueName||state.file?.name||'',fatura:state.header?.invoice_no,notes});
+    const pending=state.queueDone.findIndex(x=>x.sonuc==='bekliyor'&&x.ad===result.ad);
+    if(pending>=0)state.queueDone.splice(pending,1);
+    state.queueDone.push(result);
     // Kuyrukta dosya varsa ekran KAPANMAZ: kullanici her faturadan sonra yeniden yuklemeye
     // donmek zorunda kalmasin. Elle tamamlanan faturadan sonra otomatik isleme yeniden acilir.
     if (state.queue.length) {
-      state.queueDone.push({ad: state.file?.name || '', sonuc: 'taslak', fatura: state.header?.invoice_no});
       state.auto = true;
       await siradakini();
       return;
     }
     state.step = state.queueTotal > 1 ? 'summary' : 'done';
-    if (state.queueTotal > 1) { state.queueDone.push({ad: state.file?.name || '', sonuc: 'taslak', fatura: state.header?.invoice_no}); render(); return; }
+    if (state.queueTotal > 1) { render(); return; }
     onClose?.({invoiceId: invoice.id});
   }
 
@@ -748,13 +757,12 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
 
   root.addEventListener('click', e => {
     const b = e.target.closest('[data-pd]');
-    if (!b) return;
+    if (!b||state.busy) return;
     const a = b.dataset.pd, i = Number(b.dataset.i);
     const lineForm=root.querySelector('[data-pd-form="lines"]');
     if(lineForm&&['add-line','remove-line','back-document','apply-link','remember-link','archive-family','restore-family'].includes(a))collectLines(lineForm);
     if (a === 'close') { onClose?.({}); return; }
-    if (a === 'restart') { Object.assign(state, {step: 'pick', queue: [], queueTotal: 0, queueDone: [], auto: false, message: '', error: ''}); render(); return; }
-    if (a === 'restart') { state.step = 'pick'; state.docId = null; state.lines = []; render(); return; }
+    if (a === 'restart') { if(state.previewUrl)URL.revokeObjectURL(state.previewUrl);resetPurchaseFile(state);Object.assign(state,{step:'pick',queue:[],queueTotal:0,queueDone:[],auto:false,message:'',error:''});render();return; }
     if (a === 'manual') { onClose?.({manual: true}); return; }
     if (a === 'download') {
       const url = state.previewUrl || URL.createObjectURL(new Blob([state.bytes]));

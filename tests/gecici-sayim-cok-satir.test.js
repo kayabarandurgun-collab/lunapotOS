@@ -11,7 +11,7 @@ test('Aynı ürün faturada iki satırsa sayım bir kez kapanır, fazlası stoks
     f.sqlite.exec("UPDATE workspace_settings SET allow_negative_stock=1 WHERE workspace='ec'");
     const supplier = (await f.ok('/ec/suppliers', {name: 'Sentetik Tropikal', tax_id: '9340990552'})).id;
     const product = (await f.ok('/ec/products', {name: 'Orkide Toprağı 3 L', sku: 'SNT-OT3', stock_unit: 'adet', min_stock: 0})).id;
-    await f.ok('/ec/stock', {product_id: product, quantity: 8, unit_cost: 100, kind: 'count', reference: 'GECICI-SAYIM-OT3', notes: 'Fatura ay sonunda', occurred_on: '2026-09-02'});
+    await f.ok('/ec/ledger/provisional', {supplier_id: supplier, occurred_on: '2026-09-02', reference: 'OT3', lines: [{product_id: product, quantity: 8, unit_cost: 100, vat_bps: 2000}]});
     await f.ok('/ec/sales', {channel: 'trendyol', external_id: 'S10', product_id: product, quantity: 10, revenue: 2500, commission: 0, shipping: 0, other: 0, fees_status: 'confirmed', occurred_on: '2026-09-03'});
     const sale = f.sqlite.prepare("SELECT id FROM ec_sale_entries WHERE external_id='S10'").get().id;
     assert.equal(f.sqlite.prepare('SELECT open_milli-settled_milli n FROM ec_open_costs WHERE sale_id=?').get(sale).n, 2000, '2 adet stoksuz satıldı');

@@ -62,7 +62,7 @@ test('local browser: overview independent recovery, period state and disposal',{
     let fail=true;
     await withPage(async({page,start,ready,counts,payloads})=>{
      await start();await ready();
-     assert.equal(await page.locator('.overview-heading h1').innerText(),'İşinin özeti');
+     assert.equal(await page.locator('.overview-heading h1').innerText(),'Bugün, her şey elinin altında.');
      assert.equal(await page.locator('.attention-center').count(),1);
      assert.equal(await page.locator('[data-overview-retry="'+failed+'"]').count(),1);
      const retry=page.locator('[data-overview-retry="'+failed+'"]');
@@ -90,7 +90,7 @@ test('local browser: overview independent recovery, period state and disposal',{
       assert.equal(await page.locator('.attention-item[href="#settings"]').count(),0,'unknown settings do not fabricate a setup task');
      }
      if(failed==='connections'){
-      assert.match(await page.locator('[data-overview-setup]').textContent(),/kanalların durumu bilinmiyor/);
+      assert.match(await page.locator('[data-overview-setup]').textContent(),/kurulum durumu eksik/i);
       assert.equal(await page.locator('.attention-item[href="#integrations"]').count(),0,'unknown channels are not labelled unconfigured or successful');
      }
      await page.evaluate(()=>{window.savedWork=document.querySelector('.attention-center');window.savedKpis=document.querySelector('.ins-kpis');});
@@ -114,8 +114,8 @@ test('local browser: overview independent recovery, period state and disposal',{
   }
   for(const width of [390,1440])await t.test(width+'px / date controls, local choices, history and observer cleanup',()=>withPage(async({page,start,ready,counts})=>{
    await start();await ready();
-   await page.locator('[data-product-view="revenue"]').click();await page.locator('[data-panorama-kind]').selectOption('bundle');
-   for(const selector of ['.ins-attention-extra','.ins-records-section','.pn-table','.pn-calculation-note','.ins-period-comparison','.ins-date-disclosure','.pn-pending details'])await page.locator(selector).evaluate(el=>{el.open=true;});
+   await page.locator('.daily-analysis').evaluateAll(nodes=>nodes.forEach(n=>n.open=true));await page.locator('[data-product-view="revenue"]').click();await page.locator('[data-panorama-kind]').selectOption('bundle');
+   for(const selector of ['.daily-analysis[data-disclosure="trend"]','.daily-analysis[data-disclosure="offerings"]','.ins-attention-extra','.ins-records-section','.pn-table','.pn-calculation-note','.ins-period-comparison','.ins-date-disclosure','.pn-pending details'])await page.locator(selector).evaluate(el=>{el.open=true;});
    await page.evaluate(()=>{window.savedRoot=document.querySelector('#commerce-content');window.savedWork=document.querySelector('.attention-center');window.savedWorkMarkup=window.savedWork.innerHTML;});
    const before={...counts};
    await page.locator('[data-date-preset="7g"]').click();await page.waitForURL(url=>url.hash.includes('donem=7g'));await ready();
@@ -124,7 +124,7 @@ test('local browser: overview independent recovery, period state and disposal',{
    const preserved=async()=>{
     assert.equal(await page.locator('[data-panorama-kind]').inputValue(),'bundle');
     assert.equal(await page.locator('[data-product-view="revenue"]').getAttribute('aria-selected'),'true');
-    for(const selector of ['.ins-attention-extra','.ins-records-section','.pn-table','.pn-calculation-note','.ins-period-comparison','.ins-date-disclosure','.pn-pending details'])assert.equal(await page.locator(selector).evaluate(el=>el.open),true,selector+' remains open');
+    for(const selector of ['.daily-analysis[data-disclosure="trend"]','.daily-analysis[data-disclosure="offerings"]','.ins-attention-extra','.ins-records-section','.pn-table','.pn-calculation-note','.ins-period-comparison','.ins-date-disclosure','.pn-pending details'])assert.equal(await page.locator(selector).evaluate(el=>el.open),true,selector+' remains open');
     assert.equal(await page.evaluate(()=>window.savedRoot===document.querySelector('#commerce-content')&&window.savedWork===document.querySelector('.attention-center')&&window.savedWork.innerHTML===window.savedWorkMarkup),true,'stable root and work DOM');
     assert.equal(await page.evaluate(()=>window.overviewObservers.filter(o=>!o.overviewDisconnected).length),1,'only current chart observer remains');
    };
@@ -145,7 +145,7 @@ test('local browser: overview independent recovery, period state and disposal',{
    let failPeriod=false,failSettings=true;
    await withPage(async({page,start,ready,counts})=>{
     await start();await ready();
-    await page.locator('[data-product-view="revenue"]').click();await page.locator('[data-panorama-kind]').selectOption('single');
+    await page.locator('.daily-analysis').evaluateAll(nodes=>nodes.forEach(n=>n.open=true));await page.locator('[data-product-view="revenue"]').click();await page.locator('[data-panorama-kind]').selectOption('single');
     await page.locator('.ins-records-section').evaluate(el=>{el.open=true;});
     await page.locator('.ins-attention-extra').evaluate(el=>{el.open=true;});
     await page.evaluate(()=>{window.savedWork=document.querySelector('.attention-center');});

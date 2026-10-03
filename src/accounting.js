@@ -1,3 +1,4 @@
+import {provisionalClose} from './provisional-inventory.js';
 import {filterAccounting} from './permission-policy.js';
 import {physicalStock,stockTransitQuery} from './stock-availability.js';
 import {effectiveNet} from './purchase-adjustment-api.js';
@@ -25,6 +26,9 @@ const statement=(db,sql,args=[])=>db.prepare(sql).bind(...args);
 const log=(db,message)=>statement(db,'INSERT INTO activity(id,description) VALUES(?,?)',[id(),message]);
 async function batch(db,items){try{return await db.batch(items);}catch(e){
  const message=String(e.message);
+ if(message.includes('PROVISIONAL_LEGACY_UNLINKED'))fail('Bu tedarikçi ve üründe eski faturasız girişin stok bağı doğrulanamadı. Çift stok oluşmaması için işlem durduruldu; eski giriş bağlantısı incelenmeli.',409);
+ if(message.includes('PROVISIONAL_PENDING_LINK'))fail('Bu faturanın teslimi ile aynı tedarikçi ve ürünün faturasız girişi arasında miktar bağı yok. Çift stok oluşmaması için teslim durduruldu; bağlantı incelenmeli.',409);
+ if(message.includes('PROVISIONAL_'))fail('Faturasız giriş ile fatura/teslim bağı doğrulanamadı. Kayıt değişmedi; girişleri kontrol edin.',409);
  if(message.includes('SPLIT_LOCKED'))fail('Çeşit dağılımını değiştirmek için önce dağılımı geri alın.',409);
  if(message.includes('PRODUCT_UNIT_LOCKED'))fail('Bağlantısı veya işlem geçmişi olan ürünün stok birimi değiştirilemez.',409);
  if(message.includes('INSUFFICIENT_STOCK'))fail('Stok yetersiz. Önce alış veya açılış stok hareketi girin.',409);
@@ -60,29 +64,6 @@ const PRODUCT_LINKS=[
 // üretim deposuna, 'invoice-' önekli satır alış faturasının gider satırına bağlıdır. Düzeltme
 // kaynağından yapılır, yoksa defter ile kaynak belge ayrışır.
 const derivedExpense=reference=>/^(count:|material-count:|invoice-)/.test(String(reference));
-// GEÇİCİ SAYIM KENDİLİĞİNDEN KAPANIR. Tedarikçi faturayı ay sonunda keser; mal ondan önce gelir
-// ve rafta sayılır. Böyle bir mal "GECICI-SAYIM-..." referanslı sayımla girilmişse, faturası gelip
-// mal teslimi yapıldığında AYNI mal ikinci kez stoğa girmiş olur. Teslimle birlikte o ürünün
-// açık geçici sayımı, teslim edilen adet kadar (en eskisi önce) sayımın kendi birim değeriyle
-// düşülür. Kapanış alış hareketidir (sayım düşüşü "kayıp" gideri yazardı); değer stoğu aşamaz.
-// Kullanıcının kimseye haber vermesi gerekmez. Satılmış sayım adetlerinin gerçek fatura maliyetine
-// geçmesini FIFO yapar (fifo-cost.js).
-// Kapanış teslimle AYNI batch'te yazılır (R03): teslim kaydolup kapanış yarım kalamaz. İfade
-// tekrar güvenlidir: bu teslimin (fatura+referans) daha önce kapattığı adet düşülür; teslimden
-// SONRA girilmiş sayımlar kapatılmaz. Böylece eski sürümden kalan yarım iş de yeniden çalıştırılarak tamamlanır.
-function provisionalClose(db,invoiceId,productId,date,reference){
- const suffix=':'+invoiceId+':'+reference,receipts='FROM effective_receipts g JOIN purchase_lines l ON l.id=g.line_id WHERE l.invoice_id=? AND g.reference=? AND l.product_id=?';
- return db.prepare(`INSERT INTO stock_movements(id,product_id,quantity_milli,value_cents,kind,reference,notes,occurred_on)
-  SELECT lower(hex(randomblob(16))),t.product_id,-t.take,-MAX(0,MIN(t.val0,b.value_cents-COALESCE(SUM(t.val0) OVER (ORDER BY t.occurred_on,t.rid ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0))),'purchase','provisional-close:'||t.id||?,?,?
-  FROM (SELECT u.*,CAST(ROUND(u.value_cents*1.0*u.take/u.quantity_milli) AS INTEGER) val0 FROM (
-    SELECT m.*,MIN(m.rem,MAX(0,n.need-COALESCE(SUM(m.rem) OVER (ORDER BY m.occurred_on,m.rid ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0))) take
-    FROM (SELECT m.rowid rid,m.id,m.product_id,m.quantity_milli,m.value_cents,m.occurred_on,
-      m.quantity_milli-COALESCE((SELECT -SUM(c.quantity_milli) FROM stock_movements c WHERE c.kind='purchase' AND c.product_id=m.product_id AND c.reference LIKE 'provisional-close:'||m.id||':%'),0) rem
-     FROM stock_movements m WHERE m.product_id=? AND m.kind='count' AND m.quantity_milli>0 AND m.reference LIKE 'GECICI-SAYIM-%' AND m.created_at<=(SELECT MAX(g.created_at) ${receipts})) m,
-     (SELECT COALESCE((SELECT SUM(g.quantity_milli) ${receipts}),0)-COALESCE((SELECT -SUM(c.quantity_milli) FROM stock_movements c WHERE c.product_id=? AND c.kind='purchase' AND c.reference LIKE 'provisional-close:%' AND substr(c.reference,-length(?))=?),0) need) n
-    WHERE m.rem>0) u WHERE u.take>0) t JOIN stock_balances b ON b.product_id=t.product_id`)
-  .bind(suffix,'Geçici sayım faturayla kapandı ('+reference+')',date,productId,invoiceId,reference,productId,invoiceId,reference,productId,productId,suffix,suffix);
-}
 /** Muhasebeleşen alış faturasının KDV DAHİL toplamını tedarikçi borcu olarak yazar.
  * Aynı fatura için ikinci kez çalışmaz: source_key 'invoice:<fatura>' tekildir ve satır
  * yalnızca yoksa yazılır. Böylece hem muhasebeleştirme anında hem de eski faturaları
@@ -95,7 +76,7 @@ export const invoiceDebtStatement=(db,invoiceId)=>db.prepare(
   FROM purchase_invoices i JOIN purchase_lines l ON l.invoice_id=i.id JOIN suppliers s ON s.id=i.supplier_id
   WHERE i.id=? AND i.status='posted' AND NOT EXISTS(SELECT 1 FROM party_entries e WHERE e.source_key='invoice:'||i.id)
   GROUP BY i.id HAVING SUM(l.net_cents+l.tax_cents)>0`).bind(invoiceId);
-/** Eski sürümden kalan yarım işi tamamlar: teslimi yazılmış ama geçici sayım kapanışı yazılamamış fatura. */
+/** Tahsisi doğrulanmış teslimin eksik kapanışını tamamlar. İlişkisiz eski sayımlara dokunmaz. */
 export async function completeProvisionalClose(db,invoiceId,reference){
  const rows=(await db.prepare("SELECT l.product_id,MAX(g.occurred_on) d FROM effective_receipts g JOIN purchase_lines l ON l.id=g.line_id WHERE l.invoice_id=? AND g.reference=? AND l.product_id IS NOT NULL GROUP BY l.product_id").bind(invoiceId,reference).all()).results;
  if(rows.length)await batch(db,rows.map(r=>provisionalClose(db,invoiceId,r.product_id,r.d,reference)));
@@ -386,19 +367,8 @@ const invoiceMatch=path.match(/^\/api\/accounting\/invoices\/([\w-]+)(?:\/(post|
   // Muhasebeleşme ve tedarikçi borcu AYNI yazma kümesindedir: fatura işlendiyse borç da yazılmıştır.
   if(action==='post'){
    const statements=[statement(db,"UPDATE purchase_invoices SET status='posted' WHERE id=? AND status='draft'",[key]),invoiceDebtStatement(db,key)];
-   // GEÇİCİ BORÇ KAPANIŞI. Faturasız girilen mal bu cariye zaten borç yazmıştı; faturanın KENDİ borcu
-   // doğduğu anda geçici borç ters kayıtla kapanır, yoksa borç iki kez durur. Fatura girişin TAMAMI
-   // için kesilir, o yüzden bu tedarikçinin en eski AÇIK girişi seçilir. Kapanış tekildir: invoice_id
-   // UNIQUE ve güncelleme yalnız invoice_id IS NULL iken yazar, ikinci kez çalışsa da borç silinmez.
-   // Stok tarafı burada DEĞİL, mal tesliminde (provisionalClose) kapanır; her taraf kendi karşılığıyla.
-   if(env.WORKSPACE==='ec'){
-    const open=await statement(db,"SELECT r.id,r.entry_id,r.reference,e.amount_cents FROM provisional_receipts r JOIN party_entries e ON e.id=r.entry_id WHERE r.supplier_id=? AND r.invoice_id IS NULL AND NOT EXISTS(SELECT 1 FROM party_entries x WHERE x.reversal_of=e.id) ORDER BY r.occurred_on,r.created_at,r.rowid LIMIT 1",[existing.supplier_id]).first();
-    if(open){
-     statements.push(statement(db,'UPDATE provisional_receipts SET invoice_id=?,closed_on=? WHERE id=? AND invoice_id IS NULL',[key,existing.invoice_date,open.id]));
-     statements.push(statement(db,'INSERT INTO party_entries(id,party_id,amount_cents,occurred_on,reference,description,source_key,source,reversal_of) VALUES(?,?,?,?,?,?,?,?,?)',
-      [id(),existing.supplier_id,-open.amount_cents,existing.invoice_date,open.reference,'Faturasız mal girişi faturalandı · '+open.reference,'gecici-kapanis:'+open.id,'reversal',open.entry_id]));
-    }
-   }
+   // 0065: aynı tedarikçi/ürünün kalan miktarı durum geçişi tetiğinde tahsis edilir.
+   // Borç azaltımı aynı işlemde yazılır; en eski başlık bütünüyle kapatılmaz.
    await batch(db,[...statements,log(db,'Alış faturası muhasebeleştirildi; cari borcu oluştu, mal teslimi bekleniyor')]);return {id:key};}
   if(!Array.isArray(x.lines)||x.lines.length>40)fail('Fatura eşleştirmesi geçersiz.');const lines=(await statement(db,'SELECT * FROM purchase_lines WHERE invoice_id=?',[key]).all()).results;
   if(lines.length!==x.lines.length||new Set(x.lines.map(l=>l.id)).size!==lines.length)fail('Tüm satırlar bir kez eşleştirilmeli.');

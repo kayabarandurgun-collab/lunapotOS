@@ -76,3 +76,51 @@
  .rb-actions{justify-content:stretch}
  .rb-actions button{flex:1 1 auto}
 }
+/* Günlük rapor ve sipariş akışları; yalnız bu iki ekranın yerel sınıfları. */
+.rb .rb-upload-card>h2{font-size:22px;line-height:1.3}
+.rb .rb-upload-card .rb-drop{margin:16px 0 10px;background:var(--brand-soft,#edf3ed);border-color:var(--brand,#315c45)}
+.rb .rb-upload-card .rb-drop input[type=file]{min-height:48px}
+.rb .rb-upload-card .rb-drop strong{font-size:18px}
+.rb .rb-report-guide{display:grid;gap:10px;margin:18px 0;padding:16px 0;border-block:1px solid var(--line,#d8ded8)}
+.rb .rb-report-guide p{margin:0;line-height:1.65}
+.rb .rb-report-guide summary,.rb .rb-add summary,.rb .rb-maintenance>summary{padding-block:10px;min-height:44px;cursor:pointer;line-height:1.5}
+.rb .rb-report-guide .rb-help summary{font-size:14px;color:var(--brand,#315c45)}
+.rb .rb-report-guide .rb-facts{margin-top:8px}
+.rb .rb-status>div{display:grid;gap:3px;padding:12px 14px;border:1px solid var(--line,#d8ded8);border-radius:var(--radius-kart);background:var(--paper,#fff)}
+.rb .rb-status>div small{font-size:12px;color:var(--muted)}
+.rb .rb-maintenance>summary{font-weight:600}
+.rb .rb-grid{grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr))}
+.rb .rb-compare{grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr))}
+.rb .rb-kind,.rb .rb-kind-change{display:flex;flex-wrap:wrap;align-items:center;gap:8px;overflow-wrap:anywhere}
+.rb .rb-kind-change select{max-width:100%}
+.rb .rb-review header>*,.rb .rb-list li{overflow-wrap:anywhere}
+.rb .rb-num{white-space:normal}
+.rb .rb-tabs button{min-height:44px}
+.workflow-orders.ol-daily .ol-open-order{display:block;width:100%;text-align:left;padding:0;background:transparent;border:0;color:var(--ink);text-decoration:none}
+.workflow-orders.ol-daily .ol-open-hint{display:block;color:var(--brand,#315c45);font-size:12px;font-weight:600;margin-top:6px}
+.workflow-orders.ol-daily .ol-open-order:hover .ol-open-hint{text-decoration:underline}
+.workflow-orders.ol-daily .ol-open-order .ol-urun{font-size:14px;font-weight:600;line-height:1.6}
+.workflow-orders.ol-daily .ol-seg button{min-height:44px}
+.workflow-orders.ol-daily .ol-c-durum .error{color:var(--danger,#9c3228)}
+dialog.ol-daily-dialog .order-copy-row{display:flex;flex-wrap:wrap;gap:8px}
+dialog.ol-daily-dialog .order-copy-row button{overflow-wrap:anywhere;min-height:44px}
+dialog.ol-daily-dialog .ol-detay-islem button{min-height:44px}
+dialog.ol-daily-dialog .breakdown-collapsible>summary{cursor:pointer;min-height:48px}
+@media(max-width:760px){
+ .rb .rb-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+ .rb .rb-tabs button{text-align:center;padding:8px}
+ .rb .rb-upload-card>h2{font-size:20px}
+ .rb .rb-report-guide{font-size:14px}
+ .rb .rb-grid,.rb .rb-compare{grid-template-columns:minmax(0,1fr)}
+ .rb .rb-review{padding:12px}
+ .rb .rb-kv.small{grid-template-columns:minmax(0,1fr)}
+ .rb-busy{left:12px;right:12px;bottom:calc(80px + env(safe-area-inset-bottom));border-radius:12px;text-align:center;overflow-wrap:anywhere;z-index:30}
+ .workflow-orders.ol-daily .ol-table tbody tr{gap:14px}
+ .workflow-orders.ol-daily .ol-c-tutar,.workflow-orders.ol-daily .ol-c-cep{font-size:14px;line-height:1.6}
+ .workflow-orders.ol-daily .ol-table td small{font-size:12px}
+ .workflow-orders.ol-daily .ol-pager .ac-actions{width:100%;justify-content:space-between;flex-wrap:wrap}
+ .workflow-orders.ol-daily .ol-pager button{min-height:44px}
+ dialog.ol-daily-dialog .order-timeline{display:flex;flex-wrap:wrap;gap:8px}
+ dialog.ol-daily-dialog .order-timeline li{flex:1 1 100px;white-space:normal}
+ dialog.ol-daily-dialog .order-profit-card strong{font-size:26px}
+}

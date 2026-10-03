@@ -1,10 +1,11 @@
+import {can} from './permissions.js';
 import {prepareWorkflow} from './product-list.js';
 // Teklif, proforma ve sözleşme ekranı.
 // Belgeler tarayıcıda, sunucudan yetkiyle gelen veriden üretilir; ayrı bir indirme ucu yoktur.
 // Bu ekran dışarıya e-posta veya mesaj GÖNDERMEZ; yalnızca indirilebilir belge hazırlar.
 // Stok düşmez, cariye borç/alacak yazmaz, resmî fatura kesmez.
 import {OFFER_KINDS, NEXT_KIND, offerTotals} from './offer-math.js';
-import {offerPdfDocument, offerSheets, offerCsvRows, offerPrintHtml, offerBlocks, statusName, kindName, money} from './offer-document.js';
+import {offerPdfDocument, offerSheets, offerCsvRows, offerPrintHtml, offerBlocks, statusName, kindName, money as formatMoney} from './offer-document.js';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
 const today = () => new Date().toLocaleDateString('sv-SE', {timeZone: 'Europe/Istanbul'});
@@ -13,7 +14,7 @@ const dayText = value => { const [y, m, d] = String(value || '').split('-'); ret
 const badgeType = status => ({accepted: 'success', rejected: 'danger', expired: 'warning', cancelled: 'neutral', sent: 'warning'}[status] || 'neutral');
 const badge = (label, type = 'neutral') => `<span class="v2-badge ${type}">${esc(label)}</span>`;
 const card = (title, content, action = '') => `<section class="v2-card"><div class="v2-card-head"><h2>${esc(title)}</h2>${action}</div>${content}</section>`;
-const act = (label, action, id = '', secondary = true) => `<button type="button" class="${secondary ? 'secondary' : 'primary'}" data-offer="${action}" data-id="${esc(id)}">${esc(label)}</button>`;
+const offerButton = (label, action, id = '', secondary = true, disabled = false) => `<button type="button" class="${secondary ? 'secondary' : 'primary'}" ${disabled?'disabled':''} data-offer="${action}" data-id="${esc(id)}">${esc(label)}</button>`;
 const stat = (label, value, note) => `<article class="v2-stat"><span class="v2-stat-label">${esc(label)}</span><strong class="v2-stat-value">${esc(value)}</strong><small>${esc(note)}</small></article>`;
 
 const blankLine = () => ({description: '', unit: 'adet', quantity: '1', unit_price: '', discount: '0', vat: '20'});
@@ -28,6 +29,8 @@ function toLines(rows) {
         throw new Error(`${index + 1}. satırdaki ${label} sayısı geçersiz.`);
       return result;
     };
+    if (String(row.quantity ?? '').trim()==='' || String(row.unit_price ?? '').trim()==='') throw new Error(`${index + 1}. satırın miktarını ve birim fiyatını yazın; bilinmeyen tutarı sıfır kabul etmeyin.`);
+    if ([row.discount,row.vat].some(value=>String(value ?? '').trim()==='')) throw new Error(`${index + 1}. satırın iskonto ve KDV oranını yazın.`);
     if (!String(row.description).trim()) throw new Error(`${index + 1}. satırın açıklamasını yazın.`);
     return {
       description: String(row.description).trim(),
@@ -42,19 +45,25 @@ function toLines(rows) {
 
 const fromSnapshotRows = rows => rows.map(row => ({
   description: row.description, unit: row.unit,
-  quantity: String(row.quantity_milli / 1000),
-  unit_price: row.unit_price_cents === null ? '' : String(row.unit_price_cents / 100),
-  discount: row.discount_bps === null ? '0' : String(row.discount_bps / 100),
-  vat: row.vat_bps === null ? '0' : String(row.vat_bps / 100)
+  quantity: row.quantity_milli == null ? '' : String(row.quantity_milli / 1000),
+  unit_price: row.unit_price_cents == null ? '' : String(row.unit_price_cents / 100),
+  discount: row.discount_bps == null ? '' : String(row.discount_bps / 100),
+  vat: row.vat_bps == null ? '' : String(row.vat_bps / 100)
 }));
 
 export function mountOffers(root, namespace) {
   if (!['ec', 'lp'].includes(namespace)) throw new Error('Çalışma alanı geçersiz.');
   const controller = new AbortController();
   const state = {
-    kind: '', offers: [], parties: [], detail: null, editor: null, error: '', busy: false, disposed: false, loaded: false
+    kind: '', query: '', user: null, offers: [], parties: [], partiesLoaded: false, detail: null, editor: null, error: '', busy: false, disposed: false, loaded: false
   };
   const $ = selector => root.querySelector(selector);
+  const writes = new Set(['new','edit','sent','accept','reject','cancel','revise','convert','line-add','line-remove']);
+  const canAct = action => !writes.has(action) || (can(state.user,namespace,'offers',true) && (action !== 'new' || can(state.user,namespace,'ledger')));
+  const act = (label,action,id='',secondary=true) => offerButton(label,action,id,secondary,!canAct(action));
+  const money = value => can(state.user,namespace,'amounts') ? formatMoney(value) : 'Tutarları görme yetkin yok';
+  const focus = selector => $(selector)?.focus({preventScroll:true});
+
 
   async function api(path, body) {
     const response = await fetch(`/api/${namespace}${path}`, {
@@ -67,14 +76,24 @@ export function mountOffers(root, namespace) {
   }
 
   async function load() {
+    if (!state.user) {
+      const response = await fetch('/api/auth/status', {signal:controller.signal});
+      const status = await response.json();
+      if (!response.ok || !status.user) throw new Error('Yetki bilgisi yüklenemedi. Yeniden deneyin.');
+      state.user = status.user;
+    }
     const query = state.kind ? '?kind=' + state.kind : '';
-    const [list, ledger] = await Promise.all([
-      api('/offers' + query),
-      state.parties.length ? Promise.resolve(null) : api('/ledger')
-    ]);
-    if (ledger) state.parties = ledger.parties || [];
+    const list = await api('/offers' + query);
     state.offers = list.offers;
     state.loaded = true;
+  }
+
+  async function loadParties() {
+    if (state.partiesLoaded) return;
+    if (!can(state.user,namespace,'ledger')) throw new Error('Yeni belge için cari seçimi gerekir. Yöneticin cari görüntüleme izni verebilir.');
+    const ledger = await api('/ledger');
+    state.parties = (ledger.parties || []).filter(party => !party.archived_at);
+    state.partiesLoaded = true;
   }
 
   // pdf-lib ve yazı tipi yalnızca gerçekten belge indirilirken yüklenir.
@@ -96,33 +115,35 @@ export function mountOffers(root, namespace) {
     const now = today();
     const counts = kind => state.offers.filter(o => o.kind === kind).length;
     const summary = state.kind ? '' : `<div class="v2-grid cols-3">${Object.entries(OFFER_KINDS).map(([kind, label]) => stat(label, String(counts(kind)), 'Güncel sürümler')).join('')}</div>`;
-    const rows = state.offers.map(offer => `<tr>
+    const listed = state.offers.filter(offer => [offer.document_no,offer.party_name,offer.title].join(' ').toLocaleLowerCase('tr-TR').includes(state.query.toLocaleLowerCase('tr-TR')));
+    const rows = listed.map(offer => `<tr>
       <td><strong>${esc(offer.document_no)}</strong><small>${offer.revision}. sürüm · ${esc(kindName(offer.kind))}</small></td>
       <td>${esc(offer.party_name)}<small>${esc(offer.title)}</small></td>
       <td>${esc(dayText(offer.issue_date))}<small>${offer.valid_until ? 'Geçerlilik: ' + esc(dayText(offer.valid_until)) : 'Süre yok'}</small></td>
       <td>${esc(money(offer.total_cents))}</td>
       <td>${badge(statusName(offer, now), badgeType(offer.effective_status))}</td>
       <td>${act('Aç', 'open', offer.id)}</td></tr>`).join('');
-    return summary + card('Belgeler', state.offers.length
-      ? `<div class="table-wrap"><table class="v2-table"><thead><tr><th>Belge</th><th>Cari / başlık</th><th>Tarih</th><th>Genel toplam</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>${rows}</tbody></table></div>`
-      : '<div class="v2-empty"><h3>Henüz belge yok.</h3><p>Yeni teklif oluşturup müşteriye PDF, Word veya Excel olarak verebilirsiniz.</p></div>');
+    return summary + `<form class="v2-toolbar" data-offer-search-form><label>Belgelerde ara<input type="search" data-offer-search value="${esc(state.query)}" placeholder="Belge no, cari adı veya başlık"></label>${state.query?act('Aramayı temizle','search-reset'):''}<span class="muted" role="status">${listed.length} belge</span></form><p class="help">Son 300 güncel sürüm gösterilir. Arama bu listedeki belgeleri kapsar.</p>` + card('Belgeler', listed.length
+      ? `<div class="table-wrap"><table class="v2-table"><thead><tr><th scope="col">Belge</th><th scope="col">Cari / başlık</th><th scope="col">Tarih</th><th scope="col">Genel toplam</th><th scope="col">Durum</th><th scope="col">İşlem</th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : `<div class="v2-empty"><h3>${state.query?'Bu aramada belge bulunamadı.':state.kind?'Bu türde henüz belge yok.':'Henüz belge yok.'}</h3><p>${state.query?'Aramayı temizleyerek listedeki belgelere dönebilirsin.':state.kind?'Diğer belgeler için Tümü seçeneğini kullan.':'Yeni teklif oluşturup PDF, Word veya Excel olarak indirebilirsin.'}</p></div>`);
   }
 
   function lineEditorRows(lines) {
     return lines.map((line, index) => `<tr>
       <td><label class="workflow-cell-label">Ürün veya hizmet<input name="description" value="${esc(line.description)}" maxlength="300" placeholder="Ürün veya hizmet" required></label></td>
       <td><label class="workflow-cell-label">Birim<input name="unit" value="${esc(line.unit)}" maxlength="20" size="6"></label></td>
-      <td><label class="workflow-cell-label">Miktar<input name="quantity" value="${esc(line.quantity)}" type="number" step="0.001" min="0.001" required></label></td>
-      <td><label class="workflow-cell-label">Birim fiyat · KDV hariç (TL)<input name="unit_price" value="${esc(line.unit_price)}" type="number" step="0.01" min="0" required></label></td>
-      <td><label class="workflow-cell-label">İskonto (%)<input name="discount" value="${esc(line.discount)}" type="number" step="0.01" min="0" max="100"></label></td>
-      <td><label class="workflow-cell-label">KDV (%)<input name="vat" value="${esc(line.vat)}" type="number" step="0.01" min="0" max="100"></label></td>
+      <td><label class="workflow-cell-label">Miktar<input name="quantity" value="${esc(line.quantity)}" type="number" inputmode="decimal" step="0.001" min="0.001" required></label></td>
+      <td><label class="workflow-cell-label">Birim fiyat · KDV hariç (TL)<input name="unit_price" value="${esc(line.unit_price)}" type="number" inputmode="decimal" step="0.01" min="0" required></label></td>
+      <td><label class="workflow-cell-label">İskonto (%)<input name="discount" value="${esc(line.discount)}" type="number" inputmode="decimal" step="0.01" min="0" max="100" required></label></td>
+      <td><label class="workflow-cell-label">KDV (%)<input name="vat" value="${esc(line.vat)}" type="number" inputmode="decimal" step="0.01" min="0" max="100" required></label></td>
       <td>${lines.length > 1 ? act('Sil', 'line-remove', String(index)) : '—'}</td></tr>`).join('');
   }
 
   function editorPanel() {
     const e = state.editor;
     const isContract = e.kind === 'contract';
-    const options = [['', 'Cari seçin…'], ...state.parties.map(p => [p.id, p.name])];
+    const parties = state.parties.some(p => p.id === e.party_id) || !e.party_id ? state.parties : [...state.parties,{id:e.party_id,name:e.party_name || 'Belgedeki cari'}];
+    const options = [['', 'Cari seçin…'], ...parties.map(p => [p.id, p.name])];
     let preview = '';
     try {
       const totals = offerTotals(toLines(e.lines));
@@ -139,9 +160,9 @@ export function mountOffers(root, namespace) {
           ${isContract ? '' : `<label>Geçerlilik tarihi<input name="valid_until" type="date" value="${esc(e.valid_until)}" required></label>`}
         </div>
         <label>Belge başlığı<input name="title" value="${esc(e.title)}" maxlength="200" required placeholder="Örn. Bahar sezonu saksı teklifi"></label>
-        <div class="table-wrap"><table class="v2-table"><thead><tr><th>Açıklama</th><th>Birim</th><th>Miktar</th><th>Birim fiyat · KDV hariç (TL)</th><th>İskonto %</th><th>KDV %</th><th></th></tr></thead><tbody data-offer-lines>${lineEditorRows(e.lines)}</tbody></table></div>
+        <div class="table-wrap"><table class="v2-table"><thead><tr><th scope="col">Açıklama</th><th scope="col">Birim</th><th scope="col">Miktar</th><th scope="col">Birim fiyat · KDV hariç (TL)</th><th scope="col">İskonto %</th><th scope="col">KDV %</th><th scope="col"></th></tr></thead><tbody data-offer-lines>${lineEditorRows(e.lines)}</tbody></table></div>
         <div class="ac-actions">${act('Satır ekle', 'line-add')}</div>
-        ${preview}
+        <div data-offer-totals aria-live="polite">${preview}</div>
         <label>Koşullar<textarea name="terms" rows="4" maxlength="4000" placeholder="Teslim süresi, ödeme koşulu, geçerlilik…">${esc(e.terms)}</textarea></label>
         <p class="help">Bu belge stok düşmez, cari hesaba borç/alacak yazmaz ve resmî fatura değildir. Kaydetmek kimseye mesaj göndermez.</p>
         <p class="error" data-offer-form-error role="alert"></p>
@@ -154,7 +175,7 @@ export function mountOffers(root, namespace) {
     const closed = ['accepted', 'rejected', 'cancelled'].includes(d.status);
     const expired = d.effective_status === 'expired';
     const snapshot = d.snapshot;
-    const lines = `<div class="table-wrap"><table class="v2-table"><thead><tr><th>Açıklama</th><th>Miktar</th><th>Birim fiyat</th><th>İskonto</th><th>Net</th><th>KDV</th><th>Toplam</th></tr></thead><tbody>${snapshot.totals.rows.map(row => `<tr><td>${esc(row.description)}</td><td>${row.quantity_milli === null ? '—' : esc(new Intl.NumberFormat('tr-TR', {maximumFractionDigits: 3}).format(row.quantity_milli / 1000) + ' ' + row.unit)}</td><td>${esc(money(row.unit_price_cents))}</td><td>${row.discount_bps ? '%' + row.discount_bps / 100 : '—'}</td><td>${esc(money(row.net_cents))}</td><td>${row.vat_bps === null ? '—' : '%' + row.vat_bps / 100}</td><td>${esc(money(row.total_cents))}</td></tr>`).join('')}</tbody></table></div>`;
+    const lines = `<div class="table-wrap"><table class="v2-table"><thead><tr><th scope="col">Açıklama</th><th scope="col">Miktar</th><th scope="col">Birim fiyat</th><th scope="col">İskonto</th><th scope="col">Net</th><th scope="col">KDV</th><th scope="col">Toplam</th></tr></thead><tbody>${snapshot.totals.rows.map(row => `<tr><td>${esc(row.description)}</td><td>${row.quantity_milli === null ? '—' : esc(new Intl.NumberFormat('tr-TR', {maximumFractionDigits: 3}).format(row.quantity_milli / 1000) + ' ' + row.unit)}</td><td>${esc(money(row.unit_price_cents))}</td><td>${row.discount_bps == null ? 'Bilgi eksik' : row.discount_bps ? '%' + row.discount_bps / 100 : '—'}</td><td>${esc(money(row.net_cents))}</td><td>${row.vat_bps === null ? '—' : '%' + row.vat_bps / 100}</td><td>${esc(money(row.total_cents))}</td></tr>`).join('')}</tbody></table></div>`;
     const chain = [
       d.origin ? `<p class="help">Kaynak belge: <strong>${esc(d.origin.document_no)}</strong> · ${esc(kindName(d.origin.kind))}</p>` : '',
       d.derived.length ? `<p class="help">Bu belgeden üretilenler: ${d.derived.map(x => esc(x.document_no) + ' · ' + esc(kindName(x.kind))).join(', ')}</p>` : ''
@@ -182,7 +203,7 @@ export function mountOffers(root, namespace) {
       <div class="v2-summary-line total"><span>Genel toplam</span><strong>${esc(money(d.total_cents))}</strong></div>
       ${snapshot.terms ? `<h3>Koşullar</h3><p>${esc(snapshot.terms).replace(/\n/g, '<br>')}</p>` : ''}
       ${d.status_note ? `<p class="help">Not: ${esc(d.status_note)}</p>` : ''}
-      <div class="ac-actions">${act('Yazdır', 'print', d.id)}${act('PDF indir', 'pdf', d.id)}${act('Excel indir', 'xlsx', d.id)}${act('Word indir', 'docx', d.id)}${act('CSV indir', 'csv', d.id)}</div>
+      <div class="ac-actions">${act('PDF indir', 'pdf', d.id)}${act('Yazdır', 'print', d.id)}</div><details class="workflow-details"><summary>Word, Excel veya CSV indir</summary><div class="ac-actions">${act('Word indir', 'docx', d.id)}${act('Excel indir', 'xlsx', d.id)}${act('CSV indir', 'csv', d.id)}</div></details>
       ${actions.length ? `<div class="ac-actions">${actions.join('')}</div>` : ''}
       <p class="help">Belgeyi indirmek, yazdırmak ya da karşı tarafa iletmek kabul veya imza anlamına gelmez. Kabul, ayrıca ve bilinçli olarak buradan kaydedilir. Bu ekran dışarıya mesaj göndermez.</p>
     </div>`, act('Kapat', 'detail-close'));
@@ -195,8 +216,10 @@ export function mountOffers(root, namespace) {
     root.innerHTML = `<div class="v2-page workflow-page">
       <div class="page-heading"><div><span class="eyebrow">${namespace === 'ec' ? 'E-TİCARET' : 'LUNAPOT'} ÇALIŞMA ALANI</span>
       <h1>Teklif ve belgeler</h1><p>Teklif, proforma ve sözleşmeyi hazırla, sürümünü koru, müşteriye PDF veya Word olarak ver. Bu belgeler stok ve cari hesabı değiştirmez.</p></div>
-      <div class="ac-actions">${act('Yeni teklif', 'new', 'quote', false)}${act('Yeni proforma', 'new', 'proforma')}${act('Yeni sözleşme', 'new', 'contract')}</div></div>
+      <div class="ac-actions">${act('Yeni teklif', 'new', 'quote', false)}<details class="workflow-details"><summary>Diğer belge türleri</summary><div class="ac-actions">${act('Yeni proforma', 'new', 'proforma')}${act('Yeni sözleşme', 'new', 'contract')}</div></details></div></div>
       <div class="notice" data-offer-error role="alert" ${state.error ? '' : 'hidden'}>${esc(state.error)}</div>
+      ${state.user && !can(state.user,namespace,'offers',true)?'<p class="notice subtle">Belgeleri görüntüleyebilir ve indirebilirsin. Düzenleme ve durum değişikliği için işlem yetkisi gerekir.</p>':state.user && !can(state.user,namespace,'ledger')?'<p class="notice subtle">Yeni belge için cari seçimi gerekir. Yöneticin cari görüntüleme izni verebilir. Mevcut belgeleri açabilirsin.</p>':''}
+      <div data-offer-retry ${state.error?'':'hidden'}>${act('Yeniden dene','retry')}</div>
       <nav class="v2-tabs" aria-label="Belge türü">${filters.map(([key, label]) => `<button type="button" data-offer="filter" data-id="${esc(key)}" class="${state.kind === key ? 'active' : ''}" aria-current="${state.kind === key ? 'page' : 'false'}">${esc(label)}</button>`).join('')}</nav>
       <section data-offer-body>${state.editor ? editorPanel() : state.detail ? detailPanel() : state.loaded ? listPanel() : '<div class="loading">Belgeler yükleniyor…</div>'}</section></div>`;
   }
@@ -205,6 +228,7 @@ export function mountOffers(root, namespace) {
     state.error = message;
     const box = $('[data-offer-error]');
     if (box) { box.hidden = !message; box.textContent = message; }
+    const retry=$('[data-offer-retry]');if(retry)retry.hidden=!message;
   }
 
   // Satır kutularındaki yazılanlar yeniden çizimde kaybolmasın.
@@ -233,7 +257,7 @@ export function mountOffers(root, namespace) {
   function openEditor(kind, existing) {
     if (existing) {
       state.editor = {
-        id: existing.id, kind: existing.kind, party_id: existing.party_id,
+        id: existing.id, kind: existing.kind, party_id: existing.party_id, party_name: existing.snapshot.party.name,
         title: existing.snapshot.title, issue_date: existing.snapshot.issue_date,
         valid_until: existing.snapshot.valid_until || '', terms: existing.snapshot.terms || '',
         lines: fromSnapshotRows(existing.snapshot.totals.rows)
@@ -246,14 +270,18 @@ export function mountOffers(root, namespace) {
     }
     state.detail = null;
     render();
+    focus('[data-offer-form] [name=title]');
   }
 
   async function run(work) {
     if (state.busy) return;
     state.busy = true; showError('');
+    const controls = [...root.querySelectorAll('input,select,textarea,button')].map(node=>[node,node.disabled]);
+    for (const [node] of controls) node.disabled = true;
+    root.setAttribute('aria-busy','true');
     try { await work(); }
     catch (error) { if (error.name !== 'AbortError' && !state.disposed) showError(error.message); }
-    finally { state.busy = false; }
+    finally { state.busy = false; root.removeAttribute('aria-busy'); for (const [node,disabled] of controls) if(node.isConnected)node.disabled=disabled; }
   }
 
   async function statusChange(id, status, prompt) {
@@ -266,14 +294,16 @@ export function mountOffers(root, namespace) {
 
   root.addEventListener('click', event => {
     const target = event.target.closest('[data-offer]');
-    if (!target || !root.contains(target)) return;
+    if (!target || !root.contains(target) || target.disabled || state.busy || !canAct(target.dataset.offer)) return;
     const action = target.dataset.offer, id = target.dataset.id;
+    if (action === 'retry') { run(async()=>{await load();render();}); return; }
+    if (action === 'search-reset') { state.query='';render();focus('[data-offer-search]');return; }
     if (action === 'filter') { state.kind = id; state.detail = null; state.editor = null; run(async () => { await load(); render(); }); return; }
-    if (action === 'new') { openEditor(id); return; }
+    if (action === 'new') { run(async()=>{await loadParties();openEditor(id);}); return; }
     if (action === 'editor-close') { state.editor = null; render(); return; }
     if (action === 'detail-close') { state.detail = null; render(); return; }
-    if (action === 'line-add') { readEditorForm(); state.editor.lines.push(blankLine()); render(); return; }
-    if (action === 'line-remove') { readEditorForm(); state.editor.lines.splice(Number(id), 1); render(); return; }
+    if (action === 'line-add') { readEditorForm(); state.editor.lines.push(blankLine()); render(); focus('[data-offer-lines] tr:last-child [name=description]'); return; }
+    if (action === 'line-remove') { readEditorForm(); state.editor.lines.splice(Number(id), 1); render(); focus('[data-offer=line-add]'); return; }
     if (['print', 'pdf', 'xlsx', 'docx', 'csv'].includes(action)) { run(() => produce(action)); return; }
     if (action === 'open') { run(async () => { state.detail = await api('/offers/' + encodeURIComponent(id)); state.editor = null; render(); }); return; }
     if (action === 'edit') { openEditor(state.detail.kind, state.detail); return; }
@@ -295,6 +325,7 @@ export function mountOffers(root, namespace) {
     const form = event.target.closest('form[data-offer-form]');
     if (!form || !root.contains(form)) return;
     event.preventDefault();
+    if(!can(state.user,namespace,'offers',true))return;
     const error = form.querySelector('[data-offer-form-error]');
     if (error) error.textContent = '';
     run(async () => {
@@ -310,6 +341,7 @@ export function mountOffers(root, namespace) {
         if (e.supersedes) body.supersedes = e.supersedes;
         state.detail = e.id ? await api('/offers/' + encodeURIComponent(e.id), body) : await api('/offers', body);
         state.editor = null;
+        render(); // Kayıt tamamlandı; liste yenilenemese de kaydedilmiş belge görünür kalır.
         await load();
         render();
       } catch (problem) {
@@ -319,6 +351,13 @@ export function mountOffers(root, namespace) {
     });
   }, {signal: controller.signal});
 
+  root.addEventListener('input',event=>{
+    if(state.busy)return;
+    if(event.target.matches('[data-offer-search]')){state.query=event.target.value;const position=event.target.selectionStart;render();focus('[data-offer-search]');$('[data-offer-search]').setSelectionRange(position,position);return;}
+    if(event.target.closest('[data-offer-lines]')){readEditorForm();const box=$('[data-offer-totals]');try{const totals=offerTotals(toLines(state.editor.lines));box.textContent='Genel toplam · KDV dahil: '+money(totals.total_cents)+' · KDV hariç: '+money(totals.net_cents)+' · KDV: '+money(totals.vat_cents);}catch{box.textContent='Toplam için satır açıklaması, miktar ve fiyatı tamamla.';}}
+  },{signal:controller.signal});
+  root.addEventListener('change',event=>{if(!state.busy&&event.target.matches('[data-offer-form] [name=kind]')){readEditorForm();if(state.editor.kind!=='contract'&&!state.editor.valid_until)state.editor.valid_until=plusDays(30);render();focus('[data-offer-form] [name=kind]');}},{signal:controller.signal});
+  root.addEventListener('submit',event=>{if(event.target.matches('[data-offer-search-form]'))event.preventDefault();},{signal:controller.signal});
   render();
   run(async () => { await load(); render(); });
   return () => { state.disposed = true; controller.abort(); };

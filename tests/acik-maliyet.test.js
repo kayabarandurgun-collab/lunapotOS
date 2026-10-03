@@ -93,7 +93,7 @@ test('Geçici sayım, faturalı mal teslimiyle kendiliğinden kapanır; stok çi
   const f = appFixture(); await f.setup(); try {
     const {supplier, product} = await kur(f);
     await alis(f, supplier, product, 'YSK-1', D, 2, 1400);
-    await f.ok('/ec/stock', {product_id: product, quantity: 10, unit_cost: 1400, kind: 'count', reference: 'GECICI-SAYIM-TS1', notes: 'Faturası ay sonunda gelecek', occurred_on: '2026-09-05'});
+    await f.ok('/ec/ledger/provisional', {supplier_id: supplier, occurred_on: '2026-09-05', reference: 'TS1', lines: [{product_id: product, quantity: 8, unit_cost: 1400, vat_bps: 2000}]});
     assert.equal(bakiye(f, product).q, 10000, 'rafta 10 (2 faturalı + 8 geçici)');
     await satis(f, product, 'S1', '2026-09-10');
     await alis(f, supplier, product, 'YSK-AYSONU', '2026-09-30', 8, 1500);            // geçici 8 adetin faturası

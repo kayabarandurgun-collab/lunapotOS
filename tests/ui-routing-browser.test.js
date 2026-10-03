@@ -379,7 +379,7 @@ test('local browser: lazy routes, stale imports, disposal, retry and existing ac
    await t.test(workspace+' all owner routes and fallback mount their existing views',()=>withPage(async({page,start,ready,go})=>{
     await start('/'+workspace+'/#'+routes[0]);await ready();
     for(const route of routes.slice(1)){await go(route);await ready();assert.equal(await page.locator('[data-route-error]').count(),0,route);assert.ok((await page.locator('main').innerText()).length>30,route);}
-    await go('unknown-route');await ready();assert.match(await page.locator('main h1').innerText(),workspace==='uretim'?/Üretim masası/:/İşinin özeti/);
+    await go('unknown-route');await ready();assert.match(await page.locator('main h1').innerText(),workspace==='uretim'?/Üretim masası/:/Bugün, her şey elinin altında/);
    }));
   }
  }finally{await browser.close();}

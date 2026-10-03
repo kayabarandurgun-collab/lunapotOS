@@ -535,6 +535,7 @@ export async function reportStockLinkApi(request, env, path, readBody) {
       && (!CANCELLED.test(String(c.statuses || '').toLocaleLowerCase('tr-TR')) || iptalAcik.has(String(c.package_id)))
       && (!ayrilmis.has(String(c.package_id)) || GITTI.test(String(c.statuses || '').toLocaleLowerCase('tr-TR')) || CANCELLED.test(String(c.statuses || '').toLocaleLowerCase('tr-TR'))));
     const results = [];
+    const kdvBps = await satisKdvBps(env.ROOT_DB || db);
     const call = (handler, url, body) => handler(new Request('https://internal.invalid' + url, {method: 'POST'}), env, url, async () => body);
     for (const c of all.slice(0, AUTO_LIMIT)) {
       const pkg = String(c.package_id), durum = String(c.statuses || '').toLocaleLowerCase('tr-TR');
@@ -587,24 +588,19 @@ export async function reportStockLinkApi(request, env, path, readBody) {
             // fiyat: bileşen gelir payını dağıtmak için ürünün GÜNCEL satış fiyatı (son satışın birim
             // cirosu, yoksa kartın satış fiyatı). Bilinmiyorsa 0 kalır ve paylar eşit bölünür.
             const kartlar = (await db.prepare(`SELECT p.id,p.name,p.brand,p.stock_unit,
-                (SELECT pp.vat_bps FROM ec_price_profiles pp WHERE pp.product_id=p.id) vat,
                 COALESCE((SELECT CAST(ROUND(s.revenue_cents*1000.0/s.quantity_milli) AS INTEGER) FROM ec_sale_entries s
                     WHERE s.product_id=p.id AND s.kind='sale' AND s.quantity_milli>0 ORDER BY s.occurred_on DESC,s.created_at DESC LIMIT 1),
                   CAST(ROUND(p.sale_price*100) AS INTEGER),0) fiyat
               FROM ec_products p`).all()).results;
             const kartMap = new Map(kartlar.map(k => [k.id, k]));
-            // KDV oranı ancak bütün bileşenlerin profilinde TEK ve tanımlı oran varsa yazılır.
-            const kdv = ids => { const o = [...new Set(ids.map(i => kartMap.get(i)?.vat))];
-              return o.length === 1 && o[0] !== null && o[0] !== undefined ? {vat_rate: o[0] / 100} : {}; };
+            // Satış oranı çalışma alanına aittir; otomatik eşleme ürün profiliyle bunu ezmez.
             const esle = [], kurulan = [];
             for (const l of bos) {
               if (!l.sku || !['trendyol', 'hepsiburada'].includes(kanal)) continue;
               const kayitli = await db.prepare(`SELECT id FROM ec_catalog_mappings WHERE source=? AND supplier_id='' AND match_by='code'
                 AND match_value=? AND source_unit='' AND active=1`).bind(kanal, String(l.sku)).first();
               if (kayitli) {
-                const ids = (await db.prepare('SELECT product_id FROM ec_catalog_mapping_components WHERE mapping_id=?').bind(kayitli.id).all())
-                  .results.map(r => r.product_id);
-                esle.push({id: l.id, mapping_id: kayitli.id, ...kdv(ids)}); kurulan.push('kayıtlı');
+                esle.push({id: l.id, mapping_id: kayitli.id, vat_rate: kdvBps / 100}); kurulan.push('kayıtlı');
                 continue;
               }
               if (await db.prepare('SELECT 1 FROM ec_catalog_mappings WHERE source=? AND match_value=? LIMIT 1').bind(kanal, String(l.sku)).first()) {
@@ -617,7 +613,7 @@ export async function reportStockLinkApi(request, env, path, readBody) {
               const m = await call(catalogApi, '/api/catalog/mappings', {source: kanal, match_by: 'code', external_code: String(l.sku),
                 external_name: String(l.name).slice(0, 300), auto: true,
                 components: cozum.parts.map((p, i) => ({product_id: p.kart.id, quantity_milli: p.adet * 1000, revenue_share_bps: bps[i]}))});
-              esle.push({id: l.id, mapping_id: m.id, ...kdv(cozum.parts.map(p => p.kart.id))});
+              esle.push({id: l.id, mapping_id: m.id, vat_rate: kdvBps / 100});
               kurulan.push(cozum.parts.length > 1 ? 'set' : 'tekli');
             }
             if (esle.length) { await call(ordersApi, '/api/orders/' + id + '/map', {lines: esle});
@@ -625,17 +621,12 @@ export async function reportStockLinkApi(request, env, path, readBody) {
                 : 'ilan başlığı stok kartlarına çözüldü: otomatik eşleştirildi'); }
           }
         }
-        // KDV hariç tutar: pazaryeri sipariş raporu KDV oranı vermez. Satırın eşleştiği stok
-        // ürünlerinin fiyat profilinde TEK ve tanımlı bir oran varsa o oranla tamamlanır (ürüne
-        // kullanıcının tanımladığı oran; kategoriden tahmin değil). Yoksa taslak kalır.
+        // Eski taslağın eksik net tutarı da aynı satış KDV ayarıyla tamamlanır.
         const ls = (await db.prepare(`SELECT l.id,l.gross_cents,l.net_revenue_cents,
-            (SELECT c.mapping_id FROM ec_order_line_components c WHERE c.line_id=l.id AND c.mapping_id IS NOT NULL LIMIT 1) mapping_id,
-            (SELECT COUNT(DISTINCT pp.vat_bps) FROM ec_order_line_components c JOIN ec_price_profiles pp ON pp.product_id=c.product_id WHERE c.line_id=l.id) oran_sayisi,
-            (SELECT MIN(pp.vat_bps) FROM ec_order_line_components c JOIN ec_price_profiles pp ON pp.product_id=c.product_id WHERE c.line_id=l.id) oran,
-            (SELECT COUNT(*) FROM ec_order_line_components c LEFT JOIN ec_price_profiles pp ON pp.product_id=c.product_id WHERE c.line_id=l.id AND pp.vat_bps IS NULL) oransiz
+            (SELECT c.mapping_id FROM ec_order_line_components c WHERE c.line_id=l.id AND c.mapping_id IS NOT NULL LIMIT 1) mapping_id
           FROM ec_order_lines l WHERE l.package_id=?`).bind(id).all()).results;
-        const eksik = cur?.status === 'reserved' ? [] : ls.filter(l => l.net_revenue_cents === null && l.gross_cents !== null && l.mapping_id && l.oran_sayisi === 1 && !l.oransiz);
-        if (eksik.length) { await call(ordersApi, '/api/orders/' + id + '/map', {lines: eksik.map(l => ({id: l.id, mapping_id: l.mapping_id, vat_rate: l.oran / 100}))}); steps.push('KDV ürün profilinden'); }
+        const eksik = cur?.status === 'reserved' ? [] : ls.filter(l => l.net_revenue_cents === null && l.gross_cents !== null && l.mapping_id);
+        if (eksik.length) { await call(ordersApi, '/api/orders/' + id + '/map', {lines: eksik.map(l => ({id: l.id, mapping_id: l.mapping_id, vat_rate: kdvBps / 100}))}); steps.push('KDV satış ayarından'); }
         const linked = {occurred_on: occurred};
         // Ürün sipariş tarihinden sonra rafta geçici sayıldıysa sayım satış kadar artırılır. Yalnız raporda
         // kargoya verilmiş paket için ve yalnız NİYET: artış gönderimle aynı işlemde yazılır (R05).

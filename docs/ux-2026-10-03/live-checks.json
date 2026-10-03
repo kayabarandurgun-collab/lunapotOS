@@ -1,0 +1,53 @@
+{
+  "at": "2026-10-03T16:42:16.567Z",
+  "cache": "lunapot-shell-v173-gunluk-isler",
+  "version": "a8fd7992-690e-4ae2-a1ea-46942b979f5e",
+  "results": [
+    {
+      "path": "/",
+      "status": 200,
+      "bytes": 6914
+    },
+    {
+      "path": "/eticaret/",
+      "status": 200,
+      "bytes": 2480
+    },
+    {
+      "path": "/uretim/",
+      "status": 200,
+      "bytes": 2386
+    },
+    {
+      "path": "/access",
+      "status": 200,
+      "bytes": 1855
+    },
+    {
+      "path": "/webmagaza/",
+      "status": 200,
+      "bytes": 3136
+    },
+    {
+      "path": "/sw.js",
+      "status": 200,
+      "bytes": 3331
+    },
+    {
+      "path": "/daily-actions.js",
+      "status": 200,
+      "bytes": 2757
+    },
+    {
+      "path": "/daily-actions.css",
+      "status": 200,
+      "bytes": 7498
+    },
+    {
+      "path": "/api/auth/status",
+      "status": 200,
+      "bytes": 54
+    }
+  ],
+  "anonymous_financial_status": 401
+}

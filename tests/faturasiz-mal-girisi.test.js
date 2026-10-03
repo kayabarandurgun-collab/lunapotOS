@@ -70,13 +70,15 @@ test('Gerçek fatura gelince mal ikinci kez stoğa girmez ve borç iki kez durma
   const kapanis = f.sqlite.prepare("SELECT COUNT(*) n FROM ec_stock_movements WHERE reference LIKE 'provisional-close:%'").get().n;
   assert.ok(kapanis > 0, 'geçici sayım fatura kapanışıyla düşmeli');
 
-  const kayit = f.sqlite.prepare('SELECT * FROM ec_provisional_receipts WHERE id=?').get(r.id);
-  assert.ok(kayit.invoice_id, 'geçici giriş faturaya bağlanmalı');
-  assert.ok(kayit.closed_on, 'kapanış tarihi yazılmalı');
-
-  const ters = f.sqlite.prepare("SELECT COUNT(*) n FROM ec_party_entries WHERE source='reversal'").get().n;
-  assert.equal(ters, 1, 'geçici borç tam olarak bir ters kayıtla kapanmalı');
-  assert.ok(f.sqlite.prepare("SELECT 1 x FROM ec_party_entries WHERE source_key='invoice:' || ?").get(kayit.invoice_id), 'faturanın kendi borcu yazılmalı');
+  const kayit = (await f.ok('/ec/ledger/provisional')).receipts.find(x => x.id === r.id);
+  assert.equal(kayit.provisional_status, 'invoiced');
+  assert.equal(kayit.remaining_cents, 0);
+  assert.equal(kayit.lines[0].remaining_to_receive_milli, 0);
+  assert.equal(kayit.invoice_id, null, 'tek fatura başlığı yerine miktar tahsisleri kullanılır');
+  const credit = f.sqlite.prepare("SELECT * FROM ec_party_entries WHERE source_key LIKE 'gecici-fatura:%'").all();
+  assert.equal(credit.length, 1, 'geçici borç tek tahsis kredisiyle kapanmalı');
+  assert.equal(credit[0].amount_cents, 120000);
+  assert.equal(f.sqlite.prepare("SELECT COUNT(*) n FROM ec_party_entries WHERE source='invoice'").get().n, 1);
  } finally { f.close(); }
 });
 
@@ -85,7 +87,7 @@ test('Kapanmış geçici giriş ikinci kez kapatılamaz', async () => {
   const r = await gecici(f, supplier.id, product);
   await gercekFatura(f, supplier.id, product);
   assert.throws(() => f.sqlite.prepare('UPDATE ec_provisional_receipts SET invoice_id=? WHERE id=?').run('baska', r.id),
-   /PROVISIONAL_ALREADY_CLOSED|FOREIGN KEY/, 'kapalı kayıt yeniden kapatılamamalı');
+   /PROVISIONAL_ALLOCATION_REQUIRED/, 'kapalı kayıt yeniden kapatılamamalı');
  } finally { f.close(); }
 });
 
@@ -101,20 +103,22 @@ test('Aynı referansla ikinci geçici giriş açılamaz', async () => {
  } finally { f.close(); }
 });
 
-// Cari ekranındaki "Faturası bekleniyor" rozeti bu iki alana dayanır: source_key ön eki ve
-// reversed_by. Fatura gelince ters kayıt doğar ve rozet "Faturalandı"ya döner.
+// Cari rozeti kısmi/çoklu fatura tahsislerinden türetilen provisional_status alanını kullanır.
 test('Cari listesi geçici girişi faturası bekleniyor olarak ayırt edebilir', async () => {
  const {f, supplier, product} = await seed(); try {
   const r = await gecici(f, supplier.id, product);
   const once = (await f.ok('/ec/ledger')).entries.find(e => e.source_key === 'gecici:' + r.id);
   assert.ok(once, 'geçici borç cari hareketlerinde görünmeli');
-  assert.equal(once.reversed_by, null, 'fatura gelmeden ters kaydı olmamalı (rozet: faturası bekleniyor)');
+  assert.equal(once.provisional_status, 'open');
+  assert.equal(once.provisional_remaining_cents, 120000);
   assert.match(once.description, /Faturasız mal girişi/, 'açıklama girişi adıyla anmalı');
 
   await gercekFatura(f, supplier.id, product);
 
   const sonra = (await f.ok('/ec/ledger')).entries.find(e => e.source_key === 'gecici:' + r.id);
-  assert.ok(sonra.reversed_by, 'fatura gelince ters kayıt doğmalı (rozet: faturalandı)');
+  assert.equal(sonra.provisional_status, 'invoiced');
+  assert.equal(sonra.provisional_remaining_cents, 0);
+  assert.equal(sonra.reversed_by, null, 'özgün borç değişmez; tahsis kredisi ayrı kayıttır');
  } finally { f.close(); }
 });
 

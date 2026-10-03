@@ -1,3 +1,4 @@
+import {workspaceTaskDestinations} from './workspace-frame.js';
 import {navigationHref} from './workspace-navigation.js';
 // Search only destinations exposed by the current UI; never request or change business data.
 const searchIcon='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>';
@@ -12,17 +13,18 @@ function destinations(){
   const title=(link.dataset.navigationTitle||link.querySelector('.nav-text,h2,strong')?.textContent||copy.textContent).replace(/^[\s▦↗]+|[\s↗]+$/g,'').replace(/\s+/g,' ').trim();if(!title)continue;
   const href=navigationHref(url.pathname+url.search+url.hash,location.href);
   const current=link.classList.contains('active')||link.getAttribute('aria-current')==='page'||(url.pathname===location.pathname&&url.hash===location.hash&&url.search===location.search);
-  if(!found.has(href))found.set(href,{href,title,current});
+  if(!found.has(href))found.set(href,{href,title,current,words:link.dataset.navigationWords||''});
  }
+ for(const task of workspaceTaskDestinations()){const href=new URL(task.href,location.href);const key=href.pathname+href.hash;if(!found.has(key))found.set(key,{href:key,title:task.title,current:false,words:task.words});}
  return [...found.values()];
 }
 function openPalette(){
  if(palette||document.querySelector('dialog[open]')||!destinations().length)return;
  const previous=document.activeElement,d=document.createElement('dialog');palette=d;d.className='ui-command';d.setAttribute('aria-labelledby','ui-command-title');
- d.innerHTML='<div class="ui-command-head"><div><span class="eyebrow">ÇALIŞMA ALANIN</span><h2 id="ui-command-title">Nereye geçmek istersin?</h2></div><button type="button" class="icon-button" data-command-close aria-label="Hızlı geçişi kapat">×</button></div><label class="ui-command-input">'+searchIcon+'<span class="ui-sr-only">Ekran ara</span><input type="search" placeholder="Ekran adı ara…" autocomplete="off" spellcheck="false" maxlength="100" aria-controls="ui-command-results" aria-describedby="ui-command-help"></label><p class="ui-command-count" role="status" aria-live="polite"></p><nav id="ui-command-results" aria-label="Bulunan ekranlar"></nav><div class="ui-command-foot" id="ui-command-help"><span>↑ ↓ seç · Enter aç</span><span>Esc kapat</span></div>';
+ d.innerHTML='<div class="ui-command-head"><div><span class="eyebrow">ÇALIŞMA ALANIN</span><h2 id="ui-command-title">Ne yapmak istersin?</h2></div><button type="button" class="icon-button" data-command-close aria-label="Hızlı geçişi kapat">×</button></div><label class="ui-command-input">'+searchIcon+'<span class="ui-sr-only">Ekran ara</span><input type="search" placeholder="Rapor, fatura, stok, faturasız mal…" autocomplete="off" spellcheck="false" maxlength="100" aria-controls="ui-command-results" aria-describedby="ui-command-help"></label><p class="ui-command-count" role="status" aria-live="polite"></p><nav id="ui-command-results" aria-label="Bulunan ekranlar"></nav><div class="ui-command-foot" id="ui-command-help"><span>↑ ↓ seç · Enter aç</span><span>Esc kapat</span></div>';
  const input=d.querySelector('input'),list=d.querySelector('nav'),count=d.querySelector('[role=status]');
  function render(){
-  const terms=normalize(input.value).split(/\s+/).filter(Boolean),rows=destinations().filter(e=>terms.every(t=>normalize(e.title).includes(t)));list.replaceChildren();count.textContent=rows.length+' ekran';
+  const terms=normalize(input.value).split(/\s+/).filter(Boolean),rows=destinations().filter(e=>terms.every(t=>normalize(e.title+' '+e.words).includes(t)));list.replaceChildren();count.textContent=rows.length+' ekran';
   for(const row of rows){const a=document.createElement('a');a.href=row.href;a.className='ui-command-result';const title=document.createElement('span');title.textContent=row.title;const hint=document.createElement('small');hint.textContent=row.current?'Buradasın':'→';if(!row.current)hint.setAttribute('aria-hidden','true');a.append(title,hint);if(row.current)a.setAttribute('aria-current','page');list.append(a);}
   if(!rows.length){const p=document.createElement('p');p.className='ui-command-empty';p.textContent='Bu adla ekran bulunamadı. Daha kısa bir kelime deneyebilirsin.';list.append(p);}
  }

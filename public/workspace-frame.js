@@ -1,3 +1,4 @@
+import {dailyTasks,dailyTaskMarkup} from './daily-actions.js';
 import {can} from './permissions.js';
 import {navigationHref} from './workspace-navigation.js';
 import {icon} from './ui-icons.js';
@@ -10,6 +11,17 @@ const areas=[
  {key:'access',title:'Ekip ve erişim',detail:'Çalışanlar, yetkiler ve kurtarma',href:'/access',icon:'settings'}
 ];
 let user=null,ready=false,dialog=null,dock=null,authRevision=0;
+export function workspaceTaskDestinations(){return ready&&user?dailyTasks(user,ns()):[];}
+function showTasks(button){
+ if(dialog||document.querySelector('dialog[open]'))return;
+ const tasks=workspaceTaskDestinations();if(!tasks.length)return;let selected=false;
+ const d=document.createElement('dialog');dialog=d;d.className='daily-task-dialog';d.setAttribute('aria-labelledby','daily-dialog-title');
+ d.innerHTML='<div class="dialog-heading"><div><span class="eyebrow">'+(ns()==='ec'?'E-TİCARET':'ÜRETİM')+'</span><h2 id="daily-dialog-title">Yeni bir iş başlat</h2></div><button type="button" class="icon-button" aria-label="Kapat">×</button></div>'+dailyTaskMarkup(tasks,{heading:false});
+ d.querySelector('button').onclick=()=>d.close();
+ d.addEventListener('click',e=>{const a=e.target.closest('a[data-daily-task]');if(!a||e.ctrlKey||e.metaKey||e.shiftKey||e.altKey)return;e.preventDefault();const href=a.getAttribute('href');selected=true;d.close();if(location.hash===href)window.dispatchEvent(new HashChangeEvent('hashchange'));else location.hash=href;});
+ d.addEventListener('close',()=>{d.remove();dialog=null;if(!selected&&button.isConnected)button.focus();},{once:true});document.body.append(d);d.showModal();
+}
+
 export function setWorkspaceUser(next){authRevision++;user=next;ready=true;dialog?.close();document.querySelector('.workspace-identity')?.remove();if(!user)document.querySelector('.workspace-account')?.remove();enhanceWorkspaceFrame();}
 const ns=()=>document.body.classList.contains('commerce')?'ec':document.body.classList.contains('lunapot')?'lp':document.body.classList.contains('webstore-admin')?'store':document.querySelector('#access-app')?'access':'home';
 const allowed=a=>a.key==='home'||a.key==='access'&&!!user||user?.owner||(a.key==='ec'?['read','write'].includes(user?.ec_access):a.key==='lp'?['read','write'].includes(user?.lp_access):a.key==='store'?can(user,'ec','webshop'):false);
@@ -31,6 +43,10 @@ export function enhanceWorkspaceFrame(){
   b.innerHTML=icon('overview')+'<span>Çalışma alanı</span><small>⌄</small>';b.onclick=()=>showAreas(b);header.append(b);
   header.querySelector('.app-launcher-link')?.setAttribute('hidden','');
  }
+ const tasks=workspaceTaskDestinations();
+ if(header&&ready&&!tasks.length)header.querySelector('[data-new-task]')?.remove();
+ if(header&&ready&&tasks.length&&!header.querySelector('[data-new-task]')){const b=document.createElement('button');b.type='button';b.className='primary daily-new';b.dataset.newTask='';b.setAttribute('aria-label','Yeni işlem başlat');b.setAttribute('aria-haspopup','dialog');b.innerHTML='<span aria-hidden="true">＋</span><span>Yeni işlem</span>';b.onclick=()=>showTasks(b);header.prepend(b);}
+ for(const host of document.querySelectorAll('[data-daily-home]')){const signature=tasks.map(t=>t.id).join('|');if(host.dataset.taskSignature!==signature){host.dataset.taskSignature=signature;host.innerHTML=dailyTaskMarkup(tasks);}}
  const sidebar=document.querySelector('#sidebar');
  if(sidebar&&ready&&!sidebar.querySelector('.workspace-identity')&&user){
   const identity=document.createElement('a');identity.className='workspace-identity';identity.href='/access#account';identity.dataset.navigationTitle='Hesabım';identity.setAttribute('aria-label','Hesabım: şifre ve hızlı giriş');
@@ -40,8 +56,8 @@ export function enhanceWorkspaceFrame(){
  }
  if(!sidebar){dock?.remove();dock=null;if(header&&user&&!header.querySelector('.workspace-account')){const a=document.createElement('a');a.className='workspace-account';a.href='/access#account';a.innerHTML=icon('settings')+'<span>Hesabım</span>';header.append(a);}return;}
  if(sidebar&&!sidebar.querySelector('[data-workspace-close]')){const close=document.createElement('button');close.type='button';close.className='workspace-menu-close';close.dataset.workspaceClose='';close.setAttribute('aria-label','Menüyü kapat');close.textContent='×';close.onclick=()=>{sidebar.classList.remove('open');document.querySelector('#commerce-menu,[data-action="menu"]')?.focus();};sidebar.prepend(close);}
- const workspace=ns(),keys=workspace==='ec'?['overview','orders','stock','performance']:['dashboard','production','recipes','materialstock'];
- const labels={overview:'Özet',orders:'Siparişler',stock:'Depo',performance:'Satış ve kâr',reports:'Raporlar',dashboard:'Özet',production:'Üretim',recipes:'Reçeteler',materialstock:'Depo'};
+ const workspace=ns(),keys=workspace==='ec'?['overview','reports','invoices','stock']:['dashboard','production','recipes','materialstock'];
+ const labels={overview:'Özet',orders:'Siparişler',stock:'Depo',performance:'Satış ve kâr',reports:'Raporlar',invoices:'Faturalar',dashboard:'Özet',production:'Üretim',recipes:'Reçeteler',materialstock:'Depo'};
  const links=keys.map(key=>sidebar.querySelector('a[href="#'+key+'"]')).filter(a=>a&&!a.hidden&&a.style.display!=='none');
  const current=location.hash.slice(1).split('?')[0]||(workspace==='ec'?'overview':'dashboard');
  const signature=links.map(a=>a.hash).join('|')+'|'+current;

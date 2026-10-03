@@ -214,14 +214,19 @@ async function api(request,env,path){
 }
 export default {
  // Zamanlanmış otomatik bakım (wrangler triggers.crons): yarım kalan rapor işleri, iade, kesinti, maliyet.
- async scheduled(event,env,ctx){ctx.waitUntil(otomatikBakim(env).then(r=>console.log('bakım',JSON.stringify(r))).catch(e=>console.error('bakım',e.message)));},
+ async scheduled(event,env,ctx){if(env.RELEASE_MAINTENANCE==='1')return;ctx.waitUntil(otomatikBakim(env).then(r=>console.log('bakım',JSON.stringify(r))).catch(e=>console.error('bakım',e.message)));},
  async fetch(request,env) {
  let response;
  try {const path=new URL(request.url).pathname;
   // Musteri magazasi henuz satisa acilmadi. Dosyalar yayin paketinde bulunsa da canli
   // muhasebe adresinde SUNULMAZ; yalnizca yerel demo ortaminda acilir. Boylece paketin
   // icinde durmasi "magaza yayinda" anlamina gelmez.
-  if((path==='/magaza'||path.startsWith('/magaza/'))&&!demoEnabled(request,env))response=json({error:'Web mağaza henüz satışa açılmadı.'},404);
+  if(env.RELEASE_MAINTENANCE==='1'){
+   const headers={'Cache-Control':'no-store','Retry-After':'30'};
+   response=path.startsWith('/api/')?json({error:'Lunapot kısa bir güncelleme yapıyor. Biraz sonra tekrar deneyin.',maintenance:true},503,headers)
+    :new Response('<!doctype html><html lang="tr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lunapot · Güncelleme</title><main><h1>Kısa bir güncelleme yapılıyor.</h1><p>İşlemleriniz korunuyor. Lütfen biraz sonra sayfayı yenileyin.</p><p><a href="/">Tekrar dene</a></p></main></html>',{status:503,headers:{...headers,'Content-Type':'text/html; charset=utf-8'}});
+  }
+  else if((path==='/magaza'||path.startsWith('/magaza/'))&&!demoEnabled(request,env))response=json({error:'Web mağaza henüz satışa açılmadı.'},404);
   else if(path.startsWith('/api/'))response=await api(request,env,path);else if(path==='/webmagaza'||path==='/webmagaza/'){const assetURL=new URL(request.url);assetURL.pathname='/webshop';response=await env.ASSETS.fetch(new Request(assetURL,request));}else if(path==='/uretim'||path==='/uretim/'){const assetURL=new URL(request.url);assetURL.pathname='/production';response=await env.ASSETS.fetch(new Request(assetURL,request));}else if(path==='/eticaret'||path==='/eticaret/'){const assetURL=new URL(request.url);assetURL.pathname='/ecommerce';response=await env.ASSETS.fetch(new Request(assetURL,request));}else response=await env.ASSETS.fetch(request);}
  catch(error){
   // Hata gövdesi kural olarak yalnız {error} taşır. Bazı uçlar arayüzün DOĞRU SORUYU sorabilmesi

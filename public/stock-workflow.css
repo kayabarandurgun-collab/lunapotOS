@@ -19,3 +19,43 @@
 .set-profit-row > small { display: block; font-size: .76rem; line-height: 1.45; margin-top: .25rem; overflow-wrap: anywhere; }
 .set-profit-parts { opacity: .85; }
 @media (max-width: 480px) { .stock-physical, .product-shape { grid-template-columns: 1fr; } }
+
+/* Depoda her işlem kendi anlamıyla açılır: gelen miktar / sayılan toplam. */
+.workflow-page .stock-tasks{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin:0 0 12px}
+.stock-primary-actions{display:flex;gap:8px;flex-wrap:wrap}
+.stock-primary-actions button{min-height:44px}
+.stock-task-help{margin:0;flex:1 1 220px;min-width:0}
+.stock-task-help summary{min-height:44px;display:list-item;align-content:center;font-size:13px;cursor:pointer}
+.stock-task-help p{line-height:1.5}
+.workflow-page .stock-filters-compact.stock-search-first{grid-template-columns:minmax(0,1fr);padding:12px;margin-block:0 8px;gap:4px}
+.stock-refinements>summary{min-height:40px;align-content:center;font-size:13px;cursor:pointer}
+.stock-refinement-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:12px;padding:12px 0}
+.stock-refinement-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.workflow-page .stock-model-note{margin:8px 0;padding:8px 12px;font-size:13px}
+.stock-model-note>summary{min-height:28px;align-content:center;cursor:pointer}
+.invoice-intake{display:grid;grid-template-columns:minmax(0,1fr) minmax(240px,.65fr);gap:20px;padding:24px;margin-block:18px}
+.invoice-intake h2{margin-top:0}
+.invoice-intake-actions{display:grid;gap:12px;align-content:start}
+.invoice-intake-actions .workflow-details{margin:0}
+.unbilled-line{min-width:0;margin:16px 0;padding:16px;border:1px solid var(--line,#d8e1d8);border-radius:var(--radius-kart,12px)}
+.unbilled-line legend{font-weight:650;padding:0 8px}
+.unbilled-line input,.unbilled-line select{max-width:100%;min-width:0}
+.unbilled-line .field-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr))}
+[data-ac-form="unbilled"] .dialog-footer,[data-ac-form="stock"] .dialog-footer{gap:10px}
+@media(max-width:600px){
+ .invoice-intake{grid-template-columns:1fr;padding:16px}
+ .invoice-intake-actions>.primary{width:100%;text-align:center}
+ .stock-primary-actions{display:grid;grid-template-columns:1fr 1fr;width:100%;gap:8px}
+ .stock-primary-actions button{padding-inline:10px;font-size:var(--yazi-dugme-kucuk)}
+ .stock-task-help{flex-basis:100%}
+ .stock-task-help summary{min-height:36px}
+ .workflow-page .stock-tasks{gap:4px}
+ .unbilled-line{padding:12px}
+ [data-ac-form="unbilled"] .field-grid,[data-ac-form="stock"] .field-grid{grid-template-columns:minmax(0,1fr)}
+ [data-ac-form="unbilled"] input,[data-ac-form="unbilled"] select,[data-ac-form="stock"] input,[data-ac-form="stock"] select{font-size:16px;min-height:44px}
+}
+/* Masaüstünde arama ile ikincil filtre başlığı aynı satırda; stok kartları ilk ekrana sığar. */
+@media(min-width:900px){
+ .workflow-page .stock-filters-compact.stock-search-first{grid-template-columns:minmax(0,1fr) minmax(260px,.4fr);align-items:end;column-gap:16px}
+ .workflow-page .stock-filters-compact.stock-search-first:has(.stock-refinements[open]){grid-template-columns:minmax(0,1fr)}
+}

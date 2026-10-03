@@ -25,7 +25,11 @@ async function alis(f, supplier, product, no, date, qty, unitNet) {
 const satis = async (f, product, ref, date, qty = 1) => (await f.ok('/ec/sales', {channel: 'trendyol', external_id: ref, product_id: product, quantity: qty,
   revenue: 500 * qty, commission: 0, shipping: 0, other: 0, fees_status: 'confirmed', occurred_on: date})).id;
 const iade = (f, sale, ref, date, qty = 1) => f.ok('/ec/sales/' + sale + '/return', {external_id: ref, quantity: qty, revenue: 500 * qty, restock: true, occurred_on: date});
-const sayim = (f, product, qty, date, ref = 'SAYIM-' + date, unit = 0) => f.ok('/ec/stock', {product_id: product, quantity: qty, unit_cost: unit, kind: 'count', reference: ref, notes: 'Raf sayımı', occurred_on: date});
+// FA05: otomatik kapanacak mal tedarikçisi belli bir faturasız giriş olmalıdır.
+const sayim = (f, product, qty, date, ref = 'SAYIM-' + date, unit = 0) => ref.startsWith('GECICI-SAYIM-')
+  ? f.ok('/ec/ledger/provisional', {supplier_id: f.sqlite.prepare('SELECT id FROM ec_suppliers').get().id,
+      occurred_on: date, reference: ref.slice(13), lines: [{product_id: product, quantity: qty, unit_cost: unit, vat_bps: 2000}]})
+  : f.ok('/ec/stock', {product_id: product, quantity: qty, unit_cost: unit, kind: 'count', reference: ref, notes: 'Raf sayımı', occurred_on: date});
 const maliyet = (f, ref) => f.sqlite.prepare('SELECT cost_cents FROM ec_sale_entries WHERE external_id=?').get(ref).cost_cents;
 const bakiye = (f, p) => ({...f.sqlite.prepare('SELECT quantity_milli q,value_cents v FROM ec_stock_balances WHERE product_id=?').get(p)});
 const kayip = f => f.sqlite.prepare("SELECT COALESCE(SUM(amount_cents),0) n FROM ec_expenses WHERE category='loss'").get().n;
