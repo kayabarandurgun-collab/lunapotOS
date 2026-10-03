@@ -468,6 +468,14 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
       // GÖRÜNTÜDEN OKUNAN KİMLİK ALANLARININ HEPSİ ŞÜPHELİDİR: harf hatası (0/O, 1/l, 5/S)
       // fatura numarasını ya da VKN'yi sessizce bozabilir. Hepsi "kontrol et" işaretlenir.
       if (ocr && !ocr.hata) {
+        // ETTN GÖRÜNTÜDEN ALINMAZ. 36 haneli kodda tek harf hatası belgeyi BAŞKA BİR BELGE yapar;
+        // model aynı faturayı her okuyuşunda farklı ETTN üretti (canlıda 03.10.2026'da üç ayrı
+        // değer). Biçimi doğru ama yanlış bir ETTN boş alandan tehlikelidir: düzgün göründüğü
+        // için kimse kontrol etmez. Boş bırakılır; fatura ETTN'siz de muhasebeleşir.
+        if (header.uuid) {
+          state.warnings.push('ETTN görüntüden okundu ama güvenilir değil (aynı belge her okumada farklı çıkıyor); boş bırakıldı. Gerekiyorsa belgeden bakıp elle gir.');
+          header.uuid = '';
+        }
         header.uncertain = [...new Set([...(header.uncertain || []),
           'invoice_no', 'invoice_date', 'uuid', 'supplier_tax_id', 'supplier_name', 'receiver_tax_id'])];
         for (const l of lines) l.uncertain = [...new Set([...(l.uncertain || []), 'description', 'invoice_quantity', 'net', 'tax'])];
@@ -504,6 +512,9 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
       warnings: state.warnings});
     if (created.duplicate) { state.step = 'pick'; throw new Error(created.notice); }
     if (created.reread) state.warnings.push(created.notice);
+    // Sunucu, fatura numarasını tedarikçinin önceki faturalarının kalıbıyla karşılaştırıyor.
+    // Sapma varsa iş durmaz, numara değişmez — yalnız kullanıcının gözüne sokulur.
+    if (created.format_warning) state.warnings.push(created.format_warning);
     state.docId = created.id;
     if (!created.resume) {
       const chunks = Math.max(1, Math.ceil(bytes.length / CHUNK));

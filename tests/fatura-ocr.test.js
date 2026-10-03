@@ -34,7 +34,10 @@ function fixture(ai) {
   const ocr = body => purchaseDocumentApi(
     new Request('https://test.local/api/invoices/documents/ocr', {method: 'POST'}),
     env, '/api/invoices/documents/ocr', async () => body);
-  return {s, ocr, close: () => s.close()};
+  const doc = body => purchaseDocumentApi(
+    new Request('https://test.local/api/invoices/documents', {method: 'POST'}),
+    env, '/api/invoices/documents', async () => body);
+  return {s, ocr, doc, close: () => s.close()};
 }
 const img = (kb = 1) => 'A'.repeat(Math.ceil(kb * 1024 * 4 / 3));
 
@@ -149,4 +152,24 @@ test('Goruntuden okunan tutarda binlik ayraci virgul cikarsa sayi dogru okunur',
   assert.equal(guessLines(['2 Urun 1 Adet 1.234,56 TL 1.234,56 TL'])[0].net, 1234.56);
   // TEK VIRGULLU ONDALIK aynen kalir.
   assert.equal(guessLines(['3 Urun 1 Adet 165,00 TL 165,00 TL'])[0].net, 165);
+});
+
+test('Fatura numarasi tedarikcinin kalibindan sapiyorsa SOYLENIR ama degistirilmez', async () => {
+  // Canlida (03.10.2026): goruntuden "KRK20260000009027" okundu (17 karakter); o tedarikcinin
+  // butun faturalari 16 karakter. Yanlis ama duzgun gorunen bir numara sessizce deftere girerdi.
+  const f = fixture(null);
+  try {
+    f.s.exec("INSERT INTO ec_suppliers(id,name,tax_id) VALUES('s1','KARAKUS','5160067031')");
+    for (const [n, t] of [['KRK2026000000900', '2026-09-24'], ['KRK2026000000886', '2026-09-22'], ['KRK2026000000874', '2026-09-17']])
+      f.s.prepare("INSERT INTO ec_purchase_invoices(id,supplier_id,invoice_no,invoice_date,currency,status) VALUES(?,?,?,?,'TRY','draft')").run('i' + n, 's1', n, t);
+    const belge = (ek = {}) => f.doc({kind: 'pdf', filename: 'k.pdf', sha256: 'a'.repeat(64), size_bytes: 10, chunk_count: 1,
+      supplier_tax_id: '5160067031', text_layer: 0, ...ek});
+    const sapan = await belge({doc_no: 'KRK20260000009027', sha256: 'b'.repeat(64)});
+    assert.match(sapan.format_warning, /FARKLI biçimde/, 'sapma soylenmeli');
+    assert.match(sapan.format_warning, /16 karakter, bu 17 karakter/, 'kac hane oldugu yazilmali');
+    // NUMARA DEGISTIRILMEZ: uydurma duzeltme yapilmaz, yalniz bildirilir.
+    assert.ok(sapan.id, 'belge yine kaydedilir, is durmaz');
+    const uyan = await belge({doc_no: 'KRK2026000000911', sha256: 'c'.repeat(64)});
+    assert.equal(uyan.format_warning, '', 'kalibá uyan numarada uyari olmaz');
+  } finally { f.close(); }
 });

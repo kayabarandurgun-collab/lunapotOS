@@ -272,6 +272,25 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
     const taxId = optional(x.supplier_tax_id, 11), docNo = optional(x.doc_no, 60);
     if (taxId && !/^\d{10,11}$/.test(taxId)) fail('Tedarikçi VKN / TCKN 10 veya 11 hane olmalı.');
 
+    // FATURA NO BİÇİM DENETİMİ. Görüntüden okunan numarada fazladan hane canlıda görüldü
+    // (03.10.2026: "KRK20260000009027" okundu, o tedarikçinin bütün faturaları 16 hane).
+    // Numara DEĞİŞTİRİLMEZ ve iş durdurulmaz — yanlış olabileceği yalnız SÖYLENİR; tedarikçinin
+    // kendi geçmişi tek tip bir kalıp gösteriyorsa ondan sapma kullanıcının gözüne sokulur.
+    let bicimUyarisi = '';
+    if (docNo && taxId) {
+      const onceki = (await db.prepare(
+        `SELECT i.invoice_no FROM purchase_invoices i JOIN suppliers s ON s.id=i.supplier_id
+         WHERE s.tax_id=? AND i.invoice_no<>'' ORDER BY i.invoice_date DESC LIMIT 20`).bind(taxId).all()).results.map(r => r.invoice_no);
+      const kalip = n => (String(n).match(/^[A-Za-z]+/) || [''])[0] + '/' + String(n).length;
+      const kaliplar = [...new Set(onceki.map(kalip))];
+      if (onceki.length >= 3 && kaliplar.length === 1 && kaliplar[0] !== kalip(docNo)) {
+        const [onEk, boy] = kaliplar[0].split('/');
+        bicimUyarisi = 'Fatura numarası "' + docNo + '" bu tedarikçinin önceki ' + onceki.length
+          + ' faturasından FARKLI biçimde: onlar ' + (onEk ? '"' + onEk + '" önekiyle ' : '') + boy
+          + ' karakter, bu ' + String(docNo).length + ' karakter. Belgeyle karşılaştırıp düzeltin.';
+      }
+    }
+
     // Aynı belge ikinci kez yüklenemez. Üç ayrı kimlik denetlenir: dosya özeti, ETTN ve
     // tedarikçi VKN + fatura no. Dosya adı değişse de belge yakalanır.
     const same = await db.prepare(`SELECT d.id,d.status,d.filename,d.invoice_id,
@@ -289,7 +308,7 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
         Number.isSafeInteger(x.page_count) ? x.page_count : null, x.text_layer ? 1 : 0, taxId, docNo, uuid,
         JSON.stringify(x.extracted && typeof x.extracted === 'object' ? x.extracted : {}),
         JSON.stringify((x.warnings || []).slice(0, 20).map(w => String(w).slice(0, 500))), same.id).run();
-      return {id: same.id, resume: true, reread: true, notice: 'Bu dosya önce yüklenmiş ama hiçbir faturaya işlenmemişti; yeniden okundu.'};
+      return {id: same.id, resume: true, reread: true, format_warning: bicimUyarisi, notice: 'Bu dosya önce yüklenmiş ama hiçbir faturaya işlenmemişti; yeniden okundu.'};
     }
     if (same) return {duplicate: true, existing: same, reason: 'sha256', notice: 'Bu dosya daha önce yüklendi; ikinci kez işlenmedi.'};
     if (uuid) {
@@ -316,7 +335,7 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
       Number.isSafeInteger(x.page_count) ? x.page_count : null, x.text_layer ? 1 : 0, taxId, docNo, uuid,
       JSON.stringify(x.extracted && typeof x.extracted === 'object' ? x.extracted : {}),
       JSON.stringify((x.warnings || []).slice(0, 20).map(w => String(w).slice(0, 500))), user.id || 'owner').run();
-    return {id: row.id};
+    return {id: row.id, format_warning: bicimUyarisi};
   }
 
   const docMatch = path.match(/^\/api\/invoices\/documents\/([\w-]+)(?:\/(chunk|seal|part|link|pages))?$/);
