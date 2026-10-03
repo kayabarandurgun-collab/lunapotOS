@@ -28,6 +28,43 @@ function b64(bytes) {
 
 const STEPS = [['document', 'Tedarikçi ve belge'], ['lines', 'Satırlar'], ['allocate', 'Çeşit dağılımı'], ['confirm', 'Kontrol ve onay']];
 
+// OTOMATİK İŞLEME KAPISI — SAF VE DIŞA AÇIK. Bu karar deftere borç ve stok yazdırır, bu yüzden
+// durumdan bağımsız olarak test edilebilir olmalıdır. İçeriden `otomatikEngel()` çağrılır.
+export function otomatikEngelKarari(state) {
+  const h = state.header || {};
+  if (h.own_issued) return 'Bu faturayı şirketiniz kesmiş (satış faturası); alış olarak işlenmez';
+  // GÖRÜNTÜDEN OKUNAN BELGEDE her alan "kesin değil" işaretlidir; normal kapı onu HER ZAMAN
+  // durdururdu. Model harf hatası yapıyor (canlıda aynı faturayı üç kez farklı okudu), bu yüzden
+  // işaretler kaldırılmıyor — bunun yerine MODELDEN BAĞIMSIZ üç doğrulama aranıyor:
+  //   1. Tedarikçi, okunan VKN'nin KAYITLI bir tedarikçiyle birebir eşleşmesiyle bulundu
+  //      (tedarikciyiCoz yalnız tax_id eşleştirir; yanlış okunan VKN hiçbir yere tutmaz ve
+  //      "kesin değil" işareti yeni tedarikçi açılmasını da engeller).
+  //   2. Fatura numarası o tedarikçinin önceki faturalarının kalıbına uyuyor (sunucu söylüyor).
+  //   3. Satırların toplamı belgenin KENDİ yazdığı toplamla kuruşuna kadar aynı — aşağıdaki
+  //      kontrol bunu zaten yapıyor ve en güçlü kanıt odur: model hem satırları hem toplamı
+  //      aynı yanlışla okumadıkça tutturamaz.
+  // Üçü birden tutmuyorsa belge yine durur. Tutar/miktar/tarih eksikliği kontrolleri AYNEN kalır.
+  const ocrDogrulandi = state.ocr && state.supplierId && !state.formatWarning;
+  if (h.uncertain?.length && !ocrDogrulandi) return 'Belgede kesin okunamayan alan var';
+  if (!h.invoice_no || !h.invoice_date) return 'Fatura numarası veya tarihi okunamadı';
+  if (!state.lines?.length) return 'Satır okunamadı';
+  if (state.lines.some(l => !String(l.description || '').trim() || !(Number(l.invoice_quantity) > 0) || l.net === '' || l.net === null || l.net === undefined))
+    return 'Satırlarda eksik alan var';
+  if (state.lines.some(l => l.uncertain?.length) && !ocrDogrulandi) return 'Satırlarda kesin okunamayan alan var';
+  // Tek dosya da otomatik işlendiği için okunan satırlar belgenin kendi toplamıyla doğrulanır:
+  // bir satır eksik ya da yanlış okunduysa durulur, kullanıcıya gösterilir.
+  const t = state.totals || {};
+  if (t.net === null || t.net === undefined) return 'Belgedeki toplam okunamadı; satırlar toplamla karşılaştırılamadı';
+  if (Math.abs(state.lines.reduce((s, l) => s + (Number(l.net) || 0), 0) - t.net) > 0.01) return 'Satırların toplamı belgedeki toplamla tutmuyor';
+  if (t.tax !== null && t.tax !== undefined && Math.abs(state.lines.reduce((s, l) => s + (Number(l.tax) || 0), 0) - t.tax) > 0.05)
+    return 'Satırların KDV toplamı belgedekiyle tutmuyor';
+  // Cesit dagilimi belgede YAZMAZ: "5'li set 10 adet" satiri hangi cesitten kac adet
+  // oldugunu soylemez. Hatirlanan bag yalnizca "bu satir su urun ailesine gider" bilgisidir,
+  // adetleri degil. Burada karar uydurulamaz; kullanici girer.
+  if (state.lines.some(l => l.family_id && l.line_type !== 'expense')) return 'Çeşide dağıtılacak kalem var';
+  return null;
+}
+
 export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
   const controller = new AbortController(), signal = controller.signal;
   const state = {step: 'pick', busy: false, message: '', error: '', file: null, bytes: null, kind: 'pdf',
@@ -319,28 +356,6 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     state.lines.forEach((_, i) => { try { applyLink(i); } catch { /* öneri zorunlu değil */ } });
   }
 
-  function otomatikEngel() {
-    const h = state.header || {};
-    if (h.own_issued) return 'Bu faturayı şirketiniz kesmiş (satış faturası); alış olarak işlenmez';
-    if (h.uncertain?.length) return 'Belgede kesin okunamayan alan var';
-    if (!h.invoice_no || !h.invoice_date) return 'Fatura numarası veya tarihi okunamadı';
-    if (!state.lines?.length) return 'Satır okunamadı';
-    if (state.lines.some(l => !String(l.description || '').trim() || !(Number(l.invoice_quantity) > 0) || l.net === '' || l.net === null || l.net === undefined))
-      return 'Satırlarda eksik alan var';
-    if (state.lines.some(l => l.uncertain?.length)) return 'Satırlarda kesin okunamayan alan var';
-    // Tek dosya da otomatik işlendiği için okunan satırlar belgenin kendi toplamıyla doğrulanır:
-    // bir satır eksik ya da yanlış okunduysa durulur, kullanıcıya gösterilir.
-    const t = state.totals || {};
-    if (t.net === null || t.net === undefined) return 'Belgedeki toplam okunamadı; satırlar toplamla karşılaştırılamadı';
-    if (Math.abs(state.lines.reduce((s, l) => s + (Number(l.net) || 0), 0) - t.net) > 0.01) return 'Satırların toplamı belgedeki toplamla tutmuyor';
-    if (t.tax !== null && t.tax !== undefined && Math.abs(state.lines.reduce((s, l) => s + (Number(l.tax) || 0), 0) - t.tax) > 0.05)
-      return 'Satırların KDV toplamı belgedekiyle tutmuyor';
-    // Cesit dagilimi belgede YAZMAZ: "5'li set 10 adet" satiri hangi cesitten kac adet
-    // oldugunu soylemez. Hatirlanan bag yalnizca "bu satir su urun ailesine gider" bilgisidir,
-    // adetleri degil. Burada karar uydurulamaz; kullanici girer.
-    if (state.lines.some(l => l.family_id && l.line_type !== 'expense')) return 'Çeşide dağıtılacak kalem var';
-    return null;
-  }
 
   // BİRLEŞTİRİLMİŞ PDF. EDM'den "hepsini indir" denince tek dosyada birden çok fatura gelir.
   // Sayfa sayfa okunan satırlardan her sayfanın fatura numarası çıkarılır; numarası olmayan
@@ -400,7 +415,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     if (!state.auto) return;
     const tedarikciSorun = await tedarikciyiCoz();
     if (!tedarikciSorun) await hatirlananlariUygula();
-    const engel = tedarikciSorun || otomatikEngel();
+    const engel = tedarikciSorun || otomatikEngelKarari(state);
     if (engel) {
       state.queueDone.push({ad, sonuc: 'bekliyor', sebep: engel});
       state.auto = false; // bu dosyada duruluyor; kullanici bitirince kuyruk devam eder
@@ -440,6 +455,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     if (file.size > PDF_LIMITS.fileBytes) throw new Error('Belge 20 MB sınırını aşıyor.');
     const bytes = new Uint8Array(await file.arrayBuffer());
     state.file = file; state.bytes = bytes; state.kind = kind; state.warnings = [];
+    state.ocr = false; state.formatWarning = '';   // her dosya için sıfırlanır
     let header, lines = [], totals = null, pageCount = null, textLayer = 1;
     const own = await loadOwn();
 
@@ -458,7 +474,7 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
           state.warnings.push('Görüntüden okuma denendi, olmadı: ' + ocr.hata + ' Bilgileri elle girebilirsin; belge yanında duruyor.');
         } else {
           pdf = {...pdf, lines: ocr.lines, text: ocr.lines.join('\n'), ocr: true};
-          state.extracted = pdf;
+          state.extracted = pdf; state.ocr = true;
           state.warnings.push((ocr.notice ? ocr.notice + ' ' : '') + 'Aşağıdaki alanların HEPSİ sayfa görüntüsünden okundu; hiçbiri kesin değildir, tek tek belgeyle karşılaştır.');
         }
       }
@@ -514,7 +530,8 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     if (created.reread) state.warnings.push(created.notice);
     // Sunucu, fatura numarasını tedarikçinin önceki faturalarının kalıbıyla karşılaştırıyor.
     // Sapma varsa iş durmaz, numara değişmez — yalnız kullanıcının gözüne sokulur.
-    if (created.format_warning) state.warnings.push(created.format_warning);
+    state.formatWarning = created.format_warning || '';
+    if (state.formatWarning) state.warnings.push(state.formatWarning);
     state.docId = created.id;
     if (!created.resume) {
       const chunks = Math.max(1, Math.ceil(bytes.length / CHUNK));
