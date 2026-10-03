@@ -2,7 +2,8 @@
 session: lunapot-panel
 date: 2026-10-03
 status: complete
-outcome: SUCCEEDED
+outcome: PARTIAL_PLUS
+outcome_nedeni: "Üç özellik de yayında ve testli, ama ikisi CANLIDA DOĞRULANMADI: sipariş ürün düzeltmesi hiç denenmedi, TS1 ilan bağlantısının siparişi aktarması beklenmiyor. OCR de fatura numarasını güvenilir okuyamıyor (bilerek durduruluyor) — bu bir eksiklik değil sınır, ama tam otomasyon hedefine ancak düzgün e-fatura PDF'iyle ulaşılıyor."
 ---
 
 goal: "Üç büyük iş yayında: (1) gönderilmiş siparişte tek seferlik ürün düzeltmesi (ikame + parasız ilave), kalıcı ilan eşleşmesine dokunmadan; (2) harf taşımayan fatura PDF'inin görüntüden okunması (OCR) ve üç bağımsız doğrulama tutarsa kendiliğinden muhasebeleşmesi; (3) satış KDV'si artık pazaryerinden değil ayardan geliyor (%20) ve geçmişteki 18 yanlış satır düzeltildi. Ayrıca yayın yetkisi açıldı: Claude artık migration+push'u kendisi yapıyor. v158 → v172, 15 yayın."
