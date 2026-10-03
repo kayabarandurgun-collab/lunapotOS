@@ -1,0 +1,152 @@
+---
+session: lunapot-panel
+date: 2026-10-03
+status: complete
+outcome: SUCCEEDED
+---
+
+goal: "Üç büyük iş yayında: (1) gönderilmiş siparişte tek seferlik ürün düzeltmesi (ikame + parasız ilave), kalıcı ilan eşleşmesine dokunmadan; (2) harf taşımayan fatura PDF'inin görüntüden okunması (OCR) ve üç bağımsız doğrulama tutarsa kendiliğinden muhasebeleşmesi; (3) satış KDV'si artık pazaryerinden değil ayardan geliyor (%20) ve geçmişteki 18 yanlış satır düzeltildi. Ayrıca yayın yetkisi açıldı: Claude artık migration+push'u kendisi yapıyor. v158 → v172, 15 yayın."
+now: "KULLANICIDA: (1) tedarikçilerden e-fatura PDF'i iste — harf taşıyan dosyada sistem SIFIR DOKUNUŞLA işliyor, bugün KRK2026000000927 ile kanıtlandı; (2) Pina Small saksının fiyat profili yok (ölçü/ağırlık/maliyet sende, UYDURMA); (3) Seçkin TS1/Plug Mix ay sonu iadesi vadesinde. Kod tarafında bekleyen zorunlu iş YOK."
+test: "npm test   # 1077 test, 1062 pass, 15 atlanan, 0 fail. Yayın artık Claude'da: node scripts/migrate-remote.mjs (migration varsa ÖNCE), sonra git add src public tests migrations && git commit && git push origin main. UI değiştiyse public/sw.js CACHE'ini artır (şu an v172)."
+
+ortam:
+  repo: "C:/Users/baran/Desktop/site/lunapot-panel (main, HEAD 3d76d5f). Documents/Codex kopyası ESKİ (334 commit geride), DOKUNMA. Bash/PowerShell cwd ara sıra oraya kayıyor — MUTLAK YOL kullan, yoksa yanlış Cloudflare hesabına gider."
+  canli: "https://muhasebe.lunapot.com · CACHE lunapot-shell-v172-kdv-yirmi · migration 0064'e kadar uygulandı."
+  yayin_yetkisi: |
+    ARTIK CLAUDE YAPIYOR. .claude/settings.local.json içindeki izin listesine şunlar eklendi ve
+    ölçülerek doğrulandı: Bash(git:*), Bash(node scripts/migrate-remote.mjs), PowerShell(git:*),
+    PowerShell(npm:*), PowerShell(node:*). Kullanıcıya komut yazdırma.
+    ÖNEMLİ: Bash(npm run db:remote) kuralı ZATEN vardı ama komut PowerShell aracından çağrıldığı
+    için reddediliyordu — araç adı kurala dahil olmalı.
+  kullanici_terminali: "Windows PowerShell 5.1: && ÇALIŞMAZ, npm ExecutionPolicy'ye takılır (npm.cmd ya da doğrudan node kullan)."
+  canli_okuma: |
+    PowerShell + tek tırnaklı here-string; Bash'ten npx çağrılamıyor.
+      $sql = @'
+      SELECT ... json_extract(payload_json,'$.type') ...
+      '@
+      npx.cmd wrangler d1 execute DB --remote --json --command $sql
+    Veritabanı adı DB (binding). Uzun tek satırlık SQL bazen patlıyor; sorguyu böl.
+  tarayici: "mcp__Claude_Browser__ paneli. javascript_tool uzun döngülerde zaman aşımı. ŞİFRE GİRME. get_page_text input DEĞERLERİNİ GÖSTERMEZ — form dolu mu diye bakarken DOM'dan oku, yoksa 'boş kalmış' sanırsın (bu oturumda bir kez yanlış teşhis kondu)."
+
+kullanici:
+  - "TEKNİK ANLATMA, KISA YAZ."
+  - "TAM OTOMASYON İSTİYOR: 'hiçbir şeyi elle girmek istemiyorum, sana da bana da ihtiyaç olmaması lazım.'"
+  - "İDDİALARINI SORGULUYOR VE HAKLI ÇIKIYOR. Bu oturumda: 'bu PDF'te metin var sen saçmalıyorsun' dedi — ölçtüm, dosyada gerçekten harf yoktu (yazı çizim olarak gömülüydü) ama panelin 'taranmış' demesi de yanlıştı, metni düzelttim."
+  - "Uzun komut döngüsünden SIKILDI ('ben sıkıldım bu işten'). Artık yayın Claude'da; bir daha komut yazdırma."
+  - "Canlıya elle SQL YAZMA. Okuma serbest; yazma uygulamanın kendi ucundan ya da versiyonlu migration'dan."
+  - "KDV %20, koşulsuz, her üründe. Kârın düşeceği sayıyla söylendi, onayladı: 'azalsın yapacak bir şey yok.'"
+
+done_this_session:
+  - task: "SİPARİŞ ÜRÜN DÜZELTMESİ (ikame + parasız ilave). Gönderilmiş/teslim edilmiş siparişte 'depodan gerçekte ne çıktı' düzeltilir. Ciro asıl bileşende kalır (düzeltme bileşeninin gelir payı 0), böylece satır payı 10000'de kalır ve packageProfit 'complete' bozulmaz. Kesintiler 0+'confirmed' yazılır; null bırakılsaydı kâr raporu paketi 'kesintisi eksik' sayardı."
+    files: [migrations/0061_siparis_urun_duzeltmesi.sql, src/orders-api.js, public/orders-ui.js, public/ui-polish.css, tests/siparis-urun-duzeltme.test.js]
+  - task: "DÜZELTMENİN 'İADE' SANILMAMASI: DUZELTME- öneki 11 yerde taranıp sınıflandırıldı. DÖRDÜ HİÇ SÜZÜLMEMİŞTİ ve fark edilmeseydi sessiz hata verirdi: sipariş listesi/penceresi 'İade edildi' gösterecek, paket kargo takibinden DÜŞECEK, yoldaki mal hesabından çıkacak, kâr raporunun iade sütunu şişecekti. Ayrıca kesinti dağıtımı bu kayıtları 'zaten kesinleşmiş' sayıp o siparişe bir daha hiç kesinti yazmayacaktı."
+    files: [src/performance-api.js, src/attention-api.js, src/stock-availability.js, src/fee-history.js, src/sales-presentation.js, src/report-inbox-api.js, src/pazaryeri-kesinti.js, src/orders-api.js, public/orders-ui.js]
+  - task: "FATURA OCR. Harf taşımayan PDF sayfası pdf.js ile resme çevrilip Workers AI'ye okutulur. Model @cf/moondream/moondream3.1-9B-A2B (türü Image-to-Text). Sayfalar TEK TEK gönderilir (gövde sınırı 1 MB), sığmazsa kademeli küçültülür, ilk sayfanın ÜST %42'si ayrıca büyütülmüş okunur (fatura no/tarih orada ve tam sayfada okunamıyordu). 50 sn zaman aşımı."
+    files: [public/pdf-ocr.js, public/vendor/pdf.min.mjs, public/vendor/pdf.worker.min.mjs, src/purchase-document-api.js, src/worker.js, public/purchase-document-ui.js, tests/fatura-ocr.test.js]
+  - task: "OCR'DA OTOMATİK MUHASEBELEŞME. 'Kesin değil' işaretleri KALDIRILMADI; yerine modelden bağımsız üç kanıt aranıyor: (1) VKN kayıtlı tedarikçiyle birebir eşleşti, (2) fatura no o tedarikçinin kalıbına uyuyor (sunucu karşılaştırıyor), (3) satır toplamı = belgenin kendi toplamı. Üçü birden tutmazsa durur. Kapı saf ve dışa açık fonksiyona çıkarıldı ki test edilebilsin."
+    files: [public/purchase-document-ui.js, tests/fatura-otomatik-kapi.test.js]
+  - task: "KDV %20 KURALI. Satış KDV'si artık pazaryerinin raporundan DEĞİL, çalışma alanı ayarından geliyor (sales_vat_bps, varsayılan 2000). Oran koda gömülmedi: KDV oranları kanunla değişiyor. Geçmişteki 18 satır (%10, 14.606,85 TL brüt) %20'ye çekildi: brüt değişmedi, KDV hariç ciro 13.278,97 → 12.172,38 TL düştü. Sipariş satırı kilidi (ec_order_line_lock) yalnız bu düzeltme için düşürülüp BİREBİR geri kondu."
+    files: [migrations/0063_satis_kdv_yirmi.sql, migrations/0064_gecmis_kdv_yirmiye_cekildi.sql, src/report-stock-link-api.js, tests/satis-kdv-yirmi.test.js, tests/report-stock-link.test.js, tests/codex-rapor-stok.test.js]
+  - task: "ETTN DEVRİ. İşlenmemiş bir belge, aynı faturanın düzgün hâlinin önünü kesmiyor artık: ETTN iddiasını bırakır, kayıt silinmez. İşlenmiş (invoice_id dolu) belgede eski koruma aynen. Mevcut bir test bunu 'çift kayıt' sanıp düşmüştü; testin kendi yorumu zaten 'çift kayıt koruması FATURA düzeyindedir' diyordu — boşluk ETTN yolunda unutulmuştu."
+    files: [src/purchase-document-api.js, tests/purchase-documents.test.js, tests/fatura-ocr.test.js]
+  - task: "TEK SEFERLİK TEMİZLİK: okunamayan taramanın yetim kaydı (krkş.pdf) silindi. Alış belgeleri BİLEREK silinemez (ec_purchase_doc_no_delete / chunk_no_delete, 'IMMUTABLE_LEDGER'); koruma yalnız bu kayıt için düşürülüp aynen geri kondu."
+    files: [migrations/0062_krks_belgesi_silindi.sql]
+  - task: "STOPAJ VE PDF METİNLERİ. Stopaj yüzünden tahmini olanlar ayrı cümleye alındı: o rakam HİÇBİR belgeyle kesinleşmez (TY stopajı hiç bildirmiyor), ekran her gün 'belge bekleniyor' diyordu. PDF uyarısı 'büyük olasılıkla taranmış' diye SEBEP UYDURUYORDU; ölçtüm, dosya taranmış değildi."
+    files: [src/panorama-api.js, src/performance-api.js, public/panorama-ui.js, public/pdf-read.js, public/purchase-document-ui.js]
+  - task: "OCR AYIKLAMA DÜZELTMELERİ: (a) model 2.850,00'ı '2,850,00' yazıyordu ve tutar tarayıcısı bunu '2,850'+'00' diye bölüp 15 adetlik kalemi 2,85 TL okuyordu; (b) 'VKN' bazen 'WKN' okunuyor, tedarikçi hiç bulunamıyordu; (c) okunamayan fatura tarihi BUGÜN varsayılıyordu — artık boş kalır."
+    files: [public/pdf-read.js, public/purchase-document-ui.js]
+  - task: "İKİ RAPOR TURU İŞLENDİ (03.10). Teslim 894 → 944, 7+ gündür kargoda 21 → 9, kesinti bekleyen 0. Takip edilen 4 TY siparişinin 3'ü kapandı. 'Tedarik Süresi Durumu' sütunu eklenmiş olmasına rağmen rapor biçimi tanındı (geçen oturumun düzeltmesi çalışıyor)."
+    files: []
+  - task: "TS1 İLAN BAĞLANTISI kuruldu: HBCV00007FH2PA (Klasmann Ts1 Özel Üretim Torfu 200 Litre) → Klasmann TS1 Torf 210 L, 1 adet. İlan başlığında hacim yuvarlanmış; kullanıcı onayladı."
+    files: []
+
+acik_isler:
+  - "KULLANICIDA — TEDARİKÇİLERDEN E-FATURA PDF'İ İSTE. Tam otomasyonun gerçek yolu bu. Harf taşıyan PDF'te model hiç çalışmıyor, her alan birebir okunuyor ve fatura KENDİLİĞİNDEN muhasebeleşiyor (03.10'da KRK2026000000927 ile kanıtlandı: 4 satır, borç + stok, eksiye düşmüş 2 ürün düzeldi). OCR yalnız yedek yoldur."
+  - "KULLANICIDA — Pina Small 2 L saksının FİYAT PROFİLİ YOK (38 üründe tek). Hiç satılmamış ama bir ilana bağlı. Profil yalnız KDV değil; ambalaj, ölçü, ağırlık da ZORUNLU ve sıfırdan büyük. UYDURMA — kargo tarifesi hesabını sessizce bozar. Sahibi girer, KDV'yi %20 yazar."
+  - "AY SONU — Seçkin TS1/Plug Mix: 2 adet Plug Mix iadesi + yeni TS1 faturası. Alış faturaları → YSK2026000000402 → 'Tedarikçiye iade' 2 adet. SONRA 'urun-duzeltme:plugmix-ts1-2026-09-23' referanslı stok hareketleri ters kayıtla geri alınmalı. DİKKAT: TS1 210 L stoğu 1 ve yeni bir TS1 satışı (HB 4496993205) aktarılmayı bekliyor — sayım yaparken bunu hesaba kat."
+  - "9 paket 7+ gündür kargoda (11619222537 15 gündür; kullanıcı 'sorun yok, hâlâ kargoda' dedi). Takip gerekebilir."
+  - "9 taslak sipariş var. HB 4496993205 (TS1) bağlantı kurulduğu için bir sonraki turda aktarılmalı — DOĞRULA."
+  - "OCR fatura no'yu güvenilir okuyamıyor: aynı dosyayı üç kez 17, 14 ve hiç okudu (doğrusu 16 hane). ETTN de her okumada farklı. İkisi de bilerek engellendi/boş bırakılıyor. Bu, uğraşmakla düzelmez; çözüm girdide."
+  - "Otomatik bakım turu kesinti taşımasını sayfa sayfa yapıyor (50 → 49 → ... → 0 birkaç turda). Zararsız ama birikirse otomatik-bakim.js'teki süre bütçesine bak."
+  - "Komisyon farkı 514,96 TL ölçümü (geçen oturum) tekrar ölçülmedi."
+  - "BÜTÜN kargo tarifeleri 31.12.2026'da bitiyor. Aralık'ta hatırlat."
+  - "Cloudflare bütçesi RAHAT: 30 günde D1 392,6M satır okuma = aylık hakkın %1,6'sı, Worker isteği %0,5. Tek D1, iki worker, R2 yok, KV boş."
+
+decisions:
+  - duzeltme_bileseninin_ciro_payi_sifir: "Ciro asıl bileşende kalsın diye. Alternatifte (asıl bileşeni silip ciroyu yenilere taşımak) kâr raporu paketi 'complete' saymayı bırakıyordu ve ciroyu taşıyan satış kaydı bileşenlerden kopuyordu."
+  - ocr_otomatigi_isaret_kaldirmadan: "'Kesin değil' işaretlerini kaldırmak yerine modelden bağımsız üç kanıt arandı. Model harf hatası yapıyor; işaretleri kaldırmak yanlış rakamı sessizce deftere sokardı. En güçlü kanıt satır toplamının belge toplamını tutması — model hem satırları hem toplamı aynı yanlışla okumadıkça geçemez."
+  - ettn_goruntuden_alinmaz: "Aynı belge her okumada farklı ETTN verdi. Biçimi doğru ama yanlış bir ETTN boş alandan TEHLİKELİDİR: düzgün göründüğü için kimse kontrol etmez, oysa tek harf belgeyi başka belge yapar."
+  - kdv_ayarda_kodda_degil: "KDV oranları kanunla değişiyor (2023'te değişti). Ayar + varsayılan %20: kullanıcı hiçbir şey yapmıyor, oran değişirse kod yayınlamadan ayarlanıyor."
+  - kilitler_birebir_geri: "Belge silme ve sipariş satırı kilidi yalnız ilgili düzeltme için düşürüldü ve canlıdaki sqlite_master tanımının kopyasıyla geri yazıldı. Koruma kaldırılmadı; versiyonlu migration sayesinde ne yapıldığı kayıtlı."
+  - fiyat_profili_uydurulmadi: "Pina için 'sadece KDV' yazmak istedim, tablo reddetti: ambalaj/ölçü/ağırlık da zorunlu. Uydurma ölçü kargo tarifesini sessizce bozardı. Testle sabitlendi."
+
+findings:
+  - pdf_harf_yok_ama_taranmis_degil: "krkş.pdf'te 0 metin komutu, 0 font, 16.814 bezier eğrisi, 10.631 çizgi, 3 küçük JPEG (üçü de LOGO). Yazı çizim olarak gömülmüş. Gömülü görüntüleri çıkarmak OCR'a YETMEZ; sayfanın kendisi rasterize edilmeli."
+  - duzgun_efatura_sifir_dokunus: "2731455087-KRK2026000000927-...pdf harf taşıyor: fatura no, tarih, ETTN, satıcı VKN, unvan, 4 satır ve toplamlar BİREBİR okundu, hiç model çalışmadı, fatura kendiliğinden muhasebeleşti ve eksiye düşmüş 2 ürün (Torf 2,5 L ve 10 L, ikisi de -1) düzeldi."
+  - gemma_askida_kaliyor: "@cf/google/gemma-4-26b-a4b-it hesapta VAR ama Workers AI türü 'Text Generation'; OpenAI biçimli messages/image_url ile çağrılınca canlıda dakikalarca yanıt vermedi. OCR için tür 'Image-to-Text' olan model seçilmeli."
+  - promptta_ornek_rakam_sizdi: "İlk prompt'ta 'sayıları şöyle bırak: 1.234,56 gibi' yazıyordu; model o örneği okumuş gibi yanıtına yazdı. Prompt'un kendisi uydurma kaynağı oldu — teste bağlandı."
+  - govde_siniri_64kb: "worker.js bodyLimit varsayılanı 64.000 karakter; yalnız parça (chunk) uçlarında 1.000.000. OCR ucu bu yüzden 413 alıyordu."
+  - cift_kayit_korumasi_fatura_duzeyinde: "tests/purchase-documents.test.js'in kendi yorumu bunu söylüyordu ama ETTN yolunda uygulanmamıştı: işlenmemiş bir belge, aynı faturanın düzgün kopyasını kilitliyordu."
+
+worked:
+  - "İDDİA ETMEDEN ÖNCE ÖLÇMEK. 'Form boş kaldı' (dolu çıktı), 'markdown tablosu satırları bozuyor' (bozmuyordu), 'VKN düzeltmesi yayına çıkmamış' (çıkmıştı) — üçü de yanlıştı ve ölçünce çıktı."
+  - "CANLI SAYFADA MODÜLÜ ÇALIŞTIRMAK: guessHeader/guessLines'ı tarayıcıda gerçek OCR metniyle çağırmak, hangi adımın bozuk olduğunu tek seferde gösterdi."
+  - "TESTİN YAKALADIĞI ŞEYE İNANMAK. Düşen 5 testten üçü gerçek hata yakaladı: migration'da eksik NOT NULL sütun, uydurma fiyat profili, ve derin aramanın {durum:'hata'} içindeki 'hata' kelimesini metin sanması."
+  - "DEĞİŞİKLİKTEN SONRA AYNI RAKAMI DEFTERDEN ÖLÇMEK. Ekranın 'tamamlandı' demesi yetmiyor; 812 satırda net = brüt/1,20 ve satış geliri = net doğrulandı."
+  - "KORUMAYI BAYPAS ETMEK YERİNE DAR DELİK AÇMAK: gönderilmiş siparişe yalnız gelir payı 0 olan düzeltme satırı eklenebiliyor; tutar taşıyan satır hâlâ reddediliyor."
+
+failed:
+  - "MODELİ BELGEDEN SEÇİP TÜRÜNÜ DOĞRULAMAMAK: gemma-4 vision diye seçildi, Workers AI türü 'Text Generation' çıktı ve dakikalarca askıda kaldı. DERS: 'wrangler ai models' ile türe bak."
+  - "pdf.js API'sini varsaymak: destroy() belgede değil YÜKLEME GÖREVİNDE. Sayfalar çevriliyor, sonra temizlikte patlıyor ve sonuç çöpe gidiyordu. DERS: finally bloğundaki hata sonucu düşürmesin."
+  - "GET_PAGE_TEXT İLE FORM KONTROL ETMEK: input DEĞERLERİNİ göstermiyor; 'alanlar boş kaldı' diye yanlış teşhis kondu. DERS: DOM'dan value oku."
+  - "wrangler.jsonc'ye YORUM EKLEMEK: scripts/recovery.mjs onu düz JSON.parse ediyor, iki test dosyası komple çöktü."
+  - "MIGRATION'A VERİ DÜZELTMESİ YAZARKEN SIRA: önce satırı güncelleyip sonra ona göre süzmek bütün satırları kapsıyordu; süzgeç eski işareti kullanmalı."
+
+next:
+  - "1) Kullanıcı tedarikçilerden e-fatura PDF'i istedikçe sistem sıfır dokunuşla çalışacak; ilk birkaç faturada sonucu birlikte doğrula."
+  - "2) HB 4496993205 (TS1) bir sonraki rapor turunda aktarıldı mı DOĞRULA; ilan bağlantısı kuruldu."
+  - "3) Sipariş ürün düzeltmesi CANLIDA HENÜZ DENENMEDİ. Kullanıcı bir ikame yaparsa rakamları ölç: eski ürün rafa döndü mü, yeni düştü mü, ciro değişmedi mi, 'İade edildi' görünmüyor mu."
+  - "4) Seçkin TS1/Plug Mix ay sonu işi; TS1 stoğunun 1 olduğunu ve bekleyen TS1 satışını hesaba kat."
+  - "5) Pina Small fiyat profili kullanıcıdan."
+
+files:
+  created:
+    - migrations/0061_siparis_urun_duzeltmesi.sql
+    - migrations/0062_krks_belgesi_silindi.sql
+    - migrations/0063_satis_kdv_yirmi.sql
+    - migrations/0064_gecmis_kdv_yirmiye_cekildi.sql
+    - public/pdf-ocr.js
+    - public/vendor/pdf.min.mjs
+    - public/vendor/pdf.worker.min.mjs
+    - public/vendor/pdf.js.LICENSE.txt
+    - tests/siparis-urun-duzeltme.test.js
+    - tests/fatura-ocr.test.js
+    - tests/fatura-otomatik-kapi.test.js
+    - tests/satis-kdv-yirmi.test.js
+    - thoughts/shared/handoffs/lunapot-panel/2026-10-03_18-12_siparis-duzeltme-fatura-ocr-kdv-yirmi.yaml
+  modified:
+    - src/orders-api.js
+    - src/purchase-document-api.js
+    - src/report-stock-link-api.js
+    - src/report-inbox-api.js
+    - src/performance-api.js
+    - src/panorama-api.js
+    - src/attention-api.js
+    - src/stock-availability.js
+    - src/fee-history.js
+    - src/sales-presentation.js
+    - src/pazaryeri-kesinti.js
+    - src/worker.js
+    - public/orders-ui.js
+    - public/purchase-document-ui.js
+    - public/pdf-read.js
+    - public/panorama-ui.js
+    - public/ui-polish.css
+    - public/sw.js
+    - wrangler.jsonc
+    - package.json
+    - tests/purchase-documents.test.js
+    - tests/report-stock-link.test.js
+    - tests/codex-rapor-stok.test.js
+    - tests/pdf-okuma.test.js
+    - tests/pdf-nesne-akisi.test.js
