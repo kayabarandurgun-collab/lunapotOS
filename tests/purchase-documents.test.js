@@ -65,10 +65,17 @@ test('Aynı belge ikinci kez yüklenemez; yükleme borç veya stok oluşturmaz, 
     assert.equal(sameFile.reread, true);
     assert.equal(f.s.prepare('SELECT COUNT(*) n FROM ec_purchase_documents').get().n, 1, 'dosya çoğaltılmadı');
 
-    // 2) Farklı dosya, aynı ETTN.
+    // 2) Farklı dosya, aynı ETTN — ama ilk belge HENÜZ FATURAYA BAĞLANMAMIŞ.
+    // Yukarıdaki ilkenin aynısı burada da geçerli: çift kayıt koruması FATURA düzeyindedir,
+    // işlenmemiş bir belge aynı faturanın daha iyi bir kopyasını kilitlememeli. Canlıda
+    // (03.10.2026) tam tersi yaşandı: harf taşımayan taramadan OCR ile okunan ETTN saklanmıştı,
+    // kullanıcı aynı faturanın GİB'den gelen harf taşıyan PDF'ini yükleyince reddedildi.
+    // Eski kayıt silinmez; yalnız ETTN iddiasını bırakır (bkz. tests/fatura-ocr.test.js).
     const sameEttn = await upload(f, 'fatura-b', {doc_uuid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'});
-    assert.equal(sameEttn.duplicate, true);
-    assert.equal(sameEttn.reason, 'ettn');
+    assert.notEqual(sameEttn.duplicate, true, 'işlenmemiş belge düzgün kopyanın önünü kesmez');
+    assert.match(sameEttn.notice, /kimliğini bıraktı/);
+    assert.equal(f.s.prepare("SELECT COUNT(*) n FROM ec_purchase_documents WHERE doc_uuid='aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'").get().n, 1,
+      'ETTN tek belgede kalır: yeni yükleme devralır');
 
     // 3) Farklı dosya, aynı tedarikçi VKN + fatura no.
     const sameNo = await upload(f, 'fatura-c', {supplier_tax_id: '1234567890', doc_no: 'TRP2026000001'});

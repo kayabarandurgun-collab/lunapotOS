@@ -532,6 +532,8 @@ export function mountPurchaseDocument(root, namespace = 'ec', {onClose} = {}) {
     // Sapma varsa iş durmaz, numara değişmez — yalnız kullanıcının gözüne sokulur.
     state.formatWarning = created.format_warning || '';
     if (state.formatWarning) state.warnings.push(state.formatWarning);
+    // Aynı ETTN'yi tutan ve hiç işlenmemiş eski belge varsa kimliği bu yüklemeye bıraktı; söylenir.
+    if (!created.reread && created.notice) state.warnings.push(created.notice);
     state.docId = created.id;
     if (!created.resume) {
       const chunks = Math.max(1, Math.ceil(bytes.length / CHUNK));

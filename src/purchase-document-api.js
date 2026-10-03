@@ -311,10 +311,22 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
       return {id: same.id, resume: true, reread: true, format_warning: bicimUyarisi, notice: 'Bu dosya önce yüklenmiş ama hiçbir faturaya işlenmemişti; yeniden okundu.'};
     }
     if (same) return {duplicate: true, existing: same, reason: 'sha256', notice: 'Bu dosya daha önce yüklendi; ikinci kez işlenmedi.'};
+    let devralmaNotu = '';
     if (uuid) {
       const byUuid = await db.prepare('SELECT id,filename,invoice_id FROM purchase_documents WHERE doc_uuid=?').bind(uuid).first();
-      if (byUuid) return {duplicate: true, existing: byUuid, reason: 'ettn',
+      // İŞLENMİŞ belgede eski davranış aynen: aynı fatura ikinci kez muhasebeleşmez.
+      if (byUuid && byUuid.invoice_id) return {duplicate: true, existing: byUuid, reason: 'ettn',
         notice: 'Aynı ETTN ile bir belge zaten yüklü ("' + byUuid.filename + '"). Satırları farklı olsa bile otomatik üzerine yazılmaz; farklıysa inceleyin.'};
+      // HİÇBİR FATURAYA İŞLENMEMİŞ BELGE, AYNI FATURANIN DÜZGÜN HÂLİNİN YOLUNU KESMEZ.
+      // Canlıda (03.10.2026): harf taşımayan taramadan OCR ile okunan ETTN saklanmıştı; kullanıcı
+      // aynı faturanın GİB'den gelen, harf taşıyan PDF'ini yükleyince "aynı ETTN zaten yüklü"
+      // diye reddedildi — yani bozuk kopya, düzgün aslının önünü kesti. Eski kayıt SİLİNMEZ;
+      // yalnız ETTN iddiasını bırakır. Zaten o ETTN tahminle okunmuştu, sahiplenmesi doğru değil.
+      if (byUuid) {
+        await db.prepare("UPDATE purchase_documents SET doc_uuid='' WHERE id=? AND invoice_id IS NULL").bind(byUuid.id).run();
+        devralmaNotu = 'Aynı ETTN ile daha önce yüklenen ve hiçbir faturaya işlenmemiş belge ("' + byUuid.filename
+          + '") bu faturanın kimliğini bıraktı; o belge duruyor, silinmedi. Bu yükleme asıl belge sayılacak.';
+      }
     }
     if (taxId && docNo) {
       const byNo = await db.prepare('SELECT id,filename,invoice_id FROM purchase_documents WHERE supplier_tax_id=? AND doc_no=?').bind(taxId, docNo).first();
@@ -335,7 +347,7 @@ export async function purchaseDocumentApi(request, env, path, readBody) {
       Number.isSafeInteger(x.page_count) ? x.page_count : null, x.text_layer ? 1 : 0, taxId, docNo, uuid,
       JSON.stringify(x.extracted && typeof x.extracted === 'object' ? x.extracted : {}),
       JSON.stringify((x.warnings || []).slice(0, 20).map(w => String(w).slice(0, 500))), user.id || 'owner').run();
-    return {id: row.id, format_warning: bicimUyarisi};
+    return {id: row.id, format_warning: bicimUyarisi, notice: devralmaNotu || undefined};
   }
 
   const docMatch = path.match(/^\/api\/invoices\/documents\/([\w-]+)(?:\/(chunk|seal|part|link|pages))?$/);

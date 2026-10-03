@@ -173,3 +173,33 @@ test('Fatura numarasi tedarikcinin kalibindan sapiyorsa SOYLENIR ama degistirilm
     assert.equal(uyan.format_warning, '', 'kalibá uyan numarada uyari olmaz');
   } finally { f.close(); }
 });
+
+test('Islenmemis belge, ayni faturanin duzgun halinin yolunu kesmez; islenmis belge keser', async () => {
+  // Canlida (03.10.2026): bozuk taramadan OCR ile okunan ETTN saklanmisti; kullanici ayni
+  // faturanin GIB'den gelen harf tasiyan PDF'ini yukleyince "ayni ETTN zaten yuklu" diye
+  // reddedildi. Bozuk kopya, duzgun aslinin onunu kesiyordu.
+  const ettn = '97540ce9-dd1c-4f37-82df-b9b944d2e44d';
+  const f = fixture(null);
+  try {
+    const yukle = (sha, ad) => f.doc({kind: 'pdf', filename: ad, sha256: sha, size_bytes: 10, chunk_count: 1,
+      doc_uuid: ettn, text_layer: 0});
+    const eski = await yukle('a'.repeat(64), 'krks.pdf');
+    assert.ok(eski.id, 'ilk belge kaydedildi');
+
+    // ISLENMEMIS: yeni yukleme GECER ve devralmayi soyler. Eski kayit SILINMEZ.
+    const yeni = await yukle('b'.repeat(64), 'gercek-fatura.pdf');
+    assert.ok(yeni.id, 'duzgun belge kabul edilmeli');
+    assert.notEqual(yeni.duplicate, true);
+    assert.match(yeni.notice, /kimliğini bıraktı/);
+    assert.ok(f.s.prepare('SELECT id FROM ec_purchase_documents WHERE id=?').get(eski.id), 'eski belge duruyor');
+    assert.equal(f.s.prepare('SELECT doc_uuid FROM ec_purchase_documents WHERE id=?').get(eski.id).doc_uuid, '', 'eski kayit ETTN iddiasini birakti');
+
+    // ISLENMIS belgede eski davranis AYNEN: ayni fatura ikinci kez muhasebelesmez.
+    f.s.exec("INSERT INTO ec_suppliers(id,name,tax_id) VALUES('s9','T','1111111111')");
+    f.s.prepare("INSERT INTO ec_purchase_invoices(id,supplier_id,invoice_no,invoice_date,currency,status) VALUES('inv1','s9','X','2026-09-30','TRY','draft')").run();
+    f.s.prepare('UPDATE ec_purchase_documents SET invoice_id=? WHERE id=?').run('inv1', yeni.id);
+    const ucuncu = await yukle('c'.repeat(64), 'ucuncu.pdf');
+    assert.equal(ucuncu.duplicate, true, 'islenmis faturanin ETTN"si korunmali');
+    assert.match(ucuncu.notice, /zaten yüklü/);
+  } finally { f.close(); }
+});
