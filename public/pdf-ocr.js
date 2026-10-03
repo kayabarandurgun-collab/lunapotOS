@@ -107,7 +107,17 @@ export async function ocrIleOku(bytes, api, {ilerleme} = {}) {
     try { await gorev.destroy(); } catch { /* yok sayılır */ }
   }
 
-  const lines = parcalar.join('\n').split('\n').map(s => s.trim()).filter(Boolean);
+  // MODEL MARKDOWN TABLOSU YAZABİLİYOR ("| 1 | Gartengold ... |") ve prompt'taki yasağa
+  // uymuyor. Tutarlar borulu hâlde de doğru ayrışıyor ama ÜRÜN ADINA boru işaretleri karışıyor;
+  // bu ad geçmiş alışlarla eşleştirmede kullanıldığı için temizlenmeli. Ayırıcı satır ("|---|")
+  // büsbütün atılır. Sütun arası iki boşluğa çevrilir: tek boşluk kolon sınırını kaybettiriyor.
+  const ayiriciSatir = s => /^\s*\|?[\s|:-]*\|[\s|:-]*$/.test(s);
+  const lines = parcalar.join('\n').split('\n').map(s => s.trim()).filter(Boolean)
+    .filter(s => !ayiriciSatir(s))
+    .map(s => s.includes('|')
+      ? s.replace(/^\s*\|/, '').replace(/\|\s*$/, '').replace(/\s*\|\s*/g, '  ').replace(/\s{3,}/g, '  ').trim()
+      : s)
+    .filter(Boolean);
   if (!lines.length) return {hata: (atlanan[0] || 'Görüntüde okunabilir yazı bulunamadı') + '.'};
   return {lines, pages: sayfaSayisi,
     notice: 'Bu yazı bir modelin GÖRÜNTÜDEN okumasıdır; harf hatası olabilir. Her alanı belgeyle karşılaştırın.'
