@@ -1,0 +1,475 @@
+LUNAPOT — CLAUDE TEK DOSYA DEVİR
+ANA RAPOR NİHAİ DURUMU BELİRTİR. Ek ajan raporlarındaki ara test ve yayın notları, yukarıdaki son birleşik sonuçtan öncedir.
+
+# Lunapot — yeniden tasarım ve hesaplama incelemesi
+
+Tarih: 4 Ekim 2026. Repo: C:/Users/baran/Desktop/site/lunapot-panel. Başlangıç HEAD: 6400642.
+
+## Kullanıcının talebi
+Önceki v173 değişikliği kullanıcı tarafından yetersiz bulundu. İstenen renk düzeltmesi değil: işlerin bulunabildiği, masaüstü ve telefonda kullanılabilir, tutarlı bir arayüz; ayrıca hesaplama ve işleyişte gerçek hata incelemesi. Canlıya alma daha önce açıkça yetkilendirildi. Müşteri carileri otomatik açılmayacak. Depoda set sayımı istenmeyecek; fiziksel bileşen stokları ve satılan biçimin kârı ayrı kavramlar.
+
+## Tasarım kararı ve kaynaklar
+Beyaz gezinme, soğuk açık zemin, koyu para özeti ve tek kobalt işlem rengi. Tek kaynak tasarım ölçüleri; özellik stillerinin kendi başlarına ortak renkleri değiştirmesi kaldırıldı. Şablon ya da görsel taklidi yerine gerçek mevcut verilere bağlanan çalışma ekranları.
+
+İncelenen birincil kaynaklar:
+- https://linear.app/now/how-we-redesigned-the-linear-ui
+- https://linear.app/now/behind-the-latest-design-refresh
+- https://orbit.polar.sh/
+- https://github.com/polarsource/polar
+
+Figma eklentisi bulunup bağlantısı önerildi; bağlantı teyit edilmedi. Figma belgesi kullanıldığı iddia edilmez.
+
+## Ortak mimari ve arayüz
+- workspace-design.css yeniden yazıldı ve beş uygulama HTML dosyasında en son yüklenen ortak temel oldu. commerce-workflows ve insights-design içindeki çakışan yerel renk tanımları kaldırıldı. Üretim, cari ve personel stilleri ortak değişkenlere bağlandı.
+- Masaüstünde alan seçimi sol menüye yerleşti. Telefonda Menü üzerinden açılır. Yeni işlem ve arama üst çubuktan erişilebilir; izinli işlemler aynı daily-actions kaynağından gelir.
+- Ana ekran: kısa dört işlem şeridi, tek tarih/kapsam satırı, koyu nakit sonucu, gerçek dönem grafiği. İade ve hesaplama açıklamaları tek açılır kapsam bölümünde; eksik/tahmini durumu görünür kalır. Satış biçimi sıralaması isteğe bağlıdır. Grafik hesap verisiyle çizilir, dekoratif veri yoktur.
+- Cari: sabit bölüm listesi, içerik çalışma yüzeyi; telefonda yatay sekmeler. Yinelenen cari ekleme düğmesi ve sürekli tekrar eden açıklama kaldırıldı. Satırın arşiv/sil/düzenle işlemleri Diğer altında. Hiçbir cari veya parasal kayıt oluşturulmadı.
+- Uygulama girişi: dekoratif çizimlerin yerine gerçek işlere ve çalışma alanlarına açık girişler.
+
+## İş ekranlarının yeniden kuruluşu
+- Depo: marka kutuları yerine tek envanter listesi, telefon ekranında fiziksel depo miktarı öncelikli. Maliyet ve satış payı ayrıntıda; faturasız giriş ve sayım iki ayrı işlem. Marka gruplamasının miktar sıralamasını bozması da düzeltildi.
+- Alış: yeni belge ile geçmiş ayrı; PDF/XML/elle giriş yolları, belge inceleme çalışma masası, yükle/kontrol/tamamla aşamaları.
+- Raporlar: yükleme alanı, son dosyalar, inceleme ve sonuç sekmeleri; dosyanın gerçek hatası ve tekrar deneme görünür.
+- Siparişler: durum, arama ve ilk paket önde; ek filtreler açılır; telefonda kanal seçimi dar alana uyar.
+- Satış ve kâr: tek tarih ve arama çubuğu, açılır filtreler, ilk ekranda parasal özet. Set/bileşen ayrımı ve toplam mutabakatı korunur.
+- Üretim/hammadde: gerçekleşen kayıtlar, miktarlar ve işlem yolları; yinelenen liste araçları kaldırıldı.
+- Ekip: çalışan, hesap/cihaz, kurtarma ve erişim geçmişi ayrı; çalışan düzenleme ve geri dönüş odağı korundu.
+- Web mağaza yönetimi: gerçek test kayıtlarından iş listesi; bilinmeyen sayılar sıfır yapılmaz, test/gerçek ayrımı belirgin.
+
+## Kanıtlanıp düzeltilen hesap ve işlem sorunları
+Aşağıdaki rakamlar yerel sentetik karşı örneklerdir; canlıda bu büyüklükte hata bulunduğu iddiası değildir.
+
+| Konu | Önce → Sonra |
+|---|---|
+| Farklı alış KDV'li set maliyeti | 240 TL → 230 TL; 480 TL satışta kalan 240 → 250 TL |
+| Paket kesintisi kuruş dağılımı | 2 kuruş üç satırda 3 oluyordu → toplam 2 kalır |
+| Kısmen bilinen paket gideri | 7 + 5 = 12 → 7 + 3 = 10 kuruş |
+| Stopaj payı | −1,−1,−1,+1 → −1,−1,0,0 kuruş |
+| Başabaş önerisi | 50 kuruşta −1 zarar → 51 kuruşta 0 |
+| Tahminin dayanağı | Onaysız kesinti geçmişi gerçek örnek sayılmıyor |
+| Eşzamanlı sipariş aktarımı | 2 istenmeyen paket → 1; aynı kaynak tekrarı aynı kimliği döndürür |
+| Fatura belge/sayfa eşleştirmesi | Farklı belgelerin sayfa 1'leri karışmıyor; yarışta sahte iki başarı yok |
+| Fatura kimliği | Başarısız yükleme mevcut ETTN'yi silemiyor; sayfa tekrarı güvenli |
+| Güncel kesintiyi koruma | Eski 80 TL hesap yeni 30 TL'yi ezemiyor; yanlış denetim satırı oluşmuyor |
+
+Yeni finans regresyonları 14/14, yeni operasyon regresyonları 15/15. Bunlar tüm muhasebenin kusursuz olduğuna dair sertifika değildir; gösterilmiş kusurların kapatılmasıdır.
+
+## Modül raporları
+Teknik ayrıntılar aşağıdaki inceleme dosyalarında. Ajan raporları ara test anlarını da içerir; son birleşik sonuç için bu ana rapor esas alınmalı:
+- UX-2026-10-03-REBUILD-financial.md
+- UX-2026-10-03-REBUILD-operations.md
+- UX-2026-10-03-REBUILD-stock-purchase.md
+- UX-2026-10-03-REBUILD-reports-orders.md
+- UX-2026-10-04-REBUILD-secondary.md
+
+## Doğrulama / yayın
+Tam birim/entegrasyon paketi: **1166 toplam, 1144 geçti, 22 ortam koşullu atlandı, 0 hata**. Bu atlananların tarayıcı kapsamı ayrıca etkinleştirilerek doğrulanır. Yayın derlemesi başarılı. Genel gezinme taraması: 69 rota × 2 genişlik = 138 ekran, 45 HTTP kontrolü; taşma/JS/HTTP hatası bulunmadı. Bu tarama bütün formların uçtan uca sınandığı anlamına gelmez.
+
+Son birleşik tarayıcı doğrulaması: **229/229 başarılı, 0 atlama, 0 hata**. 18 dosyalık koşu yeni backend başlatıldıktan sonra yapıldı; rapor/sipariş, stok/fatura, satış biçimleri, ekip, üretim, mağaza, çevrimdışı kabuk, klavye, odağın geri dönmesi, geç yanıtlar, izinler ve boş/eksik/hatalı durumları kapsar. Son 22 ilk ekran görüntüsü ayrıca yenilendi; taşma veya JavaScript hatası yok.
+
+Uygulama yerel commit: **db4c397**, 60 kaynak/test dosyası. Sürüm canlıda ve aşağıdaki kontrollerle doğrulandı. Sentetik ilk ekran görüntüleri docs/ux-rebuild-2026-10-04/final altında. Canlıya deneme siparişi, fatura veya ödeme yazılmadı.
+
+## Önceden kalan sınırlar
+- v173 ile 0065 migration zaten canlıya uygulandı; bu uygulanmış dosya değiştirilmemeli.
+- GitHub main push önceki turda otomatik onay denetimince engellendi. Bu turda kısıt aşılmayacak; doğrudan Cloudflare yayın izni main push izni olarak yorumlanmıyor.
+- Web mağaza gerçek tahsilat ve satışa açılmadı.
+- Yeni HB/EDM 66 fatura handoff dosyası önceki canlı sürüm bilgisini taşıyor; kod değiştirilmemiş ayrı bir kullanıcı işi. Bu faturalar üzerinde işlem yapılmadı.
+
+## Veri etkisi ve sınırlar
+- Bu sürümde yeni migration yok; 0065 korunuyor. Tarihsel hareketler yeniden yazılmadı.
+- Yeni hesaplar okunduğunda geçmiş rapor/tahmin görünümü değişebilir. Eksik alış KDV'si ve onaysız kesinti örnekleri tahmin kapsamını azaltabilir; bilinmeyen tutar 0 yapılmaz.
+- Eski mükerrer sipariş/fatura kimliği/yanlış kesintilerin canlıda oluşup oluşmadığı bu çalışmada ölçülmedi ve geriye dönük otomatik tamir yapılmadı.
+- Kesinti aktarım koruması mevcut parti başına atomiktir; büyük aktarımın önceki başarılı partileri korunur, tekrar güvenlidir.
+- Test tarayıcısı gerçek Worker kodunu sentetik SQLite verisiyle çalıştırdı. Mobil kontrol masaüstü Chrome'un küçük ekran görünümüdür; fiziksel iOS/Android cihaz testi değildir.
+- Canlı giriş yapılmış kullanıcı hesabıyla tam iş akışı testi yapılmadı. Canlı yayın doğrulaması sürüm, varlıklar ve oturum koruması üzerinden yapılır.
+
+## Tekrar doğrulama kanıtları
+- docs/ux-rebuild-2026-10-04/full-test-final.log — 1144 geçen test / 22 koşullu
+- docs/ux-rebuild-2026-10-04/browser-final-verified.log — 229 geçen tarayıcı kontrolü
+- docs/ux-rebuild-2026-10-04/build-final.log — son derleme
+- docs/ux-rebuild-2026-10-04/all-pages/audit.json — 138 ekran genel rota taraması
+- docs/ux-rebuild-2026-10-04/final/layout.json — son 22 ekran
+- Ara koşularda görülen eski yerleşim beklentileri yeni etkileşim yollarıyla güncellendi; parasal/yetki assertionları azaltılmadı. Sipariş sıralama alanının mobilde 36px olması gerçek kaynak düzeltmesiyle 44px yapıldı.
+- Rapor dosyası araması mevcut API'nin son 100 dosyasıyla sınırlı; arama ekranı bunu belirtir. Bu sürüm sınırsız tarihsel rapor araması eklemez.
+
+## Canlı yayın — doğrulandı
+- Alan: https://muhasebe.lunapot.com/eticaret/#overview
+- Yerel saat: 4 Ekim 2026 00:35–00:36 (Europe/Istanbul).
+- Önbellek: lunapot-shell-v174-workbench.
+- Uygulama commit: db4c397.
+- Cloudflare sürümü: 38de9600-4d84-45cf-bdc4-3f80b0a2836b, trafiğin %100'ü.
+- Yayın kaydı: 1d3e2222-a8d1-4d7c-b3a2-b3ada676faa2.
+- Gerçek DB bağlantısı yayın öncesi sürüm metadatasından ae7a9444-838e-4d0f-b547-ce01c23f0328 olarak doğrulandı. CLI özetindeki sıfırlı preview ID gerçek sürüm DB bağlantısı değildir. RELEASE_MAINTENANCE=0.
+- 18 salt okunur canlı kontrol başarılı: beş uygulama yolu 200, anonim oturum durumu doğru, korumalı kâr API'si 401; 11 temel UI/önbellek dosyasının SHA-256 özeti yereldeki doğrulanmış dosyayla aynı.
+- Bir önceki geri dönüş sürümü: a8fd7992-690e-4ae2-a1ea-46942b979f5e (v173, aynı 0065 şeması). Eski 0065 öncesi Worker'a gelişigüzel dönülmemeli.
+- Yeni SQL migration, stok/satış/cari kaydı, test faturası veya ödeme canlıya yazılmadı. Normal mevcut zamanlanmış işler çalışmaya devam eder.
+
+## Claude'a aktarırken
+- Tek dosya: docs/CLAUDE-DEVIR-2026-10-04-TAM-RAPOR.txt. Ana raporu ve beş teknik modül raporunu içerir.
+- Doğru çalışma deposu C:/Users/baran/Desktop/site/lunapot-panel. Documents/Codex altındaki eski kopyadan devam etmeyin.
+- GitHub main push önceki otomatik onay denetiminde ortak ana dalı ve olası otomatik yayını değiştirdiği için engellendi; bu engel aşılmadı ve bu turda push denenmedi. Değişiklikler yerel commitlerde ve Cloudflare'da. Claude bulutta çalışacaksa uzak deponun aynı kodu içerdiğini varsaymamalı.
+- .node-version, scripts/migrate-remote.mjs ve diğer önceden mevcut kullanıcı dosyaları bu değişikliğe dahil edilmedi.
+- Yerel sentetik önizleme kapatıldıktan sonra gerekirse node scripts/design-preview.mjs --port=18731 ile tekrar başlatılabilir. Canlı anahtar kullanmaz.
+- Figma bağlantısı tamamlanmadığından Figma belgesi düzenlenmedi. Araştırma kaynakları ve yerel tasarım uygulaması yukarıdadır.
+
+
+==================================================
+EK: docs/UX-2026-10-03-REBUILD-financial.md
+==================================================
+
+# Lunapot — Yeniden Tasarım / Finansal Hesap Denetimi
+
+Tarih: 4 Ekim 2026 (3 Ekim yeniden tasarım çalışmasının devamı).
+Depo: C:/Users/baran/Desktop/site/lunapot-panel.
+Başlangıç: main / 6400642. Önceki FA01–05 raporu okundu; aşağıdakiler yeni, bağımsız karşı örneklerdir.
+
+**Durum: ayrılan finans kapsamındaki beş kusur düzeltildi. Yeni regresyonlar 14/14, ilişkili doğrulama 97/97. Şema/migration/canlı veri onarımı gerekmiyor.** Commit, push, yayın veya canlı okuma/yazma yapılmadı. Eşzamanlı çalışan diğer ajanların dosyaları değiştirilmedi.
+
+## Gösterilebilir önce / sonra
+
+| Bulgu | Mevcut kodda gösterilen yanlış sonuç | Düzeltme sonrası |
+|---|---|---|
+| FB01 — Kargodaki ürünlerin farklı alış KDV oranları | Her biri net 100 TL olan %10 ve %20 KDV'li iki ürün, %20 satış oranıyla toplam **240 TL** maliyet gösteriyordu. 480 TL satışta nakit **240 TL** idi. | Maliyet **110 + 120 = 230 TL**, nakit **250 TL**. Hazırlanan/kargodaki ve aynı verili teslim sonucu tutarlı. Hem geçmiş hem kayıtlı tarife yolunda. |
+| FB02 — Paket giderini bileşenlere dağıtma | 2 kuruş kargo üç eşit bileşene ayrı yuvarlanıp **3 kuruş** oluyordu. 10 kuruş toplam tahminde 7 kuruş zaten biliniyorsa diğer satıra 5 eklenip **12 kuruş** oluyordu. | Toplam **2 kuruş** korunur. Kısmen bilinen örnek **7 + 3 = 10 kuruş** olur; 15 kuruş gerçek gider varken 10 kuruş geçmiş tahmini bunu azaltmaz. |
+| FB03 — Stopaj ürün payları | Dört eşit ürüne 2 kuruş stopaj dağıtımı **−1, −1, −1, +1** idi: son üründe sahte vergi iadesi / ek nakit. | **−1, −1, 0, 0**. Ürün ve satılan ilan paylarının toplamı paketle eşit; hiçbir gider payı artıya dönmez. |
+| FB04 — Başabaşta ayrı kuruş yuvarlamaları | Net 39 kuruş maliyet → brüt 47 kuruş; %5 komisyon ve %1 stopajla önerilen **50 kuruş** satışın gerçek dökümü **−1 kuruş** zarar veriyordu. | Öneri dökümle yeniden doğrulanır: bu örnekte **51 kuruş → 0**. İstenen 94 kuruş hedef de eksik kalmaz. |
+| FB05 — Güvenilir kesinti örneği | Teslim edilmiş fakat kesintisi hâlâ `pending` bir paketin girilmiş 100 TL kargosu, gerçek/doğrulanmış geçmiş diye öğreniliyordu. | Tamamen doğrulanmış (`confirmed`) kesintiler gerekir. Tek örnek onaysızsa tahmin yok; doğrulandığında 100 TL örnek kullanılabilir. |
+
+## Kod ve sözleşme
+
+- `src/performance-api.js`: FB01, FB02, FB03. KDV dahil maliyet bileşen bazında hesaplanır. Gönderilmiş pakette kendi sabit maliyeti; hazırlanan pakette ilgili tahmin motorunun stok maliyeti kullanılır. Yeni bilinen giderler korunur; yalnız eksik tutar için kalan tahmin dağıtılır. Gerçek defter kaydı değiştirilmez.
+- `src/sales-presentation.js`: mevcut BigInt tabanlı en büyük kalan dağıtımı `allocateCents` olarak ortak kullanıma açıldı. Stopajın satılan ilan ve stok bileşeni görünümleri aynı payları alır. Stok ürünleri ayrı kalır; satılan set kimliği ve maliyeti ayrıştırılıp yeni ürün uydurulmaz.
+- `src/fiyat-hesap-api.js`: eski `product_id` fiyat yolunda başabaş/hedefin kendi komisyon+stopaj dökümü kontrol edilir. Ulaşılmamış veya güvenli tamsayı dışındaki fiyat önerilmez. `mapping_id` yolunun mevcut hedef kontrolü korunur.
+- `src/fee-history.js`: sorgu `fees_status` okur ve paketin herhangi bir satışının kesintisi onaylanmamışsa örneği dışlar. Ek sorgu veya yeni tablo yok.
+- `src/urun-karlilik-api.js` **değiştirilmedi**; zaten ortak paket hesabını kullanır ve sonuçlar kendiliğinden aynı düzeltmeleri alır.
+
+Alış KDV'si bilinmeyen **geçmiş tahmini** artık nakit tutarı üretmez; net katkı ayrı kalabilir ve neden açıklanır. Elle kaydedilmiş **tarife senaryosunda**, önceden mevcut satış KDV'sini maliyet varsayımı olarak kullanma davranışı korunur fakat artık `cash_note` içinde açıkça yazılır. Bilinen bileşen KDV'si hiçbir durumda bu varsayımla ezilmez. Tarife senaryosundaki gerçek sıfır stok değeri de yanlışlıkla profil yenileme maliyetine geçmez.
+
+Bu değişiklik mevcut fiyat profili KDV'sini tarihsel alış belgesi KDV'sine dönüştüren bir şema tasarımı değildir. Yeni yasal vergi oranı veya muhasebe politikası eklenmedi. KDV oranları mevcut kayıt/girdilerden alınır.
+
+## Test kanıtı
+
+Yeni dosya: `tests/rebuild-financial.test.js`.
+
+- Son hali: **14 test, 14 geçti, 0 hata**.
+- Aynı testler, yalnız bu ajanın dört sunucu dosyası `HEAD` sürümüne döndürülmüş geçici kopyada: **13 kırmızı / 1 yeşil**. Sayısal karşı örnekler FB01–05 testlerinde gösterildi. Tarife bilinmeyen-KDV guardlarının iki kırmızısı eksik varsayım açıklamasından; sıfır değerli stok guardı eski kodda da yeşil ve yeni kaynak seçiminin korumasıdır.
+- Kırmızı karşılaştırma çalışma deposunu değiştirmedi: `C:/Users/baran/AppData/Local/Temp/lunapot-financial-red-jKKhjb/red-output.txt`.
+- İlişkili son doğrulama: **97/97**. Kapsam: yeni testler, satılan ilan/set, kâr ortak hesabı, stopaj, sayfalama/kapsam, sipariş tahmini, ilan fiyatı, R23, nakit sonuç ve önceki FA01–04 regresyonları.
+- Yeni testler hem paket ↔ ilan hem paket ↔ stok bileşeni nakit korunmasını kontrol eder. Bilinmeyen KDV'nin null kalması, kısmen bilinen ücretler, kaydedilmiş gerçeklerin değişmemesi, kargodan teslime geçiş ve gönderim maliyeti korunması sınanır.
+
+~~~powershell
+node --test tests/rebuild-financial.test.js tests/sales-presentation.test.js tests/codex-kar-ortak.test.js tests/codex-kar-stopaj.test.js tests/order-estimate.test.js tests/offering-price.test.js tests/codex-fiyat-r23.test.js tests/codex-kar-kapsam.test.js tests/nakit-sonuc.test.js tests/financial-audit-2026-10-03.test.js
+~~~
+
+Tam paketin eşzamanlı çalışma anındaki sonucu: **1159 toplam / 1135 geçti / 19 ortam koşullu atlandı / 5 hata**. Son birleşik yayın doğrulaması değildir. Kalanlar:
+
+1. `tests/arayuz-olcek.test.js:185` — `commerce-workflows.css:271`, v2-stat için 12px köşe mevcut ortak token kontrolüne uymuyor.
+2. `tests/sales-ui-contract.test.js:75` — eski `ins-kpis` / tarih filtresi sırası beklentisi.
+3. `tests/workspace-sales-navigation.test.js:6` — eski personel menüsü sıra beklentisi.
+4. `tests/connections.test.js:100` — `50 source records fit Free D1 query budget and repeated page advances bounded draft imports`; `created` okunurken sonuç null.
+5. `tests/connections.test.js:533` — `Yerelde paketi olmayan sipariş eskisi gibi taslak açar; tanınan ve yeni sipariş aynı çağrıda ayrışır`; aynı null sonuç.
+
+İki connections hatası, bu dört finans dosyası HEAD olan aynı geçici kopyada ayrıca **2/2 tekrarlandı**. Finans düzeltmesi olmadan da mevcutlar. Başka ajanın uygulama alanına girilmedi. Tam çıktı: `C:/Users/baran/AppData/Local/Temp/lunapot-rebuild-financial-full-tests.txt`. Parent birleşik değişiklikler tamamlanınca tekrar çalıştırmalı.
+
+## Yayına etkisi ve sınırlar
+
+- **Migration yok. Canlı veri düzeltmesi yok. Eski satış, stok, cari veya maliyet defteri değişmez.** Etki rapor/öneri okunurken görünür.
+- Farklı KDV'li bekleyen paketlerin nakit tahmini değişebilir; eksik KDV'li geçmiş tahminleri hesaplanamayan kapsamına geçebilir. Kullanıcı artık bu eksikliği görür.
+- Stopajın paket toplamı değişmez; ürün/ilan arasında birkaç kuruşun dağılımı düzelir.
+- Doğrulanmamış tarihsel örnekleri dışlamak örnek sayısını azaltabilir. Doğrulanmış kayıt gelene kadar yanlış güven yerine eksik tahmin döner.
+- Paket gideri tahmini gerçek gider değildir. Bilinen gider geçmiş toplamı aşıyorsa bilinmeyen kalan 0 varsayılır ve paket hâlâ tahmini işaretlidir; gerçek ekstre gelince yeniden hesaplanır.
+- Başabaş düzeltmesi, cebine kalan tutarın negatif olmamasını/hedefe ulaşmasını doğrular; tüm olası kuruş fiyatları arasında küresel minimum araması değildir. Mevcut sınırlı fiyat arama sözleşmesi korunur.
+- Bu sınırlı denetim tüm muhasebenin hatasız olduğu iddiası değildir; beş somut yeni kusurun regresyonlarla kapatılmasıdır.
+
+## Devam / devir
+
+~~~yaml
+---
+session: lunapot-panel
+date: 2026-10-04
+status: complete
+outcome: SUCCEEDED
+---
+
+goal: Ayrılan finans dosyalarında beş yeni kanıtlı hesap kusurunu düzeltmek.
+now: Parent UI/diğer backend değişikliklerini birleştirip tam test paketini yeniden çalıştırsın.
+test: node --test tests/rebuild-financial.test.js
+done_this_session:
+  - task: Bileşen KDV'si, kuruş koruma, başabaş ve onaylı geçmiş düzeltmeleri.
+    files: [src/performance-api.js, src/sales-presentation.js, src/fiyat-hesap-api.js, src/fee-history.js]
+blockers: []
+questions: []
+decisions:
+  - persistence: Salt okunur hesap değişikliği; migration veya tarihsel kayıt onarımı yok.
+findings:
+  - conservation: Paket/ilan/bileşen toplamları aynı ortak dağıtımı kullanmalı.
+worked: [Yeni sentetik karşı örnekler, HEAD karşılaştırması, ilişkili 97 test]
+failed: [Tam pakette eşzamanlı UI ve connections alanlarında beş hata; parent takibinde.]
+next: [Birleşik test, parent yayın kararı ve ana Claude raporuna özet]
+files:
+  created: [tests/rebuild-financial.test.js, docs/UX-2026-10-03-REBUILD-financial.md]
+  modified: [src/performance-api.js, src/sales-presentation.js, src/fiyat-hesap-api.js, src/fee-history.js]
+~~~
+
+
+==================================================
+EK: docs/UX-2026-10-03-REBUILD-operations.md
+==================================================
+
+# Operations rebuild audit — 3/4 October 2026
+
+Repo: `C:/Users/baran/Desktop/site/lunapot-panel`. Bounded operations sidecar; parent owns UI and combined release. Previous FA01–05 read first and preserved. **6 newly demonstrated issues fixed; no migration, live writes, UI changes, commit or deploy.**
+
+## Verified findings
+
+| ID | Before (synthetic real SQLite + actual handlers) | After | Code |
+|---|---|---|---|
+| OP01 | Two requests read the same order as absent and created **2 undeclared packages**. Concurrent retry of identical source failed with 409. | Atomic package insert creates **1 package**. A different undeclared package gets 409; identical retry returns the same ID. Losing request creates no lines/components/reservations. Declared splits, cancelled orders and different channels retain their rules. | `src/orders-api.js:47` and `:68` |
+| OP02 | Invoice A on document A/page 1 was reported **already_linked:1** when asked to link it to document B/page 1, although B had no such link. | **already_linked:0, conflicts:1**. Other valid requested pages still link. Page lookup is scoped to its document. | `src/purchase-document-api.js:443` |
+| OP03 | Two concurrent requests both reported success linking the same document to different invoices, although only one UPDATE wrote. Conversely, two documents could claim one invoice. | Exactly **1 success + 1 explicit 409**, and returned invoice ID matches the saved link. Atomic UPDATE includes the invoice exclusivity check and tests RETURNING output. | `src/purchase-document-api.js:409` |
+| OP04 | A replacement upload rejected as duplicate still cleared the original document's ETTN (`uuid → ''`). A later insert failure could strand the original identity too. | UUID remains unchanged on rejection/failure. Releasing the old identity and inserting its replacement are one transaction. Page-linked documents also count as already attached and cannot surrender ETTN. Original bytes remain immutable. | `src/purchase-document-api.js:316–356` |
+| OP05 | Concurrent page retries/competing links threw raw UNIQUE database errors. | Exactly **1 new link**; identical retry reports already linked; competing request reports a reviewable conflict. Nothing is moved or overwritten. | `src/purchase-document-api.js:455` |
+| OP06 | Older fee transfer computed commission **80 TL**, paused, newer report wrote **30 TL**, then old transfer overwrote it back to **80 TL**. Source change without a newer transfer also wrote stale 80 TL. Concurrent manual corrections were overwritten. | New **30 TL stays 30 TL**. Stale transfer gets 409 and adds no false audit record. Changed source without a current transfer leaves fees unknown (NULL), not stale 80 TL. Manual **12/34/5 TL** commission/shipping/other survives. | `src/report-inbox-api.js:872–889`, `:1033–1065` |
+
+OP06 takes report record count + version sum before calculating (records cannot be deleted; content changes advance version). Each existing write batch uses the existing 0050 write-guard trigger to check source revision, prior fee values/status and invoice allocations, then writes fees and audit together. The same protection covers normal transfers, twin copies and return-fee normalization. One extra read per committed transfer and one guard statement per write batch. Preview adds neither writes nor revision read.
+
+## Verification
+
+- New regression file: `tests/rebuild-operations.test.js`: **15/15 pass**, including original shipping source-change rollback protection.
+- Related suite: **240 total, 238 pass, 2 browser/environment conditional skips, 0 fail**. Includes orders, purchase/document flows, reports, report linking, fee transfer, stock history, prior FA regressions and OCR.
+- Initial five new tests were all red on original code for outcome reasons (2 vs 1 packages, false success, false already-linked, lost UUID). Page-race additions also failed on raw UNIQUE errors before fixing them.
+- OP06 additionally rerun against **HEAD's unmodified report-inbox module** using a temporary Node load hook; shared working files were never reverted. Three red tests, including actual **8000 vs expected 3000 kuruş** and **8000 vs expected NULL**. Temporary loader removed. Current 15 tests rerun green afterward.
+- `git diff --check` clean on the three owned source files.
+- Local logs: `docs/rebuild-operations-tests.log` and `docs/rebuild-operations-before-fees.log`; synthetic only. Not a separate full-suite certification; parent runs combined checks.
+
+Relevant suite command:
+
+```powershell
+node --test tests/rebuild-operations.test.js tests/orders*.test.js tests/*purchase*.test.js tests/*document*.test.js tests/*report*.test.js tests/codex-rapor-*.test.js tests/codex-duz-kesinti.test.js tests/stock-history.test.js tests/financial-audit-2026-10-03.test.js tests/fatura-ocr.test.js
+```
+
+## Scope and historical impact
+
+No database/schema migration. Existing `ec_report_write_guard` from **0050** is required and already present in current 0065 deployment. New order/document guards use current tables. No cost, permission, Worker, migration or UI files changed. `report-stock-link-api.js` and `stock-history-api.js` reviewed with their tests but not modified because no additional demonstrated fix was needed in this bounded pass.
+
+No live data examined or repaired by this sidecar. Existing duplicate orders, detached ETTNs, or stale fees are **not automatically cleaned up by deploying this patch**. A future normal report fee transfer can apply its current report amounts, as before. Historical occurrence/financial magnitude remains unmeasured; local reproducibility is not evidence these races occurred live.
+
+Fee source guard is deliberately conservative: any report content change in that store during calculation yields a retryable 409. Atomicity is per existing write batch, not across every batch of a large transfer; earlier successfully guarded batches may already be committed when a later batch asks for retry. Repeating transfer is safe. This is a concurrency audit, not independent accounting/tax certification.
+
+The inspected suspected shipping hole (status update matched zero, subsequent writes) was **not reported as a new corruption bug**: current component/status triggers roll the entire batch back. New guard test confirms quantity **10 → 10**, sales **0**, reservation **1**, status reserved when the source changes just before shipping writes.
+
+## Parent handoff
+
+```yaml
+session: lunapot-panel
+date: 2026-10-04
+status: complete
+outcome: SUCCEEDED
+goal: Fix demonstrated operations races and document identity errors without changing financial history.
+now: Run combined verification and include OP01–06 in the parent redesign handoff/release.
+test: node --test tests/rebuild-operations.test.js
+done_this_session:
+  - task: Atomic order creation and document identity/link results.
+    files: [src/orders-api.js, src/purchase-document-api.js]
+  - task: Prevent stale report fee writes and false audit records.
+    files: [src/report-inbox-api.js, tests/rebuild-operations.test.js]
+blockers: []
+questions: []
+decisions:
+  - history: No live repair or migration; fix future operation semantics.
+findings:
+  - stale_fees: Old 80 TL must not overwrite newer 30 TL.
+worked: [Real-schema synthetic transactions, explicit concurrency barriers, HEAD module comparison.]
+failed: []
+next: [Parent combined tests and release.]
+files:
+  created: [tests/rebuild-operations.test.js, docs/UX-2026-10-03-REBUILD-operations.md]
+  modified: [src/orders-api.js, src/purchase-document-api.js, src/report-inbox-api.js]
+```
+
+## Combined-test follow-up: connections fixture (4 October)
+
+Parent's combined run found two `connections.test.js` failures (`orders` was null in source-page import). Root cause was **fixture result shape, not query budget**: its `DB.batch()` executed statements through Node SQLite `run()`, which discarded INSERT RETURNING rows. Production D1 and the other real-schema fixtures return `{results:[...]}`. The new atomic order creator therefore committed a package in this fixture, then failed reading the absent result array; `syncProvider` caught that as an incomplete import and returned `orders:null`.
+
+Fixed `tests/connections.test.js` batch to execute each statement with its existing `all()` wrapper. Query counting still increments once per statement. Transaction rollback is unchanged. No assertions were removed or limits raised; explicit non-null outcome assertions and query diagnostics were added. **First 50-source page: 28 queries. Repeated page: 28 queries. Existing <45 bound passes unchanged.** Both original regression scenarios pass, including the expected package counts and deferred-import progression.
+
+`node --test tests/connections.test.js tests/rebuild-operations.test.js`: **41/41 pass, 0 skip/fail**. Log: `docs/rebuild-operations-connections-tests.log`. `git diff --check` clean. Runtime source needs no compatibility fallback for this inaccurate fixture and was left unchanged in this follow-up. Add `tests/connections.test.js` to this sidecar's modified-file list.
+
+
+==================================================
+EK: docs/UX-2026-10-03-REBUILD-stock-purchase.md
+==================================================
+
+# Stok ve alış faturası yeniden tasarımı
+
+Çalışma tarihi: 4 Ekim 2026. Ana uygulamanın kobalt / açık yüzey tasarımına bağlıdır. Canlı işlem, git veya deploy yapılmadı.
+
+## Uygulanan yapı
+- **Depodaki ürünler:** marka grupları ve büyük ürün kartları yerine tek envanter listesi. Masaüstünde ürün kimliği, depoda kayıtlı, ayrılan, kargodaki ve kullanılabilir miktar aynı satırda. Telefonda fiziksel depo miktarı ürün adının yanında ana rakamdır; ayrılan/kargoda/kullanılabilir aşağıdadır. Set değil fiziksel ürün sayılır; kargodakiler stoğa tekrar eklenmez.
+- Faturasız mal girişi ve depo sayımı üstte iki ayrı işlem. İkincil araçlar kapatılabilir. Maliyet, satış kullanımı ve ürün işlemleri satır içinde açılır; hareketlere doğrudan erişim var. Yetki, arşiv, eksik miktar, set payı ve kuruş gösterimi kuralları korunur.
+- **Gerçek davranış düzeltmesi:** miktara/tedarikçiye göre sıralama sonradan marka gruplamasıyla bozuluyordu. Görünüm artık seçicinin global sırasını aynen korur. Regresyon testi eklendi.
+- **Alış faturaları:** yeni belge alanı ve fatura geçmişi ayrıldı. Arama öncelikli; durum/sıralama ikinci planda. Mobilde ilk kayda erişimi geciktiren tekrar açıklama kaldırıldı.
+- **Belge masası:** Dosya seç → Kontrol et → Kaydı tamamla; PDF bırakma alanı, XML/elle giriş, gerçek otomatik işlem açıklaması. Tedarikçi/satır/çeşit kontrol formları ve tüm veri alanları korunur. Masaüstünde özgün belge inceleme yanında açılır, mobilde isteğe bağlıdır. Kuyruk, hata/eksik kayıt, yeniden yükleme ve disposal davranışları değişmedi.
+- 390px'de 153 sayısının 15/3 bölünmesi giderildi. Uzun sayılar kesilmez; 123.456.789 senaryosu tarayıcıda sınandı. Eski genel kart kurallarının yerleşime sızması yerel bileşen seçicileriyle engellendi.
+
+## Dosyalar
+- public/accounting-ui.js
+- public/product-list.js
+- public/purchase-document-ui.js
+- public/stock-workflow.css (yerine yazıldı)
+- public/purchase-doc.css (yerine yazıldı)
+- tests/rebuild-stock-purchase.test.js
+- tests/rebuild-stock-purchase-browser.test.js
+
+## Doğrulama
+- Yeni fold/sıralama/büyük sayı tarayıcı testleri: 320, 390, 1440px; taşma ve JS hatası yok. Yalnız sentetik yerel veri; dış ağ ve iş yazıları engellenir.
+- Mevcut depo/alış tarayıcı akışları 6/6: owner 360/1280, tutar gizleme, ledger-write/stock-read, aynı route eylemi, faturasız giriş vs sayım POST gövdesi (intercept), disposal, readonly engeli.
+- Fatura modülü ve bağımlılığı yüklenemediğinde kurtarma tarayıcı testleri 4/4 (EC ve LP).
+- Son hedefli paket 50/50: yeni testler, remaining, gider-urun-duzeltme, komisyon-orani, set-urun-karlilik.
+- Arayüz ölçeği önce 13/13 geçti; son paralel çalışma anında insights-design.css:388 içindeki sales-view-tabs>button border-radius:0 nedeniyle 2 ölçek testi kırmızı. Bu dosya bu paketin dışında; ana ajan ilgili sahipte düzeltebilir. Stok ve giriş saf işlev testleri geçti.
+- Testte fatura filtre submit'i ardından sonraki işlem, eski form DOM'dan kalkıp yeniden yükleme bitince başlatılır; yalnız select değerini beklemek yeterli değildir.
+
+## Fold görselleri
+Yalnız sentetik demo. Tam sayfa değil, ilk ekran görüntüleridir.
+- docs/ux-2026-10-03/rebuild-stock-purchase/stock-390.png
+- docs/ux-2026-10-03/rebuild-stock-purchase/stock-1440.png
+- docs/ux-2026-10-03/rebuild-stock-purchase/invoices-390.png
+- docs/ux-2026-10-03/rebuild-stock-purchase/invoices-1440.png
+- docs/ux-2026-10-03/rebuild-stock-purchase/upload-390.png
+- docs/ux-2026-10-03/rebuild-stock-purchase/upload-1440.png
+- docs/ux-2026-10-03/rebuild-stock-purchase/stock-large-390.png
+
+## Devam
+Ana ajan bütünleşik testleri, son önizleme sunucusu yeniden başlatmasını ve release'i yönetir. Bu pakette API/veritabanı/hareket matematiği değiştirilmedi. Kullanıcının muhasebe matematiği incelemesi diğer çalışma kolundadır.
+
+
+==================================================
+EK: docs/UX-2026-10-03-REBUILD-reports-orders.md
+==================================================
+
+# Raporlar ve Siparişler — yapısal arayüz yenilemesi
+
+Tarih: 3 Ekim 2026 çalışması, doğrulama 4 Ekim 2026.
+Repo: `C:\Users\baran\Desktop\site\lunapot-panel`
+Durum: Bu bölümün kaynakları hazır ve sabit. Commit veya canlı dağıtım yapılmadı; birleşik dağıtım ana ajana ait.
+
+## Kullanıcıya yansıyan değişiklik
+
+Rapor ekranı artık tek uzun açıklama kartı değil. Masaüstünde solda gerçek dosya yükleme alanı, sağda rapor türü ve mağaza rehberi bulunur. Son yüklenen dosyalar aynı ekranın altında görünür. Mobilde rehber kapalı başlar; dosya seçimi ve son dosya daha önce görünür. Alış faturası için yanlış sayfada kalan kullanıcı doğrudan doğru yükleme ekranına gidebilir.
+
+Dosya geçmişi yatay taşan altı sütunlu tablo yerine durum, mağaza ve devam işlemi açık dosya satırlarından oluşur. Dosya adı/mağaza araması ve işlenen/bekleyen filtresi eklendi. Yarım kalan dosyalar ana yükleme ekranından tek hareketle süzülür. İşlem ayrıntılarında işlenen satır, deneme sayısı, gerçek hata, yeniden deneme zamanı ve sonuç dağılımı korunur. Başarısız işleme dosyayı kaybetmez; aynı satırdaki Devam et yeniden kullanılabilir.
+
+Siparişlerde durumlar ve sayılar tek şeritte, arama ve sıralama kısa bir araç satırındadır. Kâr/zarar, tarih ve takip filtreleri açılır paneldedir. Masaüstünde kanal düğmeleri, telefonda bütün kanalları koruyan seçim alanı kullanılır. Seçilen durum mobil şeritte görünür konuma kayar. Satırın ana kimliği sipariş numarasıdır; ürün ve stok bileşenleri ikinci düzeyde, durum ve finans sonucu ayrı sütunlardadır. Mobil satır, ürünün altına durum ve iki mali tutarı yerleştirir. Tahmini, teslim bekleyen ve eksik tutarlar birbirine dönüşmez.
+
+## Kaynaklar
+
+- `public/report-inbox-ui.js`: yükleme çalışma alanı, son dosyalar, dosya arama/süzme ve işlem durumları.
+- `public/report-inbox.css`: belge çalışma alanının duyarlı bileşen stilleri. Banka, banka eşleştirme ve satış belge ekranlarının kullandığı ortak `rb-*` yardımcı sınıfları korunur.
+- `public/orders-ui.js`: sipariş çalışma alanı, kısa filtreleme yapısı, mobil kanal seçimi, belirgin sipariş kimliği.
+- `public/order-workbench.css`: yeni sipariş bileşenleri; ana ajan e-ticaret HTML dosyasında bağlantısını ekledi.
+- `tests/ui-reports-orders-rebuild-browser.test.js`: yeni davranış ve ilk ekran testleri.
+- `tests/ui-reports-orders-daily-browser.test.js`: önceki anlamlı davranışlar korunarak yeni mobil rehber/disclosure ve dosya sekmesi yapısına güncellenen seçiciler.
+
+`src`, ana kabuk, HTML bağlantısı, genel tema dosyaları, veritabanı ve dağıtım bu alt görevde değiştirilmedi. Sipariş/fatura/stok hesap formülleri aynen kullanılır; bu bölüm muhasebe motorunu değiştirdiği iddiasında bulunmaz.
+
+## Doğrulama
+
+Son koşu: **32 test, 32 başarılı, 0 başarısız, 0 atlanan.**
+
+```powershell
+$env:REPORTS_ORDERS_PREVIEW_URL='http://127.0.0.1:18731'
+$env:REPORTS_ORDERS_SCREENSHOT_DIR='docs/ux-2026-10-03/rebuild/reports-orders'
+node --test tests/ui-reports-orders-daily-browser.test.js tests/ui-reports-orders-rebuild-browser.test.js tests/arayuz-olcek.test.js
+```
+
+Gerçek Chromium ile sentetik, ağ erişimi kapalı yerel Worker önizlemesi kullanıldı. 320, 390 ve 1440 piksel genişliklerinde tüm sayfanın yatay taşmaması, dosya seçiminin ilk ekranda olması, son dosyaların görünmesi ve sipariş listesinin açılmış filtrelerin altında kaybolmaması doğrulandı. Görseller ayrıca gözle incelendi; yalnız DOM testine dayanılmadı.
+
+Doğrulanan davranışlar:
+
+- Aynı sayfaya yeniden gelen `action=upload` niyeti, kalan hash parametreleri ve seçili rapor tarihi korunur.
+- İlk GET hatası boş mağaza kurulumu gibi gösterilmez; yeniden deneme sunulur.
+- Mağaza veya türü bilinmeyen seçilmiş dosya korunur; eksik bilgi sorulur.
+- Dosya araması sıfır sonuçta açık temizleme yolu sunar.
+- Yarım işlem filtresi tamamlanan dosyaları ayırır; temsili 503 hatasından sonra dosya ve yeniden deneme korunur. Bu POST tarayıcıda açıkça taklit edildi; gerçek iş kaydı yazılmadı.
+- Salt okunur personel dosyalara bakabilir; yükleme ve yeni sipariş kapalıdır.
+- Mobilde Diğer dahil bütün kanallar seçilebilir; durum ve kâr/zarar filtreleri sunucu sorgusuna ve adrese yansır.
+- Sipariş detayı, klavye ile açma, geri/Escape, doğrudan paket bağlantısı, stok düzeltme penceresi ve sayfadan ayrılırken kapanma korunur.
+- Arama yanıtları ters sırada gelse de son arama geçerlidir.
+- Gelişmiş rapor araçları açılarak erişilir ve işlemden sonra açık kalır.
+
+Ayrıca komisyon-oranı, satış biçimi ve gezinme/yetki sözleşmelerinin 22 testi başarılı koştu. Birleşik sistem testinin nihai sonucu ana ajanın raporunda yer alacaktır. İki JS dosyasında sözdizimi kontrolü, görev dosyalarında `git diff --check` temizdir.
+
+## Görsel kanıt
+
+Hepsi sentetik veridir. Son durum dosyaları:
+
+- `docs/ux-2026-10-03/rebuild/reports-orders/rebuild-reports-1440.png`
+- `docs/ux-2026-10-03/rebuild/reports-orders/rebuild-reports-390.png`
+- `docs/ux-2026-10-03/rebuild/reports-orders/rebuild-reports-320.png`
+- `docs/ux-2026-10-03/rebuild/reports-orders/rebuild-orders-1440.png`
+- `docs/ux-2026-10-03/rebuild/reports-orders/rebuild-orders-390.png`
+- `docs/ux-2026-10-03/rebuild/reports-orders/rebuild-orders-320.png`
+- `docs/ux-2026-10-03/rebuild/reports-orders/rebuild-files-1440.png`
+- `docs/ux-2026-10-03/rebuild/reports-orders/rebuild-files-390.png`
+- `docs/ux-2026-10-03/rebuild/reports-orders/rebuild-report-error-390.png`
+
+Sipariş ayrıntısı ve mevcut yükleme niyeti görüntüleri aynı dizinde `order-detail-*` ve `reports-*` adlarıyla ayrıca bulunur.
+
+## Bilinen kapsam sınırı
+
+Rapor API'si mevcut haliyle son 100 dosyayı döndürür (`src/report-inbox-api.js` liste sorgusu). Yeni dosya araması bu alınmış dosyalar üzerinde çalışır. Liste 100 dosyaya ulaştığında bu sınır masaüstü ve mobilde açıkça yazılır. Daha eski arşivde sunucu tarafı arama/sayfalama bu UI alt görevinin kapsamı değildir; eski dosyaların hiç olmadığı iddia edilmez.
+
+Canlı veriye veya gerçek rapor dosyasına işlem yapılmadı. Yeni CSS ve HTML bağlantısının birlikte dağıtılması ve servis çalışanı önbellek sürümünün yükseltilmesi birleşik sürümün sorumluluğundadır.
+
+
+==================================================
+EK: docs/UX-2026-10-04-REBUILD-secondary.md
+==================================================
+
+# Secondary workspace rebuild · 2026-10-04
+
+Implemented in `C:\Users\baran\Desktop\site\lunapot-panel`. Scope stayed within the six assigned secondary UI files, one targeted browser test, and this evidence folder. No Git, deployment, or live writes were performed. Concurrent foundation and other agents' files were preserved.
+
+## Changes
+
+- `public/production-ui.js` and `public/production-design.css`: permission-filtered local navigation; compact factual summaries; product and batch together in the first production column; explicit record section headings; mobile two-column quantity/cost rows and full-width material actions. Barcode lookup is an expandable tool. Record tables use the existing `data-list-tools="off"` contract because their search/status controls are already provided, avoiding a second injected toolbar. No production queue or projected figures were invented.
+- `public/access.js` and `public/access-design.css`: focused sections for employees, account/devices, recovery, and access history; a dedicated employee editor and explicit return without saving; cancel restores opener focus; same-tab navigation works while editing. Role presets, separate amount/deletion permissions, employee activation, and setup links retain their existing behavior. Shared account controls remain mounted while their section is hidden.
+- `public/webshop.js` and `public/webshop.css`: operational overview with actual new-order and open-request counts, catalog action, and a separate test-record summary; shared palette aliases; responsive administrative rows. Missing overview counts display `Bilinmiyor`. Existing test banner, sale restrictions, permissions, request ownership, abort handling, stale response protection, dialogs, and write-refresh behavior are retained. There is no new control to enable real sales.
+
+## Verification
+
+- Syntax checks passed for all three modified JavaScript modules.
+- **46/46 browser tests passed** across `tests/ui-secondary-workspaces-browser.test.js`, `tests/ui-webshop-browser.test.js`, and new `tests/ui-secondary-rebuild-browser.test.js`.
+- Existing browser coverage verifies production read-only permissions, unknown stock/cost values, mobile production forms, staff role permissions, webshop stale async responses, form recovery, and late-write reconciliation. Requests representing writes are fulfilled in isolated browser mocks; none are forwarded to the preview or live services.
+- New targeted coverage verifies employee section switching, same-tab return from editing, cancel focus restoration, new-employee navigation, test-only webshop operations, and document width at 360 and 1440 pixels.
+- Browser evidence uses the pre-existing isolated synthetic preview at `http://127.0.0.1:18731`, confirmed `synthetic=true`, `local_preview=true`, `network=blocked`. All external requests and unmocked writes are blocked.
+
+## Screenshots and logs
+
+Folder: `docs/ux-rebuild-2026-10-04/secondary/`
+
+- `production-360.png`, `production-1440.png`
+- `materials-360.png`, `materials-1440.png`
+- `team-360.png`, `team-1440.png`
+- `team-edit-360.png`, `team-edit-1440.png`
+- `webshop-360.png`, `webshop-1440.png`
+- `webshop-orders-360.png`, `webshop-orders-1440.png`
+- `layout.json`: all captured document widths fit their viewport.
+- `browser-tests.txt`: complete 46-test passing run.
+
+Visually inspected production desktop, materials mobile before/after refinement, team mobile, team editor desktop, and webshop desktop/mobile. Other captures are available for the parent integration review. Full-page captures show the fixed mobile dock at the viewport boundary; page content remains scrollable beneath it. Browser checks are synthetic and do not claim live data or end-to-end payment validation.
+
+## Reproduce
+
+From this repository in PowerShell, with synthetic preview 18731 already running:
+
+```powershell
+$env:UI_SECONDARY_REBUILD_BROWSER='1'
+$env:UI_SECONDARY_WORKSPACES_BROWSER='1'
+$env:UI_SECONDARY_WORKSPACES_PREVIEW='http://127.0.0.1:18731'
+$env:UI_WEBSHOP_BROWSER='1'
+$env:UI_WEBSHOP_PREVIEW='http://127.0.0.1:18731'
+node --test tests/ui-secondary-rebuild-browser.test.js tests/ui-secondary-workspaces-browser.test.js tests/ui-webshop-browser.test.js
+```
+
+Status: implementation and local verification complete; ready for parent integration. No changes were made to `app.js`, HTML entry points, workspace foundation, APIs, or production data.

@@ -1,0 +1,116 @@
+{
+  "checked_at": "2026-10-03T21:36:20.672Z",
+  "version": "38de9600-4d84-45cf-bdc4-3f80b0a2836b",
+  "anonymous_read_only": true,
+  "results": [
+    {
+      "path": "/",
+      "status": 200,
+      "expected": 200,
+      "ok": true
+    },
+    {
+      "path": "/eticaret/",
+      "status": 200,
+      "expected": 200,
+      "ok": true
+    },
+    {
+      "path": "/uretim/",
+      "status": 200,
+      "expected": 200,
+      "ok": true
+    },
+    {
+      "path": "/access.html",
+      "status": 200,
+      "expected": 200,
+      "ok": true
+    },
+    {
+      "path": "/webmagaza/",
+      "status": 200,
+      "expected": 200,
+      "ok": true
+    },
+    {
+      "path": "/api/auth/status",
+      "status": 200,
+      "expected": 200,
+      "ok": true,
+      "anonymous": true
+    },
+    {
+      "path": "/api/ec/performance",
+      "status": 401,
+      "expected": 401,
+      "ok": true
+    },
+    {
+      "path": "/sw.js",
+      "status": 200,
+      "ok": true,
+      "matches_local": true
+    },
+    {
+      "path": "/workspace-design.css",
+      "status": 200,
+      "ok": true,
+      "matches_local": true
+    },
+    {
+      "path": "/operations-ui.js",
+      "status": 200,
+      "ok": true,
+      "matches_local": true
+    },
+    {
+      "path": "/accounting-ui.js",
+      "status": 200,
+      "ok": true,
+      "matches_local": true
+    },
+    {
+      "path": "/report-inbox-ui.js",
+      "status": 200,
+      "ok": true,
+      "matches_local": true
+    },
+    {
+      "path": "/orders-ui.js",
+      "status": 200,
+      "ok": true,
+      "matches_local": true
+    },
+    {
+      "path": "/order-workbench.css",
+      "status": 200,
+      "ok": true,
+      "matches_local": true
+    },
+    {
+      "path": "/performance-ui.js",
+      "status": 200,
+      "ok": true,
+      "matches_local": true
+    },
+    {
+      "path": "/access.js",
+      "status": 200,
+      "ok": true,
+      "matches_local": true
+    },
+    {
+      "path": "/production-ui.js",
+      "status": 200,
+      "ok": true,
+      "matches_local": true
+    },
+    {
+      "path": "/webshop.js",
+      "status": 200,
+      "ok": true,
+      "matches_local": true
+    }
+  ]
+}

@@ -1,0 +1,160 @@
+{
+  "synthetic": true,
+  "source": "final backend and frontend",
+  "pages": [
+    {
+      "name": "overview",
+      "width": 390,
+      "overflow": false,
+      "heading": "Genel durum",
+      "errors": []
+    },
+    {
+      "name": "stock",
+      "width": 390,
+      "overflow": false,
+      "heading": "Depodaki ürünler",
+      "errors": []
+    },
+    {
+      "name": "invoices",
+      "width": 390,
+      "overflow": false,
+      "heading": "Alış faturaları",
+      "errors": []
+    },
+    {
+      "name": "reports",
+      "width": 390,
+      "overflow": false,
+      "heading": "Raporlar",
+      "errors": []
+    },
+    {
+      "name": "orders",
+      "width": 390,
+      "overflow": false,
+      "heading": "Siparişler",
+      "errors": []
+    },
+    {
+      "name": "ledger",
+      "width": 390,
+      "overflow": false,
+      "heading": "Cari hesaplar",
+      "errors": []
+    },
+    {
+      "name": "performance",
+      "width": 390,
+      "overflow": false,
+      "heading": "Satış biçimleri",
+      "errors": []
+    },
+    {
+      "name": "production",
+      "width": 390,
+      "overflow": false,
+      "heading": "Üretim kayıtları",
+      "errors": []
+    },
+    {
+      "name": "access",
+      "width": 390,
+      "overflow": false,
+      "heading": "Ekip ve erişim",
+      "errors": []
+    },
+    {
+      "name": "webshop",
+      "width": 390,
+      "overflow": false,
+      "heading": "Mağazana genel bakış",
+      "errors": []
+    },
+    {
+      "name": "launcher",
+      "width": 390,
+      "overflow": false,
+      "heading": "İşine buradan başla.",
+      "errors": []
+    },
+    {
+      "name": "overview",
+      "width": 1440,
+      "overflow": false,
+      "heading": "Genel durum",
+      "errors": []
+    },
+    {
+      "name": "stock",
+      "width": 1440,
+      "overflow": false,
+      "heading": "Depodaki ürünler",
+      "errors": []
+    },
+    {
+      "name": "invoices",
+      "width": 1440,
+      "overflow": false,
+      "heading": "Alış faturaları",
+      "errors": []
+    },
+    {
+      "name": "reports",
+      "width": 1440,
+      "overflow": false,
+      "heading": "Raporlar",
+      "errors": []
+    },
+    {
+      "name": "orders",
+      "width": 1440,
+      "overflow": false,
+      "heading": "Siparişler",
+      "errors": []
+    },
+    {
+      "name": "ledger",
+      "width": 1440,
+      "overflow": false,
+      "heading": "Cari hesaplar",
+      "errors": []
+    },
+    {
+      "name": "performance",
+      "width": 1440,
+      "overflow": false,
+      "heading": "Satış biçimleri",
+      "errors": []
+    },
+    {
+      "name": "production",
+      "width": 1440,
+      "overflow": false,
+      "heading": "Üretim kayıtları",
+      "errors": []
+    },
+    {
+      "name": "access",
+      "width": 1440,
+      "overflow": false,
+      "heading": "Ekip ve erişim",
+      "errors": []
+    },
+    {
+      "name": "webshop",
+      "width": 1440,
+      "overflow": false,
+      "heading": "Mağazana genel bakış",
+      "errors": []
+    },
+    {
+      "name": "launcher",
+      "width": 1440,
+      "overflow": false,
+      "heading": "İşine buradan başla.",
+      "errors": []
+    }
+  ]
+}
