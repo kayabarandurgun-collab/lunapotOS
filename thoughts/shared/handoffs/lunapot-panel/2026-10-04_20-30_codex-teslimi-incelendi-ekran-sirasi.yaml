@@ -1,0 +1,108 @@
+---
+session: lunapot-panel
+date: 2026-10-04
+status: complete
+outcome: SUCCEEDED
+outcome_nedeni: "Codex'in büyük teslimi bağımsız incelendi; canlıda duran iki hata bulunup düzeltildi ve yayınlandı. Kullanıcının istediği ekran sırası yapıldı. 0065 tuzağı migration ile kapatıldı (CANLIYA UYGULANMADI, aşağıya bak). Bir test hatası bilerek bırakıldı, teşhisi tam yazıldı."
+---
+
+goal: "İki iş: (1) kullanıcı ana ekran sırasını Dönem özeti → Akıllı takip → Günlük işlemler yaptırdı; (2) Codex'in 04.10 teslimi (akıllı takip, stok uyarıları, dashboard, 8 yeni modül, 3 migration) para doğruluğu ve veri bütünlüğü açısından incelendi. İnceleme sırasında canlıda duran iki hata bulundu ve aynı yayında düzeltildi."
+now: "KULLANICIDA İKİ KOMUT VAR (aşağıdaki 'bekleyen_komutlar'). Migration 0069 yazıldı ve testlendi ama CANLIYA UYGULANMADI; uygulanmadan yayın yapılırsa kod ile veritabanı uyuşmaz. Önce db:remote, sonra deploy, sonra push."
+test: "npm test → 1397 test, 1365 pass, 2 fail (dış tasarım projesi), 30 skip. Tarayıcı: 284 kontrol, 282 pass (aşağıdaki tek hata bilerek bırakıldı), 1 çalıştırılamadı (HTTPS gerekiyor)."
+
+bekleyen_komutlar: |
+  SIRAYLA, hepsi kullanıcıda (benim izinlerim engelliyor):
+    node scripts/migrate-remote.mjs                       # 0069 — ÖNCE BU
+    npx.cmd wrangler deploy                               # yayın
+    git push origin main                                  # 10 commit, yedek
+  PowerShell 5.1: '&&' YOK, 'npm run X' ExecutionPolicy'ye takılıyor.
+  Bu oturumda ikisini de unutup kullanıcıya iki kez yanlış komut verdim.
+  DOĞRUSU: npx.cmd ile çağır, komutları ayrı satır yaz.
+
+ortam:
+  repo: "C:/Users/baran/Desktop/site/lunapot-panel (main). Documents/Codex kopyası ESKİ, DOKUNMA. Kabuk cwd ara sıra oraya VE lunapot-store-preview'e kayıyor; MUTLAK YOL kullan."
+  canli: "https://muhasebe.lunapot.com · sürüm 62b8162e (v179) %100 · önbellek lunapot-shell-v179-takip-ikinci-grafik-acik · migration CANLIDA 0068'e kadar."
+  onizleme: |
+    TARAYICI TESTLERİNİN ANAHTARI BU. Testler INSIGHTS_PREVIEW gibi değişkenler
+    verilmezse SESSİZCE ATLANIYOR (npm test'teki 30 skip bunlar).
+      node scripts/design-preview.mjs --port=8790 --scenario=populated
+    Her test kendi *_BROWSER=1 bayrağını ve *_PREVIEW adresini ister.
+    DİKKAT: üç test KENDİ PORTUNU sabit bekliyor —
+      ui-recipe-save-browser      → 8791
+      ui-secondary-workspaces     → 18730
+      ui-reports-orders-rebuild   → 18731
+      ui-secondary-rebuild        → 18731
+    Hepsini tek porta yönlendirirsen bu üçü yanlış yere "düştü" der.
+    quick-access-browser HTTPS önizleme şart koşuyor; bu kurulumda çalıştırılamaz.
+    Çalışan betik: scratchpad/tarayici2.sh (devir sonrası silinir, yeniden yazılabilir).
+  tarayici_paneli: "localhost'a navigate ETMİYOR; preview_start ile aç. Bölüm sırası ölçerken querySelector İÇ İÇE öğeye denk gelebilir — kapsayıcının children'ına bak, yoksa yanlış sıra okursun (bu oturumda bir kez yanlış alarm verdim)."
+
+kullanici:
+  - "TEKNİK ANLATMA, KISA YAZ."
+  - "Beklerken sorar ('ne kadar sürecek', 'oluyor mu'). Uzun işte ARA RAPOR VER."
+  - "İDDİAYI SORGULUYOR VE HAKLI ÇIKIYOR: tutarların sıfırlı olmasını kendisi fark etti, gerçekten hataydı."
+  - "'Tam yetki sana' diyor ama şifre girme ve yayın komutu izinleri yine de bende değil."
+
+done_this_session:
+  - task: "EKRAN SIRASI DEĞİŞTİ (kullanıcı isteği). Dönem özeti → Akıllı takip → Günlük işlemler. operations-ui.js'teki tek satırlık innerHTML'de bölüm yerleri değişti; CSS order DEĞİL, gerçek DOM sırası, telefon ve masaüstü aynı. 1440 ve 375px'te ölçüldü, taşma yok."
+    files: [public/operations-ui.js]
+  - task: "CANLIDA DURAN HATA 1: SATIŞ GRAFİĞİ KAPALI GELİYORDU. 'Kanallara göre kazanç hareketi' details'i open olmadan basılıyordu; kullanıcının 'satış performansı üstte olsun' isteğinin tam tersi. Varsayılan açık yapıldı; kullanıcı kapatırsa rememberDisclosures o tercihi hâlâ koruyor. BENİM DEĞİŞİKLİĞİM DEĞİL — HEAD'e dönüp doğruladım, orada da düşüyordu."
+    files: [public/panorama-ui.js]
+  - task: "CANLIDA DURAN HATA 2: TELEFONDA DOKUNMA HEDEFİ. Grafiğin 'Grafiğin veri tablosu' düğmesi 37,2px; kural 44. insights-design.css'teki '.insights-panorama .pn-table summary{min-height:36px}' 44'e çekildi. ÖNEMLİ: önce ui-polish.css'e kural ekledim, İŞE YARAMADI — daha özgül seçici onu eziyordu. Kazanan kuralı bul, yenisini ekleme."
+    files: [public/insights-design.css]
+  - task: "MIGRATION 0069: FATURASIZ GİRİŞ TERS KAYDEDİLEMEZ. Sebep aşağıda 'findings'. ec_provisional_entry_reverse_guard'a ikinci koruma eklendi, ledger-api'ye sebebi anlatan özel mesaj kondu, test yazıldı. CANLIYA UYGULANMADI."
+    files: [migrations/0069_faturasiz_giris_ters_kayit_engeli.sql, src/ledger-api.js, tests/faturasiz-mal-girisi.test.js]
+  - task: "CODEX TESLİMİ İNCELENDİ. 6 boyutta paralel okuma + her bulguyu çürütmeye çalışan doğrulama turu (32 ajan). 26 bulgudan 2'si sağ kaldı. Codex'in iddialarının ÇOĞU DOĞRU ÇIKTI: kâr formüllerine dokunulmamış, migration'larda yıkıcı işlem yok, stok tüketiminde çift sayma yok, tutar izni gerçekten sunucuda uygulanıyor."
+    files: []
+
+findings:
+  - 0065_tuzagi: "EN ÖNEMLİ BULGU. Faturasız mal girişi HEM cari borcu HEM STOK HAREKETİ yazıyor (ledger-api.js:366-375). /api/ledger/reverse yalnız cari satırını tersliyordu; stok hareketi yerinde kalıyor. 0065'teki eligible hesabı reversed=1 olan satırı bir daha asla uygun saymıyor, korumalar da yalnız eligible=0'a baktığı için o TEDARİKÇİ+ÜRÜN ikilisinde BÜTÜN gelecek faturalar PROVISIONAL_LEGACY_UNLINKED ile kilitleniyordu. Panelden çıkış yolu yok: proofs görünümü ters kayıtları dışlıyor, başlık da değiştirilemiyor. KORUMAYI GEVŞETMEK YANLIŞ OLURDU çünkü stok hareketi gerçekten ortada, fatura işlenirse mal iki kez sayılır. Doğru çözüm tuzağın kurulmasını engellemek — 0069 bunu yapıyor. CANLIDA VAKA YOK (ölçüldü: 6 faturasız giriş, ters kaydedilmiş 0)."
+  - codex_iddiasi_yarim_dogru: "'performance-api yalnız latest_customer_return_on metadata ekledi' YARIM DOĞRU. Mevcut kâr hesabına gerçekten dokunulmamış (53 ekleme / 0 SİLME; profit_cents, cash_cents, allocateCents, stopaj aynı; sales-presentation.js, order-insights-api.js, pazaryeri-kesinti.js bayt bayt aynı). AMA eklenen 53 satırın yalnız 5'i metadata; kalan 48'i YENİ BİR PARA HESABI (recordedFinancialParts, financial_parts, cost_gross_basis, cost_vat_estimated). Dahası yeni dashboard-summary.js PARALEL BİR HESAP: projenin kendi fixture'ında aynı dönem için dashboard 'Ciro ₺120,00' derken panorama null ('Bilgi eksik') dönüyor. İKİ EKRAN FARKLI RAKAM GÖSTEREBİLİR — ölçülmedi, açık iş."
+  - izin_eksigi: "'Tutar izni olmayan personelden sales_alerts kaldırılır' DOĞRU (worker.js:165/167 scrubAmounts, permission-policy.js:79 null'a çekiyor, kodla çalıştırılarak doğrulandı; beş yeni API'nin hepsi permit()'ten geçiyor, açıkta uç YOK, çalışma alanı izolasyonu sağlam). AMA aynı yanıtta zarar/kâr paket SAYILARI, en kötü/en iyi ürün SIRALAMASI ve dağıtılmamış kesinti bayrağı personele hâlâ gidiyor; üstelik null'lanan unallocated_fee_cents arayüzde 'kesinti yok' diye okunuyor ve dönem 'Hesaplandı' damgası alıyor."
+  - tarayici_testleri_eksik_kosulmus: "Codex 'v178: 11/11 tarayıcı kontrolü', 'v177: 73/73' diyor ama 28 tarayıcı test DOSYASI var ve tamamı koşulmamış. Tamamı ilk kez bu oturumda koşuldu (284 kontrol) ve iki gerçek hata ortaya çıktı. npm test bunları SESSİZCE ATLIYOR — 'npm test yeşil' tek başına yetmiyor."
+  - dusen_iki_birim_testi_disaridan: "seed-local-catalog ve store-sync testleri ../lunapot-store-preview (repo DIŞI kardeş proje) okuyor; o proje 04.10 18:06'da değişmiş. sync-store-preview.mjs bu teslimde hiç değişmemiş. Codex'in 'bu işten kaynaklanmıyor' iddiası DOĞRULANDI."
+
+acik_isler:
+  - "KULLANICIDA — ÜÇ KOMUT: db:remote (0069), deploy, push. Yukarıdaki 'bekleyen_komutlar'a bak. 0069 uygulanmadan deploy edilirse kod ile veritabanı uyuşmaz."
+  - "FİYAT HESABI KAYDETME HATASI — BİLEREK BIRAKILDI. tests/ui-recipe-save-browser.test.js 'late recipe metadata cannot reopen inputs during save'. HEAD'de de düşüyor, bugünkü teslimden ESKİ (recipe-studio.js son değişiklik 2027603, test 71b8b1d). Teşhis: test /api/auth/status yanıtını TUTUYOR, sonra submit'e basıyor, page.waitForFunction(()=>window.submitted) 30 sn'de zaman aşımına uğruyor — yani save callback'i HİÇ ÇAĞRILMIYOR. recipe-studio.js:66'daki 'if(!chosen.size) return' kapısı ilk şüpheli ama chosen satır 15'te recipe.items'tan doluyor, yani boş OLMAMALI. metadataReady=user!==undefined (satır 11) ve metadata beklerken formun durumu incelenmedi. Sonraki oturumda buradan devam: formun submit anında disabled olup olmadığını ölç. Bağlam dolduğu için aceleyle dokunmadım; fiyat ekranı kullanıcının fiyat belirlediği yer."
+  - "DASHBOARD İLE PANORAMA FARKLI RAKAM GÖSTEREBİLİR (yukarıdaki finding). Ölçülmedi. Kullanıcı bunu istemişti, sıraya alınmadı."
+  - "quick-access-browser testi HTTPS önizleme gerektiriyor, çalıştırılamadı. Personel davet/giriş/cihaz iptali akışı BU OTURUMDA DOĞRULANMADI."
+  - "Önceki devirden duranlar: 7 kurumsal HB faturası (GİB mükellef listesi lazım), 7 gönderilmemiş sipariş, Pina Small fiyat profili, kargo tarifeleri 31.12.2026'da bitiyor."
+
+decisions:
+  - grafik_acik_varsayilan: "Testin mesajı zaten 'gerçek satış grafiği hemen görünebilir olmalı' diyordu; niyet açıktı. restoreDisclosures yalnız daha önce kaydedilmiş durumu geri yüklediği için varsayılanı açık yapmak kullanıcının kapatma tercihini bozmuyor."
+  - ters_kaydi_engelle_korumayi_gevsetme: "Stok hareketi ters kayıttan sonra da duruyor; korumayı gevşetmek çift sayma kapısını açardı. Tuzağın kurulmasını engellemek seçildi."
+  - fiyat_hatasina_dokunulmadi: "Bağlam sınırına yaklaşılmıştı ve hata bugünkü teslimden eski, zaten canlıda. Fiyat ekranına aceleyle dokunmak yerine tam teşhis devre yazıldı."
+
+worked:
+  - "HATAYI KİME AİT OLDUĞUNU ÖLÇMEK: kendi değişikliğimi geçici geri alıp testi HEAD'de çalıştırdım. İki kez 'benim mi?' sorusunu kesin cevapladı — ikisi de benim değildi."
+  - "TEK TESTİ KENDİ SUNUCUSUNDA İZOLE ÇALIŞTIRMAK: paylaşılan önizlemede 'düştü' diyen üç test aslında yanlış porta bakıyordu."
+  - "TARAYICIDA GERÇEKTEN ÖLÇMEK: 'grafik kapalı geliyor' iddiasını ekrandan değil computed style ve DOM'dan doğruladım."
+  - "26 bulgunun 24'ünün çürütülmesi: 'emin değilsen çürüt' talimatı yanlış alarmı kesti. Ama bu 'sorun yok' demek değil, 'kanıtlanamadı' demek — özetlerdeki şüpheler açık iş olarak duruyor."
+
+failed:
+  - "KULLANICIYA İKİ KEZ ÇALIŞMAYAN KOMUT VERDİM: önce '&&' (PowerShell 5.1'de yok), sonra 'npm run deploy' (ExecutionPolicy engelliyor). İKİSİ DE HAFIZAMDA YAZILIYDI. Komut vermeden önce ortam notunu oku."
+  - "CSS'i YANLIŞ DOSYAYA YAZDIM: ui-polish.css'e kural ekledim, daha özgül '.insights-panorama .pn-table summary' onu ezdi. DERS: önce computed style'a bakıp KAZANAN kuralı bul."
+  - "BÖLÜM SIRASINI YANLIŞ ÖLÇTÜM: querySelector('.attention-center') panorama'nın İÇİNDEKİ öğeye denk geldi, 'sıra bozuk' diye yanlış alarm verdim. Kapsayıcının children'ına bakınca doğru çıktı."
+  - "28 TARAYICI TESTİNİ TEK ÖNİZLEMEYE YÖNLENDİRDİM: üçü kendi portunu bekliyordu, sahte hata ürettiler."
+
+next:
+  - "1) Kullanıcı üç komutu çalıştırsın (db:remote → deploy → push). Sonra canlıda 0069'un tetiği var mı ve sürüm yerine oturdu mu doğrula."
+  - "2) Fiyat hesabı kaydetme hatası: yukarıdaki teşhisten devam et, formun submit anındaki disabled durumunu ölç."
+  - "3) dashboard-summary ile panorama aynı dönem için aynı rakamı veriyor mu ÖLÇ. Vermiyorsa hangisi doğru, karar ver."
+  - "4) Personel erişim akışı için HTTPS önizleme kur, quick-access-browser'ı çalıştır."
+  - "5) Tutar izni olmayan personele sızan paket sayıları / ürün sıralaması / 'kesinti yok' yanılgısı: kullanıcıya sor, sorun sayıyor mu."
+
+files:
+  created:
+    - migrations/0069_faturasiz_giris_ters_kayit_engeli.sql
+    - thoughts/shared/handoffs/lunapot-panel/2026-10-04_20-30_codex-teslimi-incelendi-ekran-sirasi.yaml
+  modified:
+    - public/operations-ui.js
+    - public/panorama-ui.js
+    - public/insights-design.css
+    - public/sw.js
+    - src/ledger-api.js
+    - tests/faturasiz-mal-girisi.test.js
+  commits:
+    - "f024f3c Put smart alerts above daily work and surface the sales chart (YAYINLANDI, sürüm 62b8162e)"

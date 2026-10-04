@@ -1,0 +1,93 @@
+---
+session: lunapot-panel
+date: 2026-10-03
+status: complete
+outcome: SUCCEEDED
+outcome_nedeni: "66 HB faturası kesildi, gönderildi ve HB'ye ulaştığı ÖLÇÜLDÜ (faturasız 77 → 14). Kalan 14 bilinçli olarak bekletiliyor, ikisinin de sebebi net. Kod değişmedi; iş tarayıcıdan yapıldı."
+---
+
+goal: "Kesilmemiş 77 Hepsiburada faturasını EDM üzerinden kesmek. Yol sıfırdan kuruldu: HB'den veri, EDM Excel toplu yükleme, taslak doğrulama, gönderim. 66 şahıs faturası (18.680,63 TL) kesildi; 7 kurumsal ve 7 gönderilmemiş ayrıldı."
+now: "KULLANICIDA KARAR YOK, bekleyen iki iş var: (1) GİB mükellef listesi indirilip 7 kurumsal siparişin e-Fatura mı e-Arşiv mi olacağı belirlenecek; (2) 7 gönderilmemiş sipariş kargoya çıkınca (tahmini 05.10) faturalanacak. Kod tarafında bekleyen iş YOK."
+test: "Bu oturumda kod değişmedi, test çalıştırılmadı. Üretici betik scratchpad'de, repoya girmedi."
+
+ortam:
+  repo: "C:/Users/baran/Desktop/site/lunapot-panel (main, HEAD 1597e37). DEĞİŞİKLİK YOK."
+  canli: "https://muhasebe.lunapot.com · CACHE v172 · migration 0064."
+  edm: |
+    portal2.edmbilisim.com.tr/EFaturaUI · hesap 2731455087 DEKOVİLL · kullanıcı BARAN DURGUN KAYA.
+    OTURUM ÇOK ÇABUK DÜŞÜYOR (~15 dk boşta). Uzun iş yaparken ara verme; düşerse
+    kullanıcıdan tekrar giriş iste. ŞİFRE GİRME — kullanıcı bu oturumda şifresini
+    sohbete yazdı, kullanılmadı, değiştirmesi önerildi.
+  hb: "merchant.hepsiburada.com · mağaza LUNAPOT. Tarayıcıdan giriş kullanıcıda."
+  araclar: "Dosya yükleme/seçme yetkim yok (built-in tarayıcıda file input doldurulamıyor). YÜKLE'ye kullanıcı basmalı; GÖNDER'e ben basabiliyorum."
+
+kullanici:
+  - "TEKNİK ANLATMA, KISA YAZ."
+  - "İDDİANI SORGULUYOR VE HAKLI ÇIKIYOR: 'tutarlar neden bu kadar sıfırlı' diye sordu, gerçekten hataydı."
+  - "Sık sık 'oldu mu, iyi durumdayız değil mi' diye soruyor — ara durum raporu iste. Beklerken bilgi ver."
+  - "Uzun komut döngüsünden sıkılıyor; mümkün olanı sen yap, sadece yapamadığını iste."
+
+done_this_session:
+  - task: "77'NİN NE OLDUĞU ÖLÇÜLDÜ. HB'nin kendi ucundan: delivered 54 + shipped 19 + readytoship 4 = 77, hepsi HasInvoice:false. Dashboard'daki 'Fatura yüklenecek teslimat 77' ile birebir."
+    files: []
+  - task: "66 ŞAHIS FATURASI KESİLDİ VE GÖNDERİLDİ. LUN2026000000001–066, 03.10.2026 tarihli, internet satışı / e-Arşiv. KDV hariç 15.567,17 + KDV 3.113,46 = 18.680,63 TL. Hepsi HB'ye ulaştı, ölçüldü."
+    files: []
+  - task: "EDM EXCEL TOPLU YÜKLEME YOLU KURULDU. EDM'nin kendi 'Fatura Yükleme Örneği' xlsx'inin 73 sütunluk düzeni çıkarıldı, uydurma sütun yok. Üretici betik HB verisinden doğrudan xlsx üretiyor (store-only zip, bağımlılık yok)."
+    files: [scratchpad/fatura/uret.mjs, scratchpad/fatura/zip.mjs, scratchpad/fatura/xlsx-oku.mjs]
+  - task: "TUTAR KURALI ÜÇ KAYNAKTAN DOĞRULANDI. Fatura tutarı = kalem UnitPriceBeforeLateInterest × Quantity. TotalListingPriceAmount DEĞİL: HB indirimli siparişte liste 174,00 ama faturaya giren 160,08 (panel defteri de 16008 kuruş diyor). 66 faturanın EDM'deki toplamı 18.680,63 — hesaplananla kuruşu kuruşuna aynı."
+    files: []
+  - task: "TAŞIYICI VKN'LERİ BULUNDU. İnternet satışı faturasında zorunlu; EDM eksikte yüklemeyi reddetti. hepsiJET = D FAST DAĞITIM HİZMETLERİ VE LOJİSTİK A.Ş. 2650701090; Aras Kargo 0720039666. İkisi de GİB VKN kontrol algoritmasından geçti (algoritma bilinen iki doğru numarayla sınandı). KULLANICININ KENDİ BELGESİNDEN DEĞİL, kamuya açık kayıttan — muhasebeciye teyit ettirmesi söylendi."
+    files: []
+  - task: "İKİ DENEME TASLAĞI SİLİNDİ (LUN001 hatalı, LUN002 doğru). Seri boşluksuz kalsın diye ikisi de iptal edildi, 73'lük tur 001'den başlatıldı. Silme akışı: satırdaki çöp simgesi → Evet → İPTAL SEBEBİ penceresi → İPTAL ET (iki aşamalı, ilki yetmiyor)."
+    files: []
+
+acik_isler:
+  - "7 KURUMSAL SİPARİŞ BEKLİYOR. e-Fatura mükellefi olanlara e-Fatura (DEK serisi, son no 36), olmayanlara e-Arşiv kesilecek. EDM'nin GİB sorgu ekranı (Company/GibUsers.aspx) ÇALIŞMIYOR — Aras Kargo gibi kesin mükellef için bile boş dönüyor, yani liste yüklü değil, 'bulunamadı' cevabına GÜVENME. Çözüm: aynı sayfadaki 'GİB kullanıcı listesini indir' bağlantısıyla listeyi indirip VKN'leri offline karşılaştırmak. Kullanıcıdan indirme izni istendi, 'sonra' dedi. Siparişler: 4519897528/8439649437 The Mood Cafe 645,00 · 4474710370/15335312148 gülseven eczanesi 99,00 (11 HANELİ = TCKN, şahıs işletmesi) · 4136321435/3010424676 Merve Dizdar 1.093,00 · 4097655146/8430708288 Theta Yapı 139,00 · 4491196515/8590015572 Toytaş 1.200,00 · 4830600630/8591446704 Transatlas 125,00 · 4734833755/1781841942 BMS Restorasyon 369,00. Toplam 3.670,00 TL."
+  - "7 GÖNDERİLMEMİŞ SİPARİŞ (durum 'Created'). KARGO TARİHİ YOK, tahmini çıkış 05.10.2026. İnternet satışı faturasında gönderim tarihi ZORUNLU; olmamış sevkiyata tarih YAZILMADI. Kargoya verilince kesilecek. İçlerinden 4142807354 (göksu ENT, VKN 4050577800) hem kurumsal hem gönderilmemiş — bu yüzden 8+7=15 değil, 14 sipariş."
+  - "HER YENİ HB SATIŞI İÇİN BU İŞ TEKRARLANACAK. Şu an elle: HB'den veri çek → xlsx üret → kullanıcı yükler → gönder. HB API'si açılırsa panel kendi yapar. Kullanıcıya söylendi, KARAR VERMEDİ; API kapatma kararı 26.09'da bilinçliydi, kendisi istemedikçe açma."
+  - "Kullanıcı EDM şifresini sohbete yazdı. Değiştirmesi önerildi, yaptığı doğrulanmadı."
+  - "Önceki devirden duranlar: Pina Small fiyat profili, Seçkin TS1/Plug Mix ay sonu işi, HB 4496993205 (TS1) aktarım doğrulaması, kargo tarifeleri 31.12.2026'da bitiyor."
+
+decisions:
+  - internet_satis_lun_serisi: "Kullanıcı 'internet satış olarak devam et' dedi. LUN serisi portalda İnternet Satış için tanımlı ve hiç kullanılmamıştı. Faturada ödeme şekli, kargo firması, gönderim tarihi görünüyor — kanun bunları istiyor. Kullanıcının daha önce elle kestiği HB faturaları ARV serisinden düz e-Arşiv olarak gitmişti, bu alanlar onlarda yok."
+  - fatura_tarihi_bugun: "23.09–01.10 arası satışlara 03.10 tarihi. Kullanıcının kararı. Geç faturalamanın muhasebe tarafı muhasebeciye bırakıldı, tavsiye verilmedi."
+  - gonderilmemisler_haric: "Kullanıcı önce 'hariç tut' dedi, sonra 'hepsini kes' dedi; kargo tarihi olmadığı için yine kesilmedi ve sebebi açıklandı. Gelecek tarihli sevkiyat uydurmak yerine beklemek seçildi."
+  - kurumsal_ayri_tur: "66 şahıs ayrı, 7 kurumsal ayrı. Sebep: VKN'si olmak e-Fatura mükellefi olmak demek değil; karışık yüklemede hatalı satırlar seri numarasında boşluk bırakırdı."
+
+findings:
+  - hb_faturayi_epostayla_kendi_aliyor: "EN ÖNEMLİ BULGU. HB'ye fatura YÜKLENMİYOR. Her siparişin {siparisNo}_{paketNo}@hepsifatura.com adresi var (HB'nin sipariş ucunda UserEmail alanında geliyor); EDM faturayı oraya e-postalayınca HB siparişe kendiliğinden bağlıyor. Önce kullanıcının 18:24'te elle kestiği ARV2026000000038 ile fark edildi (sipariş 4592680020 HasInvoice:true çıkmıştı), sonra 66 faturayla doğrulandı: faturasız 77 → 14."
+  - ondalik_ayraci_virgul: "EDM Excel'de ondalık ayracı VİRGÜL. '157.500000' yazılınca nokta binlik ayracı sayıldı, birim fiyat 157.500.000 TL oldu, ödenecek tutar 318,00 yerine 265.000.053,00 çıktı. Taslak ONAYLANMADAN yakalandı. Tarihler ise NOKTALI (03.10.2026) ve doğru çalışıyor."
+  - hb_ic_ucu_her_seyi_veriyor: "merchant.hepsiburada.com/fulfilment/api/v2/deliveries/{delivered|shipped|readytoship}?offset&limit — oturum çerezisiyle JSON veriyor. PascalCase. İçinde BillingAddress (TaxNumber, TaxOffice, UserIdentityNumber), UserEmail, kalem fiyatları, CargoCompany, DeliveryNumber, HasInvoice, ShippedDate var. Panelin ec_order_packages tablosunda müşteri/adres sütunu HİÇ YOK, API kayıtları da silinmişti — fatura verisi yalnız HB'de."
+  - taslak_kontor_yemiyor: "Kontör gönderimde düşüyor, taslak oluşturmada değil. e-Arşiv faturası başına 1 kontör (66 fatura = 66 kontör). Oturum başındaki 28'lik düşüş bizim değil, kullanıcının 18:39'da kestiği 14 faturanındı."
+  - edm_satir_bazinda_dogruluyor: "Excel yüklemesi satır satır sonuç veriyor: başarılı satır fatura numarası + ETTN + tür ('Internet Satış') döndürüyor, hatalı satır sebebini yazıp 0 adet oluşturuyor. 66 satır 66 başarı, 0 hata."
+
+worked:
+  - "GÖNDERMEDEN ÖNCE TASLAĞI OKUMAK. 265 milyonluk hata tam burada yakalandı. Ekran görüntüsü yetmedi, iç içe iframe'den METNİ okumak gerekti."
+  - "TEK FATURAYLA DENEMEK, SONRA 66. İki deneme turu hatayı iki kez ucuza buldurdu."
+  - "TOPLAMI KARŞILAŞTIRMAK, ÖRNEK BAKMAK DEĞİL. 66 faturanın EDM'deki toplamı hesaplananla tutunca her satırın doğruluğu tek hamlede kanıtlandı."
+  - "18'ERLİ PARTİ GÖNDERMEK. İlk parti sonrası HB'ye ulaştığı doğrulandı, ancak ondan sonra kalanı gönderildi."
+  - "UYDURMAMAK: taşıyıcı VKN'si bilinmediğinde boş bırakıldı, EDM hatayı söyledi, sonra doğrulanıp eklendi. Gönderilmemiş siparişlere sahte kargo tarihi yazılmadı."
+
+failed:
+  - "ONDALIK AYRACINI VARSAYMAK: EDM'nin örnek dosyasındaki sayılar tamsayıydı (10, 13, 2), ondalık ayracını göstermiyordu; nokta varsayıldı, yanlış çıktı. DERS: örnek dosya belirsizse ilk denemede TEK kayıtla sına."
+  - "GRID'DE JS İLE TIKLAMAK: ASP.NET/Telerik sayfasında bazı düğmeler JS .click() ile işlemiyor (YÜKLE hiç işlemedi, GÖNDER bir kez işlemedi). DERS: find+computer ile gerçek tıkla, sonra SONUCU ÖLÇ — 'tıkladım' demek yetmiyor, üçüncü parti gönderildi sanıldı, taslak sayısı hâlâ 30'du."
+  - "EDM'NİN GİB SORGU EKRANINA GÜVENMEK: Company/GibUsers.aspx her sorguda boş dönüyor, kesin mükellef firmalar için bile. 'Bulunamadı' = 'mükellef değil' DEĞİL."
+  - "javascript_tool İLE ÇOK SAYFALI DÖNGÜ: 6 sayfa gezen sorgu 45 sn'de zaman aşımına uğradı. DERS: sayfalamayı böl ya da tek sayfalık sonuç iste."
+
+next:
+  - "1) Kullanıcı izin verince EDM'den GİB mükellef listesini indir, 7 kurumsal VKN'yi karşılaştır, e-Fatura olanları DEK serisinden (37'den başlayarak), diğerlerini LUN'dan kes."
+  - "2) 05.10 civarı: gönderilmemiş 7 sipariş kargoya çıktı mı bak, çıktıysa aynı yoldan kes."
+  - "3) Yeni HB satışları biriktikçe aynı turu tekrarla. Kullanıcı HB API'sini açmak isterse panel bunu kendi yapabilir — kendisi istemedikçe açma."
+  - "4) Taşıyıcı VKN'lerini muhasebeciye teyit ettirmesini hatırlat."
+
+files:
+  created:
+    - thoughts/shared/handoffs/lunapot-panel/2026-10-03_22-40_hb-fatura-edm-66-kesildi.yaml
+  modified: []
+  scratchpad:
+    - fatura/uret.mjs
+    - fatura/zip.mjs
+    - fatura/xlsx-oku.mjs
+  indirilenler:
+    - C:/Users/baran/Downloads/hb-faturasiz-73.json
+    - C:/Users/baran/Downloads/lunapot-fatura/HB-SAHIS-66.xlsx

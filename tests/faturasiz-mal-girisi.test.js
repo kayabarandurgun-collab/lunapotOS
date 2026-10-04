@@ -206,3 +206,22 @@ test('Faturasız giriş açık borç listesinde görünür ve faturasız olduğu
    'kapanan geçici borç açık listede kalmamalı');
  } finally { f.close(); }
 });
+
+// Giriş hem cari borcunu hem STOK HAREKETİNİ yazar. Cari ekranından ters kaydetmek
+// borcu siler ama malı depoda bırakırdı; 0065'teki koruma o satırı bir daha "uygun"
+// saymadığı için o tedarikçi + ürün ikilisinde sonraki BÜTÜN faturalar kilitlenirdi
+// ve panelden çıkış yolu kalmazdı. Tuzağın kurulması migration 0069 ile engellendi.
+test('Faturasız mal girişi cari ekranından ters kaydedilemez', async () => {
+ const {f, supplier, product} = await seed(); try {
+  const r = await gecici(f, supplier.id, product);
+  const entry = f.sqlite.prepare("SELECT * FROM ec_party_entries WHERE source_key='gecici:' || ?").get(r.id);
+
+  const cevap = await f.req('/ec/ledger/reverse', {entry_id: entry.id, occurred_on: GELIS, reference: 'TERS-1', reason: 'Yanlış girildi'});
+  assert.equal(cevap.status, 409, 'ters kayıt reddedilmeli');
+  assert.match(cevap.data.error, /ters kaydedilemez/, 'sebebi anlatan mesaj dönmeli');
+
+  assert.equal(stok(f, product).q, 10000, 'stok olduğu gibi kalmalı');
+  assert.equal(bakiye(f, supplier.id), -120000, 'cari borcu silinmemeli');
+  assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_party_entries WHERE reversal_of=?').get(entry.id).n, 0, 'ters kayıt satırı yazılmamalı');
+ } finally { f.close(); }
+});
