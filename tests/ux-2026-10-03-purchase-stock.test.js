@@ -5,9 +5,11 @@ import {resetPurchaseFile,purchaseQueueResult} from '../public/purchase-document
 import {movementLabel,linksBlock} from '../public/stock-history-ui.js';
 
 test('purchase/warehouse links accept only actions for the current route',()=>{
- assert.deepEqual(accountingIntent('#invoices?action=upload','invoices'),{action:'upload',product:''});
- assert.deepEqual(accountingIntent('#stock?filter=low&action=unbilled&product=a%26b','stock'),{action:'unbilled',product:'a&b'});
- assert.deepEqual(accountingIntent('#/stock?action=count','stock'),{action:'count',product:''});
+ assert.deepEqual(accountingIntent('#invoices?action=upload','invoices'),{action:'upload',product:'',party:''});
+ assert.deepEqual(accountingIntent('#stock?filter=low&action=unbilled&product=a%26b','stock'),{action:'unbilled',product:'a&b',party:''});
+ assert.deepEqual(accountingIntent('#/stock?action=count','stock'),{action:'count',product:'',party:''});
+ // Cariler ekranındaki düğme tek forma yönlendirir ve seçili tedarikçiyi taşır.
+ assert.deepEqual(accountingIntent('#stock?action=unbilled&party=p1','stock'),{action:'unbilled',product:'',party:'p1'});
  for(const hash of ['#stock?action=upload','#reports?action=upload','#invoices?action=unbilled','#stock?action=delete','#stock'])assert.equal(accountingIntent(hash,'stock'),null);
  assert.equal(accountingIntent('#stock?action=count','invoices'),null);
 });

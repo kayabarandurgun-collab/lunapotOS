@@ -71,7 +71,7 @@ export function accountingIntent(hash,view){
  if(route!==view)return null;
  const params=new URLSearchParams(query),action=params.get('action');
  if(!(view==='invoices'&&action==='upload')&&!(view==='stock'&&['unbilled','count'].includes(action)))return null;
- return {action,product:params.get('product')||''};
+ return {action,product:params.get('product')||'',party:params.get('party')||''};
 }
 export function unbilledStockPreview(product,quantity){
  const v=stockCountPreview(product,quantity);
@@ -116,7 +116,7 @@ export function mountAccounting(root,namespace='ec',initialView='overview',embed
  const remove=path=>api(path,{method:'DELETE'});
  const notice=message=>{const box=$('#ac-error');if(box){box.textContent=message;box.hidden=false;box.scrollIntoView({block:'nearest'});}};
  const productOptions=()=>state.data.stock.filter(p=>!archivedHidden(p)).map(p=>[p.id,`${p.name} · ${p.sku} (${p.stock_unit})`]);
- const dates=()=>field('İşlem tarihi','occurred_on',date(),'date','required');
+ const dates=(deger)=>field('İşlem tarihi','occurred_on',deger||date(),'date','required');
  const heading=(subtitle,actions='')=>`<div class="page-heading"><div><span class="eyebrow">${namespace==='ec'?'E-ticaret':'Lunapot'} / İşlemler</span><h1>${views[state.view]}</h1><p>${subtitle}</p></div><div class="ac-actions">${actions}</div></div>`;
  const stats=values=>`<div class="stats">${values.map(([label,value,help],i)=>`<article class="stat ${i===3?'highlight':''}"><span>${label}</span><strong class="ac-number">${value}</strong><small>${help}</small></article>`).join('')}</div>`;
  function close(){const dialog=$('dialog');dialog?.close();dialog?.remove();state.invoice=null;}
@@ -195,11 +195,26 @@ export function mountAccounting(root,namespace='ec',initialView='overview',embed
   const intent=accountingIntent(location.hash,state.view);if(!intent)return;
   const [route,query='']=location.hash.split('?'),params=new URLSearchParams(query);params.delete('action');params.delete('product');
   history.replaceState(history.state,'',route+(params.size?'?'+params:''));
-  try{if(intent.action==='upload')openUpload();else showForm(intent.action==='count'?'stock':'unbilled',intent.product);}catch(error){notice(error.message);}
+  try{if(intent.action==='upload')openUpload();else showForm(intent.action==='count'?'stock':'unbilled',intent.product,intent.party);}catch(error){notice(error.message);}
  }
- function unbilledLine(productId=''){
-  const product=state.data.stock.find(p=>p.id===productId);
-  return '<fieldset class="unbilled-line" data-unbilled-line><legend>Gelen ürün</legend>'+select('Fiziksel stok ürünü','product_id',[['','Ürün seç'],...productOptions()],productId,'required')+'<div class="field-grid">'+field('Bu teslimatta gelen miktar','quantity','','number','required min="0.001" max="1000000" step="0.001" inputmode="decimal"')+amountField('Birim alış maliyeti · KDV hariç','unit_cost','',true)+field('KDV oranı · %','vat_rate',Number.isSafeInteger(product?.vat_bps)?product.vat_bps/100:'','number','required min="0" max="100" step="0.01" inputmode="decimal"')+'</div><output class="stock-count-preview" data-unbilled-preview aria-live="polite">Ürünü ve yeni gelen miktarı seç.</output><button type="button" class="text-button" data-ac="remove-unbilled-line">Bu ürünü çıkar</button></fieldset>';
+ // YARIM KALAN GIRIS KURTARMA. Uzun bir faturasiz giris (coklu urun) yarida kalirsa
+ // kullanici her seyi yeniden yazmak zorunda kalmasin. Yalniz bu tarayicida durur,
+ // basarili kayittan sonra silinir. Eski 'Cariler' formunun anahtari OKUNMAZ: alan
+ // adlari farkliydi, yanlis doldurmaktansa bos baslamak dogrudur.
+ const DRAFT='lunapot:faturasiz-mal-girisi-v2';
+ const draftRead=()=>{try{const v=localStorage.getItem(DRAFT);return v?JSON.parse(v):null;}catch{return null;}};
+ const draftWrite=d=>{try{localStorage.setItem(DRAFT,JSON.stringify(d));}catch{}};
+ const draftClear=()=>{try{localStorage.removeItem(DRAFT);}catch{}};
+ function draftCollect(form){
+  const d=new FormData(form),lines=[];
+  const ids=d.getAll('product_id'),q=d.getAll('quantity'),c=d.getAll('unit_cost'),v=d.getAll('vat_rate');
+  ids.forEach((id,i)=>lines.push({product_id:id,quantity:q[i],unit_cost:c[i],vat_rate:v[i]}));
+  return {supplier_id:d.get('supplier_id'),occurred_on:d.get('occurred_on'),reference:d.get('reference'),
+   due_on:d.get('due_on'),notes:d.get('notes'),lines};
+ }
+ function unbilledLine(productId='',vals=null){
+  const product=state.data.stock.find(p=>p.id===(vals?.product_id||productId));
+  return '<fieldset class="unbilled-line" data-unbilled-line><legend>Gelen ürün</legend>'+select('Fiziksel stok ürünü','product_id',[['','Ürün seç'],...productOptions()],vals?.product_id||productId,'required')+'<div class="field-grid">'+field('Bu teslimatta gelen miktar','quantity',vals?.quantity||'','number','required min="0.001" max="1000000" step="0.001" inputmode="decimal"')+amountField('Birim alış maliyeti · KDV hariç','unit_cost',vals?.unit_cost||'',true)+field('KDV oranı · %','vat_rate',vals?.vat_rate||(Number.isSafeInteger(product?.vat_bps)?product.vat_bps/100:''),'number','required min="0" max="100" step="0.01" inputmode="decimal"')+'</div><output class="stock-count-preview" data-unbilled-preview aria-live="polite">Ürünü ve yeni gelen miktarı seç.</output><button type="button" class="text-button" data-ac="remove-unbilled-line">Bu ürünü çıkar</button></fieldset>';
  }
  function updateUnbilled(form){
   if(!form)return;
@@ -253,7 +268,7 @@ export function mountAccounting(root,namespace='ec',initialView='overview',embed
  function filters(){return `<form data-ac-form="filters" class="ac-filters">${field('Başlangıç','from',state.from,'date','required')}${field('Bitiş','to',state.to,'date','required')}<button class="secondary" type="submit">Uygula</button><span class="muted">${state.from} — ${state.to}</span></form>`;}
  function ensureProducts(){if(!state.data.stock.length)throw new Error(namespace==='ec'?'Önce Stok ekranından bir ürün ekleyin.':'Önce Lunapot Ürünler ekranından ürün ekleyin.');}
  function feeFields(e={},negative=false){return `<div class="field-grid">${amountField('Komisyon payı · KDV hariç','commission',e.commission_cents==null?'':e.commission_cents/100,false,negative)}${amountField('Kargo payı · KDV hariç','shipping',e.shipping_cents==null?'':e.shipping_cents/100,false,negative)}${amountField('Diğer satış giderleri','other',e.other_cents==null?'':e.other_cents/100,false,negative)}${select('Gider doğrulaması','fees_status',[['pending','Tahmini / doğrulama bekliyor'],['confirmed','Belgelerle doğruladım']],e.fees_status||'pending')}</div><p class="help">Bilmediğiniz gideri boş bırakın; gider yoksa 0 yazın. Kargo paket toplamını her ürüne tekrar yazmayın; yalnızca bu satış satırına ait payı girin.${negative?' İade edilen komisyonu eksi, ek iade kargosunu artı girin.':''}</p>`;}
- function showForm(action,key){
+ function showForm(action,key,party=''){
   if(action==='stock-performance-retry'){changeStockRange(state.stockRange);return;}
   if(action==='stock-reset'){Object.assign(state,{stockQuery:'',stockFilter:'',stockBrand:'',stockCategory:'',stockSupplier:''});render();return;}
   if(action==='edit-product'){const p=state.data.stock.find(x=>x.id===key);dialog('E-ticaret ürününü düzenle','edit-product',field('Ürün kimliği','product_id',key,'hidden')+field('Ürün adı','name',p.name,'text','required maxlength="200"')+field('Ürün kodu','sku',p.sku,'text','required maxlength="80"')+select('Stok birimi','stock_unit',['adet','kg','g','L','ml'].map(u=>[u,u]),p.stock_unit)+field('Düşük stok sınırı','min_stock',p.min_stock_milli/1000,'number','required min="0" max="1000000" step="0.001"')+productMetadata(p));}
@@ -288,8 +303,15 @@ export function mountAccounting(root,namespace='ec',initialView='overview',embed
    if(!canUnbilled())throw Error('Faturasız mal girişi için Cariler ve nakit yazma yetkisi gerekir.');
    ensureProducts();if(state.data.unbilledSuppliersError)throw Error('Tedarikçiler yüklenemedi: '+state.data.unbilledSuppliersError);const suppliers=state.data.suppliers.filter(x=>x.kind==='supplier'&&!x.archived_at);
    if(!suppliers.length)throw Error('Önce Cariler ve nakit ekranından bir tedarikçi ekleyin.');
-   dialog('Faturasız mal girişi','unbilled','<div class="notice subtle"><strong>Yalnızca yeni gelen miktarı ekle.</strong><p>Depoda 12 adet varsa ve 5 adet geldiyse buraya 5 yaz: stok 17 olur. Depodaki toplamı buraya yazma.</p></div>'+select('Malı gönderen tedarikçi','supplier_id',[['','Tedarikçi seç'],...suppliers.map(x=>[x.id,x.name])],'','required')+'<div class="field-grid">'+dates()+field('İrsaliye / teslimat numarası','reference','','text','required maxlength="200" placeholder="Örn. IRS-2026-105"')+'</div><div data-unbilled-lines>'+unbilledLine(key)+'</div>'+button('+ Başka ürün ekle','add-unbilled-line','type="button"',true)+'<details class="workflow-details"><summary>Vade ve açıklama · isteğe bağlı</summary>'+field('Ödeme vadesi','due_on','','date')+field('Teslimat notu','notes','','text','maxlength="1000"')+'</details><p class="help">Bu kayıt stoğu artırır ve tedarikçiye geçici borç yazar; ödeme yapmaz. Fatura geldiğinde tedarikçiyi, ürünleri ve önceki teslimatı birlikte kontrol et. Fatura sonrası stok ve geçici borç durumunu doğrula; aynı malı sayımdan yeniden ekleme.</p>','<button class="primary" type="submit">Gelen malı kaydet</button>');
-   updateUnbilled($('[data-ac-form="unbilled"]'));return;
+   const taslak=draftRead()||{};
+   // Baska bir tedarikci secilmis geldiyse (Cariler ekranindan gelen bag) taslak degil o gecer.
+   const seciliTedarikci=party&&suppliers.some(x=>x.id===party)?party:(suppliers.some(x=>x.id===taslak.supplier_id)?taslak.supplier_id:'');
+   const taslakSatirlari=(taslak.lines||[]).filter(x=>x&&(x.product_id||x.quantity||x.unit_cost));
+   dialog('Faturasız mal girişi','unbilled','<div class="notice subtle"><strong>Yalnızca yeni gelen miktarı ekle.</strong><p>Depoda 12 adet varsa ve 5 adet geldiyse buraya 5 yaz: stok 17 olur. Depodaki toplamı buraya yazma.</p></div>'+(taslakSatirlari.length?'<p class="help">Yarım kalan giriş geri yüklendi. Yanlışsa alanları değiştir ya da sayfayı yenileyip baştan başla.</p>':'')+select('Malı gönderen tedarikçi','supplier_id',[['','Tedarikçi seç'],...suppliers.map(x=>[x.id,x.name])],seciliTedarikci,'required')+'<div class="field-grid">'+dates(taslak.occurred_on)+field('İrsaliye / teslimat numarası','reference',taslak.reference||'','text','required maxlength="200" placeholder="Örn. IRS-2026-105"')+'</div><div data-unbilled-lines>'+(taslakSatirlari.length?taslakSatirlari.map(v=>unbilledLine('',v)).join(''):unbilledLine(key))+'</div>'+button('+ Başka ürün ekle','add-unbilled-line','type="button"',true)+'<details class="workflow-details"><summary>Vade ve açıklama · isteğe bağlı</summary>'+field('Ödeme vadesi','due_on',taslak.due_on||'','date')+field('Teslimat notu','notes',taslak.notes||'','text','maxlength="1000"')+'</details><p class="help">Bu kayıt stoğu artırır ve tedarikçiye geçici borç yazar; ödeme yapmaz. Fatura geldiğinde tedarikçiyi, ürünleri ve önceki teslimatı birlikte kontrol et. Fatura sonrası stok ve geçici borç durumunu doğrula; aynı malı sayımdan yeniden ekleme.</p>','<button class="primary" type="submit">Gelen malı kaydet</button>');
+   const unbilledForm=$('[data-ac-form="unbilled"]');
+   updateUnbilled(unbilledForm);
+   if(unbilledForm)unbilledForm.addEventListener('input',()=>draftWrite(draftCollect(unbilledForm)));
+   return;
   }
   if(action==='stock'){
    if(!canStockWrite())throw Error('Depo sayımı için stok yazma yetkisi gerekir.');
@@ -427,6 +449,7 @@ export function mountAccounting(root,namespace='ec',initialView='overview',embed
     });
     if(!lines.length)throw Error('En az bir ürün ekle.');
     await post('/ledger/provisional',{supplier_id:entries.supplier_id,occurred_on:entries.occurred_on,reference:entries.reference,notes:entries.notes,due_on:entries.due_on||null,lines});
+    draftClear();
    }
    if(kind==='stock'&&!canStockWrite())throw Error('Depo sayımı için yazma yetkisi gerekir.');
    if(kind==='stock')await post('/stock',{...entries,quantity:number('quantity'),unit_cost:number('unit_cost')});

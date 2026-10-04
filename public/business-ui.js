@@ -243,26 +243,8 @@ export function mountBusiness(root, namespace, view, user = null) {
   // Faturasız mal girişinin ürün satırı. Aynı adlar tekrarlanır; gönderirken FormData.getAll ile okunur.
   // FATURASIZ GİRİŞ SATIRI. Ürün 37 kalemlik açılır listeden tek tek seçilmiyor; kutuya yazılıp
   // datalist ile süzülerek seçiliyor. Gönderirken metin ürün kimliğine çevrilir.
-  const proAd = x => x.name + " · " + x.sku;
-  const provisionalRow = (v = {}) => { const rid = "r" + Math.random().toString(36).slice(2, 9); return "<div class=\"pro-row\" data-provisional-row=\"" + rid + "\">"
-   + "<label class=\"pro-urun\">Ürün<input list=\"pro-urun-listesi\" name=\"urun_metin\" value=\"" + esc(v.urun || "") + "\" required autocomplete=\"off\" placeholder=\"Yazarak ara: orkide…\"></label>"
-   + "<label class=\"pro-adet\">Adet<input name=\"quantity\" type=\"number\" value=\"" + esc(v.adet || "") + "\" required min=\"0.001\" max=\"1000000\" step=\"0.001\"></label>"
-   + "<label class=\"pro-maliyet\">Birim · KDV hariç<input name=\"unit_cost\" type=\"number\" value=\"" + esc(v.maliyet || "") + "\" required min=\"0\" max=\"100000000\" step=\"0.01\"></label>"
-   + "<label class=\"pro-kdv\">KDV %<input name=\"vat\" type=\"number\" value=\"" + esc(v.kdv === undefined ? 20 : v.kdv) + "\" required min=\"0\" max=\"100\" step=\"0.01\"></label>"
-   + "<button type=\"button\" class=\"secondary pro-sil\" data-business=\"provisional-remove\" data-id=\"" + rid + "\" title=\"Satırı sil\" aria-label=\"Satırı sil\">×</button>"
-   + "</div>"; };
   // TASLAK KORUMA. 10 satır doldurup pencere yanlışlıkla kapanınca hepsi gidiyordu. Yazdıkça
   // tarayıcıya kaydedilir, pencere yeniden açılınca geri yüklenir, kayıt başarılı olunca silinir.
-  const PRO_TASLAK = "lunapot:faturasiz-mal-girisi";
-  const proTaslakOku = () => { try { const v = localStorage.getItem(PRO_TASLAK); return v ? JSON.parse(v) : null; } catch { return null; } };
-  const proTaslakYaz = d => { try { localStorage.setItem(PRO_TASLAK, JSON.stringify(d)); } catch {} };
-  const proTaslakSil = () => { try { localStorage.removeItem(PRO_TASLAK); } catch {} };
-  function proTaslakTopla(form) {
-   const d = new FormData(form), satirlar = [];
-   const m = d.getAll("urun_metin"), q = d.getAll("quantity"), c = d.getAll("unit_cost"), v = d.getAll("vat");
-   m.forEach((t, i) => satirlar.push({urun: t, adet: q[i], maliyet: c[i], kdv: v[i]}));
-   return {supplier_id: d.get("supplier_id"), occurred_on: d.get("occurred_on"), reference: d.get("reference"), due_on: d.get("due_on"), notes: d.get("notes"), satirlar};
-  }
   // ARŞİVLİ KART YENİ SEÇİM LİSTESİNDE ÇIKMAZ. Geçmiş hareketlerde, bakiyede ve ekstrede durur;
   // yalnızca "bundan sonra kullanılacaklar" listesinden düşer. Sunucu da aynı kuralı uygular.
   const liveParties = () => (state.data.parties || []).filter(p => !p.archived_at);
@@ -460,17 +442,6 @@ export function mountBusiness(root, namespace, view, user = null) {
   }
   function ledgerForm(action, context = '') {
     const d = state.data;
-    if (action === 'provisional-remove') {
-      const kutu = $('[data-provisional-rows]');
-      const satir = kutu && context ? kutu.querySelector('[data-provisional-row="' + context + '"]') : null;
-      // Tek satır kaldıysa silmek yerine boşaltılır: form hiç satırsız kalmasın.
-      if (satir && kutu.children.length > 1) satir.remove();
-      else if (satir) satir.querySelectorAll('input').forEach(i => { i.value = i.name === 'vat' ? 20 : ''; });
-      const f = $('dialog[data-business-dialog] form');
-      if (f) proTaslakYaz(proTaslakTopla(f));
-      return;
-    }
-    if (action === 'provisional-row') { const box = $('[data-provisional-rows]'); if (box && box.children.length < 40) box.insertAdjacentHTML('beforeend', provisionalRow(box.children.length + 1)); return; }
     if (action === 'party') return dialog('Cari hesap ekle','party', input('Cari adı / unvan','name','','text','required maxlength="200"') + '<div class="field-grid">' + choose('Cari türü','kind',Object.entries(kindNames)) + input('VKN / TCKN · isteğe bağlı','tax_id','','text','maxlength="11" inputmode="numeric" pattern="[0-9]{10,11}"') + input('Yetkili kişi · isteğe bağlı','contact','','text','maxlength="500"') + input('Telefon · isteğe bağlı','phone','','tel','maxlength="50"') + input('E-posta · isteğe bağlı','email','','email','maxlength="200"') + '</div>' + textArea('Adres · isteğe bağlı','address','',false));
     if (action === 'account') return dialog('Kasa veya banka hesabı ekle','account',input('Hesap adı','name','','text','required maxlength="200" placeholder="Örn. İşletme banka hesabı"') + choose('Hesap türü','kind',[['cash','Kasa'],['bank','Banka']]) + '<p class="help">Hesap boş bakiye ile açılır. Mevcut bakiyeyi kaydederken gerçekleşen giriş/çıkışı ve açıklamasını kullan.</p>');
     // YANLIŞ GİRİLEN KARTIN DÜZELTİLMESİ. Ad, VKN, telefon ve adres sonradan değişebilir;
@@ -549,24 +520,12 @@ export function mountBusiness(root, namespace, view, user = null) {
         + input('Not · isteğe bağlı','note','','text','maxlength="200" placeholder="Örn. Ay sonunda ödeyeceğim"')
         + '<div class="notice subtle">Bu işlem ödeme kaydetmez ve bakiyeyi değiştirmez. Yalnızca “şu tarihte ödeyeceğim” notudur; vadesi gelen listesinde görünür. Tarihi sonra değiştirebilirsin, eski kayıt geçmişte kalır.</div>', context, 'Tarihi işaretle');
     }
+    // TEK FORM. Faturasiz mal girisi iki ekranda iki ayri formla giriliyordu: ikisi ayni uca
+    // ayni veriyi yaziyordu ama farkli davraniyordu ve iki yeri ayri guncellemek gerekiyordu.
+    // Tek kalan form Depodaki urunler ekranindadir: stogun ne olacagini gosterir ve tek urun
+    // icin hazir acilabilir. Secili cari baglantiyla tasinir, yeniden secilmez.
     if (action === 'provisional') {
-     const t = proTaslakOku() || {}, satirlar = (t.satirlar || []).length ? t.satirlar : [{}];
-     dialog('Faturasız mal girişi', 'provisional',
-      '<div class="notice subtle"><strong>Faturası henüz kesilmemiş malı buradan gir.</strong><p>Stok hemen artar ve cariye borcun yazılır. Gerçek fatura gelip muhasebeleştiğinde bu giriş kendiliğinden kapanır.</p></div>'
-      + (t.satirlar && t.satirlar.length ? '<p class="help">Yarım kalan giriş geri yüklendi.</p>' : '')
-      + choose('Cari · tedarikçi', 'supplier_id', partyOptions(), t.supplier_id || state.party)
-      + '<div class="field-grid">' + input('Malın geldiği tarih', 'occurred_on', t.occurred_on || today(), 'date', 'required')
-      + input('İrsaliye / referans', 'reference', t.reference || '', 'text', 'required maxlength="200"') + '</div>'
-      + '<div class="field-grid">' + input('Ödeme vadesi · ne zaman ödeyeceksin', 'due_on', t.due_on || '', 'date', '')
-      + input('Not · isteğe bağlı', 'notes', t.notes || '', 'text', 'maxlength="1000"') + '</div>'
-      + '<datalist id="pro-urun-listesi">' + (state.data.products || []).map(x => '<option value="' + esc(proAd(x)) + '"></option>').join('') + '</datalist>'
-      + '<div class="pro-basliklar"><span>Ürün</span><span>Adet</span><span>Birim · KDV hariç</span><span>KDV %</span><span></span></div>'
-      + '<div data-provisional-rows>' + satirlar.map(v => provisionalRow(v)).join('') + '</div>'
-      + button('+ Ürün satırı ekle', 'provisional-row', '', true)
-      + '<p class="help">Ürün kutusuna yazarak ara. Aynı ürünü iki satıra yazma, miktarı birleştir. Yazdıkların saklanır; pencere kapansa da kaybolmaz.</p>',
-      '', 'Girişi kaydet');
-     const form = $('dialog[data-business-dialog] form');
-     if (form) form.addEventListener('input', () => proTaslakYaz(proTaslakTopla(form)));
+     location.hash = '#stock?action=unbilled' + (state.party ? '&party=' + encodeURIComponent(state.party) : '');
      return;
     }
     if (action === 'invoice-debts') return dialog('Eksik fatura borçlarını tamamla','invoice-debts',
@@ -667,23 +626,6 @@ export function mountBusiness(root, namespace, view, user = null) {
         if (x.due_on) body.due_on = x.due_on;
         if (x.account_id) body.account_id = x.account_id;
       }
-      else if (kind === 'provisional') {
-        // Satır adları tekrarlandığı için Object.fromEntries yetmez; hepsini getAll ile okuyoruz.
-        // Tutarlar SAYIYA çevrilir: form metin verir, sunucudaki cents() yalnız sayı kabul eder.
-        const data = new FormData(form), metin = data.getAll('urun_metin'), qs = data.getAll('quantity'), cs = data.getAll('unit_cost'), vs = data.getAll('vat');
-        const harita = new Map((state.data.products || []).map(u => [proAd(u).toLowerCase(), u.id]));
-        const lines = [];
-        metin.forEach((t, i) => {
-          const anahtar = String(t || '').trim().toLowerCase();
-          if (!anahtar) return;
-          const pid = harita.get(anahtar);
-          if (!pid) throw Error((i + 1) + '. satırdaki ürün listede yok: "' + t + '". Kutuya yazıp açılan listeden seç.');
-          lines.push({product_id: pid, quantity: Number(qs[i]), unit_cost: Number(cs[i]), vat_bps: Math.round(Number(vs[i]) * 100)});
-        });
-        if (!lines.length) throw Error('En az bir ürün satırı ekleyin.');
-        if (new Set(lines.map(l => l.product_id)).size !== lines.length) throw Error('Aynı ürün iki satırda olamaz; miktarları birleştirin.');
-        path = '/provisional'; body = {supplier_id: x.supplier_id, occurred_on: x.occurred_on, reference: x.reference, due_on: x.due_on || null, notes: x.notes || '', lines};
-      }
       else if (kind === 'plan') { path = '/plans'; body = {entry_id:form.dataset.context, planned_on:x.planned_on, note:x.note || ''}; }
       else if (kind === 'invoice-debts') { path = '/invoice-debts'; body = {}; }
       else if (kind === 'reverse') { path = '/reverse'; const [type,id] = form.dataset.context.split(':'); body[type] = id; }
@@ -697,7 +639,6 @@ export function mountBusiness(root, namespace, view, user = null) {
         const group = form.dataset.context.split(':')[0], cardId = form.dataset.context.slice(group.length + 1);
         if (group === 'parties' && state.party === cardId) state.party = '';
       }
-      if (kind === 'provisional') proTaslakSil();
       if (kind === 'payment') { state.payment = null; state.selected.clear(); state.payParty = ''; }
       closeDialog(); if (view === 'pricing') state.quote = null;
       await load();
