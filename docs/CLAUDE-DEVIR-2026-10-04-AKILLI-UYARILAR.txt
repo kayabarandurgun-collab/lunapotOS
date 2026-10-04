@@ -6,11 +6,18 @@ Documents altındaki eski çalışma kopyasını kullanma.
 
 CANLIYA ALINDI
 Worker: lunapot-panel
-Sürüm: 77068919-6bf3-4c81-8078-e64fb3acc50d
-Dağıtım: 4a0d9aaf-c501-4e4c-b0db-00b30fd411ad, %100 trafik
-Önceki/geri dönüş sürümü: 04ccbd40-4721-4e80-8c35-6ef03baf5df6
+Sürüm: 3239ccf6-17ba-4994-9525-e19a293756b1 (v178 — satış performansı önce)
+Dağıtım: 8e99b796-f98f-441e-8fe5-98e8aba44960, %100 trafik
+Önceki/geri dönüş sürümü: 77068919-6bf3-4c81-8078-e64fb3acc50d
 Migration yok; canlı muhasebe/ürün/fiyat kayıtlarına toplu yazma yok.
-Yerel commit kimliği: docs/sales-alerts-2026-10-04/local-commit.json
+Yerel commit kimliği: docs/dashboard-priority-2026-10-04/local-commit.json
+
+SON İSTEK — ANA EKRAN ÖNCELİĞİ (v178)
+Kullanıcı en üstte satış performansını görmek, Bugün neye dikkat etmelisin? bölümünü daha aşağıya taşımak istedi.
+Yeni sıra: sayfa başlığı → satış performansı (ciro, cebine kalan, maliyetler ve grafikler) → günlük işlem bağlantıları → Akıllı takip.
+Masaüstü ve telefonda aynı gerçek DOM sırası kullanılır. Uyarıların hesabı ve işlevleri değişmedi.
+Bu düzeni tekrar tersine çevirme; satış performansı önce gelsin.
+11/11 mevcut tarayıcı kontrolü geçti; 1440/390/320px bölüm sırası ve taşma ayrıca doğrulandı. Üretim paketi hazırlandı, v178 canlıda %100 ve iki değişen dosya hash eşleşmesi doğrulandı. Yeni migration yok.
 
 İSTEK VE SONUÇ
 Kullanıcı son siparişlerde tekrarlayan küçük zararlar, iade/teslimat sorunları ve fiziksel stok tüketimine göre alım uyarıları istedi. Ana ekrana Akıllı takip eklendi.
@@ -23,7 +30,7 @@ Kullanıcı son siparişlerde tekrarlayan küçük zararlar, iade/teslimat sorun
 6. Uyarıdan doğru kanaldaki bütün set bileşimini eşleyen fiyat hesabına, kanıt siparişine ve filtrelenmiş tedarik planına geçilir. Mobil tek sütun ve büyük dokunma alanları var.
 7. Tutar izni olmayan personelden sales_alerts bütünüyle kaldırılır (null). Fiyat/alış siparişi otomatik değiştirilmez, mesaj/push gönderilmez. Ekran açılışında ve Şimdi kontrol et ile hesaplanır.
 
-DOĞRULAMA
+ÖNCEKİ AKILLI TAKİP TESLİMİNİN DOĞRULAMASI (v177)
 109/109 özellik, 73/73 etkin tarayıcı kontrolü geçti. Üretim derlemesi geçti. Tam npm test:1396 toplam/1364pass/2fail/30skip. İki hata eski mağaza önizleme katalog/sync araçları: kardeş tasarım projesinin veri biçimi değişmiş. HEAD betikleriyle aynı dış kaynakta aynı iki hata yeniden üretildi; bu işten kaynaklanmıyor. Tam paket yeşil denmemeli. baseline-external-tests.json/log kanıtları mevcut.
 Canlıda6değişenasset hash eşleşiyor; anaekran/giriş200; oturumsuzpanorama/warehouse401; doğruDB, bakımkapalı,%100sürüm doğrulandı.
 Canlıya giriş yapılmış tarayıcı kontrolü CUA Windows sandbox ACL hatası yüzünden mümkün olmadı. Yerel gerçek Chrome/Worker/SQLite ile sentetik akışlar test edildi. Canlı hesap tutarları tektek denetlendi veya canlı gecikme ölçüldü denmemeli.
@@ -34,6 +41,7 @@ Arşivli ürünler alım önerilerine girmez; ürün dosyası açık null değer
 GitHub main push yapılmadı. .node-version ve scripts/migrate-remote.mjs kullanıcı değişiklikleri korunur. Eski/untracked çalışma belgelerini silme.
 
 AYRINTILI RAPORLAR
+docs/dashboard-priority-2026-10-04/RELEASE.md (en son ekran düzeni ve yayın)
 docs/sales-alerts-2026-10-04/IMPLEMENTATION.md
 docs/sales-alerts-2026-10-04/RELEASE.md
 docs/sales-alerts-2026-10-04/backend.md
