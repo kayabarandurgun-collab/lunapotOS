@@ -47,7 +47,7 @@ test('late recipe metadata cannot reopen inputs during save and is applied after
   await page.evaluate(async()=>{
    const {openRecipeStudio}=await import('/recipe-studio.js');
    const data={products:[{id:'p1',name:'Saksı'}],recipes:[],materials:[{id:'m1',name:'Hammadde',unit:'kg',price:12,quantity_milli:5000},{id:'m2',name:'İkinci',unit:'kg',price:2,quantity_milli:5000}]};
-   openRecipeStudio(document.querySelector('#fixture'),data,{product_id:'p1',yield_qty:1,items:[{material_id:'m1',quantity:1,unit:'kg'}]},{save:payload=>{window.submitted=payload;return new Promise((resolve,reject)=>{window.failSave=()=>reject(Error('Yerel deneme hatası'));});},done:()=>{}});
+   openRecipeStudio(document.querySelector('#fixture'),data,{product_id:'p1',yield_qty:1,labor:0,packaging:0,overhead:0,items:[{material_id:'m1',quantity:1,unit:'kg'}]},{save:payload=>{window.submitted=payload;return new Promise((resolve,reject)=>{window.failSave=()=>reject(Error('Yerel deneme hatası'));});},done:()=>{}});
   });
   await sent;await page.locator('.recipe-studio button[type=submit]').click();
   await page.waitForFunction(()=>!!window.submitted);
