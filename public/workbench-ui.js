@@ -4,6 +4,15 @@ const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;
 const statusNames={open:'Açık',in_progress:'Üzerinde çalışılıyor',snoozed:'Ertelendi',done:'Tamamlandı',resolved:'Kaynakta çözüldü',unavailable:'Kaynak doğrulanamadı'};
 const day=()=>new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Istanbul'});
 const writableFeatures=(user,ns)=>Object.keys(modules[ns]||{}).filter(key=>key!=='amounts'&&can(user,ns,key,true));
+// Bir belge hangi ekranda islenir. Fatura ekraninin kuyrugu tur bilgisini ILK dosyadan
+// aldigi icin (purchase-document-ui.js kuyrugaAl) XML ve PDF AYRI gruplanir; karisik bir
+// partide ilk dosya XML olsa digerleri de XML sanilirdi. Rapor ekraninin takeMany'si ise
+// her dosyanin magazasini ve turunu kendi okur, bu yuzden butun raporlar TEK grupta gider:
+// TY ve HB raporu bir arada birakilinca her biri dogru magazaya ayrilir.
+export const INTAKE_GROUPS={'invoice:pdf':'Alış faturası','invoice:xml':'Alış faturası · UBL XML',report:'Pazaryeri raporu'};
+export const intakeGroupKey=d=>d.type==='invoice'?'invoice:'+(d.format==='xml'?'xml':'pdf'):'report';
+export const intakeTypeName=d=>d.type==='invoice'?'Alış faturası · '+String(d.format).toUpperCase():d.reportKind==='orders'?'Sipariş raporu':d.reportKind==='finance'?'Finans / kesinti raporu':'Rapor · türü seçilecek';
+
 export function intakeChoices(user,ns){
  const out=[];
  if(can(user,ns,ns==='ec'?'invoices':'accounts',true)&&can(user,ns,'amounts'))out.push('invoice');
@@ -69,29 +78,37 @@ function waitFor(root,predicate,signal,timeout=45000){
 }
 /** Uses the real uploader's existing drop listener; retaining File is essential, not a route link. */
 export async function handFileToUploader(root,file,{type,signal,reportKind}={}){
+ // Cocuk ekranlarin birakma alanlari [...e.dataTransfer.files] okuyor ve girisleri 'multiple';
+ // bu yuzden ayni turden butun dosyalar TEK devirde gider, ekran kendi toplu akisini isletir.
+ const list=Array.isArray(file)?file:[file];
+ if(!list.length)throw Error('Aktarilacak dosya yok.');
  const zone=await waitFor(root,()=>{
   if(root.getAttribute('aria-busy')==='true')return null;
   return root.querySelector(type==='invoice'?'[data-pd-drop]':'[data-rb-drop]');
  },signal);
  if(signal?.aborted)throw abortError();
- const transfer=new DataTransfer();transfer.items.add(file);
+ const transfer=new DataTransfer();for(const one of list)transfer.items.add(one);
  zone.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:transfer}));
  // The existing source-choice form owns store and report kind validation.
  if(type==='invoice'){
   await waitFor(root,()=>{
    if(root.getAttribute('aria-busy')==='true')return null;
    const error=root.querySelector('.pd-alert.error');if(error)throw Error(error.textContent);
-   return !root.querySelector('[data-pd-drop]') && (root.querySelector('[data-pd-form="document"]')||root.textContent.includes(file.name));
+   return !root.querySelector('[data-pd-drop]') && (root.querySelector('[data-pd-form="document"]')||list.some(one=>root.textContent.includes(one.name)));
   },signal,90000);
  }
  if(type==='report'){
+  // Coklu birakmada rapor ekrani (takeMany) dosyalari kendi okur, yukler ve uygular; ara
+  // kontrol formu HIC olusmaz, sonunda dosya basina sonucu olan toplu ozet basilir. Tek
+  // dosyada ise eskisi gibi ara kontrol formu beklenir. Yanlis olcute bakmak askida birakir.
   await waitFor(root,()=>{
    if(root.getAttribute('aria-busy')==='true')return null;
+   if(list.length>1)return root.querySelector('[data-rb-act="toplu-kapat"]');
    const error=root.querySelector('.rb-alert.error');if(error)throw Error(error.textContent);
    return root.querySelector('[data-rb-form="source"], [data-rb-form="map"], [data-rb-act="upload"]');
-  },signal);
+  },signal,list.length>1?240000:undefined);
  }
- if(type==='report'&&reportKind){
+ if(type==='report'&&reportKind&&list.length===1){
   const state=await waitFor(root,()=>{
    if(root.getAttribute('aria-busy')==='true')return null;
    return root.querySelector('[data-rb-form="source"]')||root.querySelector('[data-rb-form="map"]')||root.querySelector('[data-rb-act="upload"]')||root.querySelector('.rb-alert.error');
@@ -109,7 +126,7 @@ export async function handFileToUploader(root,file,{type,signal,reportKind}={}){
 export function mountWorkbench(root,ns,user,mode='tasks'){
  const controller=new AbortController(),signal=controller.signal;
  let childDispose=null,childController=null,sequence=0,disposed=false,restoreFocus=null;
- const state={mode:mode==='intake'?'intake':'tasks',data:null,staff:[],busy:false,error:'',notice:'',filter:'open',query:'',feature:'',assignee:'',page:1,file:null,detection:null,embedded:false,editor:null,audit:null};
+ const state={mode:mode==='intake'?'intake':'tasks',data:null,staff:[],busy:false,error:'',notice:'',filter:'open',query:'',feature:'',assignee:'',page:1,batch:[],embedded:false,editor:null,audit:null};
  const alive=()=>!disposed&&!signal.aborted&&root.isConnected;
  const stopChild=()=>{childController?.abort();childController=null;childDispose?.();childDispose=null;};
  const closeChild=()=>{stopChild();state.embedded=false;render();if(state.mode==='tasks')load();};
@@ -156,15 +173,29 @@ export function mountWorkbench(root,ns,user,mode='tasks'){
   return '<section class="wb-summary" aria-label="İşlerin özeti">'+[['open','Açık işler',open,'sage'],['overdue','Tarihi geçen',late,'blue'],['snoozed','Ertelenen',snoozed,'lavender']].map(([filter,label,count,tone])=>'<button type="button" class="wb-summary-card '+tone+'" data-wb-filter="'+filter+'"><span>'+label+'</span><strong>'+count+'</strong><small>Listeyi göster →</small></button>').join('')+'</section><div class="wb-list-head"><div><h2>Önündeki işler</h2><p>Kaynak sorunlar, ilgili kayıt düzeldiğinde kapanır.</p></div>'+(writableFeatures(user,ns).length?'<button type="button" class="primary" data-wb-action="new">+ İş ekle</button>':'')+'</div><form class="wb-filters" data-wb-form="filters"><label>İş ara<input name="query" type="search" value="'+esc(state.query)+'" placeholder="Görev, belge veya sipariş"></label><label>Görünüm<select name="filter">'+options([['open','Açık işler'],['overdue','Tarihi geçen'],['mine','Bana atanan'],['snoozed','Ertelenen'],['closed','Tamamlanan'],['all','Tümü']],state.filter)+'</select></label><label>Bölüm<select name="feature">'+options([['','Tüm bölümler'],...state.data.features.map(f=>[f.key,f.label])],state.feature)+'</select></label><button class="secondary" type="submit">Göster</button></form>'+(state.data.limit_notice?'<p class="wb-notice">'+esc(state.data.limit_notice)+'</p>':'')+taskRows();
  }
  function intakeView(){
-  const choices=intakeChoices(user,ns),d=state.detection;
+  const choices=intakeChoices(user,ns);
   if(!choices.length)return '<section class="wb-empty"><h2>Belge yükleme yetkisi gerekiyor</h2><p>Bu işlem için ilgili bölümde yazma ve tutarları görme yetkisi gerekir.</p></section>';
-  const buttons=d?d.type==='report'&&d.ambiguous?[['orders','Sipariş raporu'],['finance','Finans / kesinti raporu']]:[[d.reportKind||d.type,d.type==='invoice'?'Alış faturası olarak devam et':'Pazaryeri raporu olarak devam et']]:[];
-  return '<div class="wb-intake-grid"><section class="wb-upload"><span class="wb-eyebrow">TEK YERDEN BAŞLA</span><h2>Belgeni seç</h2><p>Dosyanın içeriğine bakalım, doğru işleme birlikte devam edelim.</p><label class="wb-drop" data-wb-drop><span class="wb-upload-mark" aria-hidden="true">↑</span><strong>Dosya seç veya buraya bırak</strong><span>'+esc([choices.includes('invoice')?'PDF · UBL XML · JPG · PNG':'',choices.includes('report')?'XLSX · CSV':''].filter(Boolean).join(' · '))+'</span><input data-wb-file type="file" accept="'+(choices.includes('invoice')?'.pdf,.xml,.jpg,.jpeg,.png,':'')+(choices.includes('report')?'.xlsx,.csv,.tsv':'')+'" aria-label="Belge dosyası seç" '+(state.busy?'disabled':'')+'></label>'+(state.file?'<div class="wb-picked"><strong>'+esc(state.file.name)+'</strong><span>'+Math.ceil(state.file.size/1024)+' KB</span></div>':'')+(d?'<div class="wb-choice"><h3>'+(d.ambiguous?'Bu dosya hangi rapor?':d.type==='invoice'?'Bu bir alış faturası mı?':'Pazaryeri raporu hazır')+'</h3><p>'+(d.ambiguous?'Sütunlardan rapor türü kesin anlaşılmadı. Sipariş durumları için sipariş; komisyon, kargo ve hakediş için finans seç.':d.type==='invoice'?'Doğrulanan ve eşleşen faturalar mevcut akışta otomatik muhasebeleşebilir ve stoğa alınabilir. Belge sana gelen alış faturasıysa devam et.':'Mağaza, sütun eşleştirmesi ve toplamlar mevcut rapor ekranında kontrol edilecek.')+'</p>'+(['png','jpeg'].includes(d.format)?'<p>Fotoğraf, özgün görüntüsü eklenmiş bir PDF olarak mevcut OCR akışına iletilecek.</p>':'')+'<div class="wb-choice-actions">'+buttons.map(([choice,label])=>'<button type="button" class="primary" data-wb-action="continue" data-choice="'+choice+'" data-wb-busy>'+label+'</button>').join('')+'</div></div>':'')+'</section><aside class="wb-intake-help"><span class="wb-eyebrow">BELGEDEN TAMAMLANAN İŞE</span><h2>Eksik kalan adım görünür olsun.</h2><ol><li><b>1</b><div><strong>Dosyanı tanıyalım</strong><p>İçeriği kontrol edilir. Emin olamadığımızda türünü sen seçersin.</p></div></li><li><b>2</b><div><strong>Mevcut kayıtla karşılaştıralım</strong><p>Belge ve ürün eşleşmesi aynı güvenli yükleme ekranında ilerler.</p></div></li><li><b>3</b><div><strong>İşini tamamla</strong><p>Kontrol bekleyen kayıtları Günlük işler bölümünde birine atayabilir, tarih verebilirsin.</p></div></li></ol></aside></div>';
+  // Parti: her dosya kendi turuyle durur. Ayni ekrana gidenler tek grupta toplanir ki
+  // TY raporu + HB raporu + alis faturasi bir arada birakilsa bile her biri dogru yere gitsin.
+  const items=state.batch,bekleyen=items.filter(i=>i.detection&&!i.done),gruplar=[];
+  for(const it of bekleyen){const k=intakeGroupKey(it.detection),g=gruplar.find(x=>x.key===k);if(g)g.items.push(it);else gruplar.push({key:k,items:[it]});}
+  const durum=i=>i.done?'Aktarıldı':i.error?i.error:i.detection?intakeTypeName(i.detection):'Tanınıyor…';
+  const liste=items.length?'<ul class="wb-picked">'+items.map(i=>'<li class="'+(i.error?'is-error':i.done?'is-done':'')+'"><strong>'+esc(i.file.name)+'</strong><span>'+Math.ceil(i.file.size/1024)+' KB</span><span>'+esc(durum(i))+'</span></li>').join('')+'</ul>':'';
+  const dugme=(group,choice,label)=>'<button type="button" class="primary" data-wb-action="continue" data-group="'+esc(group)+'" data-choice="'+esc(choice)+'" data-wb-busy>'+esc(label)+'</button>';
+  const tek=bekleyen.length===1?bekleyen[0].detection:null;
+  const buttons=gruplar.map(g=>{
+   const n=g.items.length,rapor=g.key==='report';
+   // Tek ve belirsiz rapor: turunu kullanici secer. Coklu raporda takeMany her dosyayi kendi tanir.
+   if(rapor&&n===1&&g.items[0].detection.ambiguous)return [['orders','Sipariş raporu'],['finance','Finans / kesinti raporu']].map(([c,l])=>dugme(g.key,c,l)).join('');
+   const kind=rapor?(n===1?g.items[0].detection.reportKind||'':''):'invoice';
+   return dugme(g.key,kind,n>1?n+' '+(rapor?'rapor':g.key==='invoice:xml'?'UBL fatura':'fatura')+' ile devam et':rapor?'Pazaryeri raporu olarak devam et':'Alış faturası olarak devam et');
+  }).join('');
+  return '<div class="wb-intake-grid"><section class="wb-upload"><span class="wb-eyebrow">TEK YERDEN BAŞLA</span><h2>Belgelerini seç</h2><p>Hepsinin içeriğine bakalım; her dosya kendi türüne göre doğru işleme gider.</p><label class="wb-drop" data-wb-drop><span class="wb-upload-mark" aria-hidden="true">↑</span><strong>Dosyaları seç veya buraya bırak</strong><span>'+esc([choices.includes('invoice')?'PDF · UBL XML · JPG · PNG':'',choices.includes('report')?'XLSX · CSV':''].filter(Boolean).join(' · '))+'</span><input data-wb-file type="file" accept="'+(choices.includes('invoice')?'.pdf,.xml,.jpg,.jpeg,.png,':'')+(choices.includes('report')?'.xlsx,.csv,.tsv':'')+'" multiple aria-label="Belge dosyalarını seç" '+(state.busy?'disabled':'')+'></label>'+liste+(gruplar.length?'<div class="wb-choice"><h3>'+esc(gruplar.length>1?'Dosyalar tanındı. Her tür kendi ekranında işlenir.':tek?(tek.ambiguous?'Bu dosya hangi rapor?':tek.type==='invoice'?'Bu bir alış faturası mı?':'Pazaryeri raporu hazır'):gruplar[0].items.length+' dosya · '+INTAKE_GROUPS[gruplar[0].key])+'</h3><p>'+esc(gruplar.length>1?'Aynı anda birden çok tür bıraktın. Biriyle devam et; bitince «Günlük akışa dön» ile sıradakine geç.':tek?(tek.ambiguous?'Sütunlardan rapor türü kesin anlaşılmadı. Sipariş durumları için sipariş; komisyon, kargo ve hakediş için finans seç.':tek.type==='invoice'?'Doğrulanan ve eşleşen faturalar mevcut akışta otomatik muhasebeleşebilir ve stoğa alınabilir. Belge sana gelen alış faturasıysa devam et.':'Mağaza, sütun eşleştirmesi ve toplamlar mevcut rapor ekranında kontrol edilecek.'):'Hepsi aynı ekranda işlenir; mağaza ve sütun eşleştirmesi orada kontrol edilir.')+'</p>'+(bekleyen.some(i=>['png','jpeg'].includes(i.detection.format))?'<p>Fotoğraf, özgün görüntüsü eklenmiş bir PDF olarak mevcut OCR akışına iletilecek.</p>':'')+'<div class="wb-choice-actions">'+buttons+'</div></div>':'')+'</section><aside class="wb-intake-help"><span class="wb-eyebrow">BELGEDEN TAMAMLANAN İŞE</span><h2>Eksik kalan adım görünür olsun.</h2><ol><li><b>1</b><div><strong>Dosyanı tanıyalım</strong><p>İçeriği kontrol edilir. Emin olamadığımızda türünü sen seçersin.</p></div></li><li><b>2</b><div><strong>Mevcut kayıtla karşılaştıralım</strong><p>Belge ve ürün eşleşmesi aynı güvenli yükleme ekranında ilerler.</p></div></li><li><b>3</b><div><strong>İşini tamamla</strong><p>Kontrol bekleyen kayıtları Günlük işler bölümünde birine atayabilir, tarih verebilirsin.</p></div></li></ol></aside></div>';
  }
  function render(){
   if(!alive()||state.embedded)return;
   root.classList.add('workbench-root');
-  root.innerHTML='<div class="wb-page"><header class="wb-heading"><div><span class="wb-eyebrow">'+(ns==='ec'?'E-TİCARET':'ÜRETİM')+'</span><h1>'+(state.mode==='intake'?'Belge yükle':'Günlük işler')+'</h1><p>'+(state.mode==='intake'?'Fatura ve raporlarını tek yerden başlat.':'Kontrol bekleyen kayıtlar ve ekibin yapacağı işler.')+'</p></div><nav class="wb-heading-actions" aria-label="İş akışı">'+(state.mode==='intake'||intakeChoices(user,ns).length?'<a class="secondary" href="'+(state.mode==='intake'?'#workbench':'#intake')+'">'+(state.mode==='intake'?'Günlük işler':'Belge yükle')+'</a>':'')+(state.mode==='tasks'?'<button type="button" class="secondary" data-wb-action="reload">Yenile</button>':'')+'</nav></header><p class="wb-notice" data-wb-message hidden></p><div data-wb-main>'+(state.mode==='intake'?intakeView():tasksView())+'</div><div data-wb-editor></div></div>';
+  root.innerHTML='<div class="wb-page"><header class="wb-heading"><div><span class="wb-eyebrow">'+(ns==='ec'?'E-TİCARET':'ÜRETİM')+'</span><h1>'+(state.mode==='intake'?'Belge yükle':'Günlük işler')+'</h1><p>'+(state.mode==='intake'?'Fatura ve raporlarını tek yerden başlat. Hepsini birlikte bırakabilirsin.':'Kontrol bekleyen kayıtlar ve ekibin yapacağı işler.')+'</p></div><nav class="wb-heading-actions" aria-label="İş akışı">'+(state.mode==='intake'||intakeChoices(user,ns).length?'<a class="secondary" href="'+(state.mode==='intake'?'#workbench':'#intake')+'">'+(state.mode==='intake'?'Günlük işler':'Belge yükle')+'</a>':'')+(state.mode==='tasks'?'<button type="button" class="secondary" data-wb-action="reload">Yenile</button>':'')+'</nav></header><p class="wb-notice" data-wb-message hidden></p><div data-wb-main>'+(state.mode==='intake'?intakeView():tasksView())+'</div><div data-wb-editor></div></div>';
   setMessage();if(state.editor)editor();if(state.audit)auditView();
  }
  function editor(){
@@ -180,12 +211,21 @@ export function mountWorkbench(root,ns,user,mode='tasks'){
   host.innerHTML='<dialog class="wb-dialog" aria-labelledby="wb-audit-title"><div class="wb-dialog-head"><h2 id="wb-audit-title">Görev geçmişi</h2><button type="button" class="secondary" data-wb-action="cancel-edit">Kapat</button></div><ol class="wb-audit">'+state.audit.map(a=>'<li><strong>'+esc(a.actor_name)+' · Sürüm '+a.version+'</strong><p>'+esc(a.created_at)+'</p><p>'+esc(statusNames[a.snapshot?.status]||a.snapshot?.status)+' · '+esc(a.snapshot?.assignee_name||'Atanmamış')+' · '+esc(a.snapshot?.due_on||'Tarih yok')+'</p>'+(a.snapshot?.snooze_until?'<p>Ertelendi: '+esc(a.snapshot.snooze_until)+'</p>':'')+(a.snapshot?.notes?'<p>'+esc(a.snapshot.notes)+'</p>':'')+'</li>').join('')+'</ol></dialog>';
   host.querySelector('dialog').showModal();
  }
- async function chooseFile(file){
-  if(!file)return;
+ async function chooseFiles(list){
+  const picked=[...(list||[])];if(!picked.length)return;
+  const files=picked.slice(0,20);
   await run(async()=>{
-   state.file=file;state.detection=null;render();
-   const detection=await detectIntake(file,ns,user);
-   if(!alive())return;state.detection=detection;render();
+   state.batch=files.map(file=>({file,detection:null,error:'',done:false}));
+   if(picked.length>files.length)state.notice='Tek seferde en cok 20 dosya; ilk 20 alindi.';
+   render();
+   // Bir dosyanin taninmamasi digerlerini DUSURMEZ: hata o satirda kalir, kalanlar islenir.
+   for(const item of state.batch){
+    try{item.detection=await detectIntake(item.file,ns,user);}
+    catch(error){if(error.name==='AbortError')throw error;item.error=error.message;}
+    if(!alive())return;
+    render();
+   }
+   if(!state.batch.some(i=>i.detection))throw Error(state.batch[0].error||'Hicbir dosya taninamadi.');
   });
   if(alive()&&!state.embedded)render();
  }
@@ -195,32 +235,43 @@ export function mountWorkbench(root,ns,user,mode='tasks'){
   main.innerHTML='<section class="wb-embedded"><div class="wb-list-head"><h2>'+esc(title)+'</h2><button type="button" class="secondary" data-wb-action="close-source">Günlük akışa dön</button></div><p data-wb-handoff role="status"></p><div data-wb-preview></div><div data-wb-child></div></section>';
   return {host:main.querySelector('[data-wb-child]'),scope:childController.signal,hint:main.querySelector('[data-wb-handoff]')};
  }
- async function continueUpload(choice){
-  const file=state.file,d=state.detection;if(!file||!d)return;
+ async function continueUpload(groupKey,choice){
+  const items=state.batch.filter(i=>i.detection&&!i.done&&intakeGroupKey(i.detection)===(groupKey||intakeGroupKey(i.detection)));
+  if(!items.length)return;
+  const d=items[0].detection,adlar=items.map(i=>i.file.name).join(', ');
   if(!intakeChoices(user,ns).includes(d.type))throw Error('Belge yükleme yetkisi gerekiyor.');
   const {host,scope,hint}=beginEmbedded(d.type==='invoice'?'Alış belgesini kontrol et':'Pazaryeri raporunu kontrol et');
-  hint.textContent='Seçilen dosya: '+file.name+'. '+(d.type==='report'?'Mağaza yoksa önce ekle; dosyan burada bekliyor.':'Belge mevcut yükleme akışına aktarılıyor.');
+  hint.textContent='Seçilen dosya: '+adlar+'. '+(d.type==='report'?'Mağaza yoksa önce ekle; dosyan burada bekliyor.':'Belge mevcut yükleme akışına aktarılıyor.');
   try{
-   let delivered=file;
+   const delivered=[];
    if(d.type==='invoice'){
     const {mountPurchaseDocument}=await import('./purchase-document-ui.js');
     if(scope.aborted||!alive())return;
     childDispose=mountPurchaseDocument(host,ns,{onClose:closeChild});
-    let content=file;
-    if(['png','jpeg'].includes(d.format)){
-     content=await imageInvoicePdf(d.bytes,d.format,file.name);
-     if(scope.aborted||!alive())return;
-     delivered=new File([content],file.name.replace(/\.[^.]+$/,'')+'.pdf',{type:'application/pdf',lastModified:0});
-    }else if(!file.name.toLowerCase().endsWith('.'+d.format))delivered=new File([file],file.name+'.'+d.format,{type:d.format==='xml'?'application/xml':'application/pdf',lastModified:file.lastModified});
+    // Her dosya KENDI tanisiyla donusturulur: ayni partide PDF, XML ve fotograf bir arada olabilir.
+    for(const item of items){
+     const file=item.file,f=item.detection;
+     if(['png','jpeg'].includes(f.format)){
+      const content=await imageInvoicePdf(f.bytes,f.format,file.name);
+      if(scope.aborted||!alive())return;
+      delivered.push(new File([content],file.name.replace(/\.[^.]+$/,'')+'.pdf',{type:'application/pdf',lastModified:0}));
+     }else if(!file.name.toLowerCase().endsWith('.'+f.format))delivered.push(new File([file],file.name+'.'+f.format,{type:f.format==='xml'?'application/xml':'application/pdf',lastModified:file.lastModified}));
+     else delivered.push(file);
+    }
    }else{
     const {mountReports}=await import('./report-inbox-ui.js');
     if(scope.aborted||!alive())return;childDispose=mountReports(host,ns);
-    if(d.format==='xlsx'&&!/\.xlsx$/i.test(file.name))delivered=new File([file],file.name+'.xlsx',{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',lastModified:file.lastModified});
+    for(const item of items){
+     const file=item.file;
+     delivered.push(item.detection.format==='xlsx'&&!/\.xlsx$/i.test(file.name)?new File([file],file.name+'.xlsx',{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',lastModified:file.lastModified}):file);
+    }
    }
    await handFileToUploader(host,delivered,{type:d.type,signal:scope,reportKind:['orders','finance'].includes(choice)?choice:d.reportKind});
    if(scope.aborted||!alive())return;
-   hint.textContent=file.name+' seçilen işleme aktarıldı. Sonucu aşağıda kontrol et.';
-  }catch(error){if(error.name==='AbortError'||scope.aborted||!alive())return;hint.textContent=error.message;hint.insertAdjacentHTML('afterend','<button type="button" class="secondary" data-wb-action="retry-handoff" data-choice="'+esc(choice)+'">Seçilen dosyayla yeniden dene</button>');throw error;}
+   for(const item of items)item.done=true;
+   const kalan=state.batch.filter(i=>i.detection&&!i.done).length;
+   hint.textContent=adlar+' seçilen işleme aktarıldı. Sonucu aşağıda kontrol et.'+(kalan?' Bu grubu bitirince «Günlük akışa dön» ile kalan '+kalan+' dosyaya geç.':'');
+  }catch(error){if(error.name==='AbortError'||scope.aborted||!alive())return;hint.textContent=error.message;hint.insertAdjacentHTML('afterend','<button type="button" class="secondary" data-wb-action="retry-handoff" data-group="'+esc(groupKey||intakeGroupKey(d))+'" data-choice="'+esc(choice)+'">Seçilen dosyayla yeniden dene</button>');throw error;}
  }
  async function openSource(task){
   if(!task?.can_embed)throw Error('Bu işlemi açmak için yazma ve tutar yetkisi gerekir.');
@@ -239,7 +290,7 @@ export function mountWorkbench(root,ns,user,mode='tasks'){
    if(!alive())return;
    const file=new File(parts,meta.filename,{type:meta.mime|| (meta.kind==='xml'?'application/xml':'application/pdf')});
    if(file.size!==meta.size_bytes)throw Error('Belgenin saklanan parçaları eksik.');
-   state.file=file;state.detection=await detectIntake(file,ns,user);
+   state.batch=[{file,detection:await detectIntake(file,ns,user),error:'',done:false}];
    if(!alive())return;
    // The same retained bytes return to the existing duplicate/reread-protected uploader.
    state.mode='intake';state.notice='Saklanan belge hazır. Devam etmeden önce türünü kontrol et.';render();return;
@@ -302,11 +353,11 @@ export function mountWorkbench(root,ns,user,mode='tasks'){
   if(action==='prev'||action==='next'){state.page+=action==='prev'?-1:1;render();}
   if(action==='source')run(()=>openSource(task));
   if(action==='close-source')closeChild();
-  if(action==='continue'||action==='retry-handoff')run(()=>continueUpload(button.dataset.choice));
+  if(action==='continue'||action==='retry-handoff')run(()=>continueUpload(button.dataset.group,button.dataset.choice));
   if(action==='apply-report')run(()=>applyReport(task));
  },{signal});
  root.addEventListener('change',event=>{
-  if(event.target.matches('[data-wb-file]'))chooseFile(event.target.files[0]);
+  if(event.target.matches('[data-wb-file]'))chooseFiles(event.target.files);
   if(event.target.matches('[data-wb-task-feature]')){
    const form=event.target.form,selected=form.querySelector('[name="assignee_id"]'),people=state.staff.filter(p=>p.features.includes(event.target.value));
    selected.innerHTML=options([['','Atanmamış'],...people.map(p=>[p.id,p.name])],people.some(p=>p.id===selected.value)?selected.value:'');
@@ -324,8 +375,8 @@ export function mountWorkbench(root,ns,user,mode='tasks'){
   });
  },{signal});
  root.addEventListener('dragover',event=>{if(event.target.closest('[data-wb-drop]'))event.preventDefault();},{signal});
- root.addEventListener('drop',event=>{if(!event.target.closest('[data-wb-drop]'))return;event.preventDefault();const files=event.dataTransfer.files;if(files.length!==1){state.error='Bu başlangıçta tek dosya seçin. Açılan fatura ekranında toplu yükleyebilirsiniz.';setMessage();return;}chooseFile(files[0]);},{signal});
- const dispose=()=>{if(disposed)return;disposed=true;++sequence;stopChild();controller.abort();root.querySelector('dialog')?.close();root.classList.remove('workbench-root');state.file=null;state.detection=null;};
+ root.addEventListener('drop',event=>{if(!event.target.closest('[data-wb-drop]'))return;event.preventDefault();chooseFiles(event.dataTransfer.files);},{signal});
+ const dispose=()=>{if(disposed)return;disposed=true;++sequence;stopChild();controller.abort();root.querySelector('dialog')?.close();root.classList.remove('workbench-root');state.batch=[];};
  dispose.onHash=()=>{
   const route=location.hash.split('?')[0],next=route==='#intake'?'intake':route==='#workbench'?'tasks':null;
   if(!next||!alive()||next===state.mode)return;stopChild();state.embedded=false;state.mode=next;state.editor=null;state.audit=null;state.error='';render();if(next==='tasks')load();
