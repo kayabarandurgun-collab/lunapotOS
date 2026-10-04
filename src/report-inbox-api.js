@@ -1696,7 +1696,9 @@ export async function reportInboxApi(request, env, path, readBody) {
 
   if (sub === '/reviews' && method === 'GET') {
     return {reviews: (await db.prepare("SELECT r.*,s.name store_name,s.provider,f.filename FROM ec_report_reviews r JOIN ec_report_stores s ON s.id=r.store_id JOIN ec_report_files f ON f.id=r.file_id WHERE r.status='open' ORDER BY r.created_at LIMIT 200").all()).results
-      .map(r => ({...r, incoming: parse(r.incoming_json, {}), prior: parse(r.prior_json, null)}))};
+      // HAM METIN YANITTAN CIKAR: gizleme JSON metninin icini acamaz, tutarlar oradan okunuyordu.
+      // Arayuz iki ham kolonu kullanmiyor; yalnizca ayristirilmis nesneyi okuyor.
+      .map(({incoming_json, prior_json, ...r}) => ({...r, incoming: parse(incoming_json, {}), prior: parse(prior_json, null)}))};
   }
   const rev = sub.match(/^\/reviews\/([\w-]+)$/);
   if (rev && method === 'POST') {

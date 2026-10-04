@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {appFixture} from './helpers/app-fixture.js';
 import {level} from '../public/permissions.js';
+import {scrubAmounts} from '../src/permission-policy.js';
+import worker from '../src/worker.js';
 
 // Depocuya miktar ve sevk bilgisi verilir, alis maliyeti ve kar gizlenir.
 async function warehouse(){
@@ -101,5 +103,106 @@ test('Tutar yetkisi yazma korumasını ve alan ayrımını değiştirmez',async(
   assert.equal(write.status,403,'salt okunur personel yazamamalı');
   const other=await f.req('/data',undefined,cookie);
   assert.equal(other.status,403,'erişimi olmayan çalışma alanı kapalı kalmalı');
+ }finally{f.close();}
+});
+
+// Denetim bulgulari: tutar yetkisi olmayan personel bir kisim parayi DOGRUDAN okuyordu.
+// Gizleme anahtar bazli calistigi icin rapor alan adlari (sale/net_payout), ham JSON metni,
+// tahmin satiri, recete gider kolonlari ve serbest metne gomulu tutarlar suzgecten kurtuluyordu.
+// Genel ad kumesi kullanilamaz: ayni adlar baska yanitlarda TUR ETIKETIDIR (kinds.sale,
+// categories.packaging, basis.withholding), bu yuzden gizleme kapsayici/sema bazlidir.
+// Asagidaki testler ikisini birlikte tutar: para gider, etiket kalir.
+test('Rapor alan adlari yalniz rapor kapsayicisinda gizlenir, tur etiketleri bozulmaz',()=>{
+ const personel={owner:false,ec_access:'read',permissions:{ec:{orders:'read',amounts:'none'},lp:{}}};
+ const o=scrubAmounts({
+  totals:{sale:123456,refund:-500,cargo:7000,service:300,withholding:120,other_fee:50,net_payout:99999,n:12},
+  reviews:[{row:3,incoming:{sale:5000,net_payout:4200},prior:{sale:4000}}],
+  kinds:{sale:'Satis finans kayitlari',packaging:'Ambalaj'},
+  basis:{withholding:'deduction_positive'},
+ },personel,'ec');
+ for(const key of ['sale','refund','cargo','service','withholding','other_fee','net_payout'])assert.equal(o.totals[key],null,key+' gizlenmeli');
+ assert.equal(o.totals.n,12,'satir sayisi para degildir');
+ assert.equal(o.reviews[0].incoming.sale,null);assert.equal(o.reviews[0].incoming.net_payout,null);
+ assert.equal(o.reviews[0].prior.sale,null);assert.equal(o.reviews[0].row,3);
+ assert.equal(o.kinds.sale,'Satis finans kayitlari','tur etiketi para degildir');
+ assert.equal(o.kinds.packaging,'Ambalaj');
+ assert.equal(o.basis.withholding,'deduction_positive','sema metadatasi para degildir');
+});
+
+test('Tahmin satiri, recete giderleri ve dondurulmus recete metni personele gitmez',()=>{
+ const personel={owner:false,lp_access:'read',permissions:{ec:{},lp:{recipes:'write',amounts:'none'}}};
+ const o=scrubAmounts({
+  results:[{estimates:[{type:'commission',basis:'rapor',value:1550,low:1400,high:1700}]}],
+  recipes:[{id:'r1',product_id:'p1',yield_qty:2,waste_pct:5,labor:250,packaging:40,overhead:10,notes:'not'}],
+  jobs:[{id:'j1',recipe_json:'{"labor":250}',quantity_milli:5000,status:'posted'}],
+ },personel,'lp');
+ const est=o.results[0].estimates[0];
+ assert.equal(est.value,null);assert.equal(est.low,null);assert.equal(est.high,null);
+ assert.equal(est.type,'commission','kesinti turu para degildir');
+ for(const key of ['labor','packaging','overhead'])assert.equal(o.recipes[0][key],null,key+' gizlenmeli');
+ assert.equal(o.recipes[0].yield_qty,2,'uretim adedi para degildir');
+ assert.equal(o.recipes[0].waste_pct,5);
+ assert.equal(o.jobs[0].recipe_json,null,'metnin ici acilamadigi icin tamami gizlenir');
+ assert.equal(o.jobs[0].quantity_milli,5000);
+});
+
+test('Serbest metne gomulu tutar maskelenir, siparis numarasi ve adet bozulmaz',()=>{
+ const personel={owner:false,ec_access:'read',permissions:{ec:{orders:'read',amounts:'none'},lp:{}}};
+ const o=scrubAmounts({
+  results:[{notes:['Raporun bildirdigi hakedis (1.023,75 TL) toplamla (998,50 TL) uyusmuyor.','Siparis 1872497924 paketi 9935461 kaleminde.']}],
+  skipped:[{reason:'Tutar 12.450,00 TL oldugu icin atlandi'}],
+ },personel,'ec');
+ assert.doesNotMatch(o.results[0].notes[0],/1\.023,75|998,50/,'tutar metinden silinmeli');
+ assert.match(o.results[0].notes[0],/hakedis/,'isletme anlami korunmali');
+ assert.equal(o.results[0].notes[1],'Siparis 1872497924 paketi 9935461 kaleminde.','numaralar dokunulmaz');
+ assert.doesNotMatch(o.skipped[0].reason,/12\.450,00/);
+ assert.match(o.skipped[0].reason,/atlandi/);
+});
+
+test('Yonetici ve tutar yetkisi olan personel bu alanlari aynen gorur',()=>{
+ const yanit={totals:{sale:123456,net_payout:99999},recipes:[{yield_qty:1,waste_pct:0,labor:250,packaging:40,overhead:10}],
+  jobs:[{recipe_json:'{"labor":250}'}],results:[{notes:['Fark 25,25 TL'],estimates:[{type:'c',basis:'r',value:5}]}]};
+ for(const kullanici of [{owner:true},{owner:false,lp_access:'read',ec_access:'read',permissions:{ec:{orders:'read',amounts:'read'},lp:{recipes:'read',amounts:'read'}}}]){
+  const o=scrubAmounts(yanit,kullanici,'ec');
+  assert.equal(o.totals.sale,123456);assert.equal(o.recipes[0].labor,250);
+  assert.equal(o.jobs[0].recipe_json,'{"labor":250}');
+  assert.equal(o.results[0].notes[0],'Fark 25,25 TL');assert.equal(o.results[0].estimates[0].value,5);
+ }
+});
+
+// Gizleme tek basina yetmez: gider alanlari null dondugu icin personelin kaydi onlari
+// SIFIRLAMAMALI. Arayuz kutulari hic basmaz, sunucu da gonderilmeyen alanda saklanani korur.
+test('Tutar yetkisi olmayan personel receteyi duzenler ama giderleri sifirlayamaz',async()=>{
+ const f=appFixture();await f.setup();
+ try{
+  const product=(await f.ok('/products',{name:'Mamul',sku:'M-1',stock_unit:'adet',sale_price:100,inventory_kind:'finished'})).id;
+  const material=(await f.ok('/materials',{name:'Torf',unit:'kg',price:5,supplier:''})).id;
+  const recipe=(await f.ok('/recipes',{product_id:product,yield_qty:1,waste_pct:0,labor:250,packaging:40,overhead:10,notes:'',
+   items:[{material_id:material,quantity:2,unit:'kg'}]})).id;
+  const staff=await f.ok('/admin/users',{name:'Uretim',username:'uretimci',
+   permissions:{ec:{},lp:{recipes:'write',materials:'read',products:'read',amounts:'none'},delete_records:false}});
+  await f.req('/auth/accept-invite',{token:staff.invite_path.split('invite=')[1],password:'uretim-personel-sifresi'});
+  const cookie=(await f.req('/auth/login',{username:'uretimci',password:'uretim-personel-sifresi'})).cookie;
+
+  const gorunum=await f.req('/data',undefined,cookie);
+  assert.equal(gorunum.status,200);
+  const gizli=gorunum.data.recipes.find(r=>r.id===recipe);
+  assert.equal(gizli.labor,null,'gider personele gizli');
+  assert.equal(gizli.yield_qty,1,'uretim adedi gorunur');
+
+  const origin='https://lunapot.test';
+  const put=async(path,body,auth)=>{
+   const r=await worker.fetch(new Request(origin+'/api'+path,{method:'PUT',
+    headers:{Origin:origin,'Content-Type':'application/json',Cookie:auth},body:JSON.stringify(body)}),f.env);
+   return {status:r.status,data:await r.json().catch(()=>null)};
+  };
+  const kayit=await put('/recipes/'+recipe,{product_id:product,yield_qty:1,waste_pct:0,notes:'personel duzenledi',
+   items:[{material_id:material,quantity:3,unit:'kg'}]},cookie);
+  assert.equal(kayit.status,200,'personel receteyi kaydedebilmeli: '+JSON.stringify(kayit.data));
+  const sonra=(await f.req('/data')).data.recipes.find(r=>r.id===recipe);
+  assert.equal(sonra.labor,250,'iscilik korunmali');
+  assert.equal(sonra.packaging,40,'ambalaj korunmali');
+  assert.equal(sonra.overhead,10,'diger gider korunmali');
+  assert.equal(sonra.items.find(i=>i.material_id===material).quantity,3,'personelin miktar degisikligi uygulanmali');
  }finally{f.close();}
 });

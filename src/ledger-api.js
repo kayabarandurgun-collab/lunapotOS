@@ -1,6 +1,7 @@
 import {provisionalReceipts} from './provisional-inventory.js';
 import {cents} from '../public/accounting-math.js';
 import {invoiceDebtStatement} from './accounting.js';
+import {can} from '../public/permissions.js';
 
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
 const id=()=>crypto.randomUUID();
@@ -67,6 +68,10 @@ export async function ledgerApi(request,env,path,readBody){
  if(!path.startsWith('/api/ledger'))return null;
  if(!['ec','lp'].includes(env.WORKSPACE))fail('Çalışma alanı geçersiz.',403);
  const db=env.DB,method=request.method;
+ // Hata metni yanit govdesidir ve scrubAmounts anahtar bazli calistigi icin metnin icindeki tutari
+ // goremez. Tutar yetkisi olmayan personel ODEME formuna abartili bir tutar girerek carinin tam
+ // acik borcunu kurusuna kadar okuyabiliyordu. Isletme anlami korunur, rakam verilmez.
+ const paraVar=!!env.USER?.owner||can(env.USER,env.WORKSPACE,'amounts');
  if(path==='/api/ledger/provisional'&&method==='GET'){
   if(env.WORKSPACE!=='ec')fail('Faturasız mal girişi e-ticaret alanına aittir.',403);
   return {receipts:await provisionalReceipts(db),notice:'Kalan miktar aynı tedarikçi ve ürünün faturalarına eskiden yeniye bağlanır.'};
@@ -247,7 +252,7 @@ export async function ledgerApi(request,env,path,readBody){
    // Yön ve tutar hareketin kendisinden gelir: ödemeye (borcu azaltan artı hareket) ÇIKIŞ, tahsilata GİRİŞ bağlanır.
    if(row.amount_cents>0&&amount>0)fail('Bu cari hareketi bir ödemedir; kasa/banka hareketi çıkış (ödeme) olmalı.');
    if(row.amount_cents<0&&amount<0)fail('Bu cari hareketi bir tahsilattır; kasa/banka hareketi giriş (tahsilat) olmalı.');
-   if(amount!==-row.amount_cents)fail('Kasa/banka tutarı cari hareketiyle aynı olmalı: hareket '+lira(Math.abs(row.amount_cents))+', girilen '+lira(Math.abs(amount))+'.');
+   if(amount!==-row.amount_cents)fail(paraVar?'Kasa/banka tutarı cari hareketiyle aynı olmalı: hareket '+lira(Math.abs(row.amount_cents))+', girilen '+lira(Math.abs(amount))+'.':'Kasa/banka tutarı bağlanan cari hareketiyle aynı olmalı; tutarı düzeltin.');
    entry=row.id;
   }else if(party){await livingParty(db,party);items.push(entryInsert(db,{id:entry,party_id:party,amount_cents:-amount,occurred_on:date,reference,description,source_key:'cash:'+reference,source:'cash'}));}
   items.push(stmt(db,'INSERT INTO cash_transactions(id,account_id,party_entry_id,amount_cents,occurred_on,reference,description) VALUES(?,?,?,?,?,?,?)',[key,account,entry,amount,date,reference,description]));
@@ -292,7 +297,9 @@ export async function ledgerApi(request,env,path,readBody){
   }
   const available=targets.reduce((sum,row)=>sum+remainingOf(row),0);
   if(!available)fail(invoiceIds.length?'Seçilen faturaların açık borcu kalmamış.':'Bu carinin açık borcu yok. Önce faturayı muhasebeleştirin ya da borcu elle girin.',409);
-  if(amount>available)fail((invoiceIds.length?'Seçilen faturaların kalan borcu ':'Bu carinin açık borcu ')+lira(available)+'. Daha fazlasını ödeme olarak yazamayız; tutarı düşürün'+(invoiceIds.length?' ya da başka fatura seçin.':'.'),409);
+  if(amount>available)fail(paraVar
+   ?(invoiceIds.length?'Seçilen faturaların kalan borcu ':'Bu carinin açık borcu ')+lira(available)+'. Daha fazlasını ödeme olarak yazamayız; tutarı düşürün'+(invoiceIds.length?' ya da başka fatura seçin.':'.')
+   :(invoiceIds.length?'Girilen tutar seçilen faturaların kalan borcundan fazla; tutarı düşürün ya da başka fatura seçin.':'Girilen tutar bu carinin açık borcundan fazla; tutarı düşürün.'),409);
   let left=amount;const picks=[];
   for(const row of targets){if(left<=0)break;const take=Math.min(remainingOf(row),left);if(take<=0)continue;picks.push({row,take});left-=take;}
   const label=METHODS[method],description='Ödeme · '+label+(method==='cek'?' · vade '+due:'')+(note?' · '+note:'');

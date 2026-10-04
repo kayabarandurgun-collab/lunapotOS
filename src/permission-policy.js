@@ -1,4 +1,5 @@
 import {can,any,modules} from '../public/permissions.js';
+import {FIELDS} from '../public/report-core.js';
 const deny=()=>{throw Object.assign(Error('Bu ekran veya işlem için yetkiniz yok. Yöneticiniz Ekip ve yetkiler ekranından izin verebilir.'),{status:403});};
 export function permit(user,path,method){
  if(user.owner||path==='/api/auth/logout')return;
@@ -60,24 +61,52 @@ const MONEY_NAMES=new Set(['price','sale_price','unit_cost','amount','total_cost
  // Güvenlik incelemesi: bu alanlar *_cents kalıbına uymuyordu ve tutar yetkisi olmayan personele sızıyordu
  // (rapor–defter farkı, kesinti dağıtımı toplamları, pazaryeri paket brütü ve indirimleri).
  'report_gross','ledger_gross','missing_gross','commission','shipping','other','package_gross','package_seller_discount','package_platform_discount']);
+// Rapor dosyasi para alanlari ('sale','net_payout','cargo','service','withholding' gibi) report-core
+// FIELDS'ten gelir. GENEL kumeye KONULAMAZ: ayni adlar baska yanitlarda TUR ETIKETIDIR
+// (operations-ui kinds.sale='Satis finans kayitlari', money-planning categories.packaging='Ambalaj',
+// dashboard-summary basis.withholding='deduction_positive'). Bu yuzden yalnizca rapor kapsayicilarinin
+// ICINDE gizlenir; kapsayici adi uzerinden taninir.
+const REPORT_MONEY=new Set(Object.values(FIELDS).flat().filter(f=>f.type==='money').map(f=>f.key));
+const REPORT_CONTAINERS=new Set(['totals','incoming','prior']);
+// Recete gider kolonlari (migrations/0001_initial.sql). Recete satiri, uretim adedi ve fire payini
+// birlikte tasimasiyla taninir; boylece ayni adi kategori etiketi olarak kullanan yanitlar bozulmaz.
+const RECIPE_MONEY=new Set(['labor','packaging','overhead']);
+// Serbest metne gomulen tutar anahtar bazli gizlenemez: metnin kendisi maskelenir
+// ("Raporun bildirdigi hakedis (1.023,75 TL) ..." gibi notlar ve atlama gerekcelerinde).
+// KURUSLU bicim sart kosulur; boylece siparis/paket numaralari ve adet gibi tam sayilar
+// olduğu gibi kalir, yalnizca para gider.
+const MONEY_TEXT=new Set(['notes','reason']);
+const MONEY_IN_TEXT=/-?\d{1,3}(?:\.\d{3})*,\d{2}|-?\d+,\d{2}/g;
+const maskMoneyText=v=>typeof v==='string'?v.replace(MONEY_IN_TEXT,'(tutar gizli)'):Array.isArray(v)?v.map(maskMoneyText):v;
 export function scrubAmounts(payload,user,ns){
  if(user?.owner||can(user,ns,'amounts'))return payload;
  // Aynı nesne yanıtta iki kez geçebilir: ikinci geçişte ÖZGÜN nesne değil, gizlenmiş kopyası döner.
  const seen=new WeakMap();
- const walk=value=>{
+ const walk=(value,parent='')=>{
   if(!value||typeof value!=='object')return value;
   if(seen.has(value))return seen.get(value);
   const out=Array.isArray(value)?[]:{};seen.set(value,out);
-  if(Array.isArray(value))value.forEach((item,i)=>{out[i]=walk(item);});
+  // Dizi ogeleri kapsayicinin adini DEVRALIR: totals/incoming/prior bir dizi icinde de gelebilir.
+  if(Array.isArray(value))value.forEach((item,i)=>{out[i]=walk(item,parent);});
   else {
    // Panorama günlük satırında kanal anahtarları kuruştur; genel kanal metadata'sı değildir.
    // Şema nesnenin kendisinden tanınır: başka bir alandaki aynı nesne takma adı da gizlenir.
    const dailyCash=ns==='ec'&&typeof value.date==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value.date)&&Number.isSafeInteger(value.packages)
     &&['trendyol','hepsiburada'].every(k=>Object.hasOwn(value,k)&&(typeof value[k]==='number'||value[k]===null));
+   const reportRow=REPORT_CONTAINERS.has(parent);
+   const recipeRow=Object.hasOwn(value,'yield_qty')&&Object.hasOwn(value,'waste_pct');
+   // Rapor kutusu tahmin satiri: tur + dayanak + deger ucunu birlikte yalniz bu satir tasir.
+   const estimateRow=typeof value.type==='string'&&typeof value.basis==='string'&&Object.hasOwn(value,'value');
    for(const [key,item] of Object.entries(value)){
     // Loss labels and counts reveal financial outcomes too: hide the entire new signal.
-    if(key==='sales_alerts'){out[key]=null;continue;}
-    out[key]=MONEY_KEY.test(key)||MONEY_NAMES.has(key)||dailyCash&&(key==='trendyol'||key==='hepsiburada')?null:walk(item);
+    // recipe_json dondurulmus recete anlik goruntusudur: METIN oldugu icin walk icini acamaz,
+    // icindeki iscilik/ambalaj/gider tutarlari suzgecten kurtuluyordu. Arayuz okumuyor.
+    if(key==='sales_alerts'||key==='recipe_json'){out[key]=null;continue;}
+    if(reportRow&&REPORT_MONEY.has(key)){out[key]=null;continue;}
+    if(recipeRow&&RECIPE_MONEY.has(key)){out[key]=null;continue;}
+    if(estimateRow&&(key==='value'||key==='low'||key==='high')){out[key]=null;continue;}
+    if(MONEY_TEXT.has(key)){out[key]=maskMoneyText(walk(item,key));continue;}
+    out[key]=MONEY_KEY.test(key)||MONEY_NAMES.has(key)||dailyCash&&(key==='trendyol'||key==='hepsiburada')?null:walk(item,key);
    }
   }
   return out;

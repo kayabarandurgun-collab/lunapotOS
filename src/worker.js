@@ -12,6 +12,7 @@ import {lotApi} from './lot-api.js';
 import {loginLimitSubjects} from './login-limits.js';
 import {quickAccessApi} from './quick-access.js';
 import {filterProductionData,scrubAmounts} from './permission-policy.js';
+import {can} from '../public/permissions.js';
 import {purchaseAdjustmentApi} from './purchase-adjustment-api.js';
 import {hash,hex,passwordHash,equal,currentSession,owner,authorize,accessApi,acceptInvite} from './access-api.js';
 import {convert} from '../public/costs.js';
@@ -207,9 +208,15 @@ async function api(request,env,path){
  } else {
    const productId=str(input.product_id,'Ürün',80);if(!await db.prepare("SELECT id FROM products WHERE id=? AND inventory_kind='finished'").bind(productId).first())fail('Ürün bulunamadı.');
    if(!Array.isArray(input.items)||input.items.length<1||input.items.length>200)fail('Reçetede 1–200 hammadde olmalı.');
+   // Recete gider tutarlari tutar yetkisi olmayan personele null doner (permission-policy RECIPE_MONEY).
+   // O personel receteyi duzenleyebilir (recipes yetkisi 'amounts' istemiyor), ama gonderdigi null
+   // gider SIFIR yazilmamali: sahibinin girdigi tutar korunur. Yeni recetede 0 ile baslar.
+   const paraVar=!!current.user?.owner||can(current.user,'lp','amounts');
+   const saklanan=paraVar?null:(id?await db.prepare('SELECT labor,packaging,overhead FROM recipes WHERE id=?').bind(recordId).first():null);
+   const gider=(key,label)=>paraVar?num(input[key],label):(saklanan?saklanan[key]:0);
    const materials=(await db.prepare('SELECT id,unit FROM materials').all()).results,seen=new Set();
    for(const item of input.items){if(!item||typeof item!=='object')fail('Hammadde satırı geçersiz.');const m=materials.find(m=>m.id===item.material_id);if(!m||seen.has(m.id))fail('Hammadde eksik veya birden fazla eklenmiş.');seen.add(m.id);num(item.quantity,'Miktar',0.000001);validateUnits(item.quantity,item.unit,m.unit);}
-   statements.push(db.prepare('INSERT INTO recipes(id,product_id,yield_qty,waste_pct,labor,packaging,overhead,notes,updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET product_id=excluded.product_id,yield_qty=excluded.yield_qty,waste_pct=excluded.waste_pct,labor=excluded.labor,packaging=excluded.packaging,overhead=excluded.overhead,notes=excluded.notes,updated_at=excluded.updated_at').bind(recordId,productId,num(input.yield_qty,'Üretim adedi',0.000001),num(input.waste_pct,'Fire oranı',0,100),num(input.labor,'İşçilik'),num(input.packaging,'Paketleme'),num(input.overhead,'Diğer giderler'),optional(input.notes,2000),timestamp));
+   statements.push(db.prepare('INSERT INTO recipes(id,product_id,yield_qty,waste_pct,labor,packaging,overhead,notes,updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET product_id=excluded.product_id,yield_qty=excluded.yield_qty,waste_pct=excluded.waste_pct,labor=excluded.labor,packaging=excluded.packaging,overhead=excluded.overhead,notes=excluded.notes,updated_at=excluded.updated_at').bind(recordId,productId,num(input.yield_qty,'Üretim adedi',0.000001),num(input.waste_pct,'Fire oranı',0,100),gider('labor','İşçilik'),gider('packaging','Paketleme'),gider('overhead','Diğer giderler'),optional(input.notes,2000),timestamp));
    statements.push(db.prepare('DELETE FROM recipe_items WHERE recipe_id=?').bind(recordId));
    statements.push(db.prepare("INSERT INTO recipe_items(id,recipe_id,material_id,quantity,unit) SELECT json_extract(value,'$.id'),?,json_extract(value,'$.material_id'),json_extract(value,'$.quantity'),json_extract(value,'$.unit') FROM json_each(?)").bind(recordId,JSON.stringify(input.items.map(i=>({...i,id:crypto.randomUUID()})))));
    statements.push(activity(db,'Ürün reçetesi '+(id?'güncellendi':'eklendi')));
