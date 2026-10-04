@@ -12,7 +12,7 @@ test('business export preserves every selected table and allocation column withi
   await f.ok('/ec/invoices/'+invoice.id+'/receive',{occurred_on:'2026-09-20',reference:'BAK-DEL',lines:[{id:line.id,quantity:2}]});
   const prepare=f.env.DB.prepare.bind(f.env.DB);let queries=0;f.env.DB.prepare=sql=>{queries++;return prepare(sql);};
   const backup=await f.ok('/ec/settings/backup');assert.ok(queries<45,queries+' export queries');
-  for(const table of ['ec_provisional_receipts','ec_provisional_receipt_lines','ec_provisional_allocations','ec_provisional_receipt_allocations','ec_provisional_movement_links'])assert.ok(Object.hasOwn(backup.tables,table),table+' retained');
+  for(const table of ['ec_warehouse_sessions','ec_warehouse_count_lines','ec_workbench_tasks','ec_workbench_task_audit','ec_party_profiles','ec_party_profile_notes','ec_provisional_receipts','ec_provisional_receipt_lines','ec_provisional_allocations','ec_provisional_receipt_allocations','ec_provisional_movement_links'])assert.ok(Object.hasOwn(backup.tables,table),table+' retained');
   for(const [name,rows] of Object.entries(backup.tables))assert.deepEqual(rows,JSON.parse(JSON.stringify(f.sqlite.prepare('SELECT * FROM '+name).all())),name+' exact content');
  }finally{f.close();}
 });

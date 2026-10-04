@@ -56,10 +56,10 @@ export async function settingsApi(request,env,path,readBody){
   // Hakediş–banka eşleştirmesi (bank_matches) ham ekstre satırına bakar; bank_lines bu küçük
   // JSON'a girmediği için eşleştirme satırı tek başına boşa düşerdi. PARANIN KENDİSİ zaten
   // cash_transactions ile dışa aktarılıyor; eşleştirme izi tam D1 yedeğinde durur.
-  const names=all.filter(n=>n.startsWith(ns+'_')&&!/connections|cursors|records|_report_|purchase_document|sales_document|product_famil|purchase_family|import_batches|import_items|bank_files|bank_lines|bank_matches|open_costs|cost_settlements|cost_dirty|cost_revaluations|party_payment_methods|party_entry_plans|expense_schedules/.test(n));
+  const names=all.filter(n=>n.startsWith(ns+'_')&&!/connections|cursors|records|_report_|purchase_document|sales_document|product_famil|purchase_family|import_batches|import_items|bank_files|bank_lines|bank_matches|party_profile_file_chunks|open_costs|cost_settlements|cost_dirty|cost_revaluations|party_payment_methods|party_entry_plans|expense_schedules/.test(n));
   if(ns==='lp')names.push('products','materials','recipes','recipe_items');
   if(names.some(n=>!/^\w+$/.test(n)))fail('Yedek tablo adı doğrulanamadı.',500);
-  if(!names.length||names.length>45)fail('Bu dışa aktarma en fazla 45 veri tablosunu destekler; D1 dışa aktarımını kullanın.',409);
+  if(!names.length||names.length>80)fail('Bu dışa aktarma en fazla 80 veri tablosunu destekler; D1 dışa aktarımını kullanın.',409);
   // D1 limits compound SELECT terms more strictly than desktop SQLite.
   // Scalar counts use one query without UNION and leave Free-tier query headroom.
   const counts=await db.prepare('SELECT '+names.map(n=>'(SELECT COUNT(*) FROM '+n+')').join(' + ')+' AS total_rows').first();
@@ -74,7 +74,7 @@ export async function settingsApi(request,env,path,readBody){
   const results=await db.batch(statements),tables=Object.fromEntries(names.map(n=>[n,[]]));
   if(results.reduce((sum,r)=>sum+r.results.length,0)>25000)fail('Yedek sınırı aşıldı. Daha sonra tekrar deneyin.',409);
   for(const batch of results)for(const row of batch.results)tables[row.table_name].push(JSON.parse(row.row_json));
-  return {format:'lunapot-business-export',version:2,workspace:ns,exported_at:new Date().toISOString(),tables,note:'İş verileri dışa aktarımı; şifreler ve bağlantı anahtarları dahil değildir.'};
+  return {format:'lunapot-business-export',version:2,workspace:ns,exported_at:new Date().toISOString(),tables,note:'İş verileri dışa aktarımı; şifreler, bağlantı anahtarları ve ham belge/ek dosyaları dahil değildir. Ek dosyalar tam D1 yedeğinde korunur.'};
  }
  fail('Ayar işlemi bulunamadı.',404);
 }

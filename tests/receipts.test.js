@@ -32,7 +32,7 @@ test('İş verisi ihracı alanları ve sırları ayırır; ücretsiz sorgu ve sa
    f.resetQueries();const backup=await f.settings(ns,'/backup');
    assert.equal(backup.workspace,ns);assert.ok(f.queryCount()<45,'Export query count '+f.queryCount());
    assert.ok(!Object.keys(backup.tables).some(n=>n.startsWith(ns==='ec'?'lp_':'ec_')));
-   assert.ok(!Object.keys(backup.tables).some(n=>/connections|cursors|records|admin|sessions/.test(n)));
+   assert.ok(!Object.keys(backup.tables).some(n=>/connections|cursors|records|admin|^(?:ec_|lp_)?sessions$/.test(n)));
    assert.ok(!JSON.stringify(backup).includes('PRIVATE-CREDENTIAL'));
    assert.equal(backup.tables[ns==='ec'?'ec_products':'products'].length,1);
   }

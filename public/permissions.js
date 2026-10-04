@@ -15,10 +15,14 @@ export const any=(user,ns,keys,write=false)=>keys.some(k=>can(user,ns,k,write));
 // Bazi ekranlar mevcut bir yetkinin altinda calisir; her ekran icin yeni yetki acmak,
 // kayitli personel yetkilerinde o anahtar bulunmadigi icin herkesi disarida birakirdi.
 // 'documents' (Fatura belgeleri) alis ve satis fatura BELGELERINI gosterir: 'invoices' yetkisi.
-const routeAliases={ec:{documents:'invoices',reports:'orders',bank:'ledger'},lp:{}};
+const routeAliases={ec:{documents:'invoices',reports:'orders',bank:'ledger',party:'ledger',warehouse:'stock',product:'stock',money:'ledger','business-result':'performance'},lp:{party:'ledger',product:'accounts',money:'ledger'}};
 export const routeKey=(ns,route)=>routeAliases[ns]?.[route]||route;
 // Match route-level OR permissions already enforced by the API; amount access alone is not a screen.
 export function canRoute(user,ns,route,write=false){
+ if(route==='money')return !write&&can(user,ns,'ledger')&&can(user,ns,'amounts');
+ if(route==='business-result')return ns==='ec'&&!write&&['performance','expenses','amounts'].every(k=>can(user,ns,k));
+ if(route==='workbench')return Object.keys(modules[ns]||{}).some(k=>k!=='amounts'&&can(user,ns,k,write));
+ if(route==='intake')return can(user,ns,'amounts')&&(ns==='ec'?any(user,ns,['invoices','orders'],true):can(user,ns,'accounts',true));
  if(ns==='lp'&&route==='barcodes')return any(user,ns,write?['materialstock','production']:['materials','products','materialstock','production','recipes'],write);
  if(ns==='lp'&&route==='lots')return any(user,ns,write?['production','materialstock']:['products','production','materialstock','recipes'],write);
  return can(user,ns,routeKey(ns,route),write);

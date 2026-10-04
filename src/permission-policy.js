@@ -1,4 +1,4 @@
-import {can,any} from '../public/permissions.js';
+import {can,any,modules} from '../public/permissions.js';
 const deny=()=>{throw Object.assign(Error('Bu ekran veya işlem için yetkiniz yok. Yöneticiniz Ekip ve yetkiler ekranından izin verebilir.'),{status:403});};
 export function permit(user,path,method){
  if(user.owner||path==='/api/auth/logout')return;
@@ -19,12 +19,15 @@ export function permit(user,path,method){
  // KASAYA PARA YAZAR; okumak için ledger okuma, onay/geri alma için ledger YAZMA yetkisi gerekir.
  // Ledger yazma yetkisi olan personel zaten /api/ec/ledger/cash ile kasa hareketi yazabiliyor;
  // bu eşleme yeni bir güç vermez, var olan yetkiyi aynı ekranda tutar.
+ if(head==='money-calendar'){if(!match||method!=='GET'||!can(user,ns,'ledger')||!can(user,ns,'amounts'))deny();return;}
+ if(head==='business-result'){if(!match||ns!=='ec'||method!=='GET'||!['performance','expenses','amounts'].every(k=>can(user,ns,k)))deny();return;}
+ if(head==='workbench'){if(!match||!Object.keys(modules[ns]||{}).some(k=>k!=='amounts'&&can(user,ns,k,write)))deny();return;}
  if(head==='bank'){if(ns!=='ec'||!match)deny();if(!can(user,'ec','ledger',write))deny();return;}
  if(head==='marketplace-receivables'){if(ns!=='ec'||!match||sub!=='/marketplace-receivables'||method!=='GET'||!can(user,'ec','ledger')||!can(user,'ec','orders'))deny();return;}
  let feature;
  if(!match){if(!['products','materials','recipes'].includes(head))deny();feature=head;}
  else if(head==='production'){feature=parts[1]==='material-stock'?'materialstock':parts.length===1&&!write?'production-read':'production';}
- else feature=({products:ns==='ec'?'stock':'products',stock:ns==='ec'?'stock':'accounts',sales:ns==='ec'?'sales':'accounts',documents:ns==='ec'?'invoices':'accounts',returns:ns==='ec'?'sales':'accounts',fees:ns==='ec'?'sales':'accounts',expenses:ns==='ec'?'expenses':'accounts',invoices:ns==='ec'?'invoices':'accounts',purchases:ns==='ec'?'invoices':'accounts',suppliers:ns==='ec'?'ledger':'accounts',payments:'ledger',catalog:'catalog',ledger:'ledger',statement:'ledger',offers:'offers',pricing:'pricing',reconciliation:'reconciliation',orders:'orders',reports:'orders',performance:'performance',panorama:'performance',
+ else feature=({'party-profiles':'ledger',warehouse:ns==='ec'?'stock':null,'product-profile':ns==='ec'?'stock':'accounts',products:ns==='ec'?'stock':'products',stock:ns==='ec'?'stock':'accounts',sales:ns==='ec'?'sales':'accounts',documents:ns==='ec'?'invoices':'accounts',returns:ns==='ec'?'sales':'accounts',fees:ns==='ec'?'sales':'accounts',expenses:ns==='ec'?'expenses':'accounts',invoices:ns==='ec'?'invoices':'accounts',purchases:ns==='ec'?'invoices':'accounts',suppliers:ns==='ec'?'ledger':'accounts',payments:'ledger',catalog:'catalog',ledger:'ledger',statement:'ledger',offers:'offers',pricing:'pricing',reconciliation:'reconciliation',orders:'orders',reports:'orders',performance:'performance',panorama:'performance',
   // Ekranların arka plan uçları ekranın kendi yetkisiyle: Kaça satmalıyım = fiyat ekranı, ürün kârlılığı = stok ekranı.
   // Yalnız e-ticaret alanında; üretim alanında eşleme yok (kapalı kalır).
   'fiyat-hesap':ns==='ec'?'pricing':null,'urun-karlilik':ns==='ec'?'stock':null})[head];

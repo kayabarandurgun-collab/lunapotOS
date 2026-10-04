@@ -1,4 +1,11 @@
 const paths={
+ intake:'M12 16V3 M7 8l5-5 5 5 M4 15v6h16v-6',
+ workbench:'M9 5h11 M9 12h11 M9 19h11 M3 5l1 1 2-3 M3 12l1 1 2-3 M3 19l1 1 2-3',
+ warehouse:'M3 7h18v14H3z M3 7l3-4h12l3 4 M8 12h8 M8 16h5',
+ party:'M4 21V7l8-4 8 4v14 M8 10h2 M14 10h2 M8 14h2 M14 14h2 M10 21v-4h4v4',
+ product:'m3 7 9-4 9 4-9 4-9-4 M3 7v10l9 4 9-4V7 M12 11v10',
+ money:'M4 5h16v16H4z M4 9h16 M8 3v4 M16 3v4 M8 13h3 M14 17h3',
+ 'business-result':'M4 19V9 M10 19V5 M16 19v-7 M22 19H2',
  reports:'M12 16V3 M7 8l5-5 5 5 M4 15v6h16v-6',
  production:'M3 21V9l6 3V6l6 3V3h6v18H3 M7 16h2 M13 16h2 M18 16h1',
  materialstock:'M3 7h18v14H3z M3 7l3-4h12l3 4 M8 12h8 M8 16h5',

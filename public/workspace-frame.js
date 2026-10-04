@@ -57,8 +57,8 @@ export function enhanceWorkspaceFrame(){
  }
  if(!sidebar){dock?.remove();dock=null;if(header&&user&&!header.querySelector('.workspace-account')){const a=document.createElement('a');a.className='workspace-account';a.href='/access#account';a.innerHTML=icon('settings')+'<span>Hesabım</span>';header.append(a);}return;}
  if(sidebar&&!sidebar.querySelector('[data-workspace-close]')){const close=document.createElement('button');close.type='button';close.className='workspace-menu-close';close.dataset.workspaceClose='';close.setAttribute('aria-label','Menüyü kapat');close.textContent='×';close.onclick=()=>{sidebar.classList.remove('open');document.querySelector('#commerce-menu,[data-action="menu"]')?.focus();};sidebar.prepend(close);}
- const workspace=ns(),keys=workspace==='ec'?['overview','reports','invoices','stock']:['dashboard','production','recipes','materialstock'];
- const labels={overview:'Özet',orders:'Siparişler',stock:'Depo',performance:'Satış ve kâr',reports:'Raporlar',invoices:'Faturalar',dashboard:'Özet',production:'Üretim',recipes:'Reçeteler',materialstock:'Depo'};
+ const workspace=ns(),keys=workspace==='ec'?['overview','intake','stock','workbench']:['dashboard','production','recipes','materialstock'];
+ const labels={intake:'Yükle',workbench:'İşler',overview:'Özet',orders:'Siparişler',stock:'Depo',performance:'Satış ve kâr',reports:'Raporlar',invoices:'Faturalar',dashboard:'Özet',production:'Üretim',recipes:'Reçeteler',materialstock:'Depo'};
  const links=keys.map(key=>sidebar.querySelector('a[href="#'+key+'"]')).filter(a=>a&&!a.hidden&&a.style.display!=='none');
  const current=location.hash.slice(1).split('?')[0]||(workspace==='ec'?'overview':'dashboard');
  const signature=links.map(a=>a.hash).join('|')+'|'+current;

@@ -6,7 +6,7 @@ const titles=Object.fromEntries(['overview','orders','stock','performance','pric
 test('navigation exposes assigned screens and aliases without empty groups or admin routes to staff',()=>{
  const user={ec_access:'read',lp_access:'none',permissions:{ec:{orders:'read',stock:'read',ledger:'read'}}};
  const groups=navigationGroups('ec',titles,user),links=groups.flatMap(g=>g.routes);
- assert.deepEqual(links,['overview','orders','stock','reports','ledger','bank']);
+ assert.deepEqual(links,['overview','orders','stock','ledger','reports','bank']);
  assert.ok(groups.every(g=>g.routes.length));
  const markup=workspaceNavigation('ec',titles,'bank',user,()=>'<svg></svg>');
  assert.match(markup,/<details class="nav-group" open>/);assert.match(markup,/href="#bank" class="nav-link active" aria-current="page"/);

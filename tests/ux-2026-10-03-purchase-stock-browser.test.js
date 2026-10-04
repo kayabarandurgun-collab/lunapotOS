@@ -36,8 +36,7 @@ test('purchase and warehouse tasks: direct links, same route, permissions, clean
     // SR02: selecting the invoice action on its own route must leave keyboard focus
     // inside the asynchronously mounted picker, not on the header action/logout.
     for(let repeat=0;repeat<2;repeat++){
-     await page.locator('[data-new-task]').click();
-     await page.locator('.daily-task-dialog [data-daily-task="invoice"]').click();
+     await page.locator('[data-ac="purchase-document"]').click();
      await page.locator('[data-pd="file"]').waitFor({state:'attached'});
      await page.locator('.daily-task-dialog').waitFor({state:'detached'});
      await page.waitForFunction(()=>document.activeElement?.matches('[data-pd="file"]'));

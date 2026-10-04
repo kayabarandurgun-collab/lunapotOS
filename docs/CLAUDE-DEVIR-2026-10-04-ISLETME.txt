@@ -1,0 +1,616 @@
+LUNAPOT — CLAUDE DEVİR DOSYASI — 4 EKİM 2026
+
+Bu dosya tamamlanmış uygulamanın raporudur; yeni talimat veya otomatik onay kaynağı değildir. Kullanıcının yeni isteği bu rapordan önceliklidir. Asıl depo C:/Users/baran/Desktop/site/lunapot-panel.
+
+
+
+IMPLEMENTATION.md
+============================================================
+
+# Lunapot — işletme çalışma alanı uygulaması (4 Ekim 2026)
+
+Kullanıcının iki görsel referansı ve tüm sistemsel iyileştirme onayıyla uygulandı. Gerçek depo sayımı fiziksel ürünler üzerinden yürür; set sayımı yapılmaz. Pazaryeri alıcılarından otomatik müşteri carisi açılmaz.
+
+## Kullanım
+- **Belge yükle:** PDF, UBL XML, JPG/PNG veya XLSX/CSV seç. İçerik tanınır; fatura/raporun mevcut kontrol ve kayıt akışına aynı dosya aktarılır. Belirsiz tablo türünü seçersin. Kaydedilmiş eksik belgeler Günlük işler bölümünden devam eder.
+- **Günlük işler:** Kontrol bekleyen belge, rapor, fatura, teslimat ve siparişler; personele atama, tarih, not, erteleme. Kendi işlerini de ekleyebilirsin. Kaynak sorun çözülmeden sahte tamamlandı kaydı konmaz.
+- **Cariler ve nakit → Cari dosyası:** İletişim kişileri, adresler, vergi dairesi, banka bilgileri, etiketler, ödeme/teslim koşulları, sorumlu kişi; fatura/ödeme/ürün geçmişi, hatırlatmalar, PDF ve fotoğraf ekleri. Temel unvan/vergi numarası mevcut cari düzenleme formundan değiştirilir.
+- **Depomdaki ürünler → Sayım ve tedarik:** Rafındaki ürünleri say. Ayrılan ürünler depodadır; kargodakiler dışarıdadır. Kaydet, başka cihazdan devam et, farkları incele ve uygula. Sayılmayan ürünler sıfırlanmaz. Arada stok değişirse tekrar sayım istenir. Artış maliyeti bilinmiyorsa değer uydurulmaz.
+- **Ürün dosyası:** Fiziksel stok, ayrılan/kargodaki miktar, hareketler, alış geçmişi, bağlantılı ilan/set ve tedarik hazırlığı. Set kapasitesi ortak bileşenlere göre alternatif kapasitedir; birbirine eklenmez.
+- **Ödeme takvimi:** Beklenen vadeler ile gerçekleşmiş kasa/banka hareketleri ayrıdır. Tarihi bilinmeyen kayıtlar ayrı durur. Yalnız doğrulanmış banka eşleşmesi banka onaylı sayılır.
+- **İşletme sonucu:** Sonuçlanan pazaryeri paketlerinin ortak hesap motorundaki katkısından kayıtlı genel giderler düşülür. Eksik/tahmini veri belirtilir. Bu bir vergi sonrası şirket net kârı değildir.
+
+## Tasarım
+Yakın siyah, yazılı menü; beyaz çalışma alanı; adaçayı, mavi, lavanta ve bal tonlarında veri kartları. Mobil alt menü: Özet / Yükle / Depo / İşler / Menü. Ana işlemler doğrudan erişilir; diğer kayıtlar grupludur. Para/kimlik bilgileri personel yetkilerine göre korunur. Eski genel header stilinin içerik başlıklarına taşarak mobil üst üste binmeye yol açması kökten düzeltildi. Kontroller ortak boyut/yarıçap/yazı ölçeğindedir.
+
+## Güvenilirlik
+0066 cari dosyası, 0067 depo akışları, 0068 görev/audit tabloları ekler. Önceki muhasebe kayıtları yeniden yazılmaz. Çoklu sayımın tamamı aynı işlemde uygulanır; eski stok görüntüsü, birim değişikliği, yeni rezervasyon ve tekrarlanan uygulama korunur. Cari/görev eşzamanlı düzenlemeleri sürüm denetimiyle çatışır; dosya parçaları doğrulanıp mühürlenir. Ekibin yetki sınırı sunucuda da uygulanır. Küçük iş yedeği yeni metaverileri kapsar; ham ek dosyalar tam D1 yedeğinde korunur.
+
+Bağımsız inceleme üç gerçek hatayı ortaya çıkardı ve değişmeyen testlerle düzeltmeleri doğruladı: sayım kaybında küsurat yuvarlaması, ürün birimi değiştiğinde eski birime göre tekrar sayım, takvimde ilgisiz eski ödeme kayıtlarının sınırı doldurması. İkinci bağımsız inceleme cari/görev yetkisi, çalışma alanı ayrımı, eşzamanlılık ve işlem geri dönüşünü doğruladı.
+
+## Doğrulama
+- Genel test: 1.256 toplam; 1.229 geçti, 0 hata. 27 isteğe bağlı tarayıcı testi varsayılan komutta kapalıdır; ilgili tarayıcı akışları ayrıca açılarak çalıştırıldı.
+- Yeni yazma akışlarının son gerçek tarayıcı testi: 7/7 geçti (cari, ek dosya, sayım, dosya aktarımı, görev ve kaynak işlemleri). Yalnız sentetik yerel veritabanı kullanıldı.
+- Genel görsel tarama: 81 adres × masaüstü/telefon = 162 ekran; 0 yükleme/taşma/JavaScript hatası. Ayrı bütünleşik kontrol 320/390/1440 genişliklerini kapsar. Örnek ekranlar görsel olarak ayrıca incelendi.
+- Dolu 0065 şemasından 0066–0068 geçişi: eski tabloların içeriği değişmedi; Wrangler ayırıcısı, yabancı anahtarlar ve SQLite bütünlüğü doğrulandı.
+- Son derleme başarılı. Uygulama harici servis çağrıları sentetik testlerde engellendi.
+- Kanıtlar bu klasördeki final-unit-tests.log, final-write-browser-tests.log, final-read-browser-tests.log, all-pages.log, final-build.log ve ekran görüntülerinde.
+
+## Bilinen kapsam ve harici gereksinimler
+- Toplu kayıtlı sayım e-ticaret deposundadır. Üretim/hammadde sayımı mevcut kendi ekranlarında devam eder; EC/LP cari ve ürün dosyaları ayrıdır.
+- Tedarik önerisi son 30 günlük net sevk, minimum stok ve girilen tedarik/paket süresine dayanır; otomatik satın alma siparişi açmaz.
+- İşletme sonucu mevcut TY/HB sonuçlanan paket kapsamındadır; web mağaza/diğer kanal/LP satışlarını eksiksiz şirket finansal tablosu gibi sunmaz. Genel giderlerin doğruluğu girilen kayıtlara bağlıdır.
+- Takvim bugünkü açık borçlardan plan çıkarır; geçmiş gün sonu bakiyesini yeniden kurmaz. En çok 366 günlük aralık, 25.000 ilgili kaynak sınırında açık hata; sessiz eksik toplam yoktur.
+- E-belge/OCR/banka sağlayıcı hesapları ve bağlantı anahtarları bu çalışma kapsamında uydurulmadı. Var olan bağlantılar korunur. Gerçek banka akışı veya e-belge servisi için mevcut sağlayıcının yapılandırması gerekir.
+- Ek dosyalar PDF/PNG/JPEG, 5 MiB/dosya, 100 dosya/50 MiB/cari. Yarım yüklemeler devam ettirilebilir; silme/temizleme arayüzü yoktur.
+- Dossier hatırlatmaları cari kartında saklanır ve gösterilir; harici bildirim servisi kurulmadı.
+- Sayfa yenilenmeden henüz sunucuya yüklenmemiş dosya yalnız açık ekranın belleğindedir; sayfayı kapatırsan yeniden seçersin.
+- Canlıda sentetik işlem yapılmaz; yayın sonrası doğrulama salt okumadır.
+
+## Geliştirici devam bilgileri
+Asıl depo: C:/Users/baran/Desktop/site/lunapot-panel. Documents/Codex/.../outputs kopyası eski; oradan çalışma. Başlangıç HEAD9282b24, canlıv174. Bu çalışma öncesi kullanıcıya ait .node-version ve scripts/migrate-remote.mjs düzenlemeleri aynen korundu. Eski .Codex/.claude ve diğer sahipsiz dosyalara dokunulmadı.
+Modül sözleşmeleri: cari.md, warehouse.md, money.md, workflows.md. Bağımsız rapor: review.md. İlk plan: PLAN.md.
+Yayın bilgisi ve canlı doğrulama sonucu ayrı RELEASE.md dosyasına işlenecek. Önceki GitHub main push otomatik onay engeli aşılmadı; bu tur uzak Git dalına gönderim yapılmıyor.
+
+
+RELEASE.md
+============================================================
+
+# Canlı yayın — 4 Ekim 2026
+
+- Canlı adres: https://muhasebe.lunapot.com/eticaret/
+- Sürüm: v175 / fca96b12-85c1-4cc5-b136-520a5f7ad749, trafik %100.
+- Önceki çalışan sürüm: v174 / 38de9600-4d84-45cf-bdc4-3f80b0a2836b.
+- Bakım modu kapalı; yayın doğrulaması: 2026-10-04T00:12:09.115Z.
+- Uygulanan geçişler: 0066_party_profiles.sql, 0067_warehouse_workflows.sql, 0068_workbench.sql. Toplam 68 geçiş.
+- Kurtarma noktası: 000007d0-00000000-000050fa-eb4fffe4b6a8182b3d1c65e68f37d940; zaman: 2026-10-04T00:09:01.629Z.
+- Geçiş sırasında 28 eski stok/satış/cari/nakit toplamı birebir korundu; yabancı anahtar hatası yok; stok sürüm kayıtları tam.
+- Yirmi canlı JS/CSS dosyası SHA256 ile test edilen yerel dosyaya eşit. Üretim/e-ticaret/erişim sayfaları 200. Korunan yeni uçlar oturumsuz isteğe 401 dönüyor.
+- Gerçek veri üzerinde sahte kayıt, dosya yükleme veya sayım yapılmadı.
+- Oturum açık canlı tarayıcı otomasyonu ortamın başlatma hatası nedeniyle kullanılamadı. Oturumlu yazma/okuma akışları gerçek Worker ve SQLite ile yalnız yerel sentetik ortamda doğrulandı; canlı doğrulama varlıklar, yayın durumu, veritabanı geçişi ve oturumsuz erişim sınırlarını kapsar.
+
+## Geri dönüş
+Yeni tablolar eklemedir; eski kayıtlar değiştirilmez. Acil kod geri dönüşünde önceki v174 sürümü kullanılabilir ve yeni tablolar yerinde bırakılır. Veritabanı zaman yolculuğu sonraki gerçek işlemleri silebileceği için otomatik uygulanmaz; gerekirse güncel güvenlik noktası ve kullanıcı kapsamı yeniden değerlendirilir.
+
+## Son kanıtlar
+- Genel test: 1.229 geçti, 0 hata; 27 koşullu tarayıcı testi varsayılan koşuda kapalı.
+- Son bütünleşik tarayıcı grubu: 32/32 geçti, 0 atlanan.
+- Yeni yazma akışları: 7/7 geçti, 0 atlanan.
+- 81 adres, iki görünüm, 162 ekran taraması: 0 hata/uyarı.
+- Derleme ve dolu şema geçişi başarılı.
+- Aynı klasörde final-*.log, migration-result.txt, pre/post-migration.json, live-verified.json ayrıntılı yerel kanıttır.
+
+
+cari.md
+============================================================
+
+# Cari dossier — completed 2026-10-04
+
+Implemented in `C:/Users/baran/Desktop/site/lunapot-panel` (base HEAD `9282b24`). No commits, deployment, live database or external writes. Parent-owned integration files and existing migrations through 0065 were not edited.
+
+## Touched files
+
+- `src/party-profile-api.js`
+- `migrations/0066_party_profiles.sql`
+- `public/party-profile-ui.js`
+- `public/party-profile.css`
+- `public/business-ui.js` — one surgical link; existing “Hesabı incele”, edit, archive, payment and ledger actions remain.
+- `tests/party-profile-api.test.js`
+- `tests/party-profile-browser.test.js`
+- This report.
+
+## Functional result
+
+Six tabs: Özet / Bilgiler / Faturalar / Ödemeler / Ürünler / Belgeler ve notlar. Existing supplier ID is the sole identity; the module never creates a supplier or financial entry. Optional legal/trade names, tax office, multiple contacts/addresses/banks, validated IBAN, payment/lead days, discount basis points, integer minimum-order cents, tags and active workspace staff are editable. Notes include reminder dates and completion/reopen actions.
+
+Full-ledger balances, active-allocation open amounts, overdue debts, uncashed cheques, last payment, invoices and original posted purchase-price history are real DB queries. Detail lists paginate in stable order without limiting summary totals. Invoice totals and ledger balances remain distinct; missing links/unknown fields remain null. Existing payment, invoice and statement screens open via links.
+
+Files are stored as immutable D1 base64 chunks. Uploads resume by party+SHA256; sealing checks exact size, digest and PDF/PNG/JPEG signatures. MIME must match the filename extension. Raw reads require a sealed file. PDF uses the existing `object-src blob:` policy; raster previews use validated image data URLs. Blob URLs are revoked on close/disposal, requests are aborted on disposal, stale responses are ignored, text is escaped, and no dossier data enters localStorage.
+
+## Integration contract
+
+- API export: `partyProfileApi(request, env, path, readBody)`. Worker public path `/api/{ec|lp}/party-profiles`, handler path `/api/party-profiles`. Requires authenticated `USER`, validated fixed `WORKSPACE`, scoped `DB`; `ROOT_DB` supports staff selection. New table names are explicitly prefixed by the validated workspace, so central scopedDB registration is unnecessary.
+- UI export: `mountPartyProfile(root, ns, user)` returns a disposer. Route `#party?id=...`; stylesheet `party-profile.css` in both workspaces. Parent confirmed handler/router/permissions/CSS/SW integration.
+- Tables in BOTH namespaces: `party_profiles`, `party_profile_notes`, `party_profile_files`, `party_profile_file_chunks`. Supplier foreign keys preserve identity and block accidental deletion. Parent handles backup metadata and excludes file chunks.
+- Permissions: dossier uses ledger read/write. Invoice/product/provisional details additionally require EC invoices or LP accounts read. Bank metadata, discount/minimum-order terms, all notes, file metadata and file bytes require amounts access. Other monetary response fields are nulled internally and by the worker. Staff directory returns only eligible IDs/names; API and SQL triggers validate active workspace access on assignment.
+- `GET /staff`: eligible staff. `GET /:id`: party/profile/summary/capabilities. `POST /:id`: incremental optional-field patch, mandatory `expected_revision` (0 for first save).
+- `GET /:id/invoices|payments|products|provisional?page=N`: lists, 50 rows/page and `has_more`.
+- `GET/POST /:id/notes`; `POST /:id/notes/:noteId`: mandatory revision, reminder/status updates. Duplicate supplied note IDs conflict.
+- `GET/POST /:id/attachments`; `POST /:id/attachments/:fileId/chunk|seal`; `GET /:id/attachments/:fileId/part?index=N`. Metadata POST accepts filename/mime/size_bytes/sha256/chunk_count and returns uploaded indices for resume. Chunks accept expected_revision/index/data; sealing accepts expected_revision. Compare-and-swap plus transactional chunk writes reject stale concurrent writers without partial data.
+
+## Verification
+
+Final focused run: **51 passed, 0 failed, 0 skipped**:
+
+```powershell
+$env:PARTY_PROFILE_BROWSER='1'
+node --test tests/party-profile-api.test.js tests/party-profile-browser.test.js tests/ledger-history.test.js tests/ledger.test.js tests/amount-permission.test.js tests/arayuz-olcek.test.js
+```
+
+19 new real SQLite API/migration tests cover both namespaces, concurrent initial/update saves, SQL-level staff access, complete ledger aggregates, allocation reversals, cheque cash settlement, invoice/price pagination and permissions, unknown values, note races, archived cards, chunk races, wrong digest/MIME/extension, cross-party/workspace files, sealed immutability and resume at quota. Migration runs through Wrangler's actual SQL splitter and preserves existing supplier rows.
+
+Five browser checks (parent test plus four subtests) use a standalone loopback HTTP server, actual authenticated worker and fresh in-memory appFixture; no shared preview is changed. EC and LP edit/save/reopen, stale edits retaining drafts, notes/reminders, PNG and PDF upload/view/reopen, restricted staff, 320/390 layout and disposal pass. Parent independently confirmed whole-app layouts at 320/390/1440. All 13 shared CSS token policy tests pass without exemptions.
+
+## Limits / remaining work
+
+- Existing LP has no provisional-receipt subsystem; API returns `supported:false` and UI states that explicitly.
+- Files: PDF/PNG/JPEG only, 5 MiB/file, 32 KiB raw chunks (under existing 64KB request limit), 100 files/50 MiB per party. Incomplete files are retained for resume; this module provides no delete/purge action.
+- Purchase history shows original posted invoice-line unit prices, with later returns/adjustments remaining in the existing ledgers.
+- Basic supplier name/tax/contact editing remains in the existing cari list. Reminder dates/status are stored and shown in the dossier.
+- No module work remains. Parent owns final whole-app verification and restarting its synthetic preview to load the final API source. No live migration was applied here.
+
+## Continuity
+
+```yaml
+session: lunapot-panel
+date: 2026-10-04
+status: complete
+outcome: SUCCEEDED
+goal: Rich cari dossier in ec and lp with real financial reads and safe metadata/files
+now: Parent final integration verification; no further module edits required
+test: PARTY_PROFILE_BROWSER=1 node --test tests/party-profile*.test.js
+done_this_session:
+  - task: API, additive schema, six UI tabs, upload/view, concurrency and permission tests
+    files: [src/party-profile-api.js, migrations/0066_party_profiles.sql, public/party-profile-ui.js, public/party-profile.css]
+blockers: []
+questions: []
+decisions:
+  - identity: Reuse existing suppliers; never create duplicate financial parties
+findings:
+  - lp: Provisional receipts are not implemented in the existing LP schema
+worked: [Real SQLite tests, standalone authenticated browser fixture, actual Wrangler splitter]
+failed: [Initial incomplete UI write rejected; proved file absent and created complete validated module]
+next: [Parent final whole-app verification]
+files:
+  created: [src/party-profile-api.js, migrations/0066_party_profiles.sql, public/party-profile-ui.js, public/party-profile.css, tests/party-profile-api.test.js, tests/party-profile-browser.test.js]
+  modified: [public/business-ui.js]
+```
+
+
+warehouse.md
+============================================================
+
+# Warehouse and product dossier — completed 2026-10-04
+
+Implemented in `C:/Users/baran/Desktop/site/lunapot-panel`; no commits, deployment, live database, or external writes. Existing migrations through 0065 and parent integration files untouched. `public/product-list.js` changed on two lines only.
+
+## Delivered
+
+- Saved multi-product EC physical counts: named server sessions, browser/phone resume URL, per-row saves, counted/uncounted/conflict/search filters, current physical/reserved/transit figures, editable drafts, explicit recount, persisted review, atomic/idempotent apply. Uncounted and equal rows produce no stock movement. Unsaved edits in other rows survive saving one row.
+- Count inserts use existing immutable stock ledger, count-loss expenses, stock/reservation checks and FIFO dirty queue. Any counted product's intervening stock/value generation or unit change blocks review/apply, including net-zero movements. Reservations created after review also block apply. Every row posts together or none post.
+- Gains require an explicitly supplied KDV-exclusive integer-cent unit cost; null is unknown and blocks at the database layer. Explicit zero is known. Losses proportionally consume recorded stock value, rounded once to cents. Quantity-only edits preserve existing hidden costs; staff without amounts permission cannot change/clear costs.
+- Read-only replenishment proposals use minimum stock and last-30-calendar-day net dispatch demand, manual lead time, configurable target days and pack sizes. Set demand uses existing component sales once; set capacities use the limiting component. Shared-component capacities are alternatives, never a summed promise.
+- Read-only product dossier for EC/LP: physical stock, searchable/paginated complete movement history, supplier identities, recent posted purchase lines and corrected unit costs, permitted mapping/set relations and EC reorder data. No customer records, balances, contacts or sales revenue fields are selected.
+- White-canvas responsive UI using parent sage/blue/lilac variables; labelled actions, escaped strings, abort/disposal guards, no localStorage. Product list links to dossier and EC saved counts.
+
+## Integration contract
+
+Parent already added handlers, permissions, routes, stylesheet and service-worker assets; final parent preview restart must include final 0067/API changes.
+
+Exports:
+
+- `warehouseApi(request, env, path, readBody)` in `src/warehouse-api.js`.
+- `productProfileApi(request, env, path)` in `src/product-profile-api.js`.
+- `mountWarehouse(root, ns, user)` and `mountProductProfile(root, ns, user)` both return disposers.
+- Routes: EC `#warehouse`, resume `#warehouse?session=<id>`, both namespaces `#product?id=<id>`.
+- Styles: `public/warehouse.css` (parent loads it).
+- Environment: `env.DB = scopedDB(rawDB, ns)`, `env.WORKSPACE`, `env.USER`. Existing tables remain unprefixed/scoped; new warehouse tables are fixed `ec_` names, only accessible after EC checks. No central scoped table registration needed.
+- Permissions: EC warehouse/dossier -> `stock`; LP dossier -> `accounts`. GET reads, POST writes. Cost entry additionally requires `amounts`. Purchase details require EC `invoices` / LP `accounts`; mapping/set relations require `catalog`. Amounts are scrubbed within handlers and again by parent. Lead/pack settings need stock write, not amount access.
+
+All URLs below are under `/api/ec`; handler paths omit `/ec`:
+
+| Method / path | Body / behavior |
+| --- | --- |
+| GET `/warehouse` | Stock, recent sessions, replenishment and set capacities; no writes |
+| POST `/warehouse/sessions` | `{request_key, title, product_ids?}`; repeat request key returns same session; differing content conflicts |
+| GET `/warehouse/sessions/:id` | Session, snapshot/current lines, differences, unknown costs and conflicts |
+| POST `/warehouse/sessions/:id/lines` | `{revision, lines:[{product_id,counted_milli,unit_cost_cents?,notes?,recount?}]}`; milli units; null count means uncounted; absent cost preserves it; explicit null clears it with permission |
+| POST `/warehouse/sessions/:id/review` | `{revision}`; validates and persists new revision/token and Istanbul operation day |
+| POST `/warehouse/sessions/:id/apply` | `{revision, review_token}`; only reviewed state; token-matched retry after success returns `repeated:true` |
+| POST `/warehouse/settings/:productId` | `{revision,lead_days,cover_days,pack_milli,notes?}`; lead can be null; optimistic edit |
+| GET `/product-profile?id=...` | Also LP. Optional `q`, `page`, `direction`, `from`, `to` use existing stock-history validation |
+
+## Verification
+
+Final run: **34 passed, zero failed/skipped**, using actual migration-chain SQLite, actual Worker and installed Chrome. Includes:
+
+- Concurrent saves and applies; immutable/repeated apply; review invalidation; transaction rollback on later-row failure; insert arriving between review and apply; value-only and net-zero changes; late reservations; unknown versus explicit-zero cost; cost permission preservation; real EC/LP scoping; readonly total_changes checks.
+- Rounded loss, generated expense and FIFO reconciliation. Independent R1 fixed by promoting loss numerator before division; independent R2 fixed with current-unit recount validation plus transactional line/apply guards. Concurrent unit change during recount also tested.
+- Populated 0065 -> 0067 using Wrangler's actual SQL splitter; unchanged legacy balances; foreign-key check clean.
+- 390px real-browser create/save/reload/filter/review/apply and dossier navigation, missing-cost rejection, unsaved row preservation, manual replenishment config, readonly controls, disposal and empty localStorage. Additional 320px/1440px overflow checks. Standalone synthetic server; shared parent preview untouched.
+- Existing stock-history and stock UI regressions still pass.
+
+```powershell
+$env:WAREHOUSE_BROWSER='1'
+node --test tests/warehouse-workflows.test.js tests/warehouse-safety.test.js tests/warehouse-browser.test.js tests/product-profile-api.test.js tests/business-workflows-review.test.js tests/stock-availability-ui.test.js tests/stock-history.test.js
+```
+
+Screenshots: `warehouse-artifacts/count-review-390.png`, `warehouse-artifacts/product-390.png`, `warehouse-artifacts/replenishment-390.png`. Visually inspected count/dossier screenshots.
+
+## Files
+
+Created: `src/warehouse-api.js`, `src/product-profile-api.js`, `migrations/0067_warehouse_workflows.sql`, `public/warehouse-ui.js`, `public/warehouse.css`, `public/product-profile-ui.js`, `tests/warehouse-fixture.test.js` (shared test-only fixture), `tests/warehouse-workflows.test.js`, `tests/warehouse-safety.test.js`, `tests/warehouse-browser.test.js`, `tests/product-profile-api.test.js`, this report and warehouse-artifacts screenshots.
+
+Modified: `public/product-list.js` — dossier link plus EC warehouse link only. Independent reviewer owns their tests/report; not modified here.
+
+## Scope limits
+
+- Saved count and replenishment workflow is EC only. LP dossier reads its actual receiving/stock ledger; untracked reservations/transit stay null, and no LP replenishment is fabricated.
+- Counts support up to 3,000 physical cards, 200 line edits per request, 20 displayed rows per page. Recent-session list shows 200; older bookmarked session URLs still work. Dossier purchase list is most recent 50, supplier list 100, with truncation flags. Movement search covers all history in pages of 50.
+- Replenishment is a proposal, not purchase/assembly execution. Missing manual lead time yields an unknown recommendation plus a separate known minimum gap. Unconfirmed future deliveries are not subtracted. Historical 30-day demand and default seven target days are explicitly labelled assumptions.
+- Existing parent FIFO runner drains eight dirty products per mutation; additional products retain normal deferred FIFO processing. A later value change correctly makes an unfinished count stale. No new FIFO engine or ledger replacement introduced.
+
+## Handoff state
+
+```yaml
+---
+session: system-upgrade-2026-10-04-warehouse
+date: 2026-10-04
+status: complete
+outcome: SUCCEEDED
+---
+goal: Saved warehouse counts, replenishment and scoped product dossiers implemented and verified.
+now: Parent final preview restart and all-module integration run.
+test: WAREHOUSE_BROWSER=1 node --test tests/warehouse-browser.test.js tests/warehouse-workflows.test.js tests/warehouse-safety.test.js tests/product-profile-api.test.js
+done_this_session:
+  - task: Built functional endpoints and responsive UI; repaired independent R1/R2.
+    files: [src/warehouse-api.js, src/product-profile-api.js, migrations/0067_warehouse_workflows.sql, public/warehouse-ui.js, public/product-profile-ui.js]
+blockers: []
+questions: []
+decisions:
+  - ec_only_counts: LP has a different production/material workflow; actual LP dossier remains supported.
+findings:
+  - fifo: Existing count movements correctly mark FIFO and post loss expenses.
+worked: [Atomic SQL trigger, optimistic session revision, stock generation, real Worker SQLite browser fixture]
+failed: [Initial loss integer division and stale-unit recount were found and fixed by independent regressions]
+next: [Parent final integrated preview refresh and suite]
+files:
+  created: [migrations/0067_warehouse_workflows.sql, src/warehouse-api.js, src/product-profile-api.js, public/warehouse-ui.js, public/product-profile-ui.js, public/warehouse.css]
+  modified: [public/product-list.js]
+```
+
+
+money.md
+============================================================
+
+# Money — completed 2026-10-04
+
+Implemented **Ödeme takvimi** and **İşletme sonucu** in the authorized Desktop repository. No migration, financial-engine edit, live data access, deployment, commit, or push. Parent integration files and other agents' work were not edited.
+
+## Owned files
+
+- `src/money-planning-api.js`
+- `public/money-planning-ui.js`, `public/money-planning.css`
+- `tests/money-planning.test.js`, `tests/money-planning-ui.test.js`, `tests/money-planning-browser.test.js`
+- This report; `money-browser.log` and synthetic screenshots under `money-browser/` in this directory.
+
+## Exact integration contract
+
+- Export **`moneyPlanningApi(request, env, path)`**. Reads authenticated identity from **`env.USER`**. The worker's fourth `readBody` argument is ignored. Return a JSON-ready object, `null` for unrelated paths, or throw an error with `status`.
+- Fixed, already scoped `env.DB`, `env.WORKSPACE` (`ec`/`lp`), and `env.ROOT_DB` are required. Uses existing scopedDB mappings; no new table registration.
+- GET **`/api/{ec|lp}/money-calendar?from=YYYY-MM-DD&to=YYYY-MM-DD`**, normalized handler path `/api/money-calendar`. Requires **ledger + amounts read**. Expenses/schedules are read only with **ec expenses / lp accounts** permission; response `access.expenses` explains omissions. No subsidiary expense query for users lacking that permission.
+- GET **`/api/ec/business-result?from=...&to=...`**, normalized `/api/business-result`. Requires **performance + expenses + amounts read**. LP returns 403. No writes; non-GET requests return 405. Checks are enforced in the handler as well as parent policy.
+- Export **`mountMoneyPlanning(root, ns, user, mode='calendar')`** → disposer. `#money`: default mode; `#business-result`: `'result'`. Load `money-planning.css`. Shared `--tone-sage`, `--tone-blue`, `--tone-lilac` have local fallbacks.
+- Calendar response includes `rows`, `summary.expected`, `summary.recorded`, overdue/undated totals, and `source_link` per row. Amounts are integer cents or null. Out-of-period overdue rows have `bucket='overdue_outside_period'`.
+- Result response includes `summary`, `packages`, `overhead`, `expense_categories`, and `status` (`recorded`, `estimated`, `incomplete`, `overhead_missing`, `no_activity`). Final `operating_result_cents` is null when incomplete; `calculated_result_cents` is explicitly partial.
+- Route mounting guards permissions, validates response workspace/date, aborts/discards stale reads, detaches listeners on disposal, escapes data and permits only known local source routes. No localStorage or business-data persistence. Empty secondary calendar sections are omitted.
+
+## Accounting behavior
+
+Open ledger balances use live allocations only; allocation reversals reopen them. Latest payment plan wins while the original due date stays visible and can remain overdue. Issued cheques create expected payouts until the existing linked cash payment appears; closing debt and paying the cheque do not create duplicate income. Settled/non-payable rows are filtered in SQL before pagination.
+
+Kasa/banka records are separate from expectations. Only confirmed bank matches receive the bank-confirmed label; an ordinary bank account name is insufficient. Marketplace clearing transfer legs are excluded; the real bank leg is counted once. Reversals affect their own dates, and future-dated cash records are not received cash. Provider/report statements create no receivables or cash rows.
+
+Recorded expense schedules carry net values without inventing VAT or bank proof. Unknown gross cash stays null. Generated, paid, and archived monthly expense references suppress duplicate schedule rows. Invoice-generated expenses are not added again beside their linked gross ledger debt.
+
+Operating result uses **`tumSatirlar` shared delivered-package rows**, including cursor pagination, twin de-duplication, return scope, estimates and missing-data rules. `profit_cents` and recorded overhead are both **VAT excluded**. Product cost stays in package contribution; purchases, debt payments and withdrawals are not overhead. Original general invoice expenses plus dated service/price/return/loss adjustments are counted once, including reversals. Archived invoice expenses do not leave orphan service credits. Undistributed sales-fee invoices block a final result without being subtracted twice. No-expense periods expose contribution, not claimed company profit.
+
+## Verification
+
+- **18/18**: `node --test tests/money-planning.test.js tests/money-planning-ui.test.js`. Real in-memory SQLite, actual immutable migrations through 0065. Includes exact cents, both workspaces, cheque payout/reversal, allocation reversal, due/planned/unknown/future dates, read-only queries, source permission intersections, VAT and invoice-adjustment double counting, missing/estimated status, 1,002 calendar rows and **1,003 same-day performance packages**. UI tests cover XSS, null values, late response disposal, cross-workspace response rejection and recovery.
+- **7/7 independent money review cases**, including real Worker sessions and **R3 with 25,001 irrelevant historical payments**. Reviewer subsequently confirmed all 10 independent review cases and no open proven findings in `review.md`.
+- **6/6 browser checks** on parent's `http://127.0.0.1:18731/` synthetic preview: 320/390/1440px, EC/LP routes, month/date/filter/day interaction, ledger/order drilldowns, staff without amount access, read-only networking, stale response after navigation. See `money-browser.log` and screenshots. No server restart or external request performed by this module.
+- JavaScript syntax and owned-file whitespace checks passed. UI tests re-passed after hiding empty secondary sections.
+
+## Limits / parent handoff
+
+- Result is the existing TY/HB delivered-package scope minus recorded workspace overhead, not complete company financial statements; webshop, other-channel and LP sales are explicitly outside scope. Common overhead is not defensibly allocated to one channel, so `channel` is rejected. Company taxes are not calculated.
+- Calendar liabilities are today's open state, not reconstructed historical day-end balances. Dates without evidence remain separate. Missing gross VAT or cash linkage cannot be inferred from a paid checkbox/net schedule.
+- Date range is at most 366 days. Generic subsidiary reads stop with an explicit 409 above 25,000 relevant source rows; no silent subtotal. Shared performance pagination has no 1,000-row truncation. Explicit links prevent known duplicates; arbitrary independently entered duplicate expenses cannot be inferred from free text.
+- Browser uses the parent-owned preview snapshot. **Parent should restart/reload its preview once all modules are finished** so the last SQL row-budget/deduplication fixes are loaded before final all-module checks. Source/API real-DB tests already exercise the final implementation.
+
+## Continuity
+
+```yaml
+---
+session: money-planning
+date: 2026-10-04
+status: complete
+outcome: SUCCEEDED
+---
+goal: Implement scoped payment calendar and recorded operating result with functional UI
+now: Parent reloads shared preview and completes final all-module verification
+test: node --test tests/money-planning.test.js tests/money-planning-ui.test.js
+done_this_session:
+  - task: Implement authenticated read-only APIs and scoped responsive views
+    files: [src/money-planning-api.js, public/money-planning-ui.js, public/money-planning.css]
+  - task: Verify real SQLite accounting, browser interactions and independent R3 regression
+    files: [tests/money-planning.test.js, tests/money-planning-ui.test.js, tests/money-planning-browser.test.js]
+blockers: []
+questions: []
+decisions:
+  - VAT: package profit_cents and recorded net expenses share one basis
+  - identity: env.USER only; worker fourth argument is not a user
+findings:
+  - R3: filter ineligible lifetime payments before row budget; limit generated references to selected months
+worked: [Scoped real DB, shared paginated performance rows, installed headless Playwright]
+failed: [CUA runtime could not start; existing browser test harness worked]
+next: [Parent final preview reload and integration suite]
+files:
+  created: [src/money-planning-api.js, public/money-planning-ui.js, public/money-planning.css, tests/money-planning.test.js, tests/money-planning-ui.test.js, tests/money-planning-browser.test.js, docs/system-upgrade-2026-10-04/money.md]
+  modified: []
+```
+
+
+workflows.md
+============================================================
+
+# Workflows completion — 2026-10-04
+
+Implemented in C:/Users/baran/Desktop/site/lunapot-panel. No commits, deployment, live database access, or external writes. Historical migrations and other agents' files were not changed.
+
+## Touched files
+
+- src/workbench-api.js
+- migrations/0068_workbench.sql
+- public/workbench-ui.js
+- public/workbench.css
+- tests/workbench.test.js
+- tests/workbench-browser.test.js
+- This report and workbench-artifacts/{tasks-390.png,tasks-1440.png,intake-1440.png}
+
+## Functional result
+
+Günlük işler lists individual source issues: received/stale report uploads, report review rows, stored/unlinked purchase documents, partially linked multi-invoice documents, draft purchase invoices, outstanding goods receipts, missing order mappings/amounts, and changed source orders. Staff can assign real active team members, set due dates, start tasks, add notes and explicitly snooze them. Custom tasks can also be completed and reopened.
+
+Source task completion is derived on every read from the underlying record. The API and database reject marking source tasks done. Sources outside the first detected page are checked separately by identity; disappearing rows are never assumed resolved. Partially linked documents remain open while links are missing; unknown invoice totals never become zero or complete.
+
+Belge yükle recognizes file bytes, rejects empty/unsupported/legacy XLS/HTML files, and retains the selected File. PDF/XML use mountPurchaseDocument; XLSX/CSV use mountReports. Ambiguous spreadsheet content asks orders versus finance before mapping. JPG/PNG are losslessly embedded into a PDF with original-image attachment and use the same PDF/OCR pipeline. Container bytes are deterministic even when the original image is renamed. Existing uploader confirmation/automatic posting behavior is explained before continuation.
+
+Stored, wholly unlinked documents can be reconstructed from existing chunk endpoints and resumed through the original duplicate/reread protections. Invoice review embeds mountAccounting and waits for its search completion guard. Report review embeds the existing review screen; received reports use the existing preview and apply endpoints. Order actions deep-link using the actual ac package parameter. No new financial writer or customer-party creation was added.
+
+## Integration contract
+
+- Worker export: workbenchApi(request, env, path, body). Canonical path is /api/workbench after parent namespace routing. The shared body reader is invoked as body(request).
+- Environment: authenticated USER, validated WORKSPACE (ec/lp), scoped DB, ROOT_DB for staff directory.
+- GET /api/{ns}/workbench → as_of, namespace, tasks, exact source_counts, limited/limit_notice, allowed features.
+- GET /api/{ns}/workbench/staff → active staff id/name and overlapping eligible feature keys only; no credentials or usernames.
+- POST /api/{ns}/workbench/tasks → custom task. Fields: version:0, feature, title, optional notes/assignee_id/due_on/status/snooze_until.
+- POST or PATCH /api/{ns}/workbench/tasks/:encodedKey → metadata update with exact version. Keys are source_kind:source_id or custom:uuid. Conflicts return 409.
+- GET /api/{ns}/workbench/tasks/:encodedKey/audit → latest 100 immutable snapshots.
+- Tables: ec_workbench_tasks, lp_workbench_tasks, ec_workbench_task_audit, lp_workbench_task_audit. Fixed server-selected prefixes are explicit; no central scopedDB registration is required. Other source queries still use scopedDB. Migration 0068 has no CASE within triggers and passes the Wrangler splitter.
+- Audit triggers atomically store namespace, source identity, task values, actor and assignee name snapshots, version and timestamp. Deletion/history rewriting and invalid version transitions are blocked.
+- Existing module permissions govern each task. Any non-amount module grants appropriate workbench entry; mutations require that task's module write permission. Embedded financial workflows/intake additionally require amounts. Read-only headers and source actions do not advertise denied intake.
+- Public export: mountWorkbench(root, ns, user, mode='tasks'), returning disposer with onHash. Parent routes #workbench and #intake (mode='intake'), loads workbench.css and existing imported module CSS.
+- Adapter contracts: existing data-pd-drop / data-rb-drop drop listeners; report source/mapping controls; accounting invoice-filter submitter reenable + data-ac=review-invoice controls. Existing upload/review/accounting modules were not edited.
+- Uses parent --tone-sage/blue/lilac and shared button typography/radius tokens. Abort/disposal guards and escaped text; no sensitive localStorage.
+
+## Verification
+
+PowerShell:
+
+```powershell
+$env:WORKBENCH_BROWSER='1'
+node --test tests/workbench.test.js tests/workbench-browser.test.js
+```
+
+13 tests passed (12 database/content tests plus one broad browser workflow). Coverage includes real SQLite migrations through the Wrangler splitter, ec/lp isolation, populated LP route, actual worker body reading, root staff authorization, immutable audit, competing edits, date validation, capped source lists, automatic source resolution/reopening, partial document links, file sniffing and image deduplication.
+
+Browser coverage uses installed Chrome/Playwright, real modules, the real worker and in-memory SQLite in an isolated loopback server. It verifies PDF/XML/XLSX bytes reach original storage exactly; image/PDF/OCR reaches document storage; ambiguous CSV retains its file and selected type; custom assignments persist; real report apply/review actions run; existing invoice review opens; saved documents resume without duplication; cancelling during asynchronous mount recovers the picker; disposal stops requests; read-only intake/link controls; 390/1440 widths and no horizontal overflow. Worker external fetch is blocked. The parent's shared preview process was not touched.
+
+Shared control normalization is complete. Parent confirmed all 13 arayuz-olcek checks pass, independent review passes, and integrated app routes pass at 320/390/1440 widths.
+
+## Limits and parent follow-up
+
+- Parent completed the final preview restart (PID 27636) and confirmed LP workbench returns 200. Both namespaces and the request-body contract are covered by fresh worker regressions. No outstanding workbench integration changes are required.
+- Each source list displays its first 200 open issues and the latest 1000 persisted tasks; the UI explicitly reports caps and provides source links. Source counts themselves are exact. Audit endpoint shows the latest 100 versions.
+- Partially linked multi-invoice documents stay visible and link to the existing document/accounting screen for completion; the existing uploader deliberately blocks rereading already page-linked documents. Only wholly unlinked stored documents use automatic file restoration.
+- JPG/PNG images are supported; other image formats must be converted by the user. The existing OCR service still needs its deployment configuration; failed OCR keeps the original document and manual-review workflow.
+- Same pending File lives only in the current mount. Navigating away before upload or refreshing requires reselection; already stored unlinked documents can be resumed from server bytes.
+
+
+review.md
+============================================================
+
+# Independent business workflow review — 2026-10-04
+
+Status: review complete. Latest combined verification: **35 passed, 0 failed**. **No open proven findings in the reviewed scope.** R1, R2, and R3 were reproduced, reported during the review, then fixed concurrently by the implementation team; all three unchanged reviewer regressions now pass. No P0/P1 or cross-namespace/personnel amount leak was demonstrated in the tested paths.
+
+Scope: `src/money-planning-api.js`, `src/warehouse-api.js`, migration 0067, source ledger/performance accounting, and parent permission mappings/Worker dispatch. Reviewer authored only this report and `tests/business-workflows-review.test.js`; no implementation or other tests were edited. All execution used synthetic in-memory SQLite. No Git, live data, network, deployment, or historical repair.
+
+## Calendar finding fixed concurrently and independently verified
+
+### R3 — P2: lifetime payment history blocks even an empty one-day money calendar
+
+Original locations: `src/money-planning-api.js:58` (unfiltered party-entry read), `:22` (25,000-row cap), and `:88` (payment exclusion after retrieval). The corrected query is still near line 58.
+
+Before the fix, the calendar retrieved every unreversed party entry before discarding `cash` and `legacy_payment` entries in JavaScript. Once this history exceeds 25,000 rows, `readRows` throws 409 before it can exclude those irrelevant entries. Selecting a shorter interval cannot affect the underlying query.
+
+**SQLite reproduction:** insert 25,001 valid January `legacy_payment` entries; request only September 20. Expected: an empty calendar because none of those historical payments constitutes an expected receipt or payment. Actual: 409, “Kayıt sayısı fazla. Tam sonuç için tarih aralığını daraltın.” Every date selection remains unavailable for that workspace. This is an availability defect, not silent subtotal truncation.
+
+**Resolution observed:** the implementation filters paid/ineligible entries before the capped read while retaining pending cheques and open balances. The generated schedule-reference read is also restricted to the selected months and relevant schedules. The original 25,001-payment reproduction now passes, together with cheque settlement, calendar pagination, and schedule deduplication controls. Reviewer did not make these edits.
+
+**Regression:** `review R3: irrelevant lifetime payments cannot exhaust a one-day calendar row budget`, `tests/business-workflows-review.test.js:174`. Now passes unchanged in the latest combined run.
+
+## Findings fixed concurrently and independently verified
+
+### R1 — P2: stock-count losses truncated fractional cents
+
+Original location: migration 0067, `ec_warehouse_count_review`, line 53.
+
+Counting 10 units valued at 10,009 cents down to 8 produced a preview and persisted stock movement of −2,001 cents and a loss expense of 2,001 cents; proper rounding gives −2,002 / 2,002. SQLite integer division discarded the fraction before `ROUND`. This copied an existing count formula's behavior into the new workflow; the demonstrated impact was one cent per affected count line.
+
+**Resolution observed:** the implementation now promotes the numerator to REAL with `* 1.0`. The original reviewer regression at test line 52 now passes, verifying preview, persisted movement, and expense. Reviewer did not make this edit.
+
+### R2 — P2: recount validated against the obsolete product unit
+
+Original location: `src/warehouse-api.js`, save-lines unit validation/rebase. Current validation is around line 134.
+
+Using public handlers: create a new kilogram product without movements, save a count of 1500 milli, change its unit to `adet` (permitted before movements), then save with `recount: true`. Ordinary review rejected the unit change, but explicit recount validated against the obsolete kilogram unit, captured the new piece unit, and allowed review/application of **1.5 discrete items**.
+
+**Resolution observed:** recount validates against the current unit; migration guards also reject fractional piece counts. The unchanged reviewer regression at test line 63 now passes. Reviewer did not make these edits.
+
+## Verification
+
+Combined command:
+
+```text
+node --test tests/business-workflows-review.test.js tests/warehouse-workflows.test.js tests/business-workflows-permissions.test.js tests/ledger.test.js tests/purchase-returns.test.js tests/package-profit.test.js
+```
+
+Result after the concurrent fixes: **35 total, 35 passed, 0 failed**. Independent review file: **10/10 passed**. All 25 existing tests in this targeted run passed. The three finding regressions assert correct behavior and passed without weakening their assertions; none is skipped or marked TODO.
+
+Additional migration validation: apply the actual migration chain, splitting 0067 with local Wrangler `unstable_splitSqlQuery`: **16 statements**, `PRAGMA foreign_key_check` empty, `PRAGMA integrity_check` = `ok`.
+
+Independently verified behaviors:
+
+- General invoice service credits/reversals affect their own dates exactly once; original expense plus correction agrees with net totals.
+- Delivered marketplace contribution matches the authoritative performance engine. Product cost is deducted once; other-channel sales are excluded; unallocated sales-fee invoices are not subtracted again as overhead and prevent a final result.
+- Partial cash settlement plus pending cheque does not duplicate expected debt; linking cheque payout moves it from expected to recorded cash.
+- Cash reversals retain their own occurrence dates and cancel when both dates are selected.
+- Planned net expenses are not added to gross cash; generating a scheduled expense does not duplicate its plan row. Users lacking expense permission receive no expense/schedule rows.
+- Calendar pagination includes all 501 relevant entries; identical EC/LP identifiers remain isolated. Calendar/result reads do not mutate SQLite.
+- Real Worker login/session tests reject money views without amount permission and deny cross-workspace access. Warehouse count snapshot, change, and summary monetary values are null while quantity remains visible; read-only staff cannot review/apply counts.
+- A reservation introduced after review blocks count application without posting any partial movement.
+- Existing SQLite tests additionally cover stale stock/value snapshots, net-zero intervening movements, concurrent saves, repeated/concurrent application, late-trigger rollback, FIFO consistency, allocation reversals, purchase returns, and namespace guards.
+
+Limits: targeted local review, not an exhaustive proof of every production history. No browser/UI review, load benchmark, external integration, live database, or deployment was performed. No import/syntax failure was encountered. Source was being modified concurrently, so resolution claims refer to the executed tests above.
+
+## Continuity
+
+```yaml
+---
+session: business-workflows-independent-review
+date: 2026-10-04
+status: complete
+outcome: SUCCEEDED
+---
+goal: Independently review new business modules and preserve executable findings
+now: Parent can continue integration and UI verification; all reviewed fixes pass
+test: node --test tests/business-workflows-review.test.js
+done_this_session:
+  - task: Review source semantics, reproduce defects, verify concurrent fixes
+    files: [tests/business-workflows-review.test.js, docs/system-upgrade-2026-10-04/review.md]
+blockers: []
+questions: []
+decisions:
+  - ownership: Only the authorized report and independent test file were written
+findings:
+  - R3: Lifetime-history calendar failure fixed and independently verified
+  - R1_R2: Concurrent implementation fixes verified by unchanged regressions
+worked: [Actual Desktop repository, escalated shell, in-memory SQLite, real Worker sessions]
+failed: []
+next: [Parent integration and UI verification, retain the independent regressions]
+files:
+  created: [tests/business-workflows-review.test.js, docs/system-upgrade-2026-10-04/review.md]
+  modified: []
+```
+
+
+## Independent extension — party dossiers and workbench (2026-10-04)
+
+**Complete: no new proven high-impact permission, namespace, race, or data-loss defect in this bounded check.** Six additional independent SQLite tests pass; the existing dossier/workbench suites also pass **29/29**. Total extension evidence: **35 passing tests, 0 failures** across two executed commands. This does not claim exhaustive coverage.
+
+Reviewed `src/party-profile-api.js`, `migrations/0066_party_profiles.sql`, `src/workbench-api.js`, `migrations/0068_workbench.sql`, and their parent permission/Worker dispatch boundaries. The reviewer added only `tests/business-dossiers-review.test.js` and appended this report. No implementation or existing test was edited. Money/warehouse probes were not repeated. No Git, network, live data, deployment, or historical repair.
+
+### Independent checks and outcomes
+
+1. **Real Worker permission boundaries.** An authenticated EC staff member with ledger/stock write but no amount or invoice access cannot read raw dossier notes, file lists, file bytes, invoice details, LP dossiers, private invoice tasks, or their audit snapshots. Changing a task's claimed feature cannot acquire access. Forged actor fields are rejected; permitted task writes record the authenticated actor. Banks, discounts, and minimum order amounts are redacted; a permitted metadata patch preserves their original stored values.
+2. **Identity isolation.** EC and LP use identical party, note, and source-task IDs in the fixture. Editing EC leaves LP data and audit versions unchanged. Audit snapshots carry the correct namespace. A sealed attachment cannot be read under another party or workspace. All underlying supplier, invoice, ledger, cash, and stock rows remain unchanged by dossier/task metadata operations.
+3. **Concurrent profile edits.** A restricted metadata writer and an owner changing protected financial terms submit the same revision. Exactly one wins; the other receives 409. Retrying with the current revision preserves both the metadata and the latest protected fields, without partial overwrite.
+4. **Attachment failure rollback.** An injected SQLite chunk-insert failure rolls back the file's revision and write token as well as the chunk. Unsealed bytes remain inaccessible. Retrying succeeds; sealing verifies the bytes, and later chunk modification/deletion is blocked.
+5. **Task/audit atomicity.** An injected audit-insert failure rolls back the task's title, notes, status, and version. Two concurrent retry edits produce exactly one winner and one 409, with one complete new audit snapshot. Audit and task history deletion remain blocked.
+6. **Missing source preservation.** When a synthetic draft invoice disappears, its saved workbench task remains visible as `unavailable`, preserving its note, revision, and audit. It is neither falsely marked resolved nor silently deleted; a subsequent completion attempt is rejected.
+
+### Executed validation
+
+```text
+node --test tests/business-dossiers-review.test.js
+```
+
+**6/6 passed**, using the actual complete migration chain and in-memory SQLite, including real Worker authentication for the permission test.
+
+```text
+node --test tests/party-profile-api.test.js tests/workbench.test.js
+```
+
+**29/29 passed**. These existing suites additionally exercise migration 0066/0068 through the actual Wrangler SQL splitter, ledger-derived dossier totals, file digest/signature checks, archived records, staff assignment eligibility, capped source listings, source reopening, optimistic edits, and task immutability.
+
+The parent-assigned **LP workbench 500** was not investigated or fixed again. Its existing integrated Worker regression passes in the source version observed during this extension; ownership remains with Poincare/parent. No import/syntax blocker occurred.
+
+Next: parent continues its integration/UI work. Retain the six independent regressions. There is no additional implementation action requested by this bounded extension.
+
+
+BU ÇALIŞMANIN KOD / TEST DOSYALARI
+migrations/0066_party_profiles.sql
+migrations/0067_warehouse_workflows.sql
+migrations/0068_workbench.sql
+public/app.js
+public/business-ui.js
+public/daily-actions.js
+public/ecommerce.html
+public/ecommerce.js
+public/money-planning-ui.js
+public/money-planning.css
+public/operations-ui.js
+public/panorama-ui.js
+public/party-profile-ui.js
+public/party-profile.css
+public/permissions.js
+public/product-list.js
+public/product-profile-ui.js
+public/production.html
+public/style.css
+public/sw.js
+public/ui-icons.js
+public/warehouse-ui.js
+public/warehouse.css
+public/workbench-ui.js
+public/workbench.css
+public/workspace-design.css
+public/workspace-frame.js
+public/workspace-navigation.js
+scripts/design-preview.mjs
+src/money-planning-api.js
+src/party-profile-api.js
+src/permission-policy.js
+src/product-profile-api.js
+src/settings-api.js
+src/warehouse-api.js
+src/workbench-api.js
+src/worker.js
+tests/business-dossiers-review.test.js
+tests/business-export-budget.test.js
+tests/business-workflows-browser.test.js
+tests/business-workflows-permissions.test.js
+tests/business-workflows-review.test.js
+tests/business-workflows-upgrade.test.js
+tests/daily-actions.test.js
+tests/daily-workflows-browser.test.js
+tests/money-planning-browser.test.js
+tests/money-planning-ui.test.js
+tests/money-planning.test.js
+tests/party-profile-api.test.js
+tests/party-profile-browser.test.js
+tests/product-profile-api.test.js
+tests/quick-access-review.test.js
+tests/receipts.test.js
+tests/ui-navigation-browser.test.js
+tests/ux-2026-10-03-purchase-stock-browser.test.js
+tests/warehouse-browser.test.js
+tests/warehouse-fixture.test.js
+tests/warehouse-safety.test.js
+tests/warehouse-workflows.test.js
+tests/workbench-browser.test.js
+tests/workbench.test.js
+tests/workspace-sales-navigation.test.js

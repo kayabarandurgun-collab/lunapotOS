@@ -232,7 +232,7 @@ export async function previewPages() {
   for (const [source,marker,prefix] of [['app.js','titles','/uretim/'],['ecommerce.js','views','/eticaret/']]) {
     const content=await readFile(resolve(PUBLIC,source),'utf8');
     const block=content.match(new RegExp('const\\s+'+marker+'\\s*=\\s*\\{([^}]+)\\}'))?.[1]||'';
-    for (const m of block.matchAll(/(?:^|,)\s*([\w]+)\s*:/g)) pages.push(prefix+'#'+m[1]);
+    for (const m of block.matchAll(/(?:^|,)\s*(?:['"]([\w-]+)['"]|([\w]+))\s*:/g)) pages.push(prefix+'#'+(m[1]||m[2]));
   }
   const ws=await readFile(resolve(PUBLIC,'webshop.js'),'utf8');
   for (const match of ws.matchAll(/view\s*===\s*['"]([\w-]+)['"]/g)) pages.push('/webmagaza/#'+match[1]);

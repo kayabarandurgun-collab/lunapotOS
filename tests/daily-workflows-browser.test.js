@@ -19,17 +19,17 @@ test('daily workflows: direct actions, mobile menus, search, permissions and rea
  }
  try{
   for(const width of [320,390,1440])await t.test(width+'px owner daily entry points',()=>run(width,'owner',async(page,go,fits)=>{
-   await go();await page.locator('[data-daily-home] [data-daily-task=reports]').waitFor();
+   await go();await page.locator('[data-daily-home] [data-daily-task=intake]').waitFor();
    assert.equal(await page.locator('[data-daily-home] [data-daily-task]').count(),4);await fits();
    assert.equal(await page.locator('.daily-analysis[data-disclosure=trend][open]').count(),1,'real sales chart is immediately discoverable');
    assert.equal(await page.locator('.daily-analysis[data-disclosure=offerings][open]').count(),0,'secondary sales ranking remains optional');
    assert.ok((await page.locator('.ins-kpi-primary').boundingBox()).y<500,'cash result is visible without a long action-card scroll');
    await page.screenshot({path:resolve(out,'overview-'+width+'.png')});
-   await page.locator('[data-daily-home] [data-daily-task=reports]').click();await page.locator('[data-rb="file"]').waitFor();await fits();
+   await page.locator('[data-daily-home] [data-daily-task=intake]').click();await page.locator('[data-wb-file]').waitFor();await fits();
    await page.screenshot({path:resolve(out,'reports-'+width+'.png')});
    await page.locator('[data-new-task]').click();await page.locator('.daily-task-dialog[open]').waitFor();
-   await page.locator('.daily-task-dialog [data-daily-task=invoice]').click();await page.locator('[data-pd="file"]').waitFor();await fits();
-   assert.match(await page.locator('[data-pd="file"]').getAttribute('aria-label'),/PDF/);
+   await page.locator('.daily-task-dialog [data-daily-task=intake]').click();await page.locator('[data-wb-file]').waitFor();await fits();
+   assert.match(await page.locator('[data-wb-file]').getAttribute('accept'),/pdf/);assert.match(await page.locator('[data-wb-file]').getAttribute('accept'),/xlsx/);
    await page.screenshot({path:resolve(out,'invoice-'+width+'.png')});
    // Real route lifecycle back/forward must return to the right screen.
    await go('/eticaret/#stock');await page.locator('.stock-tasks').waitFor();await fits();
@@ -45,15 +45,15 @@ test('daily workflows: direct actions, mobile menus, search, permissions and rea
    await page.locator('[data-quick-nav]').click();await page.locator('.ui-command input').fill('faturasiz');
    const result=page.locator('.ui-command-result');assert.equal(await result.count(),1);assert.match(await result.innerText(),/Faturasız mal girişi/);
    await result.click();await page.locator('dialog[open] [data-ac-form=unbilled]').waitFor();await page.keyboard.press('Escape');
-   if(width<801){assert.deepEqual(await page.locator('.mobile-dock a').evaluateAll(a=>a.map(n=>n.hash)),['#overview','#reports','#invoices','#stock']);await page.locator('[data-dock-menu]').click();await page.locator('#sidebar.open').waitFor();await page.keyboard.press('Escape');assert.equal(await page.locator('[data-dock-menu]').getAttribute('aria-expanded'),'false');}
+   if(width<801){assert.deepEqual(await page.locator('.mobile-dock a').evaluateAll(a=>a.map(n=>n.hash)),['#overview','#intake','#stock','#workbench']);await page.locator('[data-dock-menu]').click();await page.locator('#sidebar.open').waitFor();await page.keyboard.press('Escape');assert.equal(await page.locator('[data-dock-menu]').getAttribute('aria-expanded'),'false');}
   }));
   await t.test('reader cannot discover write actions',()=>run(390,'reader',async(page,go,fits)=>{
    await go();await page.locator('[data-new-task]').click();assert.deepEqual(await page.locator('.daily-task-dialog [data-daily-task]').evaluateAll(a=>a.map(n=>n.dataset.dailyTask)),['warehouse']);await page.keyboard.press('Escape');
    await page.locator('[data-quick-nav]').click();await page.locator('.ui-command input').fill('faturasiz');assert.equal(await page.locator('.ui-command-result').count(),0);await page.keyboard.press('Escape');await fits();
   }));
   await t.test('application launcher offers direct daily work without selecting a workspace first',()=>run(390,'owner',async(page,go,fits)=>{
-   await go('/');await page.locator('#quick-start [data-daily-task=invoice]').waitFor();assert.equal(await page.locator('#quick-start [data-daily-task]').count(),4);await fits();
-   await page.locator('#quick-start [data-daily-task=invoice]').click();await page.locator('[data-pd="file"]').waitFor();await fits();
+   await go('/');await page.locator('#quick-start [data-daily-task=intake]').waitFor();assert.equal(await page.locator('#quick-start [data-daily-task]').count(),4);await fits();
+   await page.locator('#quick-start [data-daily-task=intake]').click();await page.locator('[data-wb-file]').waitFor();await fits();
   }));
  }finally{await browser.close();}
 });

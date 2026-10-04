@@ -14,8 +14,8 @@ const decimal=v=>new Intl.NumberFormat('tr-TR',{maximumFractionDigits:4}).format
 const legacyIcons={dashboard:'▦',products:'◇',materials:'▤',recipes:'▧',costs:'∑',accounts:'₺',ai:'✧'};
 // Menu isleri konusuna gore gruplar; anahtarlar degismedigi icin mevcut #adresler ve hizli gecis calisir.
 // Hammadde karti ile depo hareketi ayni grupta durur, iki ayri kart sistemi gibi gorunmez.
-const titles={dashboard:'Genel durum',production:'Üretim kayıtları',products:'Ürünler',recipes:'Reçeteler',costs:'Maliyet hesaplama',materials:'Hammaddeler',materialstock:'Hammadde deposu',barcodes:'Barkod',lots:'Parti ve koli etiketi',accounts:'Alış ve stok',catalog:'Ürün bağlantıları',ledger:'Cariler ve nakit',offers:'Teklif ve belgeler',reconciliation:'Kesinti eşleştirme',settings:'Şirket ve yedek',ai:'Lunapot AI'};
-let data={products:[],materials:[],recipes:[],activity:[]}, route=location.hash.slice(1)||'dashboard', search='', modal=null, editing=null, draftItems=[], refreshing=null;
+const titles={product:'Ürün dosyası',"party":"Cari dosyası","money":"Ödeme takvimi","intake":"Belge yükle","workbench":"Günlük işler",dashboard:'Genel durum',production:'Üretim kayıtları',products:'Ürünler',recipes:'Reçeteler',costs:'Maliyet hesaplama',materials:'Hammaddeler',materialstock:'Hammadde deposu',barcodes:'Barkod',lots:'Parti ve koli etiketi',accounts:'Alış ve stok',catalog:'Ürün bağlantıları',ledger:'Cariler ve nakit',offers:'Teklif ve belgeler',reconciliation:'Kesinti eşleştirme',settings:'Şirket ve yedek',ai:'Lunapot AI'};
+let data={products:[],materials:[],recipes:[],activity:[]}, route=location.hash.slice(1).split('?')[0]||'dashboard', search='', modal=null, editing=null, draftItems=[], refreshing=null;
 let currentUser=null,authenticated=false,dataReady=false;
 let installPrompt=null;
 const routeLoader=createRouteLoader(),session=createSessionOwner();
@@ -25,7 +25,7 @@ let acceptedHash=location.hash,acceptedIndex=history.state?.[historyKey]?.index?
 function stampHistory(index){history.replaceState({...history.state,[historyKey]:{owner:historyOwner,index}},'',location.href);return index;}
 stampHistory(acceptedIndex);
 function historyIndex(){const entry=history.state?.[historyKey];observedIndex=entry?.owner===historyOwner?entry.index:stampHistory(observedIndex+1);return observedIndex;}
-function acceptLocation(){acceptedHash=location.hash;acceptedIndex=historyIndex();route=acceptedHash.slice(1)||'dashboard';}
+function acceptLocation(){acceptedHash=location.hash;acceptedIndex=historyIndex();route=acceptedHash.slice(1).split('?')[0]||'dashboard';}
 async function navigateHash(){
  const revision=++navigationRevision,owner=session.capture(),nextHash=location.hash,nextIndex=historyIndex();
  if(nextHash===acceptedHash&&nextIndex===acceptedIndex)return; // Returning to the displayed history entry after cancellation.
@@ -36,7 +36,7 @@ async function navigateHash(){
   disposeRecipeStudio(root);
  }
  if(revision!==navigationRevision||!owner.isCurrent())return;
- acceptedHash=nextHash;acceptedIndex=nextIndex;route=nextHash.slice(1)||'dashboard';search='';
+ acceptedHash=nextHash;acceptedIndex=nextIndex;route=nextHash.slice(1).split('?')[0]||'dashboard';search='';
  if(authenticated){if(dataReady)await render();else await refresh(owner);}
 }
 function resetSession(){
@@ -70,6 +70,12 @@ async function refresh(owner=session.capture()){
 function shell(){ $('#app').innerHTML=`<aside id="sidebar"><a class="brand" href="#dashboard"><img src="/icon.svg" alt=""><span>lunapot<span class="brand-sub">YÖNETİM PANELİ</span></span></a><nav aria-label="Ana menü">${workspaceNavigation('lp',titles,route,currentUser,icon)}</nav><div class="sidebar-foot"><a class="workspace-home" href="${currentUser?.owner?'/access':'/access#account'}">${currentUser?.owner?'Ekip ve yetkiler':'Hesabım'}</a><a class="workspace-home" href="/">▦ Tüm uygulamalar</a><div class="version"><span class="status-dot"></span> Lunapot v3.0</div><p>Üretimin her adımı,<br>tek bir yerde.</p></div></aside><div class="workspace"><header><button class="mobile-menu icon-button" data-action="menu" aria-label="Menüyü aç">☰</button><strong class="mobile-workspace">Lunapot</strong><div class="breadcrumb">Çalışma alanı <span>/</span> <strong>${titles[route]||titles.dashboard}</strong></div><div class="header-actions"><a class="app-launcher-link" href="/" aria-label="Ana ekran · Uygulamalar"><span aria-hidden="true">▦</span> Uygulamalar</a><span class="connection ${navigator.onLine?'':'offline'}">${navigator.onLine?'● Çevrimiçi':'● Çevrimdışı'}</span><button class="icon-button" data-action="refresh" aria-label="Verileri yenile">↻</button><button class="avatar" data-action="logout" aria-label="Oturumu kapat" title="Oturumu kapat">L</button></div></header><main id="content"></main><footer><span>Lunapot · Ürün ve maliyet yönetimi</span><button class="text-button" data-action="install">Telefona ekle ↗</button></footer></div><div id="modal-root"></div>`; }
 function pageHeading(title,subtitle,action=''){return `<div class="page-heading"><div><span class="eyebrow">ÜRETİM / ${esc(titles[route]||'Çalışma masası')}</span><h1>${title}</h1><p>${subtitle}</p></div>${action}</div>`;}
 const routeViews={
+ product:{load:()=>import('./product-profile-ui.js'),mount:(module,root)=>module.mountProductProfile(root,'lp',currentUser)},
+"party":{load:()=>import('./party-profile-ui.js'),mount:(module,root)=>module.mountPartyProfile(root,'lp',currentUser)},
+"money":{load:()=>import('./money-planning-ui.js'),mount:(module,root)=>module.mountMoneyPlanning(root,'lp',currentUser,'calendar')},
+"intake":{load:()=>import('./workbench-ui.js'),mount:(module,root)=>module.mountWorkbench(root,'lp',currentUser,'intake')},
+"workbench":{load:()=>import('./workbench-ui.js'),mount:(module,root)=>module.mountWorkbench(root,'lp',currentUser,'tasks')},
+
  production:{load:()=>import('./production-ui.js'),mount:(module,root)=>module.mountProduction(root)},
  materialstock:{load:()=>import('./production-ui.js'),mount:(module,root)=>module.mountProduction(root,'materials')},
  accounts:{load:()=>import('./accounting-ui.js'),mount:(module,root)=>module.mountAccounting(root,'lp','overview',true)},

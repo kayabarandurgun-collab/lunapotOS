@@ -1,3 +1,8 @@
+import {partyProfileApi} from './party-profile-api.js';
+import {warehouseApi} from './warehouse-api.js';
+import {productProfileApi} from './product-profile-api.js';
+import {moneyPlanningApi} from './money-planning-api.js';
+import {workbenchApi} from './workbench-api.js';
 import {storeApi,webshopAdminApi,demoEnabled} from './webshop-api.js';
 import {stockHistoryApi} from './stock-history-api.js';
 import {partyStatementApi} from './party-statement-api.js';
@@ -157,7 +162,7 @@ async function api(request,env,path){
  const workspace=path.match(/^\/api\/(ec|lp)(\/.*)?$/);
  if(workspace){
   const scoped={...env,DB:scopedDB(db,workspace[1]),ROOT_DB:db,WORKSPACE:workspace[1],USER:current.user},subpath=workspace[2]||'';
-  for(const handler of [fifoApi,fiyatHesapApi,urunKarlilikApi,panoramaApi,stagedImportApi,purchaseDocumentApi,purchaseAutopostApi,salesDocumentApi,reportStockLinkApi,reportInboxApi,marketplaceReceivablesApi,bankMatchApi,bankApi,lotApi,barcodeApi,offersApi,partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null){await maliyetiTazele(scoped,request);return json(scrubAmounts(result,current.user,workspace[1]));}}
+  for(const handler of [partyProfileApi,warehouseApi,productProfileApi,moneyPlanningApi,workbenchApi,fifoApi,fiyatHesapApi,urunKarlilikApi,panoramaApi,stagedImportApi,purchaseDocumentApi,purchaseAutopostApi,salesDocumentApi,reportStockLinkApi,reportInboxApi,marketplaceReceivablesApi,bankMatchApi,bankApi,lotApi,barcodeApi,offersApi,partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null){await maliyetiTazele(scoped,request);return json(scrubAmounts(result,current.user,workspace[1]));}}
   const accounting=await accountingApi(request,scoped,'/api/accounting'+subpath,body);await maliyetiTazele(scoped,request);
   return json(scrubAmounts(accounting,current.user,workspace[1]));
  }

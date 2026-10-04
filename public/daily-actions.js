@@ -2,9 +2,9 @@ import {canRoute} from './permissions.js';
 import {icon} from './ui-icons.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const commerce=[
- {id:'reports',route:'reports',write:true,title:'Rapor yükle',detail:'Trendyol ve Hepsiburada dosyaları',href:'#reports?action=upload',icon:'reports',words:'rapor excel xlsx csv pazaryeri sipariş kesinti yükle aktar'},
- {id:'invoice',route:'invoices',write:true,title:'Alış faturası yükle',detail:'PDF veya XML belgeden mal girişi',href:'#invoices?action=upload',icon:'invoices',words:'alış fatura pdf xml belge tedarikçi yükle alışlar'},
+ {id:'intake',route:'intake',write:true,title:'Belge yükle',detail:'Fatura, rapor veya belgeyi buraya bırak',href:'#intake',icon:'intake',words:'alış fatura pdf xml belge rapor excel xlsx csv yükle aktar'},
  {id:'warehouse',route:'stock',title:'Depodaki ürünler',detail:'Elindeki, ayrılmış ve kargodaki stok',href:'#stock',icon:'stock',words:'stok depo depodaki ürünler elimde kaç adet kaldı envanter'},
+ {id:'count',route:'warehouse',write:true,title:'Depo sayımı',detail:'Say, kaydet; kaldığın yerden devam et',href:'#warehouse',icon:'warehouse',words:'stok say sayım sayim tedarik eksik mal'},
  {id:'unbilled',route:'stock',requires:'ledger',title:'Faturasız mal girişi',detail:'Mal geldi, faturası sonra gelecek',href:'#stock?action=unbilled',icon:'materialstock',words:'faturasız faturasiz geçici mal giriş teslim depo ekle'}
 ];
 const production=[

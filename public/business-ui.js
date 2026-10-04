@@ -114,7 +114,7 @@ const card = (title, content, action = '') => `<section class="v2-card"><div cla
 export function cardActions(group, row) {
   const key = group + ':' + row.id;
   return '<div class="ac-actions record-actions">'
-    + (group === 'parties' ? button('Hesabı incele','party-detail',row.id,true) : '')
+    + (group === 'parties' ? '<a class="secondary" href="#party?id=' + encodeURIComponent(row.id) + '">Cari dosyası</a>' + button('Hesabı incele','party-detail',row.id,true) : '')
     + '<details class="record-action-menu"><summary aria-label="'+esc(row.name||'Kayıt')+' için diğer işlemler">Diğer <span aria-hidden="true">⌄</span></summary><div>'
     + button('Düzenle', group === 'parties' ? 'party-edit' : 'account-edit', row.id, true)
     + (row.archived_at ? button('Arşivden geri al','card-restore',key,true) : button('Arşivle','card-archive',key,true))
