@@ -39,6 +39,31 @@ function urunPaylari(row,own,lines,parts,v,maliyet){
  urunler.forEach((u,i)=>{u.cash_cents+=paylar[i];});
  return urunler;
 }
+// Kalem bazında okunabilen brüt değerler. Nakit hesabı için BÜTÜN girdiler gerekir;
+// maliyet eksik diye kayıtlı komisyonu da gizlemeyiz. Kâr/nakit formülünü tamamlamaz.
+// Yalnız tam, değişmemiş paket kaydında çağrılır; sonradan tahmin edilen kesintiler
+// aşağıda aynı brüt kuruşlarla ve özgün kayıt payıyla güncellenir.
+function recordedFinancialParts(p,entries,feeVat,{costKnown,costEstimated,withholdingEstimate,withholdingBps},originals=entries){
+ const safe=Number.isSafeInteger,inc=(v,bps)=>Math.round(v*(10000+bps)/10000);
+ const part=(total,estimated=false)=>safe(total)?{total_cents:total,recorded_cents:estimated?0:total,estimated_cents:estimated?total:0,estimated}:null;
+ const gross=(key,vat,known=true)=>known&&entries.length&&entries.every(e=>safe(e[key])&&safe(vat(e)))
+  ?entries.reduce((sum,e)=>sum+inc(e[key],vat(e)),0):null;
+ const cost=gross('cost_cents',e=>e.vat_bps,costKnown),net=entries.every(e=>safe(e.revenue_cents))?entries.reduce((sum,e)=>sum+e.revenue_cents,0):null;
+ const stopaj=withholdingEstimate?(safe(net)?Math.max(0,Math.round(net*withholdingBps/10000)):null):stopajPayi(p);
+ const feePart=key=>{
+  const total=gross(key,()=>feeVat);if(!safe(total))return null;
+  const recorded=originals.reduce((sum,e)=>sum+(safe(e[key])?inc(e[key],feeVat):0),0);
+  return {total_cents:total,recorded_cents:recorded,estimated_cents:total-recorded,estimated:originals.some(e=>!safe(e[key]))};
+ };
+ return {
+  revenue:part(gross('revenue_cents',e=>e.satir_kdv??e.vat_bps)),
+  cost:part(cost,!!costEstimated||safe(cost)&&cost!==0),
+  commission:feePart('commission_cents'),
+  shipping:feePart('shipping_cents'),
+  other:feePart('other_cents'),
+  withholding:part(stopaj,withholdingEstimate&&stopaj>0)
+ };
+}
 // ÇİFT AKTARIM KOPYASI: satışlarının tamamı DUZELTME-CIFT ile sıfırlanmış paket. Teknik ters kayıttır;
 // asıl kayıtla birlikte TEK ekonomik pakettir, stopaj paydasında ikinci paket sayılmaz (Codex R18).
 const KOPYA=q=>`(EXISTS(SELECT 1 FROM order_lines l JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries s ON s.id=c.sale_id WHERE l.package_id=${q}.id AND s.kind='sale') AND NOT EXISTS(SELECT 1 FROM order_lines l JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries s ON s.id=c.sale_id WHERE l.package_id=${q}.id AND s.kind='sale' AND s.quantity_milli>(SELECT COALESCE(SUM(r.quantity_milli),0) FROM sale_entries r WHERE r.parent_id=s.id AND r.kind='return' AND r.external_id LIKE 'DUZELTME-CIFT-%')))`;
@@ -275,6 +300,8 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
  const rows=packages.map(p=>{
   const packageLines=lineMap.get(p.id)||[],parts=partMap.get(p.id)||[];let entries=saleMap.get(p.id)||[];
   const row={twin_of:p.twin_of||null,id:p.id,channel:p.channel,order_no:p.order_no,external_id:p.external_id,status:p.status,occurred_on:p.occurred_on,delivered_on:p.delivered_on,urun:urunOzet(parts),teslim_edilemedi:!!p.teslim_edilemedi,profit_cents:null,cash_cents:null,cash_note:null,missing:[],revenue_net_cents:null,cost_net_cents:null,shipping_cents:null,commission_cents:null,other_cents:null,commission_rate_bps:null};
+  // Dashboard kalem bazında kayıt/tahmin ayrımını, geçmişten tamamlamadan ÖNCEKİ girdilerle yapar.
+  const recordedEntries=entries;
   if(p.twin_dup_id)row.twin_dup_id=p.twin_dup_id;
   if(p.source_changed){row.missing.push('Kaynak sipariş değişti; farkı inceleyin.');return row;}
   if(mode==='delivered'){
@@ -287,6 +314,10 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
    const maliyetsiz=entries.filter(e=>e.kind==='sale'&&e.quantity_milli>0&&((e.cost_cents===0&&!(e.open_milli>0))||(e.open_milli>0&&e.no_estimate===1)));
    if(entries.some(e=>e.kind==='sale'&&e.open_milli>0&&e.no_estimate===0)){
     row.cost_estimated=true;row.cost_note='Mal stokta yokken satıldı: maliyetin bir kısmı son alış fiyatından TAHMİNİ. Alış faturası girilince kesinleşir.';}
+   // Kaynak raporda eksik satır varsa kısmi kayıt, tam paket toplamı diye sunulmaz.
+   if(!(raporSatir.get(p.id)>packageLines.length))row.financial_parts=recordedFinancialParts(p,entries,feeVat.get(p.channel),{
+    costKnown:!maliyetsiz.length,costEstimated:row.cost_estimated,
+    withholdingEstimate:!p.stopaj_kaydi&&stopajTahminKanallari.has(p.channel),withholdingBps:stopajTahminBps});
    if(maliyetsiz.length){
     row.missing=[...profit.reasons,'Satılan ürünün alış kaydı yok; maliyet tahmin de edilemiyor. Sıfır sayılmadı, kâr hesaplanmadı. Alış faturası girilince kendiliğinden kapanır.'];
     return row;
@@ -326,6 +357,10 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
     if(h.uyari)row.tahmin_uyari=h.uyari;
     row.cost_note=(row.cost_note?row.cost_note+' ':'')+'Pazaryeri kesintiyi ekstreye henüz yazmadı; '+h.note.charAt(0).toLocaleLowerCase('tr-TR')+h.note.slice(1)+' Ekstre gelince kendiliğinden kesinleşir.';
    }
+   // Maliyet KDV'si eksik olsa bile geçmişten tamamlanan ücret kalemleri ayrıca bilinebilir.
+   if(h)row.financial_parts=recordedFinancialParts(p,entries,feeVat.get(p.channel),{
+    costKnown:true,costEstimated:row.cost_estimated,
+    withholdingEstimate:!p.stopaj_kaydi&&stopajTahminKanallari.has(p.channel),withholdingBps:stopajTahminBps},recordedEntries);
    row.revenue_net_cents=total.revenue;row.cost_net_cents=total.cost;
    const fee=key=>entries.every(s=>s[key]!==null)?entries.reduce((sum,s)=>sum+s[key],0):null;
    row.shipping_cents=fee('shipping_cents');row.commission_cents=fee('commission_cents');row.other_cents=fee('other_cents');
@@ -369,6 +404,20 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
     row.shipping_gross_cents=entries.reduce((t,e)=>t+incl(e.shipping_cents??0,fv),0);
     row.commission_gross_cents=entries.reduce((t,e)=>t+incl(e.commission_cents??0,fv),0);
     row.other_gross_cents=entries.reduce((t,e)=>t+incl(e.other_cents??0,fv),0);
+    // Mevcut ortak nakit hesabının KDV dayanağı ürün PROFİLİDİR; FIFO satış→alış KDV
+    // eşlemesini saklamaz. Bu tutarı tarihsel faturaların kesin KDV dahil toplamı diye sunmayız.
+    row.cost_gross_basis='current_product_vat';
+    row.cost_vat_estimated=row.cost_gross_cents!==0;
+    const feePart=(key,gross)=>{
+     const recorded=recordedEntries.reduce((sum,e)=>sum+(Number.isSafeInteger(e[key])?incl(e[key],fv):0),0);
+     return {total_cents:gross,recorded_cents:recorded,estimated_cents:gross-recorded,
+      estimated:recordedEntries.some(e=>!Number.isSafeInteger(e[key]))};
+    };
+    row.financial_parts={...row.financial_parts,
+     commission:feePart('commission_cents',row.commission_gross_cents),
+     shipping:feePart('shipping_cents',row.shipping_gross_cents),
+     other:feePart('other_cents',row.other_gross_cents)
+    };
     // Pazaryerinin bu pakette aldığı etkin komisyon oranı; kesinti tahminiyse satır zaten
     // "tahmini" işaretlidir (row.fees_estimated) ve oran da o tahmine aittir.
     row.commission_rate_bps=komisyonOraniBps(row.commission_gross_cents,row.revenue_gross_cents);

@@ -1,3 +1,4 @@
+import {dashboardFinancials, dashboardFinancialDay} from './dashboard-summary.js';
 import {aggregateSales, pendingSalesSummary, salesReturnSummary} from './sales-presentation.js';
 // Genel durum: bütün ekonomik tutarlar performanceReport satırlarından gelir.
 // Stok değeri ayrı bir GÜNCEL defter bakiyesidir; tarih filtresinden etkilenmez.
@@ -12,7 +13,12 @@ const DONEMLER = [['1g', 'Bugün', 1], ['7g', 'Son 1 hafta', 7], ['14g', 'Son 2 
 const tutarVar = v => Number.isSafeInteger(v);
 const nakitVar = r => tutarVar(r.cash_cents);
 const ciroVar = r => tutarVar(r.revenue_gross_cents);
-const tahmini = r => !!(r.fees_estimated || r.cost_estimated || r.assumptions_source);
+// Profil KDV'si belge gelince tarihsel alış KDV'sine dönüşmez; belge bekleyen
+// maliyet/kesinti tahmininden ayrı sayılır. Erken dönüş metadata'sında da bilinebilir.
+const maliyetKdvTahmini = r => !!r.cost_vat_estimated || tutarVar(r.financial_parts?.cost?.total_cents)
+  && r.financial_parts.cost.total_cents !== 0 && r.cost_gross_basis !== 'historical_purchase_vat';
+const belgeBekleyenTahmin = r => !!(r.cost_estimated || r.assumptions_source || r.fees_from_history);
+const tahmini = r => !!(r.fees_estimated || r.cost_estimated || r.assumptions_source || maliyetKdvTahmini(r));
 // STOPAJ TAHMİNİ BELGEYLE KESİNLEŞMEZ. Diğer tahminler (kesinti geçmişten, maliyet son alıştan)
 // bir belge gelince gerçek tutara döner; stopaj dönmez, çünkü Trendyol stopajı HİÇ raporlamıyor
 // (28.09.2026'da ölçüldü: 553 teslim edilmiş TY siparişinin 553'ünde kayıt yok, HB'de 195/195 var).
@@ -43,7 +49,7 @@ export function analyticsChannel(request) {
   return channel;
 }
 
-function ozet(rows) {
+function ozet(rows, {partial = false} = {}) {
   const hesapli = rows.filter(nakitVar), cirolu = rows.filter(ciroVar);
   const ortak = hesapli.filter(ciroVar);
   const sum = (list, key) => list.reduce((t, r) => t + r[key], 0);
@@ -53,6 +59,7 @@ function ozet(rows) {
     return [k, {packages: list.length, calculated: h.length, cash_cents: sum(h, 'cash_cents')}];
   }));
   return {
+    financials: dashboardFinancials(rows, {partial}),
     packages: rows.length, calculated: hesapli.length, missing: rows.length - hesapli.length,
     // Eski nakit toplamı, hesaplanabilen kısmın toplamıdır. Sıfır/bilinmiyor ayrımı yeni alanlarda açıktır.
     cash_cents: sum(hesapli, 'cash_cents'),
@@ -69,6 +76,8 @@ function ozet(rows) {
     gains: hesapli.filter(r => r.cash_cents > 0).length,
     profit_ex_vat_cents: rows.reduce((t, r) => t + (r.profit_cents ?? 0), 0),
     estimated: rows.filter(tahmini).length,
+    estimated_cost_vat: rows.filter(maliyetKdvTahmini).length,
+    estimated_document_pending: rows.filter(belgeBekleyenTahmin).length,
     // Yalnız stopaj yüzünden tahmini olanlar ayrı sayılır: ekran "belge bekleniyor" demesin.
     estimated_withholding_only: rows.filter(stopajTahminiSadece).length,
     kaba_tahmin: rows.filter(r => r.tahmin_uyari).length,
@@ -105,7 +114,7 @@ function urunSirasi(rows, adlar) {
 function siparisRekorlari(rows, partial) {
   const orders = new Map();
   for (const r of rows) {
-    const key = JSON.stringify([r.channel, r.order_no || r.id]);
+    const key = JSON.stringify([r.channel, r.order_no ? 'order' : 'package', r.order_no || r.id]);
     if (!orders.has(key)) orders.set(key, {id: r.id, channel: r.channel, order_no: r.order_no, external_id: r.external_id,
       package_ids: [], packages: 0, revenue_gross_cents: 0, cash_cents: 0, revenue_missing: 0, cash_missing: 0, estimated: false});
     const order = orders.get(key);
@@ -170,7 +179,7 @@ export async function panoramaApi(request, env, path) {
     const oncekiFrom = days && key !== 'custom' ? shift(from, -days) : null;
     const onceki = oncekiFrom && firstResult && oncekiFrom >= firstResult ? ozet(rows.filter(r => r.delivered_on >= oncekiFrom && r.delivered_on < from)) : null;
     const partial = eksikMi(from, to), oncekiEksik = !!onceki && eksikMi(oncekiFrom, shift(from, -1));
-    const summary = ozet(icinde);
+    const summary = ozet(icinde, {partial});
     if (partial) {
       summary.margin_bps = null;
       if (!icinde.length) summary.revenue_gross_cents = summary.calculated_cash_cents = null;
@@ -198,12 +207,21 @@ export async function panoramaApi(request, env, path) {
     .filter(g => g.date > today && g.date >= range.from && g.date <= range.to)
     .sort((a, b) => a.date.localeCompare(b.date)));
 
+  // Yeni grafik bütün paketleri ve eksik günleri kapsar; eski daily sözleşmesi değişmez.
+  const financialByDay = new Map();
+  for (const row of rows) { const list = financialByDay.get(row.delivered_on) || []; list.push(row); financialByDay.set(row.delivered_on, list); }
+  const financial_daily = [];
+  if (ilk.teslim) for (let d = ilk.teslim; d <= today; d = shift(d, 1))
+    financial_daily.push(dashboardFinancialDay(d, financialByDay.get(d) || [], {partial: eksikMi(d, d)}));
+  if (range && range.to > today) for (const date of [...financialByDay.keys()].filter(d => d > today && d >= range.from && d <= range.to).sort())
+    financial_daily.push(dashboardFinancialDay(date, financialByDay.get(date), {partial: eksikMi(date, date)}));
+
   // Mevcut pending sözleşmesi korunur: bütün güncel bekleyenler, sipariş tarihi temelinde.
   const pendingFrom = ilk.bekleyen || today;
   let pending;
   try { const pendingRows = (await tumSatirlar(env, {mode: 'pending', from: pendingFrom, to: today, tahmin, channel})).rows;
     pending = {from: pendingFrom, to: today, ...ozet(pendingRows), ...pendingSalesSummary(pendingRows), partial: false}; }
-  catch (e) { pending = {from: pendingFrom, to: today, ...ozet([]), ...pendingSalesSummary(null), packages: null, calculated: null, cash_cents: null,
+  catch (e) { pending = {from: pendingFrom, to: today, ...ozet([], {partial: true}), ...pendingSalesSummary(null), packages: null, calculated: null, cash_cents: null,
     calculated_cash_cents: null, revenue_gross_cents: null, revenue_calculated: null, revenue_missing: null,
     margin_packages: null, margin_missing: null, partial: true, error: hataMetni(e)}; }
 
@@ -211,6 +229,6 @@ export async function panoramaApi(request, env, path) {
   const inventory = await inventorySnapshot(db, asOf);
   return {as_of: asOf, today, first_delivered: ilk.teslim, unallocated_fee_cents: unallocated,
     coverage: {complete: !eksik.length && !pending.partial, missing: eksik, pending_error: pending.error || null},
-    periods, daily, pending, selected_period: selected, inventory,
+    periods, daily, financial_daily, pending, selected_period: selected, inventory,
     notice: 'Cebine kalan = KDV dahil satış − KDV dahil ürün maliyeti − KDV dahil pazaryeri kesintileri − stopaj. Ortak giderler ve gelir vergisi hariç.'};
 }

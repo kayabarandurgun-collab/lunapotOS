@@ -169,3 +169,11 @@ body.workspace-redesign .ledger-workbench .v2-stat.highlight :is(.v2-stat-value,
 
 body.workspace-redesign .overview-business-result{color:#295b3c;font-size:11px;font-weight:600;text-decoration:underline;text-underline-offset:3px;display:inline-flex;align-items:center;min-height:32px;margin-top:auto}
 @media(max-width:800px){body.workspace-redesign .overview-business-result{min-height:44px}}
+/* Workflow checks 2026-10-04: preserve 44px mobile targets after feature overrides. */
+@media(max-width:800px){
+ body.workspace-redesign :is(.workflow-page,.workflow-dialog,.rb-document-workbench) :is(input,select,textarea):not([type=checkbox]):not([type=radio]):not([type=file]):not([type=hidden]){min-height:44px}
+ body.workspace-redesign .rb-document-workbench .rb-tabs button{min-height:44px;min-width:44px}
+ body.workspace-redesign .rb-document-workbench .rb-help>summary{min-height:44px;align-content:center}
+ body.workspace-redesign .rb-document-workbench .rb-guide-link,
+ body.workspace-redesign .workflow-invoices .invoice-unbilled-link{display:flex;align-items:center;min-height:44px;min-width:44px}
+}

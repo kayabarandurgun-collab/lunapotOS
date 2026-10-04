@@ -59,7 +59,10 @@ test('custom interval is inclusive, presets stay intact, and revenue/cash/margin
     assert.equal(selected.packages, 2);
     assert.equal(selected.from, day(-7));
     assert.equal(selected.to, day(-2));
-    assert.equal(selected.status, 'complete');
+    assert.equal(selected.status, 'estimated', 'profile VAT is explicitly estimated even with complete monetary inputs');
+    assert.equal(selected.partial, false);
+    assert.equal(selected.estimated_cost_vat, 2);
+    assert.equal(selected.estimated_document_pending, 0);
     const report = await tumSatirlar(ecEnv(f), {mode: 'delivered', from: day(-7), to: day(-2), detay: true});
     assert.equal(selected.revenue_gross_cents, sum(report.rows, 'revenue_gross_cents'));
     assert.equal(selected.cash_cents, sum(report.rows, 'cash_cents'));
@@ -274,7 +277,9 @@ test('failed history chunk marks its exact custom scope incomplete while current
     const current = result.periods.find(p => p.key === '1g');
     assert.equal(current.partial, false);
     assert.equal(current.cash_cents, 1548);
-    assert.equal(current.status, 'complete');
+    assert.equal(current.status, 'estimated', 'a successfully read day still carries profile-VAT estimate provenance');
+    assert.equal(current.estimated_cost_vat, 1);
+    assert.equal(current.estimated_document_pending, 0);
   } finally { f.close(); }
 });
 

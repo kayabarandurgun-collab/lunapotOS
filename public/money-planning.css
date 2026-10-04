@@ -10,3 +10,13 @@
 @media(max-width:700px){.money-planning{padding:20px 14px}.money-planning .mp-header{gap:20px}.money-planning .mp-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.money-planning .mp-metric{padding:18px 13px;border-radius:13px;gap:10px}.money-planning .mp-metric strong{font-size:23px}.money-planning .mp-metric>span{font-size:12px}.money-planning .mp-period{padding:16px 0;gap:16px}.money-planning .mp-period-actions{width:100%;justify-content:space-between;gap:4px}.money-planning .mp-period-actions .mp-button{padding:9px 10px;font-size:var(--yazi-dugme-kucuk)}.money-planning .mp-period form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%;gap:10px}.money-planning .mp-period form .mp-button{grid-column:1/-1}.money-planning .mp-calendar-layout,.money-planning .mp-result-columns{grid-template-columns:1fr;gap:25px}.money-planning .mp-calendar{padding:17px}.money-planning .mp-calendar-day{min-height:64px}.money-planning .mp-filters{gap:6px;margin-top:23px}.money-planning .mp-filters .mp-button{padding:8px 11px;font-size:var(--yazi-dugme-kucuk)}.money-planning .mp-section-head{gap:10px}.money-planning h2{font-size:19px}.money-planning .mp-event summary{gap:9px}.money-planning .mp-event-main>strong{font-size:13px}.money-planning .mp-event-amount{font-size:13px}.money-planning .mp-result-summary{align-items:start;flex-direction:column}.money-planning .mp-result-columns{gap:0}.money-planning .mp-source-row{gap:14px}.money-planning .mp-source-row>div:last-child{min-width:97px}.money-planning .mp-view-switch{max-width:100%}.money-planning .mp-view-switch a{font-size:var(--yazi-dugme-kucuk);padding:11px 12px}}
 @media(prefers-reduced-motion:reduce){.money-planning *{scroll-behavior:auto;transition:none}}
 
+/* Workflow checks 2026-10-04: calendar controls and seven-day columns fit touch use. */
+@media(max-width:800px){
+ body.workspace-redesign .money-planning :is(.mp-button,.mp-link,.mp-view-switch a,.mp-method>summary,.mp-source-list>summary){min-height:44px;min-width:44px;align-content:center}
+ body.workspace-redesign .money-planning .mp-view-switch a{display:inline-flex;align-items:center}
+}
+@media(max-width:700px){
+ /* Recover space from the card gutter so every day exceeds 44px at a 390px viewport. */
+ body.workspace-redesign .money-planning .mp-calendar{padding-inline:12px}
+ body.workspace-redesign .money-planning :is(.mp-weekdays,.mp-calendar-grid){gap:2px}
+}

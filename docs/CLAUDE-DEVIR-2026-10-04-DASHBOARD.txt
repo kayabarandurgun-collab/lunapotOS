@@ -1,0 +1,64 @@
+LUNAPOT PANEL — CLAUDE İÇİN ANA EKRAN DEVİR RAPORU
+Tarih: 4 Ekim 2026 — v176 canlı
+
+ÇALIŞMA KLASÖRÜ
+C:\Users\baran\Desktop\site\lunapot-panel
+Documents altındaki eski outputs/lunapot-panel kopyası güncel çalışma deposu değildir.
+Bu teslimden önceki HEAD: ffd13e65e061e3176a874fe540778f1feca2ad2f.
+Teslimin yerel commit bilgisi docs/dashboard-2026-10-04/local-commit.json içinde tutulur.
+
+KULLANICI NE İSTEDİ?
+Ana ekranın bileşenlerinin gerçekten yenilenmesi; bugüne kadar satılan malların KDV dahil alış değeri, komisyon/kargo/diğer kesintiler, anlaşılır grafikler, mobil kolaylık ve faydalı eklemeler. Testlerden sonra canlıya alma yetkisi vardı.
+
+NE YAPILDI?
+1. Ana ekran dört temel kartla yeniden kuruldu: kalan, ciro, KDV dahil tahmini satılan mal maliyeti ve pazaryeri kesintileri.
+2. Ciro / maliyet ve kesintiler / kalan için üç serili etkileşimli grafik; seri seçimi, dokunma/klavye değer okuma ve erişilebilir veri tablosu.
+3. Satıştan ne kalıyor bölümü: mal maliyeti, komisyon, kargo, diğer pazaryeri kesintileri, stopaj ve kalan; kayıtlı/tahmini ayrımı. Eksik veya mutabık olmayan veriden yüzdelik dağılım üretilmez.
+4. İlk satıştan bugüne yedi toplam; seçili tarihten bağımsız. Tarih filtresiyle karışmıyor.
+5. Trendyol/Hepsiburada aynı dönemde ciro, maliyet, kesinti, kalan ve marj karşılaştırması.
+6. Kâr/zarar/başa baş/hesap bekleyen paket grafiği ve ilgili dökümlere bağlantılar.
+7. Güncel depo ve kargodaki işler tarihli satış sonuçlarından ayrı; sayfa içi hızlı geçişler. Set/tekli satış sıralaması korunuyor ve gerektiğinde açılıyor.
+8. Mobil rapor/fatura/depo/takvim dokunma hedefleri iyileştirildi. Para görme yetkisi olmayan personelin yeni parasal alanları gizli kalıyor.
+
+MATEMATİK VE VERİ — ÖNEMLİ
+Yeni bağımsız kâr formülü kurulmadı. Kaynak performanceReport ortak paket sonuçları. Net maliyet ve mevcut nakit formülleri değiştirilmedi; yeni özet/metadata salt okunur.
+KDV dahil maliyet kesin tarihsel alış faturası toplamı DEĞİL: FIFO geçmiş alış parti KDV'sini satışla eşlemiyor. Güncel ürün KDV oranıyla büyütülen tutar tahmini olarak işaretli. Gerçek tarihsel KDV izleme bu teslimde yapılmadı; oran veya veri uydurulmadı.
+Kayıtlı komisyon/kargo bilinmeyen maliyet nedeniyle kaybolmaz. Her kalemin kapsamı ayrı. Toplam kesinti dört kalemin de bilindiği ortak paket kapsamıdır; farklı paketlerin ayrı bilinen tutarları sahte tam toplamda birleştirilmez.
+Bilinmeyen null, gerçekten boş dönem 0. known_cents bilinen ara toplam; total_cents yalnız eksiksiz sonuç. recorded + estimated = known. Okuma hatasında kayıp paket sayısı bilinmediğinden missing_packages=null.
+Ciro - maliyet - kesinti = kalan tam veride kuruş düzeyinde doğrulanır. Stopaj nakit kesintisidir. Kayıtlı kesinti bankadan ödendi anlamına gelmez. Genel işletme giderleri/gelir vergisi bu satış hesabında değildir; işletme sonucu ekranı bağlantılıdır.
+Kargodaki satışlar sonuçlanmış satış toplamına eklenmez. İadeler/DUZ kopyaları ortak motor politikasını izler. Fiziki stok bileşen bazında; kazanç satılan set/tekli sunum bazında kalır. Müşteri carisi açılmadı.
+
+KAPATILAN İNCELEME BULGULARI
+- Eski kanal grafiğinde bilinmeyen günün sıfır görünmesi.
+- KDV tahmininin dönem/rekor işaretlerinden kaybolması.
+- Hiç hesaplanamayan dönemde zarar toplamının sıfır görünmesi.
+- İlk ay kısa olduğunda aylık grafiğin haftalık etiketlenmesi ve yıl bilgisinin eksikliği.
+- Sipariş numarası olmayan paket kimliğinin gerçek sipariş numarasıyla çakışması.
+Komisyon oranını gizleme denemesi mevcut kasıtlı yetki kontratı görülünce geri alındı. Mevcut komisyon oranları personelde görünür olabilir; parasal tutar/marj/ciro payı izin olmadan gizlidir. permission-policy.js bu teslimde değişmedi.
+
+DOSYALAR
+Yeni: src/dashboard-summary.js; public/dashboard-ui.js; public/dashboard.css.
+Değişen: src/panorama-api.js, src/performance-api.js; public/panorama-ui.js, operations-ui.js, ecommerce.html, sw.js, money-planning.css, workspace-design.css.
+Testler: dashboard-financials, dashboard-ui, dashboard-review, dashboard-charts-browser, dashboard-workflows-browser; redesign-analytics içindeki iki status beklentisi profil KDV tahminini yansıtacak şekilde güncellendi.
+API sözleşmesi ve ayrıntılı notlar: docs/dashboard-2026-10-04/backend.md ve IMPLEMENTATION.md.
+
+TEST / YAYIN SONUCU
+Tam test: 1261 geçti, 0 hata, 29 koşullu tarayıcı testi atlandı (1290 toplam).
+Ayrıca etkinleştirilen tarayıcı grubu: 67/67 geçti; kritik iş akışları bunun içinde 21/21.
+Geniş otomatik ekran taraması: 162 ekran, 45 HTTP kontrolü, 0 hata/uyarı. İnsan incelemesi seçili ana ekran görselleriyle sınırlı; tüm ekranların elle incelendiği iddia edilmiyor.
+Üretim paketi başarılı. Son canlı sürüm: 04ccbd40-4721-4e80-8c35-6ef03baf5df6, trafik %100; 4 Ekim 2026 16:34 Türkiye saati.
+Önceki v175: fca96b12-85c1-4cc5-b136-520a5f7ad749.
+SW: lunapot-shell-v176-dashboard. Doğru DB bağı ve RELEASE_MAINTENANCE=0 doğrulandı.
+Yeni migration / geçmiş kayıt düzeltmesi yok.
+Canlı 7 JS/CSS/SW hash eşleşti; ecommerce HTML kabuğu doğrulandı (Cloudflare güvenlik betiği ekliyor); ana sayfalar 200, oturumsuz mali API'ler 401. Kanıt ve sınırlar RELEASE.md + live-verified.json.
+Oturum açık canlı UI bu turda tarayıcı sandbox sorunu nedeniyle otomatik gezilemedi. Yerel Chrome gerçek Worker/SQLite sentetik veriyle test edildi. Üretimde mali kayıt yazılmadı; tarayıcı kritik akışları kaydetmeden önizlemeye kadar kontrol edildi.
+
+DEVAM EDECEK AJANA
+Önce doğru Desktop deposunda git status ve bu dosyanın kardeşi RELEASE.md dosyasını oku. .node-version ve scripts/migrate-remote.mjs kullanıcının önceki değişiklikleridir; üstüne yazma. Eski untracked raporları temizleme. GitHub main push önceki otomatik onay reddi nedeniyle yapılmadı; bu teslimi yeniden deploy etmek gerekmiyor, v176 zaten canlı.
+Tarihsel kesin KDV dahil satılan mal maliyeti istenirse satış-parti-KDV veri modeli ve geçmiş verinin gerçekten bağlanabilirliği ayrı araştırılmalı; tahmini etiketleri kaldırarak kesinlik iddiası üretme.
+Kullanıcıya yeni işlerin kapsamını açık anlat; mevcut yerel testleri canlı finansal mutabakat diye sunma.
+
+EKLER
+C:\Users\baran\Desktop\site\lunapot-panel\docs\dashboard-2026-10-04\RELEASE.md
+C:\Users\baran\Desktop\site\lunapot-panel\docs\dashboard-2026-10-04\IMPLEMENTATION.md
+C:\Users\baran\Desktop\site\lunapot-panel\docs\dashboard-2026-10-04\charts\ (ekran görüntüleri)

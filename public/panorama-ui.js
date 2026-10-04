@@ -1,3 +1,6 @@
+// The old channel series is a known subtotal. A day with any unknown cash is a gap, never a zero result.
+const channelDaily=data=>{const unknown=new Set((data.financial_daily||[]).filter(d=>d.cash_cents===null).map(d=>d.date));return (data.daily||[]).map(d=>unknown.has(d.date)?{...d,trendyol:null,hepsiburada:null}:d);};
+import {dashboardKpis,dashboardMoneyFlow,dashboardLifetime,dashboardChannels,dashboardOutcomes,dashboardTrendMarkup,mountDashboardCharts} from './dashboard-ui.js';
 import {parseDateRange,dateRangeLink,dateRangeLabel,dateFilterMarkup,bindDateFilter} from './date-range.js';
 // GENEL DURUM (ana sayfa). Teslim edilenlerin cebine kalanı altı dönemde yan yana; seçili dönemin
 // günlük/haftalık grafiği, Trendyol–Hepsiburada payı, kargodakilerin tahmini ve ürün sıralaması.
@@ -11,7 +14,6 @@ const sayi=v=>new Intl.NumberFormat('tr-TR',{maximumFractionDigits:3}).format(v/
 const AY=['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
 const gunAd=d=>+d.slice(8)+' '+AY[+d.slice(5,7)-1];
 const KANAL={trendyol:'Trendyol',hepsiburada:'Hepsiburada'},KANALLAR=['trendyol','hepsiburada'],SINIF={trendyol:'pn-ty',hepsiburada:'pn-hb'};
-const ONCEKI={'1g':'düne','7g':'önceki 7 güne','14g':'önceki 14 güne','30g':'önceki 30 güne','90g':'önceki 90 güne','180g':'önceki 180 güne'};
 const scope=p=>({preset:p.key||'custom',from:p.from,to:p.to,error:null});
 const rapor=(p,ek={})=>dateRangeLink('#performance',scope(p),{view:'packages',...ek});
 const bucketTotal=b=>Number.isFinite(b.trendyol)&&Number.isFinite(b.hepsiburada)?b.trendyol+b.hepsiburada:null;
@@ -41,25 +43,9 @@ export function niceTicks(min,max,count=4){
  return out;
 }
 
-function delta(p){
- if(p.partial||p.missing||p.cash_cents==null||p.prev_cash_cents==null)return null;
- const fark=p.cash_cents-p.prev_cash_cents,yon=fark>0?'up':fark<0?'down':'flat',ok=fark>0?'▲':fark<0?'▼':'■';
- // Önceki dönem çok küçükse (veri yeni başlamış) yüzde yanıltır (%1.842 gibi): fark tutar olarak yazılır.
- const oran=p.prev_cash_cents>0?Math.round(fark*100/p.prev_cash_cents):null;
- const metin=oran!==null&&Math.abs(oran)<=200?'%'+Math.abs(oran).toLocaleString('tr-TR'):kisa(Math.abs(fark));
- return {yon,metin:ok+' '+metin,uzun:(ONCEKI[p.key]||'önceki döneme')+' göre '+(fark>=0?'+':'−')+money(Math.abs(fark))+' (önceki: '+money(p.prev_cash_cents)+')'};
-}
-
 function periodButton(p,selected,route='#overview'){
  return `<a class="pn-period${p.key===selected?' is-selected':''}" href="${esc(dateRangeLink(route,scope(p)))}" ${p.key===selected?'aria-current="true"':''}><span class="pn-period-label">${esc(p.label)}</span><strong>${p.packages?money(p.calculated===0?null:p.cash_cents):p.partial?'Hesap eksik':'Teslim yok'}</strong><small>Ciro ${money(p.revenue_gross_cents)}</small><span class="pn-period-loss">${p.losses??'—'} zarar · ${money(p.loss_cents)}</span>${p.partial||p.missing?'<small>Eksik kapsam</small>':p.estimated?'<small>Tahmini tutar içerir</small>':''}</a>`;
 }
-function shareBar(p){
- const channels=p.channels||{},total=KANALLAR.reduce((sum,k)=>sum+Math.max(0,channels[k]?.cash_cents||0),0);
- return `<div class="pn-share-rows">${KANALLAR.map(k=>{const c=channels[k];
-  if(!c)return `<div class="ins-empty">${KANAL[k]} · Bilgi alınamadı</div>`;
-  return `<a href="${esc(rapor(p,{channel:k}))}"><span class="ins-channel-name"><i class="pn-key ${SINIF[k]}" aria-hidden="true"></i>${KANAL[k]}</span><strong class="${c.cash_cents<0?'is-negative':''}">${c.packages===0?(p.partial?'Kapsam eksik':'Paket yok'):money(c.calculated===0?null:c.cash_cents)}</strong><small>${c.packages??'—'} paket · ${c.calculated??'—'} hesaplandı</small>${c.revenue_gross_cents!=null?`<small>Ciro ${money(c.revenue_gross_cents)}</small>`:''}<div class="pn-product-meter" aria-hidden="true"><span class="${SINIF[k]}" data-pay="${total?Math.round(Math.max(0,c.cash_cents||0)*1000/total):0}"></span></div></a>`;}).join('')}</div><p class="help">Çubuklar pozitif nakit toplamındaki payı gösterir. Zarar tutarları ayrıca görünür.</p>`;
-}
-
 const SALES_KINDS={single:'Tekli',multipack:'Çoklu paket',bundle:'Set'};
 function salesRankList(title,list,metric,p){
  if(!list?.length)return `<div class="pn-products-group"><h3>${title}</h3><p class="ins-empty">Bu kapsamda hesaplanabilen satış biçimi yok.</p></div>`;
@@ -99,38 +85,38 @@ function pendingCard(pending){
 }
 // Markup stays pure for fixture tests. All money comes from the shared report API.
 export function panoramaDetailMarkup(data,p,{dateControls='',kind=''}={}){
- const b=panoramaBuckets(data.daily||[],p),d=delta(p),inventory=data.inventory||{};
- const incomplete=!!(p.partial||p.missing||p.revenue_missing||data.unallocated_fee_cents),quality=incomplete?'Eksik kapsam':p.estimated?'Tahmini tutar içerir':p.packages?'Hesaplandı':'Teslim yok';
+ const b=panoramaBuckets(channelDaily(data),p),inventory=data.inventory||{};
+ const incomplete=!!(p.partial||p.missing||p.revenue_missing||data.unallocated_fee_cents),quality=incomplete?'Eksik kapsam':(p.estimated||p.financials?.coverage?.estimated_packages)?'Tahmini tutar içerir':p.packages?'Hesaplandı':'Teslim yok';
  const unit={day:'Günlük',week:'Haftalık',month:'Aylık'}[b.unit];
  const noCalculated=p.calculated===0&&(p.packages>0||p.partial);
- const cash=noCalculated?null:(p.calculated_cash_cents??p.cash_cents);
  const chartAvailable=b.buckets.length>0&&!noCalculated&&b.buckets.every(x=>bucketTotal(x)!==null);
  const emptyText=p.partial?'Dönem verisinin bir bölümü alınamadı':p.packages?'Bu aralıkta hesaplanabilen nakit sonucu yok':'Bu aralıkta teslim kaydı yok';
- const noRevenue=p.revenue_missing>0&&p.revenue_missing>=p.packages;
  const inventoryMissing=inventory.missing_vat_products>0||inventory.partial;
- return `<div class="overview-report-head">${dateControls}<div class="ins-scope-line"><span>${p.partial&&!p.calculated?'Paket sayısı alınamadı':(p.packages??'—')+' sonuçlanan paket'}</span><span class="ins-status ${incomplete?'is-incomplete':p.estimated?'is-estimated':''}">${quality}</span></div></div>
-  <div class="ins-kpis" aria-label="Seçili dönemin özeti">
-   <article class="ins-kpi"><span>Ciro <small>KDV dahil</small></span><strong>${money(noRevenue?null:p.revenue_gross_cents)}</strong><small>${p.revenue_missing?`${p.revenue_missing} pakette ciro eksik`:'Seçili dönemde sonuçlanan satışlar'}${p.partial?' · eksik kapsam':''}</small></article>
-   <article class="ins-kpi ins-kpi-primary"><span>Cebine kalan <small>KDV dahil</small></span><strong class="${cash<0?'is-negative':''}">${money(cash)}</strong><small>KDV hariç katkı: ${money(noCalculated?null:p.profit_ex_vat_cents)}</small><small>Ortak giderler hariç · tahsilat değildir.</small><a class="overview-business-result" href="${esc(dateRangeLink('#business-result',scope(p)))}">Giderler sonrası sonucu gör →</a>${d?`<small>${esc(d.metin)} · ${esc(d.uzun)}</small>`:''}</article>
-   <article class="ins-kpi"><span>Nakit marjı</span><strong>${p.margin_bps==null?'—':new Intl.NumberFormat('tr-TR',{style:'percent',maximumFractionDigits:1}).format(p.margin_bps/10000)}</strong><small>${p.margin_bps==null?'Ortak ciro ve nakit kapsamı hesaplanamadı.':'Ciro ve nakdi birlikte hesaplanabilen '+(p.margin_packages??'—')+' paket.'}${p.margin_missing?' '+p.margin_missing+' paket kapsam dışında.':''}</small></article>
-   <article class="ins-kpi ins-kpi-stock"><span>Depo değeri <small>Güncel stok</small></span><strong>${inventoryMissing?'Hesap eksik':money(inventory.gross_cents)}</strong><small>KDV dahil${inventory.gross_estimated?' tahmini':''}${inventoryMissing&&inventory.calculated_gross_cents!=null?' hesaplanabilen: '+money(inventory.calculated_gross_cents):''} · KDV hariç: ${money(inventory.net_cents)}</small><small>Tarih filtresinden bağımsız${inventory.missing_vat_products?' · '+inventory.missing_vat_products+' ürünün KDV oranı eksik':''}${inventory.negative_products?' · '+inventory.negative_products+' ürün eksi stokta':''}</small></article>
-  </div>
+ const inventoryCard='<section class="dash-card dash-inventory"><span class="eyebrow">Güncel stok · satılan maldan ayrı</span><h2>Şu an depoda</h2><strong>'+(inventoryMissing?'Hesap eksik':money(inventory.gross_cents))+'</strong><p>KDV dahil '+(inventory.gross_estimated?'tahmini':'')+' depo değeri</p><small>KDV hariç: '+money(inventory.net_cents)+'</small>'+(inventoryMissing&&inventory.calculated_gross_cents!=null?'<small>Hesaplanabilen brüt değer: '+money(inventory.calculated_gross_cents)+'</small>':'')+'<p class="dash-note">Tarih filtresinden bağımsız'+(inventory.missing_vat_products?' · '+inventory.missing_vat_products+' ürünün KDV oranı eksik':'')+(inventory.negative_products?' · '+inventory.negative_products+' ürün eksi stokta':'')+'. Kargoya çıkan mallar depodan düşülür.</p><a href="#stock">Depodaki ürünleri gör →</a></section>';
+ return `<div class="overview-report-head"><div class="dash-period-title"><span class="eyebrow">SATIŞ PERFORMANSIN</span><strong>${esc(dateRangeLabel(scope(p)))}</strong></div>${dateControls}<div class="ins-scope-line"><span>${p.partial&&!p.calculated?'Paket sayısı alınamadı':(p.packages??'—')+' sonuçlanan paket'}</span><span class="ins-status ${incomplete?'is-incomplete':p.estimated?'is-estimated':''}">${quality}</span></div></div>
+ <nav class="dash-jump-nav" aria-label="Ana ekran bölümleri"><a href="#dashboard-money-flow" data-dashboard-scroll="money-flow">Maliyet ve kesintiler ↓</a><a href="#dashboard-lifetime" data-dashboard-scroll="lifetime">Bugüne kadar ↓</a><a href="#dashboard-current" data-dashboard-scroll="current">Depo ve günlük işler ↓</a></nav>
+ ${dashboardKpis(p)}
+ <div class="dash-analytics-grid">${dashboardTrendMarkup(data,p)}${dashboardMoneyFlow(p)}</div>
+ ${dashboardLifetime(data)}
+ <div class="dash-comparison-grid">${dashboardChannels(p)}${dashboardOutcomes(p)}</div>
   <details class="overview-coverage"><summary>Hesap kapsamı ve iadeler <span>${p.missing?`${p.missing} paket hesap bekliyor`:p.estimated?`${p.estimated} pakette tahmini tutar`:'Dönem ayrıntısı'}</span></summary>${periodReturnsMarkup(p.returns)}
   ${incomplete||p.estimated?`<aside class="ins-quality" aria-label="Hesap kapsamı">${p.partial?'<p>Bu dönemin bir bölümü alınamadı; toplamlar eksiktir.</p>':''}${p.missing?`<p><a href="${esc(rapor(p,{result:'missing'}))}">${p.missing} paket hesaplanamadı →</a> Gösterilen nakit toplamı hesaplanabilen ${p.calculated??'—'} pakete aittir.</p>`:''}${(()=>{
    // İKİ AYRI TAHMİN, İKİ AYRI CÜMLE. Belgeyle kesinleşen tahmin (kesinti geçmişten, maliyet son
    // alıştan) ile stopaj tahmini aynı cümlede toplanıyordu: stopaj hiçbir belgeyle kesinleşmediği
    // için ekran her gün "belge bekleniyor" diyordu, beklenecek belge yoktu.
-   const stopaj=p.estimated_withholding_only||0,belgeli=Math.max(0,(p.estimated||0)-stopaj);
-   return (belgeli?`<p>${belgeli} paketin maliyeti veya kesintisi tahmini; belgeler eşleşince kesinleşir.</p>`:'')
-    +(stopaj?`<p>${stopaj} pakette yalnız stopaj tahmini. Bu pazaryeri stopajı hiç bildirmiyor, rakam belgeyle kesinleşmez; muhasebeciniz “kesmiyor” derse <a href="#settings">Şirket ve yedek</a> ekranından kapatabilirsiniz.</p>`:'');
+   const stopaj=p.estimated_withholding_only||0,belgeli=p.estimated_document_pending??Math.max(0,(p.estimated||0)-stopaj);
+   return (p.estimated_cost_vat?'<p>'+p.estimated_cost_vat+' pakette alış KDV’si güncel ürün oranıyla tahmin edilir; geçmiş alış faturalarına bağlanmış kesin bir tutar değildir.</p>':'')+(belgeli?`<p>${belgeli} paketin maliyeti veya kesintisi tahmini; belgeler eşleşince kesinleşir.</p>`:'')
+    +(stopaj?`<p>${stopaj} pakette stopaj tahmini. Bu pazaryeri stopajı hiç bildirmiyor, rakam belgeyle kesinleşmez; muhasebeciniz “kesmiyor” derse <a href="#settings">Şirket ve yedek</a> ekranından kapatabilirsiniz.</p>`:'');
   })()}${data.unallocated_fee_cents?`<p>${money(data.unallocated_fee_cents)} kesinti satışlara dağıtılmadı. Dönem sonucu tamamlanmış sayılmaz. <a href="#reconciliation">Eşleştir →</a></p>`:''}</aside>`:''}
   </details>
-  <details class="daily-analysis" data-disclosure="trend" open><summary><span>Satışların nasıl gidiyor?</span><small>Seçili dönemin kazanç dağılımı</small></summary><div class="ins-main-grid"><section class="pn-card ins-trend"><div class="pn-head"><div><span class="eyebrow">SATIŞ SONUCU · KDV DAHİL</span><h2>${unit} cebine kalan</h2></div><a class="text-button" href="${esc(rapor(p))}">Paket dökümü →</a></div><div class="pn-legend">${KANALLAR.map(k=>`<span><i class="pn-key ${SINIF[k]}" aria-hidden="true"></i>${KANAL[k]}</span>`).join('')}</div>
+
+ <details class="daily-analysis dash-legacy-chart" data-disclosure="trend"><summary><span>Kanallara göre kazanç hareketi</span><small>${unit} · Trendyol ve Hepsiburada</small></summary><div class="dash-legacy-body"><section class="pn-card ins-trend"><div class="pn-head"><div><span class="eyebrow">SATIŞ SONUCU · KDV DAHİL</span><h2>${unit} cebine kalan</h2></div><a class="text-button" href="${esc(rapor(p))}">Paket dökümü →</a></div><div class="pn-legend">${KANALLAR.map(k=>`<span><i class="pn-key ${SINIF[k]}" aria-hidden="true"></i>${KANAL[k]}</span>`).join('')}</div>
    ${b.buckets.length?`${chartAvailable?'<div class="pn-chart-wrap"><div class="pn-chart" data-pn-chart></div><div class="pn-tip" role="status" hidden></div></div>':'<p class="ins-empty">Grafik için hesap bilgisi eksik.</p>'}<details class="pn-table"><summary>Grafiğin veri tablosu</summary><div class="table-wrap"><table data-list-tools="off"><caption>${unit} cebine kalan · KDV dahil</caption><thead><tr><th>Dönem</th><th>Trendyol</th><th>Hepsiburada</th><th>Toplam</th><th>Paket</th></tr></thead><tbody>${[...b.buckets].reverse().map(x=>`<tr><td data-label="Dönem">${esc(x.label)}</td><td data-label="Trendyol">${money(noCalculated?null:x.trendyol)}</td><td data-label="Hepsiburada">${money(noCalculated?null:x.hepsiburada)}</td><td data-label="Toplam"><b>${money(noCalculated?null:bucketTotal(x))}</b></td><td data-label="Paket">${x.packages}</td></tr>`).join('')}</tbody></table></div></details>`:`<div class="ins-empty"><h3>${emptyText}</h3><p>${p.partial||p.missing?'Eksik kayıtlar sıfır olarak değerlendirilmez.':'Başka bir dönem seçerek satışlarını inceleyebilirsin.'}</p></div>`}
    <div class="pn-split"><a href="${esc(rapor(p,{result:'profit'}))}"><small>Kâr bırakan ${p.gains??'—'} paket</small><strong>${money(noCalculated?null:p.gain_cents)}</strong></a><a class="is-loss" href="${esc(rapor(p,{result:'loss'}))}"><small>Zarar eden ${p.losses??'—'} paket</small><strong class="is-negative">${money(noCalculated?null:p.loss_cents)}</strong></a></div>
    <details class="pn-calculation-note"><summary>Hesap kapsamı ve yöntemi</summary><p>${esc(data.notice||'KDV dahil satıştan ürün maliyeti, pazaryeri kesintileri ve stopaj düşülür. Ortak giderler ve gelir vergisi dahil değildir.')}</p><p>Grafik hesaplanabilen paketlerin nakit sonucudur; eksik paketler sıfır kâr sayılmaz. 31 güne kadar günlük, 400 güne kadar haftalık, daha uzun aralıklarda aylık gösterilir.</p></details></section>
-   <section class="pn-card ins-channels"><span class="eyebrow">SEÇİLİ DÖNEM</span><h2>Kanal dağılımı</h2>${shareBar(p)}</section></div>
-  </details><div class="ins-work-grid"><div data-overview-work hidden></div>${pendingCard(data.pending)}</div><details class="daily-analysis" data-disclosure="offerings"><summary><span>Hangi ürün veya set kazandırıyor?</span><small>Satılan biçime göre kazanç ve ciro sıralaması</small></summary>${panoramaSalesMarkup(p,{kind})}</details>
+</div></details>
+ <div class="ins-work-grid" data-dashboard-anchor="current"><div data-overview-work hidden></div><div class="dash-current">${inventoryCard}${pendingCard(data.pending)}</div></div>
+ <details class="daily-analysis dash-offerings" data-disclosure="offerings"><summary><span>Hangi ürün veya set kazandırıyor?</span><small>Satılan biçime göre kazanç ve ciro sıralaması</small></summary>${panoramaSalesMarkup(p,{kind})}</details>
   <details class="ins-records-section"><summary>Tek siparişte rekorlar <span>Seçili dönem · KDV dahil</span></summary>${p.records?.partial||p.records?.revenue_missing_orders||p.records?.profit_missing_orders?`<p class="ins-quality">${p.records.partial?'Eksik dönem kapsamı. ':''}${p.records.revenue_missing_orders||0} sipariş ciro, ${p.records.profit_missing_orders||0} sipariş nakit bilgisi eksik olduğu için sıralamaya alınmadı.</p>`:''}<div class="ins-records">${recordCard('En yüksek ciro',p.records?.revenue,'revenue_gross_cents',p)}${recordCard('En çok cebine kalan',p.records?.profit,'cash_cents',p)}</div></details>`;
 }
 
@@ -216,6 +202,7 @@ export function mountPanorama(section,data,{signal,onRangeChange,dailyWork,viewS
  section.innerHTML=panoramaDetailMarkup(data,period,{kind:viewState.kind||'',dateControls:`<details class="ins-date-disclosure" ${selected.error||selected.preset==='custom'?'open':''}><summary>Tarih <span>${esc(dateRangeLabel(selected))}</span></summary>${dateFilterMarkup(selected,{firstDate:data.first_delivered||data.today})}</details>`})+`<details class="ins-period-comparison"><summary>Bütün dönemler · nakit, ciro ve zarar</summary><div class="pn-periods">${data.periods.filter(p=>p.key!=='custom').map(p=>periodButton(p,selected.preset,location.hash||'#overview')).join('')}</div></details>`;
  if(dailyWork){section.querySelector('[data-overview-work]')?.replaceWith(dailyWork);section.querySelector('.ins-work-grid')?.classList.add('has-daily-work');}
  oranlar(section);
+ const stopDashboard=mountDashboardCharts(section,data,period,{signal});
  const unbind=bindDateFilter(section,{signal,today:data.today,firstDate:data.first_delivered||data.today,onChange:next=>{if(onRangeChange)onRangeChange(next);else location.hash=dateRangeLink(location.hash||'#overview',next);}});
  const chooseProducts=key=>{viewState.productView=key;for(const button of section.querySelectorAll('[data-product-view]')){const active=button.dataset.productView===key;button.setAttribute('aria-selected',String(active));button.tabIndex=active?0:-1;}for(const panel of section.querySelectorAll('[data-product-panel]'))panel.hidden=panel.dataset.productPanel!==key;};
  const kindChange=event=>{if(!event.target.matches('[data-panorama-kind]'))return;const value=event.target.value;rememberDisclosures();viewState.kind=value;const active=section.querySelector('[data-product-view][aria-selected="true"]')?.dataset.productView||'profit';section.querySelector('[data-sales-rankings]').outerHTML=panoramaSalesMarkup(period,{kind:value});chooseProducts(active);restoreDisclosures();oranlar(section);section.querySelector('[data-panorama-kind]')?.focus();};
@@ -232,7 +219,7 @@ export function mountPanorama(section,data,{signal,onRangeChange,dailyWork,viewS
  const toggle=event=>{if(event.target.matches('details')&&!dailyWork?.contains(event.target))rememberDisclosures();};
  section.addEventListener('toggle',toggle,{capture:true,signal});
  const host=section.querySelector('[data-pn-chart]');let observer,disposed=false;
- if(host){const buckets=panoramaBuckets(data.daily||[],period).buckets;drawChart(host,section.querySelector('.pn-tip'),buckets);let width=host.clientWidth;
+ if(host){const buckets=panoramaBuckets(channelDaily(data),period).buckets;drawChart(host,section.querySelector('.pn-tip'),buckets);let width=host.clientWidth;
   if(typeof ResizeObserver!=='undefined'){observer=new ResizeObserver(()=>{if(disposed||signal?.aborted||!host.isConnected)return;if(Math.abs(host.clientWidth-width)<8)return;width=host.clientWidth;drawChart(host,section.querySelector('.pn-tip'),buckets);});observer.observe(host);}}
- const dispose=()=>{if(disposed)return;disposed=true;rememberDisclosures();observer?.disconnect();unbind();signal?.removeEventListener('abort',dispose);section.removeEventListener('toggle',toggle,true);section.removeEventListener('click',productClick);section.removeEventListener('change',kindChange);section.removeEventListener('keydown',productKey);};signal?.addEventListener('abort',dispose,{once:true});return dispose;
+ const dispose=()=>{if(disposed)return;disposed=true;rememberDisclosures();observer?.disconnect();stopDashboard();unbind();signal?.removeEventListener('abort',dispose);section.removeEventListener('toggle',toggle,true);section.removeEventListener('click',productClick);section.removeEventListener('change',kindChange);section.removeEventListener('keydown',productKey);};signal?.addEventListener('abort',dispose,{once:true});return dispose;
 }
