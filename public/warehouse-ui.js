@@ -15,7 +15,8 @@ export function setCapacityCards(sets){return sets.length?sets.map(s=>`<article 
 
 export function mountWarehouse(root,ns,user){
  const controller=new AbortController(),signal=controller.signal,writable=can(user,ns,ns==='ec'?'stock':'accounts',true),amounts=can(user,ns,'amounts');
- let dashboard=null,current=null,tab='counts',query='',filter='all',page=1,busy=false,sequence=0,error='',notice='',createKey=crypto.randomUUID(),focusReview=false;const edits=new Map();
+ const initial=new URLSearchParams(location.hash.split('?')[1]||'');
+ let dashboard=null,current=null,tab=initial.get('tab')==='reorder'?'reorder':'counts',query=(initial.get('q')||'').slice(0,200),filter='all',page=1,busy=false,sequence=0,error='',notice='',createKey=crypto.randomUUID(),focusReview=false;const edits=new Map();
  const live=()=>!signal.aborted&&root.isConnected;
  const bookmark=id=>{const next='#warehouse'+(id?'?session='+encodeURIComponent(id):'');history.replaceState(null,'',location.pathname+location.search+next);};
  async function request(path='',body){const r=await fetch('/api/'+ns+'/warehouse'+path,{signal,headers:{'Content-Type':'application/json'},...(body===undefined?{}:{method:'POST',body:JSON.stringify(body)})});const data=await r.json();if(!r.ok)throw Error(data.error||'Depo bilgisi alınamadı.');return data;}

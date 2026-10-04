@@ -36,7 +36,10 @@ export async function productProfileApi(request,env,path){
  if(env.WORKSPACE==='ec'){
   const allStock=await warehouseStock(env);if(!allStock.some(p=>p.id===id))allStock.push(stock[0]);
   const r=await warehouseReplenishment(env,allStock);
-  replenishment={...r.proposals.find(p=>p.product_id===id),assumptions:r.assumptions};
+  const proposal=r.proposals.find(p=>p.product_id===id);
+  // Archived products keep a readable dossier, but never become active purchase suggestions.
+  replenishment={...(proposal||{product_id:id,lead_days:null,suggested_milli:null,target_milli:null,
+   demand_30_milli:null,days_remaining:null,reason:stock[0].archived_at?'Arşivlenmiş ürün için tedarik önerisi verilmez.':'Tedarik hesabı için yeterli kayıt yok.'}),assumptions:r.assumptions};
   sets=r.sets.filter(s=>s.components.some(c=>c.product_id===id));
  }
  return scrubAmounts({product:stock[0],history:{rows:history.rows,totals:history.totals,pagination:history.pagination},

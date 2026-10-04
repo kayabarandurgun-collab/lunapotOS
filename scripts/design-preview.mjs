@@ -7,6 +7,7 @@ import {dirname, extname, isAbsolute, relative, resolve, sep} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {appFixture} from '../tests/helpers/app-fixture.js';
 import worker from '../src/worker.js';
+import {seedInsightsPreview} from '../tests/helpers/insights-preview.js';
 import {modules} from '../public/permissions.js';
 import {LEGAL_VERSION} from '../src/webshop-legal.js';
 
@@ -16,7 +17,7 @@ const PASSWORD = 'synthetic-owner-password';
 const CUSTOMER_PASSWORD = 'synthetic-customer-password';
 const STAFF_PASSWORD = 'synthetic-reader-password';
 const HOST = '127.0.0.1';
-const SCENARIOS = ['populated', 'missing', 'empty'];
+const SCENARIOS = ['populated', 'missing', 'empty', 'insights'];
 const ROLES = ['owner', 'reader', 'customer', 'anonymous'];
 const today = () => new Date().toLocaleDateString('sv-SE', {timeZone:'Europe/Istanbul'});
 const day = offset => new Date(Date.parse(today()) + offset * 86400000).toISOString().slice(0,10);
@@ -203,6 +204,7 @@ async function createFixture(scenario) {
     f.ownerCookie=(await f.req('/auth/login',{password:PASSWORD})).cookie;
     if (!f.ownerCookie) throw new Error('Preview owner authentication failed.');
     if (scenario!=='empty') {await seedCommerce(f,scenario==='missing');await seedProduction(f);}
+    if(scenario==='insights')await seedInsightsPreview(f);
     await seedStaff(f);
     await seedStore(f,scenario==='empty');
     f.env.ASSETS={fetch:assets};

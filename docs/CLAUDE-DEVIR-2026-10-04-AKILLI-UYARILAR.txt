@@ -1,0 +1,43 @@
+LUNAPOT PANEL — AKILLI TAKİP DEVİR RAPORU
+4 Ekim 2026
+
+Gerçek repo: C:\Users\baran\Desktop\site\lunapot-panel
+Documents altındaki eski çalışma kopyasını kullanma.
+
+CANLIYA ALINDI
+Worker: lunapot-panel
+Sürüm: 77068919-6bf3-4c81-8078-e64fb3acc50d
+Dağıtım: 4a0d9aaf-c501-4e4c-b0db-00b30fd411ad, %100 trafik
+Önceki/geri dönüş sürümü: 04ccbd40-4721-4e80-8c35-6ef03baf5df6
+Migration yok; canlı muhasebe/ürün/fiyat kayıtlarına toplu yazma yok.
+Yerel commit kimliği: docs/sales-alerts-2026-10-04/local-commit.json
+
+İSTEK VE SONUÇ
+Kullanıcı son siparişlerde tekrarlayan küçük zararlar, iade/teslimat sorunları ve fiziksel stok tüketimine göre alım uyarıları istedi. Ana ekrana Akıllı takip eklendi.
+
+1. HB/TY ayrı; aynı satılan ürün veya set, aynı kanalda son30gündeki son5 iadesiz bağımsız siparişten en az3 zarar + en yeni zarar + toplam net eksi. 1kuruş dahi sayılır. Paketler siparişte birleştirilir; set parçalarına ayrı ürün zararı yazılmaz.
+2. İade ve teslim edilememe fiyat sinyalinden ayrıdır. Gerçek iade/teknik düzeltme ayrımı, gelecek tarih, aynı gün sıralama belirsizliği, pencere sınırından eski sipariş parçası ve eksik geçmiş okuması kontrolleri var.
+3. Stok tüketimi gerçek fiziksel hareketten gelir. Son7/önceki7/30 gün ölçülür. Düzenli yakın geçmiş yeterliyse yüksek7/30 hız kullanılır; yoksa30gün ortalaması. Ayrılan düşülür, müşteri kargosu ikinci kez düşülmez; sadece fiilen depoya dönen iadeler tüketimi azaltır.
+4. Bilinen etkin tedarikçi, tedarik süresi, stok payı ve alım ambalajı kullanılır. Marka adından tedarikçi uydurulmaz. Stok kartı ve tedarik planı aynı hesabı kullanır. Eksik/çelişkili veride gün ve alım miktarı null; bol stokta yalnız kısa geçmiş var diye uyarı yağmaz.
+5. Stoğu azalan ürünün yer aldığı set/tekli satışlarda tekrarlayan zarar da varsa fiyatı birlikte kontrol et notu çıkar.
+6. Uyarıdan doğru kanaldaki bütün set bileşimini eşleyen fiyat hesabına, kanıt siparişine ve filtrelenmiş tedarik planına geçilir. Mobil tek sütun ve büyük dokunma alanları var.
+7. Tutar izni olmayan personelden sales_alerts bütünüyle kaldırılır (null). Fiyat/alış siparişi otomatik değiştirilmez, mesaj/push gönderilmez. Ekran açılışında ve Şimdi kontrol et ile hesaplanır.
+
+DOĞRULAMA
+109/109 özellik, 73/73 etkin tarayıcı kontrolü geçti. Üretim derlemesi geçti. Tam npm test:1396 toplam/1364pass/2fail/30skip. İki hata eski mağaza önizleme katalog/sync araçları: kardeş tasarım projesinin veri biçimi değişmiş. HEAD betikleriyle aynı dış kaynakta aynı iki hata yeniden üretildi; bu işten kaynaklanmıyor. Tam paket yeşil denmemeli. baseline-external-tests.json/log kanıtları mevcut.
+Canlıda6değişenasset hash eşleşiyor; anaekran/giriş200; oturumsuzpanorama/warehouse401; doğruDB, bakımkapalı,%100sürüm doğrulandı.
+Canlıya giriş yapılmış tarayıcı kontrolü CUA Windows sandbox ACL hatası yüzünden mümkün olmadı. Yerel gerçek Chrome/Worker/SQLite ile sentetik akışlar test edildi. Canlı hesap tutarları tektek denetlendi veya canlı gecikme ölçüldü denmemeli.
+
+DİKKAT
+Mevcut kâr formülleri değişmedi. performance-api yalnız latest_customer_return_on metadata ekledi. Tarihsel alış KDV/stopaj varsayımları etikette gösterilir. İade tekrarı mevcut paket sonuç tarihiyle değerlendirilir; bağımsız iadeolaytarihi raporu değildir. Kaydedilmemiş satışlar ve doğrulanmış geliş tarihi olmayan açık alışlar tahminde yok.
+Arşivli ürünler alım önerilerine girmez; ürün dosyası açık null değerlerle okunabilir.
+GitHub main push yapılmadı. .node-version ve scripts/migrate-remote.mjs kullanıcı değişiklikleri korunur. Eski/untracked çalışma belgelerini silme.
+
+AYRINTILI RAPORLAR
+docs/sales-alerts-2026-10-04/IMPLEMENTATION.md
+docs/sales-alerts-2026-10-04/RELEASE.md
+docs/sales-alerts-2026-10-04/backend.md
+docs/sales-alerts-2026-10-04/stock.md
+docs/sales-alerts-2026-10-04/review.md
+
+İleride takip: ayrı mağaza preview araçlarının yeni LunapotCatalog kaynağına uyarlanması; canlı oturumda uyarıların ve sorgu süresinin okunarak ölçülmesi. Bu teslimde canlı veride düzeltme veya fiyat değiştirme yapma.

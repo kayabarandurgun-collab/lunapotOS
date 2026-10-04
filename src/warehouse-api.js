@@ -1,6 +1,7 @@
 import {can} from '../public/permissions.js';
 import {scrubAmounts} from './permission-policy.js';
 import {physicalStock,stockTransitQuery} from './stock-availability.js';
+import {stockDemandQuery,replenishmentAlerts} from './stock-alerts.js';
 
 export const warehouseFail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
 const fail=warehouseFail;
@@ -19,7 +20,7 @@ export async function warehouseStock(env,productId=''){
  const ec=env.WORKSPACE==='ec',db=env.DB;
  const statements=[stmt(db,`SELECT p.id,p.name,p.sku,p.stock_unit,p.category,p.min_stock_milli,p.archived_at,
  ${ec?'p.brand,p.supplier_id':"'' brand,NULL supplier_id"},b.quantity_milli,b.value_cents,
- ${ec?reservedSql:'NULL'} reserved_milli FROM products p JOIN stock_balances b ON b.product_id=p.id
+ ${ec?reservedSql:'NULL'} reserved_milli FROM products p LEFT JOIN stock_balances b ON b.product_id=p.id
  WHERE ${productId?'p.id=?':'(p.archived_at IS NULL OR b.quantity_milli!=0 OR b.value_cents!=0)'} ORDER BY p.name,p.id`,productId?[productId]:[])];
  if(ec)statements.push(db.prepare(stockTransitQuery));
  const [stock,transit=[]]=(await db.batch(statements)).map(r=>r.results);
@@ -40,20 +41,20 @@ export async function warehouseReplenishment(env,stock){
  if(env.WORKSPACE!=='ec')return {supported:false,proposals:[],sets:[],assumptions:[]};
  const [configs,demand,setRows]=(await env.DB.batch([
   env.DB.prepare('SELECT * FROM ec_warehouse_reorder_settings'),
-  env.DB.prepare("SELECT product_id,MAX(0,SUM(iif(kind='sale',quantity_milli,-quantity_milli))) demand_milli FROM sale_entries WHERE occurred_on BETWEEN date('now','+3 hours','-29 days') AND date('now','+3 hours') GROUP BY product_id"),
+  env.DB.prepare(stockDemandQuery),
   env.DB.prepare(`SELECT m.id,m.external_code,m.external_name,m.source,c.product_id,p.name,p.stock_unit,c.quantity_milli
    FROM catalog_mappings m JOIN catalog_mapping_components c ON c.mapping_id=m.id JOIN products p ON p.id=c.product_id
    WHERE m.active=1 AND m.source!='purchase' ORDER BY m.id,c.product_id`)
  ])).map(r=>r.results);
- const byConfig=new Map(configs.map(x=>[x.product_id,x])),byDemand=new Map(demand.map(x=>[x.product_id,x.demand_milli])),byProduct=new Map(stock.map(x=>[x.id,x]));
+ const byProduct=new Map(stock.map(x=>[x.id,x]));
  const sets=new Map();
  for(const r of setRows){if(!sets.has(r.id))sets.set(r.id,{id:r.id,external_code:r.external_code,name:r.external_name||r.external_code,source:r.source,components:[]});
   const p=byProduct.get(r.product_id),available=p?.available_milli??null;
   sets.get(r.id).components.push({product_id:r.product_id,name:r.name,stock_unit:r.stock_unit,quantity_milli:r.quantity_milli,available_milli:available,capacity:available===null?null:Math.max(0,Math.floor(available/r.quantity_milli))});
  }
- return {supported:true,proposals:stock.map(p=>reorderProposal(p,byConfig.get(p.id),byDemand.get(p.id)||0)),
+ return {supported:true,...replenishmentAlerts(stock,configs,demand),
   sets:can(env.USER,'ec','catalog')?[...sets.values()].filter(s=>s.components.length>1||s.components.some(c=>c.quantity_milli!==1000)).map(s=>({...s,capacity:s.components.some(c=>c.capacity===null)?null:Math.min(...s.components.map(c=>c.capacity))})):[],
-  assumptions:['Talep son 30 takvim gününün kayıtlı satış çıkışları eksi iadeleridir. Set bileşenleri satış defterinde zaten var; ikinci kez eklenmez.',
+  assumptions:['Talep kayıtlı fiziksel satış çıkışları eksi stoğa dönen müşteri iadeleridir; stoğa dönmeyen iade düşülmez. Teknik çift aktarım / ikame ters kayıtları asıl satıştan çıkarılır. Set bileşenleri satış defterinde zaten var; ikinci kez eklenmez.',
    'Tedarik süresi elle girilir. Hedef gün başlangıçta 7; ambalaj miktarı adet için 1, diğer birimler için 0,001 olarak başlar.',
    'Kullanılabilir = depoda − ayrılan. Kargodaki müşteri siparişi depodan zaten çıktı; tekrar düşülmez.',
    'Açık satın alma siparişlerinin doğrulanmış geliş tarihi bulunmadığından beklenen alışlar öneriden düşülmez. Sipariş vermeden önce gelen malları ve açık alışları kontrol edin.',

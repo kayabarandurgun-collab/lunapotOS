@@ -23,9 +23,18 @@ export function renderFiyatResult(input) {
     <p class="help">${esc(k.not)} Kargo ve hizmet bedeli geçmiş teslimlerden tahmindir; paket içeriği, adedi ve güncel tarife değiştiğinde gerçek kesinti farklı olabilir. ${esc(d.gider?.not || '')}</p>`;
 }
 
+export function alertOfferingMatches(offer,key,channel){
+ if(offer.channel!==channel||!String(key||'').startsWith('offering:v1:'))return false;
+ let wanted;try{wanted=JSON.parse(key.slice(12));}catch{return false;}
+ if(!Array.isArray(wanted)||!wanted.length)return false;
+ const parts=new Map();for(const c of offer.components||[]){if(!Number.isSafeInteger(c.quantity_milli)||c.quantity_milli<=0)return false;const id=JSON.stringify([c.product_id,c.stock_unit]);parts.set(id,(parts.get(id)||0)+c.quantity_milli);}
+ return wanted.length===parts.size&&wanted.every(c=>Array.isArray(c)&&c.length===4&&Number.isSafeInteger(c[1])&&Number.isSafeInteger(c[2])&&c[1]>0&&c[2]>0&&BigInt(parts.get(JSON.stringify([c[0],c[3]]))||0)*BigInt(c[2])===BigInt(c[1]));
+}
+
 export function mountFiyatHesap(root, products = []) {
   if (!document.querySelector('link[data-offering-workflows]')) { const link = document.createElement('link'); link.rel = 'stylesheet'; link.href = new URL('./offering-workflows.css', import.meta.url).href; link.dataset.offeringWorkflows = ''; document.head.append(link); }
-  const abort = new AbortController(), state = {kanal: 'trendyol', seq: 0, offerings: []};
+  const incoming=new URLSearchParams(location.hash.split('?')[1]||''),requestedKey=incoming.get('offering_key')||'';
+  const abort = new AbortController(), state = {kanal: ['trendyol','hepsiburada'].includes(incoming.get('channel'))?incoming.get('channel'):'trendyol', seq: 0, offerings: []};
   root.innerHTML = `<section class="v2-card fh-card fh-workbench offering-price">
     <div class="v2-card-head"><div><span class="eyebrow">SATIŞTAN ÖNCE HESAPLA</span><h2>Satacağın paketin fiyatını belirle.</h2><p>Tek ürün, çoklu paket veya karma set. Stok maliyeti içerikten, kesintiler geçmiş teslimlerden gelir. Tutarlar KDV dahil.</p></div></div>
     <div class="fh-workbench-body"><form class="fh-form" data-fh><div class="fh-step"><span>01</span><div><h3>Satış senaryon</h3><p>Depoda ürünleri say; burada müşteriye satılan paketi seç.</p></div></div>
@@ -91,9 +100,12 @@ export function mountFiyatHesap(root, products = []) {
     for (const b of root.querySelectorAll('[data-fh-kanal]')) b.setAttribute('aria-pressed', String(b === button));
     options(); calculate();
   }, {signal: abort.signal});
+  if(requestedKey){field('quote_type').value='offering';mode();}
   fetch('/api/ec/fiyat-hesap?mode=options', {signal: abort.signal}).then(async response => {
     const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Satılan ürünler yüklenemedi.'); if (abort.signal.aborted) return;
-    state.offerings = data.offerings; options(); root.querySelector('[data-options-note]').textContent = data.truncated ? 'İlk 1.000 etkin bağlantı listeleniyor; kanal değiştirerek uygun satılan ürünü seç.' : data.offerings.length ? 'Kayıtlı bağlantılar kendi satış kanalında gösterilir.' : 'Henüz etkin satış bağlantısı yok. Ürün bağlantıları ekranında içerik oluşturulmalı.';
+    state.offerings = data.offerings; options();
+    if(requestedKey){const matches=data.offerings.filter(o=>alertOfferingMatches(o,requestedKey,state.kanal));if(matches.length===1){field('mapping_id').value=matches[0].id;selection();void calculate();}else{result.innerHTML='<p class="notice">Uyarıdaki içerik için '+(matches.length?'birden fazla etkin ilan var; doğru ilanı seç.':'etkin bağlantı bulunamadı; satılan ürün bağlantısını kontrol et.')+'</p>';}}
+    root.querySelector('[data-options-note]').textContent = data.truncated ? 'İlk 1.000 etkin bağlantı listeleniyor; kanal değiştirerek uygun satılan ürünü seç.' : data.offerings.length ? 'Kayıtlı bağlantılar kendi satış kanalında gösterilir.' : 'Henüz etkin satış bağlantısı yok. Ürün bağlantıları ekranında içerik oluşturulmalı.';
   }).catch(error => { if (error.name !== 'AbortError') { field('mapping_id').innerHTML = '<option value="">Bağlantılar yüklenemedi</option>'; root.querySelector('[data-options-note]').textContent = error.message; } });
   return () => { abort.abort(); clearTimeout(timer); };
 }

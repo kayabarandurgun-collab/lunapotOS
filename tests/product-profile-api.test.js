@@ -41,5 +41,5 @@ test('hidden gain costs are preserved by quantity-only edits and current-unit ch
 });
 
 test('archived zero-stock dossier keeps explicit unknown lead time and valid reorder fields',async()=>{
- const f=warehouseFixture();try{f.product('archived');f.sqlite.exec("UPDATE ec_products SET archived_at=CURRENT_TIMESTAMP WHERE id='archived'");const p=await f.profile('archived');assert.equal(p.replenishment.lead_days,null);assert.equal(p.replenishment.suggested_milli,null);assert.equal(p.replenishment.product_id,'archived');}finally{f.close();}
+ const f=warehouseFixture();try{f.product('archived');f.sqlite.exec("UPDATE ec_products SET archived_at=CURRENT_TIMESTAMP WHERE id='archived'");const p=await f.profile('archived');assert.equal(p.replenishment.lead_days,null);assert.equal(p.replenishment.suggested_milli,null);assert.equal(p.replenishment.product_id,'archived');assert.match(p.replenishment.reason,/Arşivlenmiş ürün/);assert.equal(p.replenishment.target_milli,null);}finally{f.close();}
 });

@@ -302,6 +302,10 @@ export async function performanceReport(env,{mode,from,to,max=1000,tahmin:hazirT
   const row={twin_of:p.twin_of||null,id:p.id,channel:p.channel,order_no:p.order_no,external_id:p.external_id,status:p.status,occurred_on:p.occurred_on,delivered_on:p.delivered_on,urun:urunOzet(parts),teslim_edilemedi:!!p.teslim_edilemedi,profit_cents:null,cash_cents:null,cash_note:null,missing:[],revenue_net_cents:null,cost_net_cents:null,shipping_cents:null,commission_cents:null,other_cents:null,commission_rate_bps:null};
   // Dashboard kalem bazında kayıt/tahmin ayrımını, geçmişten tamamlamadan ÖNCEKİ girdilerle yapar.
   const recordedEntries=entries;
+  // Recurrence evidence only: financial totals retain their existing all-linked-entry semantics.
+  // A future customer return must not be announced as a current event or silently filtered into price advice.
+  const customerReturnDates=entries.filter(e=>e.kind==='return'&&!String(e.external_id||'').startsWith('DUZELTME-')).map(e=>e.occurred_on).filter(Boolean).sort();
+  if(customerReturnDates.length)row.latest_customer_return_on=customerReturnDates.at(-1);
   if(p.twin_dup_id)row.twin_dup_id=p.twin_dup_id;
   if(p.source_changed){row.missing.push('Kaynak sipariş değişti; farkı inceleyin.');return row;}
   if(mode==='delivered'){

@@ -1,3 +1,4 @@
+import {insightCenterMarkup} from './insight-alerts-ui.js';
 import {parseDateRange,dateRangeQuery,dateRangeLink,dateRangeLabel,dateFilterMarkup,bindDateFilter} from './date-range.js';
 import {renderIntegrationGuide} from './integration-guide.js';
 import {mountPanorama} from './panorama-ui.js';
@@ -44,8 +45,12 @@ function mountOverview(root,api,signal){
  const errorMessage=error=>error.message==='Failed to fetch'?'Sunucuya ulaşılamadı. Bağlantını kontrol edip yeniden dene.':error.message;
  const range=()=>parseDateRange(location.hash);
  root.setAttribute('aria-busy','false');
- root.innerHTML='<div class="page-heading overview-heading"><div><span class="eyebrow">İŞLETMENE BİR BAKIŞ</span><h1>Genel durum</h1><p>Satıştan ne kaldı, para nereye gitti, bugün ne yapmalı?</p></div><a class="secondary" data-overview-orders>Siparişleri gör <span aria-hidden="true">↗</span></a></div><section class="daily-home" data-daily-home aria-label="Günlük işlemler"></section><section class="panorama" data-panorama aria-label="Dönem özeti"></section><section class="attention-center" aria-label="Bugünün iş listesi"></section><section class="pn-quick" aria-label="Hızlı geçiş"><a class="pn-card" href="#pricing"><span class="pn-quick-icon" aria-hidden="true">₺</span><div><strong>Satmadan önce hesapla</strong><small>Ürün, çoklu paket veya set için fiyatını belirle</small></div></a><a class="pn-card" href="#stock?filter=low"><span class="pn-quick-icon" aria-hidden="true">▤</span><div data-overview-stock></div></a></section><nav class="module-context" aria-label="İşletme planlama"><a href="#money">Ödeme takvimi →</a><a href="#business-result">Giderler sonrası işletme sonucu →</a><a href="#warehouse">Sayım ve tedarik →</a></nav><div data-overview-setup></div><details class="overview-context"><summary>Bu ekrandaki rakamlar neyi kapsıyor?</summary><p>Bu alanın carileri, stokları ve raporları üretim panelinden ayrıdır. Rakamlar yalnızca kaydedilmiş işlemleri içerir; henüz aktarılmamış mağaza satışları dahil değildir.</p></details>';
+ root.innerHTML='<div class="page-heading overview-heading"><div><span class="eyebrow">İŞLETMENE BİR BAKIŞ</span><h1>Genel durum</h1><p>Satıştan ne kaldı, para nereye gitti, bugün ne yapmalı?</p></div><a class="secondary" data-overview-orders>Siparişleri gör <span aria-hidden="true">↗</span></a></div><section class="daily-home" data-daily-home aria-label="Günlük işlemler"></section><section class="insight-center" data-insight-center aria-label="Akıllı takip"></section><section class="panorama" data-panorama aria-label="Dönem özeti"></section><section class="attention-center" aria-label="Bugünün iş listesi"></section><section class="pn-quick" aria-label="Hızlı geçiş"><a class="pn-card" href="#pricing"><span class="pn-quick-icon" aria-hidden="true">₺</span><div><strong>Satmadan önce hesapla</strong><small>Ürün, çoklu paket veya set için fiyatını belirle</small></div></a><a class="pn-card" href="#stock?filter=low"><span class="pn-quick-icon" aria-hidden="true">▤</span><div data-overview-stock></div></a></section><nav class="module-context" aria-label="İşletme planlama"><a href="#money">Ödeme takvimi →</a><a href="#business-result">Giderler sonrası işletme sonucu →</a><a href="#warehouse">Sayım ve tedarik →</a></nav><div data-overview-setup></div><details class="overview-context"><summary>Bu ekrandaki rakamlar neyi kapsıyor?</summary><p>Bu alanın carileri, stokları ve raporları üretim panelinden ayrıdır. Rakamlar yalnızca kaydedilmiş işlemleri içerir; henüz aktarılmamış mağaza satışları dahil değildir.</p></details>';
  const section=root.querySelector('[data-panorama]'),dailyWork=root.querySelector('.attention-center');
+ const insightState={sales:{loading:true},stock:{loading:true},filter:'all'};
+ const renderInsights=()=>{if(active())root.querySelector('[data-insight-center]').innerHTML=insightCenterMarkup(insightState);};
+ async function loadStockAlerts(){if(!active()||insightState.stock.busy)return;insightState.stock={loading:true,busy:true};renderInsights();try{const data=await api('/warehouse');if(active())insightState.stock={data,loading:false};}catch(e){if(active()&&e.name!=='AbortError')insightState.stock={error:errorMessage(e),loading:false};}finally{if(active()){insightState.stock.busy=false;renderInsights();}}}
+ renderInsights();void loadStockAlerts();
  const unavailable=(key)=>{const source=sources[key];return source.data?'':source.error?'<p class="notice" role="alert" data-overview-unavailable="'+key+'"><strong>'+source.label+' alınamadı.</strong> '+esc(source.error)+' <button type="button" class="secondary" data-overview-retry="'+key+'">'+source.label+' için yeniden dene</button></p>':'<p class="loading" role="status" data-overview-loading="'+key+'">'+source.label+' yükleniyor…</p>';};
  function renderAux(){
   if(!active())return;
@@ -97,18 +102,20 @@ function mountOverview(root,api,signal){
   periodAbort=new AbortController();
   const requestSignal=AbortSignal.any([signal,periodAbort.signal]);
   root.querySelector('[data-overview-orders]').href=dateRangeLink('#orders',{...selected,error:null});
-  section.setAttribute('aria-busy','true');periodFallback(selected);
+  section.setAttribute('aria-busy','true');periodFallback(selected);insightState.sales={loading:true};renderInsights();
   try{
    const data=await api('/panorama'+(query?'?'+query:''),undefined,requestSignal);
    if(!active()||revision!==periodRevision)return;
    dateDispose?.();dateDispose=null;
+   insightState.sales={data:data.sales_alerts,loading:false};renderInsights();
    periodDispose=mountPanorama(section,data,{signal,dailyWork,viewState,onRangeChange:changeRange});
   }catch(error){
    if(!active()||revision!==periodRevision||error.name==='AbortError')return;
+   insightState.sales={error:errorMessage(error),loading:false};renderInsights();
    section.after(dailyWork);dateDispose?.();dateDispose=null;periodFallback(selected,error);
   }finally{if(active()&&revision===periodRevision)section.setAttribute('aria-busy','false');}
  }
- const retry=event=>{const button=event.target.closest('[data-overview-retry]');if(!button||!active())return;const key=button.dataset.overviewRetry;if(key==='panorama')void loadPeriod(true);else if(sources[key])void loadAux(key);};
+ const retry=event=>{const filter=event.target.closest('[data-insight-filter]');if(filter&&active()){insightState.filter=filter.dataset.insightFilter;renderInsights();root.querySelector('[data-insight-filter="'+insightState.filter+'"]')?.focus();return;}if(event.target.closest('[data-insights-refresh]')&&active()){void loadPeriod(true);void loadStockAlerts();return;}const button=event.target.closest('[data-overview-retry]');if(!button||!active())return;const key=button.dataset.overviewRetry;if(key==='panorama'||key==='sales-alerts')void loadPeriod(true);else if(key==='stock-alerts')void loadStockAlerts();else if(sources[key])void loadAux(key);};
  root.addEventListener('click',retry,{signal});
  const dispose=()=>{root.classList.remove('dashboard-home');disposed=true;periodRevision++;periodAbort?.abort();periodDispose?.();dateDispose?.();root.removeEventListener('click',retry);};
  dispose.onHash=()=>{void loadPeriod();};

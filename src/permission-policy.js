@@ -74,7 +74,11 @@ export function scrubAmounts(payload,user,ns){
    // Şema nesnenin kendisinden tanınır: başka bir alandaki aynı nesne takma adı da gizlenir.
    const dailyCash=ns==='ec'&&typeof value.date==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value.date)&&Number.isSafeInteger(value.packages)
     &&['trendyol','hepsiburada'].every(k=>Object.hasOwn(value,k)&&(typeof value[k]==='number'||value[k]===null));
-   for(const [key,item] of Object.entries(value))out[key]=MONEY_KEY.test(key)||MONEY_NAMES.has(key)||dailyCash&&(key==='trendyol'||key==='hepsiburada')?null:walk(item);
+   for(const [key,item] of Object.entries(value)){
+    // Loss labels and counts reveal financial outcomes too: hide the entire new signal.
+    if(key==='sales_alerts'){out[key]=null;continue;}
+    out[key]=MONEY_KEY.test(key)||MONEY_NAMES.has(key)||dailyCash&&(key==='trendyol'||key==='hepsiburada')?null:walk(item);
+   }
   }
   return out;
  };

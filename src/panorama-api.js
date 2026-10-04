@@ -1,5 +1,6 @@
 import {dashboardFinancials, dashboardFinancialDay} from './dashboard-summary.js';
 import {aggregateSales, pendingSalesSummary, salesReturnSummary} from './sales-presentation.js';
+import {salesAlerts} from './sales-alerts.js';
 // Genel durum: bütün ekonomik tutarlar performanceReport satırlarından gelir.
 // Stok değeri ayrı bir GÜNCEL defter bakiyesidir; tarih filtresinden etkilenmez.
 import {tumSatirlar, ilkSonucTarihi} from './performance-api.js';
@@ -230,5 +231,8 @@ export async function panoramaApi(request, env, path) {
   return {as_of: asOf, today, first_delivered: ilk.teslim, unallocated_fee_cents: unallocated,
     coverage: {complete: !eksik.length && !pending.partial, missing: eksik, pending_error: pending.error || null},
     periods, daily, financial_daily, pending, selected_period: selected, inventory,
+    sales_alerts: salesAlerts(rows, {today, partial: eksikMi(shift(today, -29), today),
+      // Even older failed reads may hide a sibling of a recent order. Future/pending reads do not.
+      historyPartial: eksik.some(x => x.from <= today), unallocatedFeeCents: unallocated}),
     notice: 'Cebine kalan = KDV dahil satış − KDV dahil ürün maliyeti − KDV dahil pazaryeri kesintileri − stopaj. Ortak giderler ve gelir vergisi hariç.'};
 }
