@@ -63,16 +63,25 @@ export async function imageInvoicePdf(bytes,format,filename,lib){
  return output;
 }
 function abortError(){return new DOMException('İşlem iptal edildi.','AbortError');}
-function waitFor(root,predicate,signal,timeout=45000){
+const ZONE_TIMEOUT='Yükleme alanı henüz hazır değil. Seçilen dosya korunuyor; mağazayı tamamlayıp yeniden deneyin.';
+// heartbeat verilirse sure ILERLEME DURDUGUNDA isler: degeri her degistiginde sayac bastan
+// baslar. Toplu yuklemede dort gercek rapor binlerce satirla sabit bir sureyi asiyor; bekleme
+// bosa dusunce ekran "hazir degil, yeniden dene" diyordu, oysa dosyalar arkada isleniyordu.
+function waitFor(root,predicate,signal,timeout=45000,{heartbeat=null,message=ZONE_TIMEOUT}={}){
  return new Promise((resolve,reject)=>{
-  let timer,observer;
+  let timer,observer,beat=heartbeat?heartbeat():null;
   const finish=(value,error)=>{clearTimeout(timer);observer?.disconnect();signal?.removeEventListener('abort',abort);error?reject(error):resolve(value);};
   const abort=()=>finish(null,abortError());
-  const check=()=>{if(signal?.aborted)return abort();try{const value=predicate();if(value)finish(value);}catch(e){finish(null,e);}};
+  const arm=()=>{clearTimeout(timer);timer=setTimeout(()=>finish(null,Error(message)),timeout);};
+  const check=()=>{
+   if(signal?.aborted)return abort();
+   if(heartbeat){const now=heartbeat();if(now!==beat){beat=now;arm();}}
+   try{const value=predicate();if(value)finish(value);}catch(e){finish(null,e);}
+  };
   if(signal?.aborted)return abort();
-  observer=new MutationObserver(check);observer.observe(root,{childList:true,subtree:true,attributes:true});
+  observer=new MutationObserver(check);observer.observe(root,{childList:true,subtree:true,attributes:true,characterData:true});
   signal?.addEventListener('abort',abort,{once:true});
-  timer=setTimeout(()=>finish(null,Error('Yükleme alanı henüz hazır değil. Seçilen dosya korunuyor; mağazayı tamamlayıp yeniden deneyin.')),timeout);
+  arm();
   check();
  });
 }
@@ -106,7 +115,11 @@ export async function handFileToUploader(root,file,{type,signal,reportKind}={}){
    if(list.length>1)return root.querySelector('[data-rb-act="toplu-kapat"]');
    const error=root.querySelector('.rb-alert.error');if(error)throw Error(error.textContent);
    return root.querySelector('[data-rb-form="source"], [data-rb-form="map"], [data-rb-act="upload"]');
-  },signal,list.length>1?240000:undefined);
+  },signal,list.length>1?180000:undefined,list.length>1?{
+   // Rapor ekrani her dosyada ilerleme metni basar; o metin degistigi surece beklenir.
+   heartbeat:()=>root.querySelector('.rb-busy')?.textContent||'',
+   message:'Rapor ekranı uzun süre ilerleme bildirmedi. Dosyalar arkada işlenmiş olabilir: «Günlük akışa dön» deyip Raporlar ekranındaki dosya listesinden sonucu kontrol et. Aynı dosyaları yeniden yüklemeden önce oraya bak.',
+  }:undefined);
  }
  if(type==='report'&&reportKind&&list.length===1){
   const state=await waitFor(root,()=>{
