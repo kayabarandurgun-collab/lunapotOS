@@ -95,7 +95,7 @@
 .insights-panorama .pn-period.is-selected {background:var(--ins-sage);border-color:var(--ins-green)}
 .insights-panorama .pn-period small {display:block}
 :is(.insights-panorama,.insights-performance,.insights-operations) summary {cursor:pointer;font-size:13px;line-height:1.55;color:var(--ins-green);max-width:100%}
-.insights-panorama .pn-table summary {min-height:36px;display:list-item;width:auto}
+.insights-panorama .pn-table summary {min-height:44px;display:list-item;width:auto}
 .insights-panorama .pn-table :is(td,th) {white-space:normal;font-size:12px}
 .insights-panorama .pn-table caption {text-align:left;color:var(--ins-muted);padding:10px 0}
 .insights-panorama .pn-calculation-note {border-top:1px solid var(--ins-line);padding-top:14px;font-size:12px;color:var(--ins-muted)}
