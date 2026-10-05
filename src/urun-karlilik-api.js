@@ -154,8 +154,15 @@ export async function urunKarlilikApi(request, env, path) {
       adet_kar_cents: x.per_unit_cents,
       bilesenler: x.components.map(c => ({...c, revenue_share_bps: m?.paylar.get(c.product_id) ?? null}))};
   }).sort((a, b) => (a.paket_basina_cents ?? Infinity) - (b.paket_basina_cents ?? Infinity) || (a.ad < b.ad ? -1 : a.ad > b.ad ? 1 : 0));
-  return {as_of: new Date().toISOString(), from, to, sales: {...satislar, scope: 'delivered'}, setler, set_notice: SET_NOTICE,
-    pending: {...pendingSalesSummary(kargoda), sales: aggregateSales(kargoda)},
+  // PARA SIRALI SIRALAMALAR YANITTAN CIKARILIR. aggregateSales ucu da (kar azalan, kar artan,
+  // ciro azalan) uretir ama bu ekranda HICBIRI okunmuyor: accounting-ui.js yanittan yalniz
+  // rows / setler / notice / set_notice aliyor. Durduklari surece agdan okunabilen bir parasal
+  // sinyaldi (ilk oge en cok kazandiran). Gizlemek yerine cikarmak hem kesin hem yaniti kucultur.
+  // Panorama'da AYNI diziler ekranda kullaniliyor (panorama-ui.js salesRankList yedegi), oradan
+  // cikarilamaz; orada tutar yetkisine gore bosaltilir (permission-policy.js RANK_EMPTY).
+  const siralamasiz = ({top, bottom, revenue_top, ...x}) => x;
+  return {as_of: new Date().toISOString(), from, to, sales: {...siralamasiz(satislar), scope: 'delivered'}, setler, set_notice: SET_NOTICE,
+    pending: {...pendingSalesSummary(kargoda), sales: siralamasiz(aggregateSales(kargoda))},
     date_basis: {delivered: 'delivered_on', pending: 'occurred_on'}, pending_from: pendingFrom || null,
     notice: range ? 'Seçilen aralıkta teslim edilenler sonuç tarihiyle (teslim veya iade), hazırlanan ve kargodaki paketler sipariş tarihiyle süzülür. Kargodaki kâr tahminidir. Stok bakiyesi bu tarih aralığından etkilenmez.' : 'Teslim edilenler (iade tarihiyle sonuçlananlar dahil) kâr raporuyla aynıdır. Kargodaki tutar henüz teslim edilmemiş paketlerin tahminidir: gönderilenler ve hazırlananlar (stok ayrılmış) birlikte — ana sayfadaki "Kargodaki tahminim" ile aynı kapsam. Maliyeti veya kesintisi bilinmeyen paket sıfır sayılmaz.',
     rows: [...urun.values()].map(u => {

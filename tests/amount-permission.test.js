@@ -163,12 +163,29 @@ test('Serbest metne gomulu tutar maskelenir, siparis numarasi ve adet bozulmaz',
 
 test('Yonetici ve tutar yetkisi olan personel bu alanlari aynen gorur',()=>{
  const yanit={totals:{sale:123456,net_payout:99999},recipes:[{yield_qty:1,waste_pct:0,labor:250,packaging:40,overhead:10}],
-  jobs:[{recipe_json:'{"labor":250}'}],results:[{notes:['Fark 25,25 TL'],estimates:[{type:'c',basis:'r',value:5}]}]};
+  jobs:[{recipe_json:'{"labor":250}'}],results:[{notes:['Fark 25,25 TL'],estimates:[{type:'c',basis:'r',value:5}]}],
+  // B ve C gruplarinda eklenen alanlar: sayilar, para sirali diziler ve rekor kimlikleri.
+  losses:2,gains:3,profitable:462,losing:3,
+  channels:[{channel:'trendyol',losses:1,cash_losses:1}],
+  worst:[{order_no:'TY-1',contribution_cents:-500}],
+  periods:[{products:{top:[{name:'Torf'}],bottom:[{name:'Perlit'}],revenue_top:[{name:'Torf'}]},
+   records:{revenue:{order_no:'TY-9001'},profit:{order_no:'HB-7733'},orders:7}}],
+  setler:[{ad:'Gama set',paket_basina_cents:-5880},{ad:'Alfa set',paket_basina_cents:120}]};
  for(const kullanici of [{owner:true},{owner:false,lp_access:'read',ec_access:'read',permissions:{ec:{orders:'read',amounts:'read'},lp:{recipes:'read',amounts:'read'}}}]){
   const o=scrubAmounts(yanit,kullanici,'ec');
   assert.equal(o.totals.sale,123456);assert.equal(o.recipes[0].labor,250);
   assert.equal(o.jobs[0].recipe_json,'{"labor":250}');
   assert.equal(o.results[0].notes[0],'Fark 25,25 TL');assert.equal(o.results[0].estimates[0].value,5);
+  assert.equal(o.losses,2);assert.equal(o.gains,3);
+  assert.equal(o.profitable,462);assert.equal(o.losing,3);
+  assert.equal(o.channels[0].losses,1);assert.equal(o.channels[0].cash_losses,1);
+  assert.equal(o.worst.length,1,'zarar tablosu yoneticide dolu kalir');
+  assert.equal(o.worst[0].contribution_cents,-500);
+  const u=o.periods[0].products;
+  assert.equal(u.top[0].name,'Torf');assert.equal(u.bottom[0].name,'Perlit');assert.equal(u.revenue_top[0].name,'Torf');
+  assert.equal(o.periods[0].records.revenue.order_no,'TY-9001');
+  assert.equal(o.periods[0].records.profit.order_no,'HB-7733');
+  assert.deepEqual(o.setler.map(x=>x.ad),['Gama set','Alfa set'],'para sirasi ada gore yeniden dizilmez');
  }
 });
 
@@ -501,4 +518,24 @@ test('Parcali magaza ozeti bilinmeyeni sifira cevirmez',()=>{
  assert.equal(o.losing,2);
  assert.equal(o.contribution_cents,300);
  assert.equal(summaryHasAmounts(o),true);
+});
+
+// Urun karliligi ucu, hicbir ekranin okumadigi UC para-sirali satis bicimi siralamasi
+// gonderiyordu (accounting-ui.js yanittan yalniz rows / setler / notice / set_notice okur).
+// Gizlemek yerine YANITTAN CIKARILDI: herkeste yok, yanit da kuculdu.
+// Panorama'daki AYNI diziler ekranda kullanildigi icin (panorama-ui.js salesRankList yedegi)
+// oradan cikarilamaz; orada tutar yetkisine gore bosaltilir.
+test('Urun karliligi yaniti okunmayan para sirali siralamalari hic gondermez',async()=>{
+ const f=appFixture();await f.setup();try{
+  const k=await f.ok('/ec/urun-karlilik');
+  for(const anahtar of ['top','bottom','revenue_top']){
+   assert.equal(Object.hasOwn(k.sales,anahtar),false,'sales.'+anahtar+' yanitta olmamali');
+   assert.equal(Object.hasOwn(k.pending.sales,anahtar),false,'pending.sales.'+anahtar+' yanitta olmamali');
+  }
+  // Ekranin GERCEKTEN okudugu alanlar duruyor.
+  for(const anahtar of ['rows','setler','notice','set_notice'])assert.ok(Object.hasOwn(k,anahtar),anahtar+' kalmali');
+  assert.ok(Array.isArray(k.sales.rows),'satis satirlari kalir: siralama degil, veridir');
+  assert.equal(k.sales.scope,'delivered');
+  assert.equal(typeof k.sales.count,'number');
+ }finally{f.close();}
 });
