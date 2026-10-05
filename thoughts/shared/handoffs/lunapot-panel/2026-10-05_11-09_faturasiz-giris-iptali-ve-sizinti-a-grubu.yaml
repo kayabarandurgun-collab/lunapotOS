@@ -1,0 +1,167 @@
+---
+session: lunapot-panel
+date: 2026-10-05
+status: partial
+outcome: PARTIAL_PLUS
+---
+
+goal: "Codex incelemesinden çıkan iki hata düzeltildi, Belge yükle çoklu dosya aldı, personel tutar sızıntılarının A grubu (doğrudan TL okuma, 7 yer) kapatıldı, faturasız mal girişi iptal edilebilir oldu (0070) ve canlıdaki mükerrer kayıt temizlendi. 6 commit, hepsi yayında ve push'lu."
+now: "SIZINTI B/C/D GRUPLARI AÇIK — 18 bulgu, hepsi dosya:satır ile thoughts/shared/research/2026-10-05_personel-tutar-sizintilari-bcd.md içinde. Oradan başla. Yöntem notunu MUTLAKA oku: MONEY_NAMES'e ad eklemek etiketleri bozuyor, kapsayıcı/şema bazlı gizleme kullanılacak."
+test: "npm test → 1414 test, 1381 pass, 2 fail (seed-local-catalog + store-sync, repo DIŞI ../lunapot-store-preview okuyorlar, bu işten kaynaklanmıyor), 31 skip. Tarayıcı testleri bayrak ister, aşağıdaki ortam notuna bak."
+
+ortam:
+  repo: "C:/Users/baran/Desktop/site/lunapot-panel (main). Documents/Codex kopyası ESKİ, DOKUNMA."
+  canli: "https://muhasebe.lunapot.com · önbellek lunapot-shell-v185-faturasiz-giris-iptali · son yayın 9ffb9084 (2026-10-05 07:28Z) · migration CANLIDA 0070'e kadar."
+  yayin_sirasi: "Migration varsa ÖNCE: node scripts/migrate-remote.mjs → npx.cmd wrangler deploy → git push origin main. PowerShell 5.1: '&&' YOK, 'npm run X' ExecutionPolicy'ye takılıyor, npx.cmd yaz."
+  yayin_sonrasi_onbellek: |
+    ÖNEMLİ, bu oturumda yarım saat kaybettirdi: yayından sonra panel ESKİ KODU çalıştırmaya
+    devam ediyor. Üç katman ayrı ayrı tazelenmeli:
+      1) servis işçisi yeni sw.js'yi hemen kontrol etmez →
+         (await navigator.serviceWorker.getRegistration()).update()
+      2) ES modülü oturumda bir kez yüklenir; panel içinde hash değiştirmek (#party, #stock)
+         sayfayı YENİDEN YÜKLEMEZ, eski modül bellekte kalır
+      3) gerçek yenileme: location.href=...'?t='+Date.now() ya da kullanıcıda Ctrl+R
+    "Canlı dosya yerelle aynı" ≠ "kullanıcı yeni kodu görüyor". Kullanıcıya "yenile" derken
+    Ctrl+R ya da kapat-aç de.
+  onizleme: |
+    node scripts/design-preview.mjs --port=XXXX --scenario=populated
+    Testler bayrak verilmezse SESSİZCE ATLANIYOR (npm test'teki 31 skip bunlar).
+    Bayraklar: WORKBENCH_BROWSER=1 (kendi sunucusunu kurar) · SALES_UI_BROWSER=1 + SALES_UI_PREVIEW
+    · DAILY_PREVIEW_URL · PARTY_PROFILE_BROWSER=1 · UI_RECIPE_SAVE_BROWSER=1 (port 8791 ŞART)
+    · UI_SECONDARY_WORKSPACES_BROWSER=1 + PREVIEW (port 18730 ŞART) · ACCESS_PREVIEW_URL (HTTPS şart).
+    HTTPS önizleme: --tls-key/--tls-cert destekliyor; openssl ile 127.0.0.1 için SAN'lı sertifika üret.
+  tarayici_paneli: "Canlı panelde oturum açık. localhost'a navigate ETMİYOR; preview_start ile aç. Ref'ler sayfa kendini yenileyince bayatlıyor — find+click aynı batch'te olamaz, JS ile scrollIntoView+işaretleme daha güvenilir. '#invoices?id=...' diye deep link YOK, denemeyin (beni başka ekrandaki ödeme formuna attı)."
+
+kullanici:
+  - "TEKNİK ANLATMA, KISA YAZ. Beklerken sorar, ara rapor ver."
+  - "Tasarım niyetini bilir ve haklı çıkar: 'Belge yükle'yi yanlış ekran diye nitelediğimde haklı olarak kızdı — o ekranın amacı tek yere bırakmaktır, eksik olan özellikti."
+  - "'Tam yetki sana' diyor; yayın komutlarını kendi basıyor, geri alınamaz işlemde yine de onay iste."
+  - "Belge numarası alanına 00000 gibi yer tutucu yazıyor. Başlık numarası SONRADAN DEĞİŞTİRİLEMEZ (ec_provisional_header_no_update); gerçek irsaliye numarasını yazmasını hatırlat."
+
+done_this_session:
+  - task: "FİYAT KAYDETME HATASI — teşhis + düzeltme. Devir 'hammadde listesi boş olabilir' diyordu, DEĞİLDİ. Gerçek sebep: testin uydurma reçetesinde labor/packaging/overhead boş; bu üç alan 'required' olduğu için tarayıcı formu hiç göndermiyor, save callback çağrılmıyor. DB'de NOT NULL DEFAULT 0, API SELECT * yapıyor, scrub dokunmuyor → GERÇEK reçetelerde hata YOK. Test hatalıydı, panel değil. 30 sn timeout → 1 sn pass."
+    files: [tests/ui-recipe-save-browser.test.js]
+  - task: "CİRO İKİ EKRANDA TUTARSIZLIĞI. Satış ve kâr ekranı ciroda 'Bilgi eksik' derken komşu iki kutu (cebine kalan, maliyet) 'Hesaplanabilen ₺…' gösteriyordu; Genel durum aynı ciro için rakam veriyordu. calculated_revenue_gross_cents zaten hesaplanıyordu (performance-ui.js:132), basılmıyordu. Devir bu farkı TERS yazmış; ölçtüm, çelişki değil eksik satırdı."
+    files: [public/performance-ui.js]
+  - task: "BELGE YÜKLE ÇOKLU DOSYA. Ekranın amacı tek yere bırakmaktı ama tek dosya alıyordu. Her dosya KENDİ başına tanınıyor; aynı ekrana gidenler TEK devirde gidiyor. Faturalar XML/PDF AYRI gruplanır (kuyruk türü ilk dosyadan geliyor, karışık partide ilk XML olsa hepsi XML sanılırdı). Raporlar tek grupta çünkü takeMany her dosyanın mağaza ve türünü kendi okuyor. Kullanıcının 4 gerçek raporuyla doğrulandı: TY+HB × sipariş+finans, 1891 satır, başarısız 0."
+    files: [public/workbench-ui.js, public/workbench.css, tests/belge-yukle-coklu-browser.test.js]
+  - task: "TOPLU YÜKLEMEDE YANLIŞ UYARI. waitFor sabit 4 dk sınırı koyuyordu; 4 gerçek rapor (5760+2259 satır) aştı ve ekran 'Yükleme alanı hazır değil, yeniden deneyin' dedi — oysa işlem arkada sürüyordu ve mesaj İKİNCİ KEZ yüklemeye davet ediyordu. waitFor'a heartbeat eklendi: ilerleme metni değiştiği sürece sayaç baştan başlar."
+    files: [public/workbench-ui.js]
+  - task: "PERSONEL ERİŞİM AKIŞI İLK KEZ KOŞULDU (devirde 'hiç doğrulanmadı' diye duruyordu). openssl ile SAN'lı sertifika, HTTPS önizleme 8443, quick-access-browser: 1 pass / 0 fail, ikinci koşuda da geçti. Negatif kontrol de yapıldı (değişken olmadan skip). Üründe de testte de hata YOK; tek sebep sertifikanın hiç üretilmemiş olmasıydı."
+    files: []
+  - task: "ORKİDE TOPRAĞI STOK — HATA YOKTU, ölçüldü. 623 giriş − 449 çıkış = 174 tutarlı. Girişin 330 adedi faturasız mal girişi (21/22/24 Eylül, üç ayrı teslimat, kullanıcı üçünün de gerçek olduğunu doğruladı), 113 adedi raf sayımı telafisi (ON CONFLICT ile çift yazılamıyor, suçlanamaz), 175 faturalı alış. Faturalı alışlar faturasız girişlerden ÖNCE → 'fatura sonradan geldi, iki kez sayıldı' senaryosu geçersiz."
+    files: []
+  - task: "A GRUBU SIZINTILAR KAPATILDI (7 yer, personelin DOĞRUDAN TL okuduğu yerler): rapor dosyası toplamları, ham incoming_json/prior_json, rapor kutusu tahmin satırı, serbest metne gömülü tutarlar, reçete işçilik/ambalaj/gider, dondurulmuş recipe_json, ödeme formu hata mesajındaki tam borç. Denetimin önerdiği 'MONEY_NAMES'e ad ekle' yöntemi REDDEDİLDİ: sale/packaging/withholding başka yanıtlarda TÜR ETİKETİ, boşalırdı. Kapsayıcı/şema bazlı gizleme kuruldu."
+    files: [src/permission-policy.js, src/worker.js, src/ledger-api.js, src/report-inbox-api.js, public/recipe-studio.js, tests/amount-permission.test.js]
+  - task: "FATURASIZ GİRİŞİN İÇİ GÖRÜNÜR OLDU. Cari dosyası → Faturalar sekmesindeki 'Faturası beklenen mallar' tablosu yalnız 4 sütun basıyordu, tıklanamıyordu; sunucu satırları ZATEN gönderiyordu (provisional-inventory.js lines[]). 'İçindekiler' sütunu eklendi: ürün, giren miktar, faturalanan."
+    files: [public/party-profile-ui.js, public/party-profile.css]
+  - task: "İKİ FATURASIZ GİRİŞ FORMU TEK FORMA İNDİRİLDİ. Depo ve Cariler ekranlarında iki ayrı form vardı; aynı uca aynı veriyi yazıyor ama farklı davranıyorlardı. Depo formu kaldı (stok önizlemesi + tek ürün için hazır açılma), ona taslak kurtarma taşındı. Cariler düğmesi seçili tedarikçiyi taşıyarak #stock?action=unbilled&party=<id> adresine gidiyor. İkinci form, satır işleyicileri, taslak yardımcıları ve .pro-* CSS'i silindi."
+    files: [public/accounting-ui.js, public/business-ui.js, public/commerce-workflows.css, tests/ux-2026-10-03-purchase-stock.test.js]
+  - task: "FATURASIZ GİRİŞ İPTALİ (migration 0070) + canlıdaki mükerrerin temizlenmesi. Üç tasarım üretilip üç mercekten (çift sayma / kilitlenme / veri bütünlüğü) çürütüldü; ÜÇÜNDE DE ölümcül kusur bulundu, kazanan tasarım kusurlar kapatılarak kuruldu. 11 yeni test, ilk denemede 11/11."
+    files: [migrations/0070_faturasiz_giris_iptali.sql, src/ledger-api.js, src/provisional-inventory.js, src/report-stock-link-api.js, public/business-ui.js, public/stock-history-ui.js, public/party-profile-ui.js, tests/faturasiz-giris-iptali.test.js]
+
+findings:
+  - iptal_tasarimindaki_uc_olcum: |
+      (1) Ayna hareketi 'purchase' olmalı, 'count' DEĞİL: eksi değerli sayım ec_count_loss
+          (0002_accounting.sql:33) ile UYDURMA kayıp gideri yazıyor (ölçüldü: 720 TL sahte gider).
+      (2) 'İptal edildi' çapası ayna hareketinin KENDİSİ, başlıkta bayrak değil. Bayrak olsaydı
+          yarım yazmada borç silinip mal rafta kalırdı; ayna çapa olunca satır aynı işlemde
+          uygunluktan düşüyor ve aynası eksikken cari kaydı yazılamıyor (CANCEL_INCOMPLETE).
+      (3) Her kapı hareketi ec_provisional_line_movements görünümünden okur
+          (COALESCE(l.movement_id,k.movement_id)): eski kayıtlar hareket bağını AYRI tabloda
+          tutuyor, bunu atlayan tasarım borcu silip malı bırakıyordu. Tamamlanma denetimi
+          EXISTS değil SAYI karşılaştırması.
+  - mukerrer_temizligi_dersi: |
+      Aynı teslimat iki kez girilmişti ('000003' ve '6093012405584', 30.09, ₺3.496,80, üç ürün).
+      İLK girilen ('000003') İPTAL EDİLEMEDİ: raf sayımı telafisi ORDER BY occurred_on,rowid
+      LIMIT 1 ile İLK sayımı seçiyor, o yüzden 9 telafi hareketi ona bağlanmış. Koruma reddetti
+      ve HİÇBİR ŞEY yazılmadı (öncesi/sonrası birebir ölçüldü). Temiz olan ikiz iptal edildi:
+      stok 23/72/40 → 11/32/30, Tropikal borcu −56.212,80 → −52.716,00, sipariş geçmişi bozulmadı,
+      uydurma gider 0. Hayatta kalan kaydın numarası '000003' kaldı ve DEĞİŞTİRİLEMEZ.
+      DERS: mükerrerde önce hangisinin telafi hareketi olduğunu ölç (product-profile direction=in
+      içinde 'GECICI-SAYIM-<ref>-SAT-' ile başlayanlar), telafisi OLMAYANI iptal et.
+  - sizinti_yontemi: |
+      MONEY_NAMES'e ad eklemek YAN HASAR yapıyor: 'sale' operations-ui kinds'de tür etiketi,
+      'packaging' money-planning categories'de 'Ambalaj', 'withholding' dashboard-summary
+      basis'inde 'deduction_positive'. Hepsi boşalırdı. Doğru yöntem şema/kapsayıcı bazlı:
+      REPORT_CONTAINERS (totals/incoming/prior), RECIPE_MONEY (yield_qty+waste_pct taşıyan satır),
+      estimateRow (type+basis+value üçlüsü), MONEY_TEXT (yalnız kuruşlu biçim maskelenir, sipariş
+      numarası bozulmaz). Hepsi src/permission-policy.js içinde, testi amount-permission.test.js.
+  - recete_gizlemesinin_tuzagi: |
+      Reçete giderlerini gizlemek TEK BAŞINA yetmez: 'recipes' yetkisi 'amounts' İSTEMİYOR, yani
+      tutar göremeyen personel reçete düzenleyebiliyor. Alanlar null dönünce eski yazma yolu
+      num(input.labor) ile 400 verir ya da 0 yazıp SAHİBİNİN girdiği gideri siler. Üç parça
+      birlikte gerekti: scrub + arayüzün kutuları hiç basmaması + sunucunun gönderilmeyen alanda
+      saklananı koruması (worker.js recete dalındaki 'gider' yardımcısı).
+  - genel_durum_personele_kapali: "public/ecommerce.js:56 sahip olmayan kullanıcıyı #overview'den çeviriyor. Önceki devirdeki 'panorama kesinti yok diyor' endişesi ORADA geçersiz; aynı hata kesinti eşleştirme (reconciliation) ekranında GERÇEK — D grubu."
+  - edm_fatura_xml: "EDM ZIP'inde .xml + .xsl + .html var, PDF YOK. Yüklenecek olan .xml. Seçkin e-faturalarında SellersItemIdentification HİÇ YOK ve açıklamanın ilk sözcüğü marka adı ('Klasmann'), bu yüzden otomatik ürün eşleştirme (purchase-match.js) hiçbir yolla bağlayamıyor ve fatura TASLAK kalıyor — hata değil, kasıtlı. Bir kez elle bağlanınca aynı açıklama bir dahaki faturada kendiliğinden eşleşir."
+
+decisions:
+  - iptal_silmek_degil_telafi: "Kayıt silinmiyor (0065 IMMUTABLE_LEDGER) ve ters kaydedilmiyor (0069). Girişin stok ve cari etkisini birebir geri alan YENİ kayıtlar yazılıyor; geçmiş defterde kalıyor."
+  - iptal_geri_alinamaz: "İptal kaydının kendisi ters kaydedilemiyor: mal stoktan çıkmış durumda borcun geri gelmesi yanlış olurdu. Bilinçli sınır."
+  - ikizi_iptal_et: "Kullanıcı '000003' iptal edilsin dedi, koruma reddetti (siparişlere bağlı telafi). Temiz ikizi iptal edildi — sonuç aynı, sipariş geçmişi korundu. Bedeli: hayatta kalan kaydın numarası anlamsız kaldı, kullanıcıya söylendi."
+  - depo_formu_kaldi: "Birleştirmede depo formu temel alındı çünkü üç özellikten ikisi ondaydı (stok önizlemesi, tek ürün için hazır açılma); Cariler formundan taslak kurtarma ona taşındı."
+  - fatura_xml_pdf_ayri_grup: "Fatura kuyruğu türü İLK dosyadan alıyor (purchase-document-ui.js kuyrugaAl), bu yüzden XML ve PDF ayrı gruplanıyor. Raporlar tek grupta çünkü takeMany her dosyayı kendi tanıyor."
+
+worked:
+  - "WORKFLOW İLE TASARIMI ÇÜRÜTTÜRMEK: faturasız giriş iptali için üç tasarım × üç mercek koşuldu, ÜÇÜNDE DE ölümcül kusur bulundu. Doğrudan uygulasam canlı veriyi bozacaktım. Ölçülmüş SQL dosyasını (m70.sql) markdown'dan kopyalamak yerine kullanıp yorum dışı satırlarını diff ile karşılaştırdım — kopyalama hatası sıfır."
+  - "HATAYI KİME AİT OLDUĞUNU ÖLÇMEK: fiyat testinde formun geçerlilik durumunu tarayıcıdan okudum (checkValidity + invalid alanlar), devirdeki tahmini çürüttüm."
+  - "DEĞİŞİKLİĞİ YAYINLAMADAN ÖNCE TARAYICIDA ÖLÇMEK: her arayüz eklemesi 390px ve 1440px'te taşma/hata kontrolünden geçti."
+  - "KULLANICININ GERÇEK VERİSİYLE DOĞRULAMAK: çoklu dosya yüklemesi 4 gerçek raporla (TY+HB, sipariş+finans) sınandı; mağaza ayrımı ve tür ayrımı gerçekten çalıştı."
+  - "GERİ ALINAMAZ İŞLEMDE ÖNCE ETKİYİ RAKAMLA YAZIP ONAY ALMAK: iptal öncesi stok ve bakiyenin ne olacağını söyleyip sordum; reddedilince hiçbir şey yazılmadığını öncesi/sonrası ölçümüyle kanıtladım."
+
+failed:
+  - "KULLANICININ TASARIM NİYETİNİ 'YANLIŞ EKRAN' DİYE NİTELEDİM. Belge yükle'nin amacı tek yere bırakmaktır; eksik olan ekran değil özellikti. Kullanıcı haklı olarak kızdı. DERS: kullanıcı bir akışı neden öyle kurduğunu biliyor; eksik olanı özellik say, ekranı suçlama."
+  - "YAYIN SONRASI 'YENİLE' DEMEK EKSİKTİ. Servis işçisi + bir kez yüklenen modül yüzünden panel eski kodu çalıştırmaya devam ediyor; hash değiştirmek yeniden yükleme değil. Yarım saat boşa hata aradım. Ortam notundaki üç katmanı uygula."
+  - "'#invoices?id=...' DİYE DEEP LINK UYDURDUM. Yoktu; beni başka carinin ödeme formuna attı. Dokunmadan çıktım ama uydurma adres denemek yerine rotayı koddan doğrula."
+  - "BASH HEREDOC'U TIRNAKSIZ KULLANDIM: <<PY içindeki ${...} ve backtick'ler bash tarafından yendi, iki kez dosya bozdum/boş alan yazdım. Python/JS gömerken HER ZAMAN <<'PY' kullan, yolu argv ile geçir."
+  - "ÇOK SATIRLI ARROW FONKSİYONU TEK SATIR SANIP KESTİM: business-ui.js'de provisionalRow 7 satırdı, ilk satıra kadar kesince dosya bozuldu. Yedekten dönüp süslü derinliği sayarak kestim. DERS: silmeden önce bloğun süslü dengesini ölç."
+
+next:
+  - "1) SIZINTI B/C/D — 18 bulgu. thoughts/shared/research/2026-10-05_personel-tutar-sizintilari-bcd.md dosyasındaki yöntem notunu oku, sonra şiddet sırasıyla git. En yükseği: src/orders-api.js:139 'sonuc=zarar' süzgeci personele zarar eden siparişlerin TAMAMINI sayfa sayfa listeletiyor (ekranda 'Zarar edenler (8)' olarak basılıyor, orders-ui.js:128)."
+  - "2) B grubu kolay kazanç: panorama losses/gains için permission-policy MONEY_NAMES'e 'losses','gains' eklemek ÖLÇÜLMÜŞ ve güvenli görünüyor (araştırma dosyasında gerekçesi var) — ama eklemeden önce o adların başka yanıtta etiket olarak kullanılmadığını grep ile DOĞRULA."
+  - "3) D grubu: kesinti eşleştirme ekranı personele 'Dağıtılmayı bekleyen kesinti yok' diyor ve bekleyen her faturaya yeşil 'Tamamlandı' rozeti basıyor (src/reconciliation-api.js:22 → public/reconciliation-ui.js:23). Yanlış OLUMLU bilgi, en yanıltıcı olan bu."
+  - "4) Her grup bitince amount-permission.test.js'e testini ekle (kalıp hazır: para gider, TÜR ETİKETİ kalır, yönetici aynen görür)."
+  - "5) Önceki devirden duranlar: 7 kurumsal HB faturası (GİB mükellef listesi lazım), Pina Small fiyat profili, kargo tarifeleri 31.12.2026'da bitiyor. Tropikal'de 5 açık faturasız giriş var (~₺52.716), faturaları gelince Belge yükle'den at."
+
+blockers: []
+
+questions:
+  - "Tropikal'in hayatta kalan '000003' kaydının belge numarası anlamsız ve değiştirilemez. Kullanıcı gerçek irsaliye numarasını (6093012405584) kendi kayıtlarında işaretlemek ister mi, yoksa bir 'numarayı düzelt' yolu istenir mi?"
+  - "C grubundaki sıralamaların bir kısmını HİÇBİR ekran okumuyor (panorama products.top/bottom, urun-karlilik sales.*). Bunları gizlemek yerine yanıttan tamamen çıkarmak daha temiz olabilir — kullanıcıya sorulmadı."
+
+files:
+  created:
+    - migrations/0070_faturasiz_giris_iptali.sql
+    - tests/faturasiz-giris-iptali.test.js
+    - tests/belge-yukle-coklu-browser.test.js
+    - thoughts/shared/research/2026-10-05_personel-tutar-sizintilari-bcd.md
+    - thoughts/shared/handoffs/lunapot-panel/2026-10-05_11-09_faturasiz-giris-iptali-ve-sizinti-a-grubu.yaml
+  modified:
+    - src/permission-policy.js
+    - src/worker.js
+    - src/ledger-api.js
+    - src/report-inbox-api.js
+    - src/provisional-inventory.js
+    - src/report-stock-link-api.js
+    - public/workbench-ui.js
+    - public/workbench.css
+    - public/accounting-ui.js
+    - public/business-ui.js
+    - public/party-profile-ui.js
+    - public/party-profile.css
+    - public/stock-history-ui.js
+    - public/performance-ui.js
+    - public/recipe-studio.js
+    - public/commerce-workflows.css
+    - public/sw.js
+    - tests/amount-permission.test.js
+    - tests/ui-recipe-save-browser.test.js
+    - tests/ux-2026-10-03-purchase-stock.test.js
+  commits:
+    - "09220c5 Show the computable revenue total on the sales screen"
+    - "24d02bf Let the document intake screen take a whole batch at once"
+    - "7247d71 Keep waiting for a batch while it is still making progress"
+    - "ce8f565 Stop leaking amounts to staff who may not see them"
+    - "cd030b1 Enter unbilled goods through one form instead of two"
+    - "6cebe74 Let a wrongly entered unbilled goods entry be cancelled"
