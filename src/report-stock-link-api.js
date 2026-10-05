@@ -432,6 +432,10 @@ async function tazeleTaslakBagi(db, packageId) {
 // sayımın kendi birim değeriyle). Raf değişmez; ek adet de faturasızdır ve fatura gelince
 // geçici sayımla birlikte kendiliğinden kapanır. Tekrar çalıştırmada ikinci kez yazılmaz.
 //
+// İPTAL EDİLEN GİRİŞİN SAYIMI TELAFİ ADAYI DEĞİLDİR (0070): o sayımın malı stoktan geri
+// çekilmiştir, telafi hayalet mal yazardı. İptal edilmiş sayım atlanır, varsa sonraki sağlam
+// sayım seçilir. 0070'teki ec_report_count_offset_cancel_guard son duraktır; bu süzgeç olmadan
+// tetik burada atar ve bütün rapor turu çöker (bu çağrı try/catch dışındadır).
 // R05: Artış eskiden rezervasyondan ÖNCE yazılıyordu; sipariş yalnız hazırlanıp iptal edilince ya da
 // ayırma başarısız olunca stok fazladan artmış kalıyordu. Artık burada yalnız NİYET kaydedilir
 // (ec_report_count_offsets; stok değişmez) ve yalnız raporda kargoya verilmiş paket için. Sayım
@@ -441,7 +445,10 @@ async function tazeleTaslakBagi(db, packageId) {
 async function sayimTelafisiHazirla(db, packageId, occurred) {
   const rows = (await db.prepare(`SELECT c.product_id,SUM(c.quantity_milli) q,
       (SELECT m.id FROM ec_stock_movements m WHERE m.product_id=c.product_id AND m.kind='count' AND m.quantity_milli>0
-        AND m.reference LIKE 'GECICI-SAYIM-%' AND m.reference NOT LIKE '%-SAT-%' AND m.occurred_on>=? ORDER BY m.occurred_on,m.rowid LIMIT 1) sayim_id
+        AND m.reference LIKE 'GECICI-SAYIM-%' AND m.reference NOT LIKE '%-SAT-%' AND m.occurred_on>=?
+        AND NOT EXISTS(SELECT 1 FROM ec_stock_movements x WHERE x.kind='purchase' AND x.product_id=m.product_id
+          AND x.reference='GECICI-IPTAL-'||substr(m.reference,14))
+        ORDER BY m.occurred_on,m.rowid LIMIT 1) sayim_id
     FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id WHERE l.package_id=? GROUP BY c.product_id`).bind(occurred, packageId).all()).results
     .filter(r => r.sayim_id);
   let niyet = 0;

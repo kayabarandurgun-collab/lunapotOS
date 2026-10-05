@@ -22,15 +22,19 @@ export async function provisionalReceipts(db, {entryIds, id, limit = 200} = {}) 
     .bind(JSON.stringify(receipts.map(r => r.id))).all()).results;
   return receipts.map(r => {
     const own = lines.filter(l => l.receipt_id === r.id);
-    const unknown = !own.length || own.some(l => !l.eligible);
-    const status = unknown ? 'legacy_unlinked' : own.every(l => !l.remaining_to_invoice_milli) ? 'invoiced'
+    // IPTAL EDILEN GIRIS. Butun satirlarin mali geri cekilmis; eligible 0 oldugu icin durum
+    // 'bagi kontrol edilmeli' gorunuyordu. Iptal ayri bir durumdur ve kalan borcu sifirdir.
+    const cancelled = own.length > 0 && own.every(l => l.cancelled);
+    const unknown = !cancelled && (!own.length || own.some(l => !l.eligible));
+    const status = cancelled ? 'cancelled' : unknown ? 'legacy_unlinked' : own.every(l => !l.remaining_to_invoice_milli) ? 'invoiced'
       : own.some(l => l.invoiced_milli > 0) ? 'partial' : 'open';
     const released = own.reduce((n, l) => n + l.released_cents, 0);
     return {...r, provisional_status: status, released_cents: unknown ? null : released,
-      remaining_cents: unknown || r.amount_cents == null ? null : -r.amount_cents - released,
-      notice: unknown ? 'Eski girişin stok hareketi bağı doğrulanmış değil; otomatik fatura kapanışı yapılmaz.' : null,
+      remaining_cents: cancelled ? 0 : unknown || r.amount_cents == null ? null : -r.amount_cents - released,
+      notice: cancelled ? 'Bu giriş iptal edildi: mal stoktan geri çekildi, tedarikçi borcu kapatıldı.'
+        : unknown ? 'Eski girişin stok hareketi bağı doğrulanmış değil; otomatik fatura kapanışı yapılmaz.' : null,
       lines: own.map(l => ({id: l.id, product_id: l.product_id, product_name: l.product_name, stock_unit: l.stock_unit,
-        movement_id: l.movement_id, quantity_milli: l.quantity_milli,
+        movement_id: l.movement_id, quantity_milli: l.quantity_milli, cancelled: !!l.cancelled,
         invoiced_milli: l.eligible ? l.invoiced_milli : null, received_milli: l.eligible ? l.received_milli : null,
         remaining_to_invoice_milli: l.eligible ? l.remaining_to_invoice_milli : null,
         remaining_to_receive_milli: l.eligible ? l.remaining_to_receive_milli : null,

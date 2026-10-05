@@ -15,7 +15,7 @@ const sayi=x=>{if(typeof x==='number')return x;if(typeof x!=='string'||!x.trim()
 const costCents=x=>{const v=sayi(x);if(!Number.isFinite(v))fail('Birim maliyeti kontrol edin.');let n;try{n=cents(v);}catch{fail('Birim maliyeti kontrol edin.');}if(!Number.isSafeInteger(n)||n<0||n>100000000000)fail('Birim maliyet geçersiz.');return n;};
 const vatBps=x=>{const n=x===undefined||x===null||x===''?2000:Number(x);if(!Number.isSafeInteger(n)||n<0||n>10000)fail('KDV oranı geçersiz.');return n;};
 const positive=x=>{const n=money(x);if(n<0)fail('Tutar pozitif olmalı.');return n;};
-async function execute(db,items){try{return await db.batch(items);}catch(error){const m=String(error.message);if(/PROVISIONAL_RECEIPT_REVERSE_BLOCKED/.test(m))fail('Faturasız mal girişi buradan ters kaydedilemez: cari borcu silinir ama depoya giren mal yerinde kalır ve o tedarikçinin sonraki faturaları işlenemez. Giriş hatalıysa Alış Faturaları ekranından düzeltin.',409);if(/PROVISIONAL_/.test(m))fail('Faturasız girişin bağlı fatura ve teslim kayıtları korunuyor. Bu işlem yapılamaz.',409);if(/CHEQUE_DUE_REQUIRED/.test(m))fail('Çek için vade tarihi girin.');if(/INVALID_DUE_DATE|INVALID_PLAN_DATE/.test(m))fail('Geçerli tarih girin.');if(/PAYMENT_ENTRY_REQUIRED/.test(m))fail('Ödeme yöntemi yalnızca ödeme hareketine yazılabilir.',409);if(/DEBT_ENTRY_REQUIRED/.test(m))fail('Planlanan ödeme tarihi yalnızca açık borca eklenebilir.',409);if(/OVER_ALLOCATION/.test(m))fail('Kapama tutarı belgenin kalan tutarını aşıyor.',409);if(/ENTRY_ALLOCATED/.test(m))fail('Önce bu hareketin belge kapamalarını geri alın.',409);if(/INVALID_ALLOCATION/.test(m))fail('Aynı cariye ait bir alacak ve bir borç hareketini seçin.',409);if(/INVALID_CASH_ENTRY/.test(m))fail('Kasa/banka hareketi bağlandığı cari hareketiyle eşleşmiyor.',409);if(/REVERSAL|REVERSED_ENTRY/.test(m))fail('Bu hareket için ters kayıt oluşturulamaz.',409);if(/UNIQUE constraint/.test(m))fail('Bu referans veya kayıt daha önce işlendi.',409);if(/FOREIGN KEY/.test(m))fail('Seçilen kayıt bu çalışma alanında bulunamadı.',404);throw error;}}
+async function execute(db,items){try{return await db.batch(items);}catch(error){const m=String(error.message);if(/PROVISIONAL_RECEIPT_REVERSE_BLOCKED/.test(m))fail('Faturasız mal girişi buradan ters kaydedilemez: cari borcu silinir ama depoya giren mal yerinde kalır ve o tedarikçinin sonraki faturaları işlenemez. Giriş hatalıysa Alış Faturaları ekranından düzeltin.',409);if(/PROVISIONAL_CANCEL_TWICE/.test(m))fail('Bu faturasız giriş zaten iptal edilmiş; ikinci kez iptal edilmez.',409);if(/PROVISIONAL_CANCEL_INVOICED/.test(m))fail('Bu girişin faturası işlenmiş ve malı tahsis edilmiş; iptal edilemez. Fatura yanlışsa Alış Faturaları ekranından düzeltin.',409);if(/PROVISIONAL_CANCEL_PAID/.test(m))fail('Bu girişin borcuna ödeme yapılmış. Önce ödemenin belge kapamasını geri alın, sonra girişi iptal edin.',409);if(/PROVISIONAL_CANCEL_REVERSED/.test(m))fail('Bu girişin cari hareketi daha önce ters kaydedilmiş; iptal kaydı yazılamaz.',409);if(/PROVISIONAL_CANCEL_COST/.test(m))fail('Bu girişteki mal, stoksuz satılmış bir siparişin maliyetini kapatmış. O kapanış geri alınamaz; giriş iptal edilemez.',409);if(/PROVISIONAL_CANCEL_OFFSET/.test(m))fail('Bu girişin sayımı bir siparişin raf sayımı telafisine bağlanmış; iptal edilirse o siparişin stoğu yanlış olur. İptal edilemez.',409);if(/PROVISIONAL_CANCEL_CLOSED/.test(m))fail('Bu girişin sayımı bir fatura teslimiyle zaten kapanmış; iptal edilemez.',409);if(/PROVISIONAL_CANCEL_STOCK|INVALID_STOCK_VALUE/.test(m))fail('Bu girişteki mal raftan çıkmış: geri çekilecek kadar stok ya da stok değeri kalmamış. Önce malın nereye gittiğini bulun; iptal hayalet eksik yaratır.',409);if(/PROVISIONAL_CANCEL_INCOMPLETE/.test(m))fail('İptal yarım kalamaz: girişin bütün satırlarında mal geri çekilmeden borç kapatılmaz. İşlemi yeniden deneyin.',409);if(/PROVISIONAL_CANCEL_ENTRY_MISMATCH|PROVISIONAL_CANCEL_MISMATCH/.test(m))fail('İptal kaydı girişin stok hareketiyle ya da borcuyla birebir eşleşmiyor; yazılmadı.',409);if(/PROVISIONAL_CANCEL_LOCKED/.test(m))fail('Faturasız giriş iptalinin cari kaydı ve kapaması geri alınamaz: mal stoktan çıkmış durumda borç geri gelirdi.',409);if(/PROVISIONAL_/.test(m))fail('Faturasız girişin bağlı fatura ve teslim kayıtları korunuyor. Bu işlem yapılamaz.',409);if(/CHEQUE_DUE_REQUIRED/.test(m))fail('Çek için vade tarihi girin.');if(/INVALID_DUE_DATE|INVALID_PLAN_DATE/.test(m))fail('Geçerli tarih girin.');if(/PAYMENT_ENTRY_REQUIRED/.test(m))fail('Ödeme yöntemi yalnızca ödeme hareketine yazılabilir.',409);if(/DEBT_ENTRY_REQUIRED/.test(m))fail('Planlanan ödeme tarihi yalnızca açık borca eklenebilir.',409);if(/OVER_ALLOCATION/.test(m))fail('Kapama tutarı belgenin kalan tutarını aşıyor.',409);if(/ENTRY_ALLOCATED/.test(m))fail('Önce bu hareketin belge kapamalarını geri alın.',409);if(/INVALID_ALLOCATION/.test(m))fail('Aynı cariye ait bir alacak ve bir borç hareketini seçin.',409);if(/INVALID_CASH_ENTRY/.test(m))fail('Kasa/banka hareketi bağlandığı cari hareketiyle eşleşmiyor.',409);if(/REVERSAL|REVERSED_ENTRY/.test(m))fail('Bu hareket için ters kayıt oluşturulamaz.',409);if(/UNIQUE constraint/.test(m))fail('Bu referans veya kayıt daha önce işlendi.',409);if(/FOREIGN KEY/.test(m))fail('Seçilen kayıt bu çalışma alanında bulunamadı.',404);throw error;}}
 async function requireParty(db,key){if(!await stmt(db,'SELECT id FROM suppliers WHERE id=?',[key]).first())fail('Cari bu çalışma alanında bulunamadı.',404);}
 // ARŞİVLİ KART YENİ KAYITTA SEÇİLEMEZ, GEÇMİŞTE GÖRÜNÜR. Okuma yollarında (süzgeç, ekstre, geçmiş
 // hareket) arşiv sorulmaz; yalnız YENİ hareket, ödeme ve mal girişi yazarken sorulur. Bu yüzden
@@ -383,6 +383,49 @@ export async function ledgerApi(request,env,path,readBody){
   }
   await execute(db,statements);
   return {id:key,amount_cents:-brut,provisional_status:'open'};
+ }
+ // FATURASIZ GİRİŞİN İPTALİ. Aynı teslimat iki kez girilince mal stokta İKİ KEZ durur ve
+ // tedarikçiye borç bir kez FAZLA görünür. Kayıt SİLİNMEZ (0065) ve TERS KAYDEDİLMEZ (0069):
+ // girişin stok ve cari etkisini birebir geri alan YENİ kayıtlar yazılır (bkz. 0070).
+ //  · her satır için sayımın tam aynası eksi bir 'purchase' hareketi ('GECICI-IPTAL-<irsaliye>').
+ //    'count' KULLANILMAZ: eksi değerli sayım ec_count_loss (0002:33) ile uydurma kayıp gideri yazar.
+ //  · cariye KDV dahil tutarın tamamı kadar artı hareket ('gecici-iptal:<giriş>'); borcu kapatan
+ //    belge kapaması 0070'teki ec_provisional_cancel_close tetiğiyle aynı işlemde doğar.
+ // Aynalar ÖNCE, cari kaydı SONRA, hepsi tek db.batch içinde: ya hepsi ya hiçbiri.
+ // SQL'de ec_ öneki ELLE yazılır (provisional-inventory.js ile aynı desen): scoped-db.js'in tablo
+ // listesinde provisional_movement_links ve provisional_line_movements yok, kısaltma öneklenmez.
+ // YARIM KALMIŞ İPTALİ TAMAMLAR: aynası yazılmış ama cari kaydı yazılmamış giriş (elle müdahale)
+ // yeniden denendiğinde eksik aynalar yazılır ve kapanış tamamlanır.
+ const iptal=path.match(/^\/api\/ledger\/provisional\/([\w:.-]{1,120})\/iptal$/);
+ if(iptal){
+  if(env.WORKSPACE!=='ec')fail('Faturasız mal girişi yalnız e-ticaret alanında kullanılabilir.',403);
+  const reason=text(x.reason,'İptal nedeni',2000);
+  const head=await stmt(db,`SELECT r.id,r.supplier_id,r.occurred_on,r.reference,r.entry_id,r.invoice_id,e.amount_cents,
+    (SELECT v.id FROM ec_party_entries v WHERE v.source_key='gecici-iptal:'||r.id) cancel_entry_id
+    FROM ec_provisional_receipts r LEFT JOIN ec_party_entries e ON e.id=r.entry_id WHERE r.id=?`,[iptal[1]]).first();
+  if(!head)fail('Faturasız mal girişi bulunamadı.',404);
+  if(head.cancel_entry_id)fail('Bu faturasız giriş zaten iptal edilmiş; ikinci kez iptal edilmez.',409);
+  if(!head.entry_id||head.amount_cents==null)fail('Bu girişin cari borcu bulunamadı; iptal kaydı cari hareketi olmadan yazılamaz. Kaydı Alış Faturaları ekranından inceleyin.',409);
+  if(head.invoice_id)fail('Bu giriş eski tek-fatura başlığıyla kapanmış; iptal edilemez. Fatura yanlışsa faturayı düzeltin.',409);
+  const lines=(await stmt(db,`SELECT l.product_id,p.name product_name,m.id movement_id,m.quantity_milli,m.value_cents,
+    (SELECT COUNT(*) FROM ec_stock_movements x WHERE x.kind='purchase' AND x.product_id=l.product_id AND x.reference='GECICI-IPTAL-'||?) iptalli
+    FROM ec_provisional_receipt_lines l JOIN ec_products p ON p.id=l.product_id
+    LEFT JOIN ec_provisional_movement_links k ON k.provisional_line_id=l.id
+    LEFT JOIN ec_stock_movements m ON m.id=COALESCE(l.movement_id,k.movement_id)
+    WHERE l.receipt_id=? ORDER BY l.rowid`,[head.reference,head.id]).all()).results;
+  if(!lines.length)fail('Bu girişin ürün satırı yok; iptal edilecek stok hareketi bulunamadı.',409);
+  // BAĞI ÇÖZÜLEMEYEN SATIR: mal gerçekten geri çekilemez. Borcu silip malı rafta bırakmak
+  // 0069'un anlattığı tuzağın aynısıdır; iptal hiç başlatılmaz.
+  const bagsiz=lines.filter(l=>!l.movement_id);
+  if(bagsiz.length)fail('Bu eski girişin stok hareketi bağı doğrulanmış değil ('+bagsiz.map(l=>l.product_name).join(', ')+'). Mal gerçekten geri çekilemeyeceği için iptal yazılmaz; düzeltmeyi Alış Faturaları ekranından yapın.',409);
+  const description=('Faturasız mal girişi iptal edildi · '+head.reference+' · '+reason).slice(0,2000);
+  await execute(db,[
+   ...lines.filter(l=>!l.iptalli).map(l=>stmt(db,"INSERT INTO ec_stock_movements(id,product_id,quantity_milli,value_cents,kind,reference,notes,occurred_on) VALUES(?,?,?,?,'purchase',?,?,?)",
+    [id(),l.product_id,-l.quantity_milli,-l.value_cents,'GECICI-IPTAL-'+head.reference,description.slice(0,500),head.occurred_on])),
+   entryInsert(db,{id:key,party_id:head.supplier_id,amount_cents:-head.amount_cents,occurred_on:head.occurred_on,
+    reference:head.reference,description,source_key:'gecici-iptal:'+head.id,source:'manual'})
+  ]);
+  return {id:head.id,entry_id:key,cancelled_cents:-head.amount_cents,provisional_status:'cancelled',lines:lines.length};
  }
  if(path==='/api/ledger/allocations'){
   await execute(db,[stmt(db,'INSERT INTO payment_allocations(id,positive_entry_id,negative_entry_id,amount_cents,reference) VALUES(?,?,?,?,?)',[key,text(x.positive_entry_id,'Alacak hareketi'),text(x.negative_entry_id,'Borç hareketi'),positive(x.amount),text(x.reference,'Referans',200)])]);return {id:key};

@@ -7,6 +7,7 @@ export function movementLabel(row){
  if(row.kind==='cost_settlement')return 'Stoksuz satışın maliyeti kapandı';
  if(row.kind==='cost_revaluation')return 'Maliyet düzeltmesi (FIFO)';
  if(String(row.reference).startsWith('GECICI-SAYIM-'))return 'Faturasız mal girişi';
+ if(String(row.reference).startsWith('GECICI-IPTAL-'))return 'Faturasız giriş iptal edildi';
  if(String(row.reference).startsWith('provisional-close:'))return 'Faturasız giriş faturayla kapandı';
  if(String(row.reference).startsWith('purchase-return:'))return row.quantity_milli<0?'Tedarikçiye iade':'Tedarikçi iadesi geri alındı';
  if(String(row.reference).startsWith('receipt-reverse:'))return 'Mal teslimi düzeltmesi';
