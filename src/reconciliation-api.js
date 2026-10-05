@@ -19,7 +19,12 @@ export async function reconciliationApi(request,env,path,readBody){
    db.prepare(`SELECT COALESCE(SUM(${effectiveNet(env.WORKSPACE)}-COALESCE((SELECT SUM(a.amount_cents) FROM fee_allocations a WHERE a.invoice_line_id=l.id AND a.reversed_at IS NULL),0)),0) pending_cents FROM purchase_lines l JOIN purchase_invoices i ON i.id=l.invoice_id WHERE i.status='posted' AND l.line_type='expense' AND l.expense_treatment='sales_fee'`)
   ]);
   const [feeLines,sales,allocations,totals]=results.map(r=>r.results);
-  return {fee_lines:feeLines.slice(0,1000).map(l=>({...l,remaining_cents:l.net_cents-l.allocated_cents,component:['shipping','commission'].includes(l.expense_category)?l.expense_category:'other'})),sales:sales.slice(0,1000),allocations:allocations.slice(0,1000),pending_cents:totals[0].pending_cents,truncated:{fee_lines:feeLines.length>1000,sales:sales.length>1000,allocations:allocations.length>1000},vat_treatment:'invoice_net',notice:'Dağıtımlar faturanın KDV hariç tutarından yapılır. KDV cari borçta kalır; satış giderine ikinci kez eklenmez.'};
+  // DAGITIM DURUMU TUTARDAN AYRI GIDER. remaining_cents tutar yetkisi olmayanda null'lanir ve
+  // `null>0` false oldugu icin arayuz bekleyen her satiri "tam dagitildi" sayiyordu: her bekleyen
+  // faturaya yesil "Tamamlandi" rozeti basiliyor, varsayilan gorunum bosaliyor ve "Bekleyen belge
+  // satiri 0" yaziliyordu. pending_allocation PARASAL DEGILDIR (kalan tutari soylemez, yalnizca
+  // bu satirin dagitilmayi bekledigini soyler), bu yuzden suzgecten gecer ve arayuz onu okur.
+  return {fee_lines:feeLines.slice(0,1000).map(l=>({...l,remaining_cents:l.net_cents-l.allocated_cents,pending_allocation:l.net_cents-l.allocated_cents>0,component:['shipping','commission'].includes(l.expense_category)?l.expense_category:'other'})),sales:sales.slice(0,1000),allocations:allocations.slice(0,1000),pending_cents:totals[0].pending_cents,truncated:{fee_lines:feeLines.length>1000,sales:sales.length>1000,allocations:allocations.length>1000},vat_treatment:'invoice_net',notice:'Dağıtımlar faturanın KDV hariç tutarından yapılır. KDV cari borçta kalır; satış giderine ikinci kez eklenmez.'};
  }
  if(method!=='POST')return null;
  const x=await readBody(request);

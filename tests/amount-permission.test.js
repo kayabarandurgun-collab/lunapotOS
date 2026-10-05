@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {appFixture} from './helpers/app-fixture.js';
 import {level} from '../public/permissions.js';
 import {scrubAmounts} from '../src/permission-policy.js';
+import {feeLineState,feeLinePending} from '../public/reconciliation-ui.js';
 import worker from '../src/worker.js';
 
 // Depocuya miktar ve sevk bilgisi verilir, alis maliyeti ve kar gizlenir.
@@ -294,5 +295,90 @@ test('Yonetici siparis listesinde kar/zarar sayilarini, suzgeci ve para sirasini
   assert.deepEqual((await f.ok('/ec/orders?sonuc=zarar')).packages.map(p=>p.id),['zarar'],'suzgec yoneticide calismali');
   assert.deepEqual((await f.ok('/ec/orders?sort=profit_asc')).packages.map(p=>p.id),['zarar','kar'],'en az kalan ustte');
   assert.deepEqual((await f.ok('/ec/orders?sort=profit_desc')).packages.map(p=>p.id),['kar','zarar'],'en cok kalan ustte');
+ }finally{f.close();}
+});
+
+// ---------------------------------------------------------------------------
+// D GRUBU — YANLIS "sorun yok". Kesinti esleştirme ekrani remaining_cents'i okuyordu;
+// tutar yetkisi olmayanda null gelince `null>0` false oldugu icin bekleyen HER fatura
+// yesil "Tamamlandi" rozeti aliyor, varsayilan gorunum "Dagitilmayi bekleyen kesinti yok."
+// diyor ve "Bekleyen belge satiri" 0 yaziyordu. Bu bilgi eksikligi degil, aktif yanlis bilgidir.
+// Cozum: sunucu PARASAL OLMAYAN bir durum bayragi uretir, arayuz tutar yerine onu okur.
+async function kesintili(){
+ const f=appFixture();await f.setup();
+ f.sqlite.exec("INSERT INTO ec_products(id,name,sku) VALUES('p1','Torf','T1')");
+ // Satis kaydi stok ister (STOCK_RESERVED), kesinti dagitimi da bir satisa baglanir.
+ f.sqlite.exec("INSERT INTO ec_stock_movements(id,product_id,quantity_milli,value_cents,kind,reference,occurred_on) VALUES('m1','p1',100000,10000,'opening','OPEN','2026-09-09')");
+ f.sqlite.exec("INSERT INTO ec_suppliers(id,name) VALUES('sup','Kargo şirketi')");
+ for(const [key,net] of [['F1',1000],['F2',500]]){
+  f.sqlite.exec(`INSERT INTO ec_purchase_invoices(id,supplier_id,invoice_no,invoice_date) VALUES('${key}','sup','${key}','2026-09-09')`);
+  f.sqlite.exec(`INSERT INTO ec_purchase_lines(id,invoice_id,description,invoice_quantity,invoice_unit,net_cents,tax_cents,line_type,expense_category,expense_treatment) VALUES('${key}line','${key}','Kargo hizmeti',1,'adet',${net},200,'expense','shipping','sales_fee')`);
+  f.sqlite.exec(`UPDATE ec_purchase_invoices SET status='posted' WHERE id='${key}'`);
+ }
+ f.sqlite.exec("INSERT INTO ec_sale_entries(id,channel,external_id,product_id,kind,quantity_milli,revenue_cents,cost_cents,fees_status,occurred_on) VALUES('s1','trendyol','S1','p1','sale',1000,10000,100,'pending','2026-09-09')");
+ // F2 tamamen dagitilir: bu satir GERCEKTEN tamamlanmistir. F1 hic dagitilmadi.
+ await f.ok('/ec/reconciliation/allocate',{invoice_line_id:'F2line',lines:[{sale_id:'s1',amount:5}]});
+ const staff=await f.ok('/admin/users',{name:'Kesinti',username:'kesinti',
+  permissions:{ec:{reconciliation:'read',performance:'read',amounts:'none'},lp:{},delete_records:false}});
+ await f.req('/auth/accept-invite',{token:staff.invite_path.split('invite=')[1],password:'kesinti-personel-sifresi'});
+ const login=await f.req('/auth/login',{username:'kesinti',password:'kesinti-personel-sifresi'});
+ return {f,cookie:login.cookie};
+}
+
+test('Bekleyen kesinti faturasi personelde tamamlandi gorunmez, tutar gizli kalir',async()=>{
+ const {f,cookie}=await kesintili();try{
+  const view=await f.req('/ec/reconciliation',undefined,cookie);
+  assert.equal(view.status,200);
+  const bekleyen=view.data.fee_lines.find(l=>l.id==='F1line'),biten=view.data.fee_lines.find(l=>l.id==='F2line');
+  assert.equal(bekleyen.remaining_cents,null,'kalan tutar gizli kalmali');
+  assert.equal(bekleyen.net_cents,null,'satir tutari gizli kalmali');
+  assert.equal(view.data.pending_cents,null,'bekleyen toplam tutar gizli kalmali');
+  // Parasal OLMAYAN durum bayragi: "bu satir dagitilmayi bekliyor mu" sorusu tutar degildir.
+  assert.equal(bekleyen.pending_allocation,true,'bekleyen satir bekliyor demeli');
+  assert.equal(biten.pending_allocation,false,'tamamlanan satir tamamlandi demeli');
+  assert.equal(bekleyen.description,'Kargo hizmeti','satir aciklamasi is bilgisidir');
+  assert.equal(bekleyen.component,'shipping','kesinti turu para degildir');
+  assert.equal(bekleyen.supplier_name,'Kargo şirketi');
+  // Arayuzun uc durumu: bekliyor / tamamlandi / bilinmiyor. Tutar bilinmeyen satir
+  // "Satislara dagit" dugmesi almaz (dagitilacak tutar yazilamaz) ama TAMAMLANDI da demez.
+  assert.equal(feeLineState(bekleyen),'pending');
+  assert.equal(feeLineState(biten),'done');
+  assert.equal(feeLinePending(bekleyen),true,'varsayilan "Bekleyen faturalar" gorunumu bos kalmamali');
+  assert.equal(feeLinePending(biten),false);
+ }finally{f.close();}
+});
+
+test('Yonetici kesinti satirinda tutari ve dagit dugmesini aynen gorur',async()=>{
+ const {f}=await kesintili();try{
+  const data=await f.ok('/ec/reconciliation');
+  const bekleyen=data.fee_lines.find(l=>l.id==='F1line'),biten=data.fee_lines.find(l=>l.id==='F2line');
+  assert.equal(bekleyen.remaining_cents,1000);assert.equal(bekleyen.pending_allocation,true);
+  assert.equal(feeLineState(bekleyen),'allocate','yoneticide dagit dugmesi cikar');
+  assert.equal(biten.remaining_cents,0);assert.equal(biten.pending_allocation,false);
+  assert.equal(feeLineState(biten),'done');
+  assert.equal(data.pending_cents,1000);
+ }finally{f.close();}
+});
+
+test('Dagitim durumu bilinmiyorsa tamamlandi denmez',()=>{
+ assert.equal(feeLineState({remaining_cents:700}),'allocate');
+ assert.equal(feeLineState({remaining_cents:0}),'done');
+ assert.equal(feeLineState({remaining_cents:null}),'unknown','bayraksiz eski yanitta bile tamamlandi denmez');
+ assert.equal(feeLinePending({remaining_cents:null}),true,'bilinmeyen satir listeden dusurulmez');
+});
+
+// Ayni sinif, ters yon: dagitilmamis kesinti UYARISI personelde SESSIZCE kayboluyordu.
+// Kutunun kosulu unallocated_fee_cents>0 idi; tutar null'lanince kutu hic olusmuyor ve
+// personel donem sonucunu tamamlanmis saniyordu. Uyari parasal olmayan bayrakla korunur.
+test('Dagitilmamis kesinti uyarisi personelde kaybolmaz, tutari gorunmez',async()=>{
+ const {f,cookie}=await kesintili();try{
+  const view=await f.req('/ec/performance?mode=delivered&from=2026-09-01&to=2026-09-30',undefined,cookie);
+  assert.equal(view.status,200,JSON.stringify(view.data));
+  assert.equal(view.data.unallocated_fee_cents,null,'bekleyen kesinti tutari gizli kalmali');
+  assert.equal(view.data.unallocated_fee_pending,true,'uyari bayragi personele de gitmeli');
+
+  const owner=await f.ok('/ec/performance?mode=delivered&from=2026-09-01&to=2026-09-30');
+  assert.equal(owner.unallocated_fee_cents,1000,'yoneticide tutar aynen gorunmeli');
+  assert.equal(owner.unallocated_fee_pending,true);
  }finally{f.close();}
 });
