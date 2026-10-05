@@ -22,6 +22,7 @@ import {fiyatHesapApi} from './fiyat-hesap-api.js';
 import {urunKarlilikApi} from './urun-karlilik-api.js';
 import {panoramaApi} from './panorama-api.js';
 import {otomatikBakim} from './otomatik-bakim.js';
+import {aksamOzeti,AKSAM_CRON} from './aksam-ozeti.js';
 // Stok hareketi yazan her e-ticaret isteğinden sonra, hareketi değişen ürünlerin satış maliyeti
 // satış tarihine göre (ilk giren ilk çıkar) düzeltilir. Hata isteği bozmaz; ürün kirli kalır, sonraki istekte denenir.
 async function maliyetiTazele(env,request){
@@ -225,8 +226,19 @@ async function api(request,env,path){
  return json({id:recordId},id?200:201);
 }
 export default {
- // Zamanlanmış otomatik bakım (wrangler triggers.crons): yarım kalan rapor işleri, iade, kesinti, maliyet.
- async scheduled(event,env,ctx){if(env.RELEASE_MAINTENANCE==='1')return;ctx.waitUntil(otomatikBakim(env).then(r=>console.log('bakım',JSON.stringify(r))).catch(e=>console.error('bakım',e.message)));},
+ // ZAMANLANMIŞ İŞLER (wrangler triggers.crons). İKİ ayrı zamanlama var ve HANGİSİNİN tetiklediği
+ // event.cron ile ayrılır: Cloudflare her cron deseni için AYRI bir olay gönderir ve olayın
+ // `cron` alanı wrangler.jsonc'teki deseni BİREBİR taşır. Ayrım yapılmazsa akşam özeti 15
+ // dakikada bir giderdi.
+ //   '*/15 * * * *' → otomatik bakım: yarım rapor işleri, iade, kesinti, maliyet, arıza haberi
+ //   '0 17 * * *'   → akşam özeti (UTC 17:00 = Türkiye 20:00; cron UTC koşar, TR kalıcı UTC+03)
+ // UTC 17:00'de İKİ desen de uyar; Cloudflare o dakikada iki olay gönderir, biri bakımı biri
+ // özeti çalıştırır. Bu yüzden akşam dalında bakım ÇAĞRILMAZ: zaten kendi olayıyla koşuyor ve
+ // özet, bakımın 50 saniyelik bütçesini beklemek zorunda kalmaz.
+ // event.cron BOŞSA bakım çalışır: yerel `wrangler dev` tetiklemesi ve eski davranış böyleydi.
+ async scheduled(event,env,ctx){if(env.RELEASE_MAINTENANCE==='1')return;
+  if(event?.cron===AKSAM_CRON){ctx.waitUntil(aksamOzeti(env).then(r=>console.log('akşam özeti',JSON.stringify(r))).catch(e=>console.error('akşam özeti',e.message)));return;}
+  ctx.waitUntil(otomatikBakim(env).then(r=>console.log('bakım',JSON.stringify(r))).catch(e=>console.error('bakım',e.message)));},
  async fetch(request,env) {
  let response;
  try {const path=new URL(request.url).pathname;

@@ -61,6 +61,21 @@ Node.js 22+ gerekir (testlerde node:sqlite kullanılır).
 
 GitHub `kayabarandurgun-collab/lunapotOS` deposunun `main` dalı Cloudflare Workers Builds'e bağlıdır. Her gönderimde `npm run build` başarılı olursa `npx wrangler deploy` çalışır. Otomatik yayın testleri çalıştırmaz; `npm test` göndermeden önce yerelde çalıştırılır. Diğer dalların yayınları kapalıdır. Yeni veritabanı geçişleri otomatik yayın komutuna dahil değildir; uyumlu geçişleri kodu göndermeden önce `npm run db:remote` ile uygulayın. Derleme Node.js sürümü `.node-version` dosyasında sabitlenmiştir.
 
+### Zamanlanmış işler ve bildirim
+
+`wrangler.jsonc` içindeki `triggers.crons` İKİ desen taşır ve `src/worker.js` hangisinin tetiklediğini `event.cron` ile ayırt eder. Cron **UTC** koşar; Türkiye kalıcı olarak UTC+03'tür (yaz saati yok).
+
+| Desen | Türkiye saati | İş |
+| --- | --- | --- |
+| `*/15 * * * *` | 15 dakikada bir | Otomatik bakım: yarım rapor dosyaları, eşleştirme, teslim, iade, kesinti, maliyet ve arıza haberi (`src/otomatik-bakim.js`) |
+| `0 17 * * *` | 20:00 | Akşam özeti: "bugün neye bakman gerekiyor" (`src/aksam-ozeti.js`) |
+
+Desenler `src/aksam-ozeti.js` içindeki `BAKIM_CRON` / `AKSAM_CRON` sabitleriyle **birebir** aynı olmak zorundadır; ayrışırsa akşam özeti ya hiç gitmez ya 15 dakikada bir gider. Eşitlik `tests/aksam-ozeti.test.js` ile bağlanmıştır. UTC 17:00'de iki desen de uyar ve Cloudflare iki ayrı olay gönderir: biri bakımı, biri özeti çalıştırır.
+
+`wrangler.jsonc` adı `.jsonc` olsa da **içeriği katı JSON olmak zorundadır**: felaket kurtarma betiği (`scripts/recovery.mjs`) onu düz `JSON.parse` ile okur, yorum eklenirse kurtarma yolu çöker. Bu kural da testle bağlanmıştır.
+
+Bildirim secret'ları: `TELEGRAM_BOT_TOKEN` ile `TELEGRAM_CHAT_ORDERS` (özet kanalı) ve isteğe bağlı `TELEGRAM_CHAT_ERRORS` (arıza kanalı). Arıza haberi hata kanalı kuruluysa oraya, değilse özet kanalına düşer. Secret kurulmamışsa (yerel geliştirme, test) gönderim hiç denenmez. Aynı arıza imzası Türkiye günü başına en fazla bir kez gönderilir; susturma kaydı `ec_bildirim_izi` tablosundadır. Gönderim sonucu `ec_activity`'ye yazılır, yani bot kapandığında panelden görülür. Akşam özeti **yalnız sayı** yazar, tutar yazmaz: kanalı gören herkes mesajı okur, oysa panelde o liste yalnız yöneticiye açıktır.
+
 ### Barındırma ve geri dönüş — 10 Eylül 2026
 
 Canlı adres https://muhasebe.lunapot.com . Worker, D1 ve alan adı artık `lunapot.com` bölgesinin sahibi olan Cloudflare hesabındadır (`74daa053…`); araya giren yönlendirici Worker kaldırıldı ve istek doğrudan panele gider. Geçerli hesap ve veritabanı kimliği `wrangler.jsonc` içindedir; eski hesap/DB yazan notlar tarihseldir.

@@ -22,9 +22,11 @@ import {pazaryeriKesintileriniIsle} from './pazaryeri-kesinti.js';
 
 const SISTEM = {owner: true, id: 'otomatik-bakim', username: 'otomatik', name: 'Otomatik bakım'};
 // D1 damgaları 'YYYY-MM-DD HH:MM:SS' ve UTC'dir; ISO'ya çevrilmeden Date.parse yerel saat sanıyor.
-const damga = t => Date.parse(String(t).replace(' ', 'T') + 'Z');
+// DIŞA AÇIK: akşam özeti de aynı damga ve aynı gün tanımını kullanmak ZORUNDA. İkinci bir kopya
+// yazılırsa sessizce ayrışır ve "bugün" iki yerde farklı güne denk gelir.
+export const damga = t => Date.parse(String(t).replace(' ', 'T') + 'Z');
 // Defterdeki gün TÜRKİYE günüdür. Türkiye kalıcı olarak UTC+03, yaz saati yok: sabit kaydırma yeter.
-const gunTR = ms => new Date(ms + 3 * 3600000).toISOString().slice(0, 10);
+export const gunTR = ms => new Date(ms + 3 * 3600000).toISOString().slice(0, 10);
 
 // PAZARYERİ SENKRONU. Cron 15 DAKİKADA BİR tetikleniyor ama her turda pazaryerine gitmek YANLIŞ
 // olur: sağlayıcının istek sınırı boşuna yenir ve ücretsiz D1 yazma bütçesi (günde 100.000 satır)
@@ -169,6 +171,13 @@ export const senkronBildirimi = ozet => '🔄 Otomatik senkron — pazaryerinden
  * Hata imzası. Aynı arıza her turda farklı bir metinle gelebilir (dosya kimliği, satır numarası,
  * kalan kayıt sayısı değişir); imzası aynı olmalı ki susturma tutsun. Bu yüzden UUID'ler ve bütün
  * sayı dizileri '#' ile silinir. Harfler KORUNUR: arızayı birbirinden ayıran şey onlardır.
+ *
+ * BÜTÜN SAYILAR SİLİNİR, yalnız uzun olanlar değil — BİLEREK. Metninde değişen küçük bir sayı
+ * taşıyan bir arıza (satır numarası, kalan kayıt) her turda YENİ bir imza üretirdi: günde 96
+ * ayrı mesaj, yani tam olarak kaçınmaya çalıştığımız okunmaz kanal. Bedeli şudur: aynı cümlenin
+ * yalnız sayısı değişen iki hâli (ör. "(HTTP 401)" ile "(HTTP 500)") aynı gün içinde tek mesaj
+ * sayılır. Panelde ikisi de ayrı ayrı görünmeye devam eder (İş listesi ve Şirket ekranı), yani
+ * ayrıntı kaybolmaz; yalnız ikinci haber ertesi güne kalır.
  */
 export const hataImzasi = mesaj => String(mesaj).toLowerCase()
   .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, '#')
