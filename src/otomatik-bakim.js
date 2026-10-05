@@ -15,7 +15,7 @@ import {scopedDB} from './scoped-db.js';
 import {reportInboxApi} from './report-inbox-api.js';
 import {reportStockLinkApi} from './report-stock-link-api.js';
 import {syncProvider} from './connections-api.js';
-import {telegramBildir} from './telegram.js';
+import {telegramAcik, telegramAriza, telegramBildir} from './telegram.js';
 import {fifoRevalue} from './fifo-cost.js';
 import {rematchDrafts} from './orders-api.js';
 import {pazaryeriKesintileriniIsle} from './pazaryeri-kesinti.js';
@@ -159,7 +159,111 @@ export const senkronBildirimi = ozet => '🔄 Otomatik senkron — pazaryerinden
   [ozet.senkronTaslak && ozet.senkronTaslak + ' yeni sipariş taslağı', ozet.senkronTeslim && ozet.senkronTeslim + ' paket teslim edildi işaretlendi',
     ozet.senkronKayit && ozet.senkronKayit + ' kaynak kaydı tarandı'].filter(Boolean).join(' · ');
 
-export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sakinDakika = 10, senkronGetir = fetch, saat = Date.now, kaynaklar = SENKRON_KAYNAKLARI} = {}) {
+/* ---------------- ARIZA BİLDİRİMİ ---------------- */
+// SESSİZ ARIZA EN PAHALISIDIR. Bakım turu 15 dakikada bir koşuyor ama hatası hiçbir yere haber
+// gitmiyordu. Eski yorumun gerekçesi doğruydu ("aynı hata her turda tekrar ederdi"), çözümü
+// eksikti: hatayı tamamen susturmak yerine SUSTURMA KAYDI tutulur (migrations/0071_bildirim_izi.sql).
+// Kural: aynı hata imzası Türkiye günü başına en fazla BİR kez. Yeni imza beklemeden gider.
+
+/**
+ * Hata imzası. Aynı arıza her turda farklı bir metinle gelebilir (dosya kimliği, satır numarası,
+ * kalan kayıt sayısı değişir); imzası aynı olmalı ki susturma tutsun. Bu yüzden UUID'ler ve bütün
+ * sayı dizileri '#' ile silinir. Harfler KORUNUR: arızayı birbirinden ayıran şey onlardır.
+ */
+export const hataImzasi = mesaj => String(mesaj).toLowerCase()
+  .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, '#')
+  .replace(/\d+/g, '#')
+  .replace(/\s+/g, ' ').trim().slice(0, 200);
+
+/** Arıza metni. TUTAR YAZILMAZ: kanalı gören herkes okur, hata metni zaten tutar taşımaz. */
+export const arizaBildirimi = hatalar => '🛑 Panelin otomatik bakımı hata verdi\n'
+  + hatalar.map(h => '• ' + String(h).slice(0, 300)).join('\n')
+  + '\nAynı arıza bugün bir daha bildirilmez; panelde İş listesi ve Şirket ekranında da görünür.';
+
+const BILDIRIM_YOK = {gonderildi: 0, susturuldu: 0, sonuc: 'yok'};
+const zamanDamgasi = ms => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+
+/**
+ * Arızayı kanala düşürür ve susturma izini yazar. HİÇBİR HATA YUKARI KAÇMAZ: bildirim bir haberdir,
+ * bakımı ya da çökme yolunu bozamaz.
+ *
+ * SUSTURMA OKUNAMAZSA HABER YİNE GİDER. Kaydı okuyamıyorsak muhtemelen veritabanı düşmüştür ve bu
+ * öğrenilmesi en acil haberdir; susturmasız 15 dakikada bir mesaj gelmesi, hiç gelmemesinden
+ * iyidir (D1 kesintileri dakikalarla ölçülür, kayıt dönünce susturma kendiliğinden geri gelir).
+ *
+ * YARIŞ YOK: bakım turları 15 dakika arayla ve tek örnek olarak koşar, bu yüzden "oku, karar ver,
+ * yaz" sırası yeterlidir; ayrıca kötü durumda sonuç fazladan bir mesajdır, kayıp değil.
+ */
+export async function arizaBildir(env, hatalar, {simdi = Date.now(), gonder = telegramAriza, db = env?.DB} = {}) {
+  const liste = (hatalar || []).map(h => String(h || '')).filter(Boolean);
+  if (!liste.length) return {...BILDIRIM_YOK};
+  // Kurulmamış bildirim bir sorun değildir: yerel geliştirmede ve testte secret yoktur.
+  if (!telegramAcik(env)) return {...BILDIRIM_YOK, sonuc: 'kapali'};
+  const gun = gunTR(simdi), damgasi = zamanDamgasi(simdi);
+  // Aynı turda iki kez geçen arıza TEK satır ve TEK mesaj olur.
+  const imzalar = new Map();
+  for (const h of liste) { const a = hataImzasi(h); if (!imzalar.has(a)) imzalar.set(a, h); }
+
+  const sonuc = {gonderildi: 0, susturuldu: 0, sonuc: 'yok'};
+  let bugun = new Set();
+  try {
+    const r = await db.prepare('SELECT anahtar FROM ec_bildirim_izi WHERE gun=?').bind(gun).all();
+    bugun = new Set((r?.results || []).map(x => x.anahtar));
+  } catch (e) { sonuc.iz = 'susturma kaydı okunamadı: ' + (e?.message || e); }
+
+  const yeni = [...imzalar].filter(([anahtar]) => !bugun.has(anahtar));
+  sonuc.susturuldu = imzalar.size - yeni.length;
+  if (!yeni.length) sonuc.sonuc = 'susturuldu';
+  else {
+    let ok = false;
+    try { ok = Boolean(await gonder(env, arizaBildirimi(yeni.map(([, ham]) => ham)))); }
+    catch (e) { sonuc.iz = 'gönderim düştü: ' + (e?.message || e); }
+    sonuc.sonuc = ok ? 'ok' : 'basarisiz';
+    if (ok) sonuc.gonderildi = yeni.length;
+  }
+
+  // İZ YAZIMI. Gönderilen imzada gün İŞARETLENİR (artık bugün susturulur); gönderilemeyen imzada
+  // gün AYNEN KALIR, yani sıradaki tur yeniden dener. Susturulan imzada yalnız görülme sayılır.
+  try {
+    for (const [anahtar, ham] of imzalar) {
+      const gonderildi = yeni.some(([a]) => a === anahtar);
+      const ozet = String(ham).slice(0, 300);
+      if (!gonderildi) {
+        await db.prepare(`INSERT INTO ec_bildirim_izi(anahtar,ozet,gun,gorulme,son_gorulme_at) VALUES(?,?,'',1,?)
+          ON CONFLICT(anahtar) DO UPDATE SET gorulme=ec_bildirim_izi.gorulme+1,son_gorulme_at=excluded.son_gorulme_at`).bind(anahtar, ozet, damgasi).run();
+        continue;
+      }
+      await db.prepare(`INSERT INTO ec_bildirim_izi(anahtar,ozet,gun,gorulme,gonderim,son_gorulme_at,son_gonderim_at,son_sonuc) VALUES(?,?,?,1,?,?,?,?)
+        ON CONFLICT(anahtar) DO UPDATE SET ozet=excluded.ozet,gun=iif(excluded.son_sonuc='ok',excluded.gun,ec_bildirim_izi.gun),
+          gorulme=ec_bildirim_izi.gorulme+1,gonderim=ec_bildirim_izi.gonderim+excluded.gonderim,
+          son_gorulme_at=excluded.son_gorulme_at,son_gonderim_at=excluded.son_gonderim_at,son_sonuc=excluded.son_sonuc`)
+        .bind(anahtar, ozet, sonuc.sonuc === 'ok' ? gun : '', sonuc.sonuc === 'ok' ? 1 : 0, damgasi, damgasi, sonuc.sonuc).run();
+    }
+  } catch (e) { sonuc.iz = (sonuc.iz ? sonuc.iz + '; ' : '') + 'susturma kaydı yazılamadı: ' + (e?.message || e); }
+  return sonuc;
+}
+
+/** İz kaydına (ec_activity) düşen bildirim sonucu: bot kapanırsa panelden görülsün. */
+export const bildirimIzi = b => b.sonuc === 'ok' ? 'bildirim: ' + b.gonderildi + ' arıza kanala düştü'
+  : b.sonuc === 'basarisiz' ? 'arıza bildirimi gönderilemedi' + (b.iz ? ' (' + b.iz.slice(0, 120) + ')' : '')
+  : '';
+
+/**
+ * ÇÖKME DE HABER OLUR. Bakım turunun gövdesi `dene()` ile sarılmamış sorgular da içeriyor (ilk
+ * "sakin mi" sorgusu, mağaza listesi, iz kaydı yazımı): bunlardan biri düşerse tur ozet'e hiç
+ * ulaşamaz ve eskiden yalnız console.error'a yazılırdı — yani kimse görmezdi. Hata AYNEN yukarı
+ * fırlatılır: worker'ın günlüğü ve çağıranın davranışı değişmez, yalnız haber eklenir.
+ */
+export async function otomatikBakim(env, secenekler = {}) {
+  try { return await bakimTuru(env, secenekler); }
+  catch (e) {
+    await arizaBildir(env, ['bakım turu çöktü: ' + (e?.message || e)],
+      {simdi: secenekler.simdi, gonder: secenekler.bildirimGonder}).catch(() => {});
+    throw e;
+  }
+}
+
+async function bakimTuru(env, {sureMs = 50000, simdi = Date.now(), sakinDakika = 10, senkronGetir = fetch, saat = Date.now, kaynaklar = SENKRON_KAYNAKLARI, bildirimGonder = telegramAriza} = {}) {
   const {gecen, vakitVar, raporVakti, senkronVakti} = butceler(sureMs, saat);
   const ec = {...env, DB: scopedDB(env.DB, 'ec'), ROOT_DB: env.DB, WORKSPACE: 'ec', USER: SISTEM};
   const db = env.DB;
@@ -169,7 +273,7 @@ export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sa
 
   const cagir = (handler, yol, govde) => handler(new Request('https://internal.invalid/api/ec' + yol.replace(/^\/api/, ''), {method: govde === undefined ? 'GET' : 'POST'}),
     ec, yol, async () => govde);
-  const ozet = {dosya: 0, siparis: 0, teslim: 0, iade: 0, kesinti: 0, maliyet: 0, eslestirme: 0, pazaryeriKesinti: 0, senkronKayit: 0, senkronTeslim: 0, senkronTaslak: 0, senkronAtlandi: [], senkronSebep: [], sure: {}, hatalar: []};
+  const ozet = {dosya: 0, siparis: 0, teslim: 0, iade: 0, kesinti: 0, maliyet: 0, eslestirme: 0, pazaryeriKesinti: 0, senkronKayit: 0, senkronTeslim: 0, senkronTaslak: 0, senkronAtlandi: [], senkronSebep: [], sure: {}, hatalar: [], bildirim: {...BILDIRIM_YOK}};
   // Aşama damgaları: hangi işin bütçeyi yediği ancak ölçülerek görülür. İz kaydına da yazılır.
   const asama = ad => { ozet.sure[ad] = gecen(); };
   const dene = async (ad, fn) => { try { await fn(); } catch (e) { ozet.hatalar.push(ad + ': ' + e.message); } };
@@ -178,7 +282,7 @@ export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sa
   // ve bir sonraki deneme zamanı ec_report_file_attempts'e yazılır (ekranda görünür). Her tur önce hiç
   // hata vermemiş dosyaları alır; hatalı olan bekleme süresi dolunca (15 dk, 30 dk, 1 sa … en çok 1 gün)
   // yeniden denenir. Böylece sürekli hata veren ilk 10 dosya sağlıklı 11. dosyayı engellemez.
-  const zaman = ms => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+  const zaman = zamanDamgasi;
   const yarim = (await db.prepare(`SELECT f.id,COALESCE(a.attempts,0) attempts,a.last_error FROM ec_report_files f LEFT JOIN ec_report_file_attempts a ON a.file_id=f.id
     WHERE f.status NOT IN ('applied','receiving','rejected','cancelled') AND (a.next_attempt_at IS NULL OR a.next_attempt_at<=?)
     ORDER BY COALESCE(a.attempts,0),f.created_at,f.id LIMIT 10`).bind(zaman(simdi)).all()).results;
@@ -266,9 +370,17 @@ export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sa
 
   // BİLDİRİM yalnız EKRAN KAPALIYKEN olan kayda değer iş için: yeni sipariş taslağı ya da teslim
   // işaretlemesi. Yalnız "kayıt tarandı" ise kanal SUSAR — 4 saatte bir "bir şey değişmedi" mesajı
-  // bildirimleri okunmaz hâle getirirdi. Hatalar da kanala düşmez: Bağlantılar ekranında kırmızı
-  // satır olarak duruyor ve aynı hata her turda tekrar ederdi. Bildirim hiçbir işi durdurmaz.
+  // bildirimleri okunmaz hâle getirirdi. Bildirim hiçbir işi durdurmaz.
+  // NOT: bu koşul CANLIDA ÖLÜ, çünkü iki sayaç da yalnız senkron döngüsünde artıyor ve
+  // SENKRON_KAYNAKLARI boş. Kaldırılmadı: senkron geri açılırsa aynen geçerli. Arıza haberi
+  // aşağıda AYRI durur, tam da bu yüzden — ona bu koşul uygulanmaz.
   if (ozet.senkronTaslak || ozet.senkronTeslim) await dene('bildirim', () => telegramBildir(env, senkronBildirimi(ozet)));
+
+  // ARIZA HABERİ. Hatalar artık kanala düşer; tekrar koruması susturma kaydındadır (0071).
+  // Bildirimin KENDİ hatası ozet.hatalar'a eklenmez: eklenirse bir sonraki turda yeni bir arıza
+  // imzası doğar ve bildirim kendi kuyruğunu kovalardı. Sonuç ozet'e ve iz kaydına yazılır.
+  if (ozet.hatalar.length) ozet.bildirim = await arizaBildir(env, ozet.hatalar, {simdi, gonder: bildirimGonder, db});
+  const bildirimMetni = bildirimIzi(ozet.bildirim);
 
   const is = ozet.dosya + ozet.siparis + ozet.teslim + ozet.iade + ozet.kesinti + ozet.maliyet + ozet.eslestirme + ozet.pazaryeriKesinti + ozet.senkronKayit + ozet.senkronTeslim + ozet.senkronTaslak;
   if (is || ozet.hatalar.length)
@@ -278,6 +390,9 @@ export async function otomatikBakim(env, {sureMs = 50000, simdi = Date.now(), sa
         ozet.senkronKayit && ozet.senkronKayit + ' pazaryeri kaydı tarandı', ozet.senkronTaslak && ozet.senkronTaslak + ' yeni sipariş taslağı',
         ozet.senkronTeslim && ozet.senkronTeslim + ' paket teslim işaretlendi'].filter(Boolean).join(', ')
       + (ozet.hatalar.length ? (is ? '; ' : '') + 'sorun: ' + ozet.hatalar.join(' | ').slice(0, 400) : '')
+      // GÖNDERİM SONUCU PANELDEN GÖRÜLSÜN. telegramBildir başarısızlığı eskiden yalnız console'a
+      // yazılıyordu: bot kapansa, token dönse ya da kanal silinse kimse fark etmezdi.
+      + (bildirimMetni ? '; ' + bildirimMetni : '')
       // Aşama süreleri İŞ YAPILAN turda da yazılır: bütçeyi hangi adımın yediği yalnız boş turlarda
       // görülebiliyordu, oysa asıl merak edilen dolu turdur.
       + sureOzeti(ozet)).run();

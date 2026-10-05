@@ -36,3 +36,25 @@ export async function telegramGonder(env, chatId, metin) {
 export const telegramBildir = (env, metin) => telegramGonder(env, env?.TELEGRAM_CHAT_ORDERS, metin);
 /** Hata kanalı: yalnızca beklenmeyen durumlar; gündelik uyarılar buraya düşmez. */
 export const telegramHata = (env, metin) => telegramGonder(env, env?.TELEGRAM_CHAT_ERRORS, metin);
+
+/**
+ * Bildirim altyapısı KURULU MU? Kurulmamışsa gönderim hiç DENENMEZ.
+ * Ayrım önemlidir: telegramGonder hem "secret yok" hem "gönderim reddedildi" için false döner.
+ * Arıza bildirimi bu ikisini ayırt etmek zorunda, çünkü "gönderilemedi" panele yazılacak bir
+ * sorundur ama "kurulmamış" (yerel geliştirme, test) sorun DEĞİLDİR.
+ */
+export const telegramAcik = env => Boolean(env?.TELEGRAM_BOT_TOKEN && (env?.TELEGRAM_CHAT_ERRORS || env?.TELEGRAM_CHAT_ORDERS));
+
+/**
+ * ARIZA KANALI. Hata kanalı kuruluysa oraya, değilse ÖZET KANALINA düşer.
+ * Geri dönüş bilerek var: TELEGRAM_CHAT_ERRORS ayrı bir secret ve canlıda kurulu olduğu
+ * doğrulanmadı. Kurulmamışsa telegramHata sessizce false döner ve arıza haberi kaybolurdu —
+ * bu iş tam o sessizliği kapatmak için yapıldı. Kurulu olan hangi kanalsa haber oraya gider.
+ * Hata kanalı DENENİP reddedilirse de özet kanalı denenir: haberin gitmesi kanalın doğru
+ * olmasından önemlidir. (Nadir bir durumda mesaj iki kanala da düşebilir; iki kez okunan bir
+ * arıza, hiç okunmayandan iyidir.)
+ */
+export async function telegramAriza(env, metin) {
+  if (env?.TELEGRAM_CHAT_ERRORS && await telegramGonder(env, env.TELEGRAM_CHAT_ERRORS, metin)) return true;
+  return telegramGonder(env, env?.TELEGRAM_CHAT_ORDERS, metin);
+}
