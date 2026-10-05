@@ -59,8 +59,11 @@ test('R25 saf scrubAmounts: fiyat-hesap yanıtındaki Türkçe para alanları tu
 
 test('scrubAmounts: aynı nesne yanıtta iki kez geçerse ikinci geçişte de tutar gizlenir', () => {
   const ortak = {product_id: 'u', kar_cents: 500, adet_milli: 1000};
-  const gizli = scrubAmounts({top: [ortak], bottom: [ortak], secili: ortak}, personel({stock: 'read', amounts: 'none'}), 'ec');
-  for (const x of [gizli.top[0], gizli.bottom[0], gizli.secili]) { assert.equal(x.kar_cents, null, 'ortak nesnede tutar sızmamalı'); assert.equal(x.adet_milli, 1000); }
+  // Kapsayıcı adları NÖTR seçilir: 'top' / 'bottom' artık para sırasına göre dizilmiş
+  // sıralama anahtarlarıdır ve içleri boşaltılır (permission-policy.js RANK_EMPTY).
+  // Bu testin konusu sıralama değil, AYNI NESNENİN ikinci geçişte de gizlenmesidir.
+  const gizli = scrubAmounts({liste: [ortak], kopya: [ortak], secili: ortak}, personel({stock: 'read', amounts: 'none'}), 'ec');
+  for (const x of [gizli.liste[0], gizli.kopya[0], gizli.secili]) { assert.equal(x.kar_cents, null, 'ortak nesnede tutar sızmamalı'); assert.equal(x.adet_milli, 1000); }
   const dongu = {amount_cents: 5, ad: 'x'}; dongu.self = dongu;
   const d = scrubAmounts(dongu, personel({stock: 'read', amounts: 'none'}), 'ec');
   assert.equal(d.amount_cents, null); assert.equal(d.self, d, 'döngü sonsuz yürümez');

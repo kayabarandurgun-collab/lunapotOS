@@ -21,6 +21,22 @@ function b64(bytes) {
   return btoa(s);
 }
 
+// Magaza ozeti PARCALI gelir (worker sure siniri) ve parcalar burada toplanir. Gizlenen alan
+// null'dur ve `null + null` SIFIR verir: tutar yetkisi olmayan personel iki parcali bir
+// magazada "Zarar eden 0" ve "Toplam katki 0,00 TL" goruyordu. Bilinmeyen sifir degildir.
+const SUMMARY_SUM = ['packages', 'delivered', 'not_delivered', 'computed', 'uncomputed', 'profitable', 'losing',
+  'contribution_cents', 'profit_cents', 'loss_cents'];
+const topla = (a, b) => Number.isFinite(a) && Number.isFinite(b) ? a + b : null;
+export function mergeStoreSummary(toplam, parca) {
+  if (!toplam) return {...parca, worst: [...(parca.worst || [])], blocked: [...(parca.blocked || [])]};
+  for (const k of SUMMARY_SUM) toplam[k] = topla(toplam[k], parca[k]);
+  toplam.worst.push(...(parca.worst || [])); toplam.blocked.push(...(parca.blocked || []));
+  return toplam;
+}
+// Tutar yetkisini SUNUCU bildirir: kar/zarar sayilari yalniz yetkisi olana gonderilir
+// (report-inbox-api.js profitable/losing). Yetki mantigi burada ikinci kez kurulmaz.
+export const summaryHasAmounts = s => Number.isFinite(s?.profitable) && Number.isFinite(s?.losing);
+
 export function mountReports(root, namespace = 'ec') {
   const controller = new AbortController(), signal = controller.signal;
   const state = {tab: 'upload', data: null, draft: null, busy: false, message: '', error: '', orders: null, reviews: null, storeFilter: '',
@@ -54,12 +70,7 @@ export function mountReports(root, namespace = 'ec') {
     for (;;) {
       ilerle('Mağaza özeti hesaplanıyor… ' + (cursor ? cursor + ' sipariş tarandı' : 'başlıyor'));
       const p = await api('/orders/summary?' + new URLSearchParams({store_id: state.storeFilter, q: state.orderQuery, status: state.orderStatus, cursor}));
-      if (!toplam) toplam = {...p, worst: [...p.worst], blocked: [...p.blocked]};
-      else {
-        for (const k of ['packages', 'delivered', 'not_delivered', 'computed', 'uncomputed', 'profitable', 'losing',
-          'contribution_cents', 'profit_cents', 'loss_cents']) toplam[k] += p[k];
-        toplam.worst.push(...p.worst); toplam.blocked.push(...p.blocked);
-      }
+      toplam = mergeStoreSummary(toplam, p);
       if (p.next_cursor === null || p.next_cursor === undefined || ++guard > 200) break;
       cursor = p.next_cursor;
     }
@@ -270,11 +281,14 @@ export function mountReports(root, namespace = 'ec') {
       <td><small>${(r.fees || []).map(x => esc(x.label) + ': ' + money(x.net_cents ?? x.actual_cents)).join('<br>') || '—'}</small></td>
       <td>${r.contribution_cents !== null ? `<strong class="rb-num">${money(r.contribution_cents)}</strong>` : `<span class="rb-chip warn">Hesaplanamadı</span><small>${(r.missing || []).map(esc).join('<br>')}</small>`}</td></tr>`;
     const listTable = rows => `<div class="v2-table-wrap"><table class="v2-table"><thead><tr><th>Sipariş</th><th>Ürünler</th><th>Net satış</th><th>Maliyet</th><th>Kesintiler</th><th>Katkı</th></tr></thead><tbody>${rows.map(listRow).join('')}</tbody></table></div>`;
+    // Kac paketin para kaybettirdigi parasal sonuctur. num(null) "0" bastigi icin gizlenen
+    // sayilar "Zarar eden 0" diye GORUNUYORDU; dugmeler yetki yoksa hic cizilmez.
+    const paraVar = summaryHasAmounts(s);
     const summaryPanel = s ? `<section class="v2-card"><h3>Bu mağazanın teslim edilen paketleri</h3>
       <div class="rb-status">
         <button type="button" data-rb-sum="delivered"><span>Teslim edilen paket</span><strong>${num(s.delivered)}</strong></button>
-        <button type="button" data-rb-sum="profit" class="${s.profitable ? 'ok' : ''}"><span>Kâr bırakan</span><strong>${num(s.profitable)}</strong></button>
-        <button type="button" data-rb-sum="loss" class="${s.losing ? 'warn' : ''}"><span>Zarar eden</span><strong>${num(s.losing)}</strong></button>
+        ${paraVar ? `<button type="button" data-rb-sum="profit" class="${s.profitable ? 'ok' : ''}"><span>Kâr bırakan</span><strong>${num(s.profitable)}</strong></button>
+        <button type="button" data-rb-sum="loss" class="${s.losing ? 'warn' : ''}"><span>Zarar eden</span><strong>${num(s.losing)}</strong></button>` : ''}
         <button type="button" data-rb-sum="blocked" class="${s.uncomputed ? 'warn' : ''}"><span>Hesaplanamayan</span><strong>${num(s.uncomputed)}</strong></button></div>
       <dl class="rb-kv">
         <div><dt>Toplam katkı (KDV hariç)</dt><dd class="rb-num"><strong>${money(s.contribution_cents)}</strong></dd></div>
@@ -282,7 +296,7 @@ export function mountReports(root, namespace = 'ec') {
         <div><dt>Zarar edenlerin toplamı</dt><dd class="rb-num">${money(s.loss_cents)}</dd></div>
         <div><dt>Henüz teslim edilmemiş</dt><dd>${num(s.not_delivered)} paket</dd></div></dl>
       <p class="rb-muted">${esc(s.notice)}</p>
-      ${state.summaryList === 'loss' ? (s.worst.length ? `<h4>En çok zarar ettiren paketler</h4>${listTable(s.worst)}` : '<p class="rb-muted">Zarar eden paket yok.</p>') : ''}
+      ${state.summaryList === 'loss' ? (paraVar ? (s.worst.length ? `<h4>En çok zarar ettiren paketler</h4>${listTable(s.worst)}` : '<p class="rb-muted">Zarar eden paket yok.</p>') : '<p class="rb-muted">Hangi paketlerin zarar ettigi tutar yetkisi gerektirir; bu listede hiç zarar olmadığı anlamına gelmez.</p>') : ''}
       ${state.summaryList === 'blocked' ? (s.blocked.length ? `<h4>Teslim edildi ama hesaplanamadı — neyin eksik olduğu</h4>${listTable(s.blocked)}` : '<p class="rb-muted">Teslim edilen her paketin katkısı hesaplandı.</p>') : ''}
       </section>` : '';
 

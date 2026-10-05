@@ -315,7 +315,13 @@ test('amount permissions redact new money and margin fields including the shared
     assert.equal(hidden.selected_period.margin_bps, null);
     assert.equal(hidden.periods.find(p => p.key === 'custom').margin_bps, null);
     assert.equal(hidden.selected_period.revenue_gross_cents, null);
-    assert.equal(hidden.selected_period.records.profit.cash_cents, null);
+    // Tek sipariş rekorunun KİMLİĞİ de parasal bir sinyaldir: tutar null'lansa bile
+    // "dönemin en çok kazandıran siparişi bu" bilgisi sipariş numarasının kendisinde durur
+    // ve o sipariş #orders ekranında açılabilir. Kapsam sayıları iş bilgisi olarak kalır.
+    assert.equal(hidden.selected_period.records.profit, null);
+    assert.equal(hidden.selected_period.records.revenue, null);
+    assert.equal(hidden.selected_period.records.orders, result.selected_period.records.orders);
+    assert.equal(hidden.selected_period.records.partial, result.selected_period.records.partial);
     assert.equal(hidden.inventory.net_cents, null);
     assert.equal(hidden.inventory.gross_cents, null);
     assert.equal(hidden.selected_period.packages, 1);
@@ -397,8 +403,12 @@ test('real panorama request masks daily cash for amount-restricted staff and pre
     assert.equal(response.data.selected_period.margin_bps, null);
     assert.equal(response.data.selected_period.cash_cents, null);
     assert.equal(response.data.selected_period.channels.trendyol.packages, 1);
-    assert.equal(response.data.selected_period.records.profit.channel, 'trendyol');
-    assert.equal(response.data.selected_period.records.profit.cash_cents, null);
+    // Rekor sipariş kimliği personele gitmez (yukarıdaki gerekçe); kaç siparişin
+    // sıralamaya girdiği ve kapsamın eksikliği görünmeye devam eder.
+    assert.equal(response.data.selected_period.records.profit, null);
+    assert.equal(response.data.selected_period.records.revenue, null);
+    assert.equal(response.data.selected_period.records.orders, owner.selected_period.records.orders);
+    assert.equal(response.data.selected_period.records.profit_missing_orders, owner.selected_period.records.profit_missing_orders);
     const allowed = await login({performance: 'read', amounts: 'read'});
     const authorized = await f.req(url, undefined, allowed);
     assert.equal(authorized.status, 200);

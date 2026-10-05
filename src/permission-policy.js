@@ -81,6 +81,20 @@ const RECIPE_MONEY=new Set(['labor','packaging','overhead']);
 // ("Raporun bildirdigi hakedis (1.023,75 TL) ..." gibi notlar ve atlama gerekcelerinde).
 // KURUSLU bicim sart kosulur; boylece siparis/paket numaralari ve adet gibi tam sayilar
 // olduğu gibi kalir, yalnizca para gider.
+// SIRA DA PARASAL BIR SINYALDIR. Hucre degerini null'lamak dizilisi null'lamiyor: para
+// buyukluguyle dizilmis bir listede ilk oge en cok kazandiran, son oge en cok kaybettirendir.
+// Uye olmanin KENDISI de sizdirir ('worst' = zarar eden paketler), bu yuzden bu listeler
+// BOSALTILIR. Null YAPILMAZ: tuketici kod diziyi yayiyor ve .length okuyor
+// (report-inbox-ui.js [...p.worst], s.worst.length), null gelirse ekran hic cizilmez.
+// Uretenler: report-inbox-api.js worst · panorama-api.js urunSirasi · sales-presentation.js
+// aggregateSales. Hicbir yanitta bu adlar tur etiketi degildir.
+const RANK_EMPTY=new Set(['worst','top','bottom','revenue_top']);
+// Set (ilan) listesi para sirasina gore dizilir ama BOSALTILAMAZ: ilan adi, satis adedi,
+// paket sayisi ve bilesenler personelin isini yapmasi icin gerekir. Yalniz dizilis bozulur:
+// ada gore alfabetik sirayla gider, kar sirasi kaybolur.
+const RANK_SORTED={setler:'ad'};
+const alfabetik=(list,field)=>Array.isArray(list)
+ ?[...list].sort((a,b)=>String(a?.[field]??'').localeCompare(String(b?.[field]??''),'tr')):list;
 const MONEY_TEXT=new Set(['notes','reason']);
 const MONEY_IN_TEXT=/-?\d{1,3}(?:\.\d{3})*,\d{2}|-?\d+,\d{2}/g;
 const maskMoneyText=v=>typeof v==='string'?v.replace(MONEY_IN_TEXT,'(tutar gizli)'):Array.isArray(v)?v.map(maskMoneyText):v;
@@ -103,11 +117,21 @@ export function scrubAmounts(payload,user,ns){
    const recipeRow=Object.hasOwn(value,'yield_qty')&&Object.hasOwn(value,'waste_pct');
    // Rapor kutusu tahmin satiri: tur + dayanak + deger ucunu birlikte yalniz bu satir tasir.
    const estimateRow=typeof value.type==='string'&&typeof value.basis==='string'&&Object.hasOwn(value,'value');
+   // Tek siparis rekoru: tutar null'lansa bile "donemin en cok kazandiran siparisi" bilgisi
+   // siparis KIMLIGININ kendisinde saklidir (panorama-api.js siparisRekorlari). 'records'
+   // genel bir anahtar adi oldugu icin blok sema ile taninir; kapsam sayilari korunur.
+   const orderRecords=Object.hasOwn(value,'revenue')&&Object.hasOwn(value,'profit')&&Object.hasOwn(value,'orders');
    for(const [key,item] of Object.entries(value)){
     // Loss labels and counts reveal financial outcomes too: hide the entire new signal.
     // recipe_json dondurulmus recete anlik goruntusudur: METIN oldugu icin walk icini acamaz,
     // icindeki iscilik/ambalaj/gider tutarlari suzgecten kurtuluyordu. Arayuz okumuyor.
     if(key==='sales_alerts'||key==='recipe_json'){out[key]=null;continue;}
+    if(RANK_EMPTY.has(key)&&Array.isArray(item)){out[key]=[];continue;}
+    if(RANK_SORTED[key]&&Array.isArray(item)){out[key]=alfabetik(walk(item,key),RANK_SORTED[key]);continue;}
+    if(orderRecords&&(key==='revenue'||key==='profit')){out[key]=null;continue;}
+    // Teslim edilen paketin kari hesaplandi mi sorusunun cevabi SAYIdir ve parasal sonuctur:
+    // "462 kar birakan / 3 zarar eden" dugmeleri tutarlar gizliyken bile basiliydi.
+    if(key==='profitable'||key==='losing'){out[key]=null;continue;}
     if(reportRow&&REPORT_MONEY.has(key)){out[key]=null;continue;}
     if(recipeRow&&RECIPE_MONEY.has(key)){out[key]=null;continue;}
     if(estimateRow&&(key==='value'||key==='low'||key==='high')){out[key]=null;continue;}

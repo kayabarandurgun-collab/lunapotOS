@@ -80,6 +80,8 @@ export function unbilledStockPreview(product,quantity){
 }
 // SET (İLAN) KÂRLILIĞI listesi. Sahibin gerçekten fiyatladığı şey ilanın kendisidir; sıralama
 // sunucudan gelir (en kötü paket başına sonuç en üstte). Salt okunur; bilinmeyen sıfır yazılmaz.
+// TUTAR YETKİSİ YOKSA SİRA ADA GÖRE gelir: dizilişin kendisi parasal bir sinyaldir
+// (permission-policy.js RANK_SORTED). Liste boşaltılmaz — ilan adı, adet, paket ve bileşenler kalır.
 export function setProfitList(sets,notice,{money,qty}){
  if(!Array.isArray(sets)||!sets.length)return '';
  const known=Number.isSafeInteger;

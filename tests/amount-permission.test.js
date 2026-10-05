@@ -4,6 +4,7 @@ import {appFixture} from './helpers/app-fixture.js';
 import {level} from '../public/permissions.js';
 import {scrubAmounts} from '../src/permission-policy.js';
 import {feeLineState,feeLinePending} from '../public/reconciliation-ui.js';
+import {mergeStoreSummary,summaryHasAmounts} from '../public/report-inbox-ui.js';
 import worker from '../src/worker.js';
 
 // Depocuya miktar ve sevk bilgisi verilir, alis maliyeti ve kar gizlenir.
@@ -381,4 +382,123 @@ test('Dagitilmamis kesinti uyarisi personelde kaybolmaz, tutari gorunmez',async(
   assert.equal(owner.unallocated_fee_cents,1000,'yoneticide tutar aynen gorunmeli');
   assert.equal(owner.unallocated_fee_pending,true);
  }finally{f.close();}
+});
+
+// ---------------------------------------------------------------------------
+// C GRUBU — PARA SIRASINA GORE SIRALAMALAR. Tutari null'lamak SIRAYI null'lamiyor:
+// sira bagimsiz bir parasal sinyaldir (ilk satir en cok kaybettiren). Uye olmanin
+// kendisi de sizdirir: 'worst' listesinde olmak "bu paket para kaybettirdi" demektir.
+test('Rapor kutusu ozeti kac paketin zarar ettigini soylemez, teslim sayilari kalir',()=>{
+ const personel={owner:false,ec_access:'read',permissions:{ec:{orders:'read',amounts:'none'},lp:{}}};
+ const o=scrubAmounts({
+  store:{id:'st',name:'TY'},packages:520,delivered:486,not_delivered:34,computed:465,uncomputed:21,
+  profitable:462,losing:3,cash_result_cents:12345,loss_cents:-900,profit_cents:13245,
+  worst:[{order_no:'TY-1',products:'Torf 20 L x1',order_date:'2026-09-10',delivered_on:'2026-09-12',contribution_cents:-500}],
+  blocked:[{order_no:'TY-9',products:'Perlit x1',missing:['Satılan ürünün alış maliyeti bilinmiyor.']}],
+ },personel,'ec');
+ assert.equal(o.profitable,null,'kar birakan paket sayisi gizlenmeli');
+ assert.equal(o.losing,null,'zarar eden paket sayisi gizlenmeli');
+ assert.equal(o.delivered,486,'teslim edilen paket sayisi is bilgisidir');
+ assert.equal(o.not_delivered,34);assert.equal(o.packages,520);
+ assert.equal(o.uncomputed,21,'hesaplanamayan paket sayisi eksik VERI bilgisidir, para degil');
+ assert.equal(o.computed,465);
+ // DIZI BOSALIR AMA NULL OLMAZ: report-inbox-ui.js [...p.worst] ve s.worst.length yapiyor,
+ // null gelirse TypeError atar ve personel magaza ozetini HIC goremez.
+ assert.ok(Array.isArray(o.worst),'dizi sekli korunmali, null olmamali');
+ assert.deepEqual(o.worst,[],'zarar buyukluguyle sirali tablo bosaltilir');
+ assert.equal(o.blocked.length,1,'hesaplanamayan listesi para sirali degildir, kalir');
+ assert.equal(o.blocked[0].order_no,'TY-9');
+ assert.equal(o.blocked[0].missing[0],'Satılan ürünün alış maliyeti bilinmiyor.','neyin eksik oldugu kalir');
+ assert.equal(o.store.name,'TY','magaza adi para degildir');
+});
+
+// Set listesi BOSALTILMAZ: ilan adi, satis adedi, paket sayisi ve bilesenler personelin
+// isini yapmasi icin gerekir (bkz. set-urun-karlilik.test.js). Yalniz DIZILIS bozulur.
+test('Set karliligi listesi para sirasiyla dizilmez, icerigi aynen kalir',()=>{
+ const personel={owner:false,ec_access:'read',permissions:{ec:{stock:'read',amounts:'none'},lp:{}}};
+ const yanit={setler:[
+  {ad:'Gama set',paket:3,adet_milli:3000,paket_basina_cents:-5880,bilesenler:[{product_id:'p1',name:'A',revenue_share_bps:4000}]},
+  {ad:'Alfa set',paket:2,adet_milli:2000,paket_basina_cents:120,bilesenler:[{product_id:'p2',name:'B',revenue_share_bps:5000}]},
+  {ad:'Beta set',paket:5,adet_milli:5000,paket_basina_cents:9000,bilesenler:[{product_id:'p3',name:'C',revenue_share_bps:6000}]}]};
+ const o=scrubAmounts(yanit,personel,'ec');
+ assert.equal(o.setler.length,3,'liste bosaltilmaz');
+ assert.deepEqual(o.setler.map(s=>s.ad),['Alfa set','Beta set','Gama set'],'ada gore, kara gore DEGIL');
+ for(const s of o.setler){assert.equal(s.paket_basina_cents,null);assert.equal(s.bilesenler[0].revenue_share_bps,null);}
+ assert.equal(o.setler.find(s=>s.ad==='Gama set').paket,3,'paket sayisi gorunur');
+ assert.equal(o.setler.find(s=>s.ad==='Beta set').adet_milli,5000,'satis adedi gorunur');
+ assert.equal(o.setler[0].bilesenler[0].name,'B','bilesen adi gorunur');
+ const sahip=scrubAmounts(yanit,{owner:true},'ec');
+ assert.deepEqual(sahip.setler.map(s=>s.ad),['Gama set','Alfa set','Beta set'],'yoneticide para sirasi aynen kalir');
+});
+
+// Para sirali urun/satis bicimi siralamalari: uye olmak "en cok kazandiran" demektir.
+test('Urun ve satis bicimi siralamalari personele para sirasiyla inmez',()=>{
+ const personel={owner:false,ec_access:'read',permissions:{ec:{performance:'read',amounts:'none'},lp:{}}};
+ const o=scrubAmounts({periods:[{key:'tum',
+  products:{role:'stock_component_contribution',count:3,missing_packages:0,
+   top:[{product_id:'p1',name:'Torf 20 L',cash_cents:9000,qty_milli:5000}],
+   bottom:[{product_id:'p3',name:'Perlit 10 L',cash_cents:-900,qty_milli:1000}],
+   revenue_top:[{product_id:'p1',name:'Torf 20 L',revenue_gross_cents:24000}]},
+  sales:{count:2,rows:[{key:'s1',name:'Torf 20 L',kind:'single',cash_cents:9000,units_milli:5000}],
+   top:[{key:'s1',name:'Torf 20 L',cash_cents:9000}],bottom:[{key:'s2',name:'Zararli set',cash_cents:-900}],
+   revenue_top:[{key:'s1',name:'Torf 20 L',revenue_gross_cents:24000}]}}]},personel,'ec');
+ const p=o.periods[0];
+ for(const [kap,ad] of [[p.products,'products'],[p.sales,'sales']])
+  for(const anahtar of ['top','bottom','revenue_top']){
+   assert.ok(Array.isArray(kap[anahtar]),ad+'.'+anahtar+' dizi kalmali');
+   assert.deepEqual(kap[anahtar],[],ad+'.'+anahtar+' bosaltilmali');
+  }
+ assert.equal(p.products.count,3,'kac urun satildigi para degildir');
+ assert.equal(p.products.missing_packages,0);
+ assert.equal(p.products.role,'stock_component_contribution','sema etiketi korunur');
+ // sales.rows para sirali DEGILDIR (anahtara gore dizilir), is bilgisi olarak kalir.
+ assert.equal(p.sales.rows[0].name,'Torf 20 L');
+ assert.equal(p.sales.rows[0].units_milli,5000,'net satis adedi gorunur');
+ assert.equal(p.sales.rows[0].cash_cents,null);
+});
+
+// Tek siparis rekoru: tutar null'lansa bile "donemin en cok kazandiran siparisi" bilgisi
+// siparis KIMLIGININ kendisinde saklidir. Kapsam sayilari (kac siparis eksik) kalir.
+test('Tek siparis rekorunun kimligi personele gitmez, kapsam sayilari kalir',()=>{
+ const personel={owner:false,ec_access:'read',permissions:{ec:{performance:'read',amounts:'none'},lp:{}}};
+ const o=scrubAmounts({periods:[{key:'tum',records:{
+  revenue:{id:'pk1',order_no:'TY-9001',external_id:'E1',channel:'trendyol',packages:2,revenue_gross_cents:24000},
+  profit:{id:'pk2',order_no:'HB-7733',external_id:'E2',channel:'hepsiburada',packages:1,cash_cents:9000},
+  orders:1005,revenue_missing_orders:2,profit_missing_orders:3,partial:false}}],
+  // 'records' genel bir anahtar adidir: sema tasimayan kapsayici bozulmaz.
+  operations:{records:[{id:'r1',kind:'sale',label:'Satış kaydı'}]}},personel,'ec');
+ const r=o.periods[0].records;
+ assert.equal(r.revenue,null,'en yuksek cirolu siparisin kimligi gizlenmeli');
+ assert.equal(r.profit,null,'en cok kazandiran siparisin kimligi gizlenmeli');
+ assert.equal(r.orders,1005,'siparis sayisi para degildir');
+ assert.equal(r.revenue_missing_orders,2);assert.equal(r.profit_missing_orders,3);
+ assert.equal(r.partial,false);
+ assert.equal(o.operations.records[0].label,'Satış kaydı','ayni addaki baska kapsayici bozulmaz');
+ assert.equal(o.operations.records[0].kind,'sale');
+});
+
+// Magaza ozeti parcali gelir ve parcalar istemcide toplanir. Gizlenen alan null'dur;
+// `null + null` SIFIR verdigi icin iki parcali bir magazada personel "Zarar eden 0" ve
+// "Toplam katki 0,00 TL" goruyordu. Bilinmeyen sifir degildir.
+test('Parcali magaza ozeti bilinmeyeni sifira cevirmez',()=>{
+ const parca=n=>({packages:n,delivered:n,not_delivered:0,computed:n,uncomputed:1,profitable:null,losing:null,
+  contribution_cents:null,profit_cents:null,loss_cents:null,worst:[],blocked:[{order_no:'X'+n}]});
+ let t=null;for(const n of [2,3])t=mergeStoreSummary(t,parca(n));
+ assert.equal(t.packages,5,'paket sayilari toplanir');
+ assert.equal(t.delivered,5);
+ assert.equal(t.uncomputed,2,'hesaplanamayan sayisi toplanir');
+ assert.equal(t.losing,null,'null + null SIFIR DEGILDIR');
+ assert.equal(t.profitable,null);
+ assert.equal(t.contribution_cents,null,'gizli tutar toplamda 0,00 TL gorunmemeli');
+ assert.equal(t.blocked.length,2,'hesaplanamayan satirlar birikir');
+ assert.deepEqual(t.worst,[],'bos sirali liste bos kalir, cokmez');
+ assert.equal(summaryHasAmounts(t),false,'ekran kar/zarar dugmelerini basmamali');
+
+ let o=null;
+ for(const x of [{...parca(2),profitable:2,losing:0,contribution_cents:500},
+                 {...parca(3),profitable:1,losing:2,contribution_cents:-200}])o=mergeStoreSummary(o,x);
+ assert.equal(o.profitable,3,'yoneticide sayilar toplanir');
+ assert.equal(o.losing,2);
+ assert.equal(o.contribution_cents,300);
+ assert.equal(summaryHasAmounts(o),true);
 });
