@@ -60,7 +60,13 @@ const MONEY_NAMES=new Set(['price','sale_price','unit_cost','amount','total_cost
  'fiyat','maliyet','kargo','hizmet','komisyon','stopaj','paketleme','diger','cebine','istenen','birim_maliyet_kdv_dahil','komisyon_orani','stopaj_orani',
  // Güvenlik incelemesi: bu alanlar *_cents kalıbına uymuyordu ve tutar yetkisi olmayan personele sızıyordu
  // (rapor–defter farkı, kesinti dağıtımı toplamları, pazaryeri paket brütü ve indirimleri).
- 'report_gross','ledger_gross','missing_gross','commission','shipping','other','package_gross','package_seller_discount','package_platform_discount']);
+ 'report_gross','ledger_gross','missing_gross','commission','shipping','other','package_gross','package_seller_discount','package_platform_discount',
+ // Zarar/kar eden paket SAYILARI da parasal sonuctur: tutari gizlemek "kac paket zarar etti"
+ // sorusunu kapatmiyordu, sayilar ekranda basiliydi (panorama donemleri, kar raporu kanallari).
+ // Bu uc ad yanitlarda YALNIZ sayi olarak uretilir, hicbir yerde tur etiketi degildir:
+ // panorama-api.js:74,77 · performance-api.js:541,542 · attention-api.js:39 (yalniz yoneticiye acik uc).
+ // Paket, hesaplanabilen ve eksik SAYILARI is bilgisidir ve gizlenmez.
+ 'losses','gains','cash_losses']);
 // Rapor dosyasi para alanlari ('sale','net_payout','cargo','service','withholding' gibi) report-core
 // FIELDS'ten gelir. GENEL kumeye KONULAMAZ: ayni adlar baska yanitlarda TUR ETIKETIDIR
 // (operations-ui kinds.sale='Satis finans kayitlari', money-planning categories.packaging='Ambalaj',

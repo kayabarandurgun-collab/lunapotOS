@@ -15,6 +15,10 @@ const table=(headers,rows,empty='Kayıt bulunamadı.')=>rows.length?`<div class=
 
 // SIRALAMA: sunucuda, sayfalamadan önce (bkz. orders-query.js). Başlığa tıklamak ve seçim kutusu aynı değeri değiştirir.
 const SORTS={date_desc:'Tarih · yeniden eskiye',date_asc:'Tarih · eskiden yeniye',profit_desc:'Cebine kalan · çoktan aza',profit_asc:'Cebine kalan · azdan çoğa',amount_desc:'Tutar · çoktan aza',amount_asc:'Tutar · azdan çoğa'};
+// Paraya göre sıralamalar: DİZİLİŞ de parasal bir bilgidir (ilk satır en çok kaybettiren).
+// Tutar yetkisi olmayan personele hiç sunulmaz; sunucu da yok sayar (orders-api.js).
+const PARA_SIRA=['profit_desc','profit_asc','amount_desc','amount_asc'];
+const PARA_SUTUN=['amount','profit'];
 const CHIPS=[['','Tümü'],['draft','Hazırlık'],['reserved','Stok ayrıldı'],['shipped','Kargoda'],['delivered','Teslim edildi'],['cancelled','İptal']];
 const KANAL_KISA={trendyol:'TY',hepsiburada:'HB',other:'Diğer'};
 const tarih=d=>d?d.slice(8,10)+'.'+d.slice(5,7)+'.'+d.slice(0,4):'';
@@ -118,14 +122,17 @@ export function mountOrders(root,namespace='ec'){
  const yukle=async()=>{try{await load();}catch(err){if(err.name!=='AbortError')notify(err.message);}};
  function render(){prepareWorkflow(root);
   if(signal.aborted)return;const d=state.data;if(!d){root.innerHTML='<p class="loading" role="status">Siparişler yükleniyor…</p>';return;}
+  // Tutar yetkisini SUNUCU bildirir: kâr/zarar sayıları yalnız yetkisi olana gönderilir
+  // (orders-api.js sonuc_counts). Yetki mantığı burada ikinci kez kurulmaz.
+  const paraVar=d.sonuc_counts!==null&&d.sonuc_counts!==undefined;
   if(!state.built){
    root.innerHTML=`<div class="workflow-page workflow-orders ol-daily ol-workbench"><div class="page-heading ol-heading"><div><span class="eyebrow">PAZARYERİ İŞLEMLERİ</span><h1>Siparişler</h1><p>Her paket, doğru sonraki adım.</p></div><div class="ol-heading-actions"><a class="secondary" href="#reports?action=upload">Rapor yükle</a>${btn('Yeni sipariş','new')}</div></div><p class="error" role="alert" data-order-error hidden></p>
     <section class="v2-card ol-card" aria-label="Sipariş çalışma alanı"><div class="ol-chips" role="group" aria-label="Sipariş durumu" data-ol-chips></div>
      <div class="ol-toolbar"><form class="ol-search" role="search" data-ol-search><label><span class="ol-sr-label">Sipariş ara</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><input type="search" name="q" maxlength="200" placeholder="Sipariş, paket veya kargo no ara" aria-label="Sipariş ara"></label><button type="submit" class="secondary">Ara</button></form>
-      <label class="ol-sort"><span>Sıralama</span><select data-ol-sort aria-label="Sipariş sıralaması">${Object.entries(SORTS).map(([v,l])=>'<option value="'+v+'">'+esc(l)+'</option>').join('')}</select></label></div>
+      <label class="ol-sort"><span>Sıralama</span><select data-ol-sort aria-label="Sipariş sıralaması">${Object.entries(SORTS).filter(([v])=>paraVar||!PARA_SIRA.includes(v)).map(([v,l])=>'<option value="'+v+'">'+esc(l)+'</option>').join('')}</select></label></div>
      <div class="ol-filterbar"><div class="ol-seg" role="group" aria-label="Kanal" data-ol-channel>${[['','Tüm kanallar'],['trendyol','Trendyol'],['hepsiburada','Hepsiburada'],['other','Diğer']].map(([v,l])=>'<button type="button" data-ol-kanal="'+v+'">'+l+'</button>').join('')}</div>
      <label class="ol-mobile-channel"><span>Kanal</span><select data-ol-channel-select aria-label="Sipariş kanalı"><option value="">Tüm kanallar</option><option value="trendyol">Trendyol</option><option value="hepsiburada">Hepsiburada</option><option value="other">Diğer</option></select></label>
-     <details class="ol-more" data-ol-more><summary>Filtreler <span data-ol-more-count></span></summary><div class="ol-filter-panel"><div class="ol-result-filter"><span>Sonuç</span><div class="ol-seg ol-seg-sonuc" role="group" aria-label="Kâr veya zarar" data-ol-sonuc>${[['','Hepsi'],['kar','Kâr edenler'],['zarar','Zarar edenler']].map(([v,l])=>'<button type="button" data-ol-sonuc-sec="'+v+'">'+l+' <span class="ol-say" data-ol-sonuc-say="'+(v||'hepsi')+'"></span></button>').join('')}</div></div>
+     <details class="ol-more" data-ol-more><summary>Filtreler <span data-ol-more-count></span></summary><div class="ol-filter-panel">${paraVar?`<div class="ol-result-filter"><span>Sonuç</span><div class="ol-seg ol-seg-sonuc" role="group" aria-label="Kâr veya zarar" data-ol-sonuc>${[['','Hepsi'],['kar','Kâr edenler'],['zarar','Zarar edenler']].map(([v,l])=>'<button type="button" data-ol-sonuc-sec="'+v+'">'+l+' <span class="ol-say" data-ol-sonuc-say="'+(v||'hepsi')+'"></span></button>').join('')}</div></div>`:''}
      <form class="ol-more-form" data-ol-extra><label>Başlangıç<input name="from" type="date"></label><label>Bitiş<input name="to" type="date"></label><label>Takip<select name="watch"><option value="">Hepsi</option>${Object.entries({long_shipping:'7+ gündür kargoda',source_changed:'Kaynak bilgisi değişen',unmapped:'Ürün eşleşmesi eksik',missing_amounts:'Satış tutarı eksik'}).map(([v,l])=>'<option value="'+v+'">'+l+'</option>').join('')}</select></label><div class="ol-more-actions"><button type="submit" class="secondary">Uygula</button><button type="button" class="secondary" data-ol-temizle>Temizle</button></div></form></div></details></div>
      <div class="ol-list-caption"><p data-ol-current-scope></p><span>KDV dahil tutarlar</span></div><div data-order-list></div><div class="ol-pager" data-ol-pager></div></section>
      <p class="workflow-scope ol-scope-note">Kargodaki sonuç teslim bekler. Tahmini ve eksik bilgiler satırında belirtilir. Tarih filtresi sipariş tarihine uygulanır.</p></div>`;
@@ -156,7 +163,13 @@ export function mountOrders(root,namespace='ec'){
    return '<details class="offering-components"><summary>Depodan düşen ürünler</summary><p>'+esc(phase)+'</p><ul>'+parts.map(c=>'<li>'+esc(c.product_name||state.data.products.find(x=>x.id===c.product_id)?.name||'Stok ürünü')+' · '+qty(c.quantity_milli)+' '+esc(c.stock_unit||'')+'</li>').join('')+'</ul></details>';};
   const brut=p=>{const ls=(state.data.lines||[]).filter(l=>l.package_id===p.id);return ls.length&&ls.every(l=>l.gross_cents!==null&&l.gross_cents!==undefined)?ls.reduce((t,l)=>t+l.gross_cents,0):null;};
   const [anahtar,yon]=state.sort.split('_');
-  const baslik=(key,label)=>{const aktif=anahtar===key;return `<th class="ol-h-${key}" aria-sort="${aktif?(yon==='asc'?'ascending':'descending'):'none'}"><button type="button" data-ol-sortkey="${key}" title="${esc(label)} sütununa göre sırala">${esc(label)}<span aria-hidden="true">${aktif?(yon==='asc'?' ▲':' ▼'):' ↕'}</span></button></th>`;};
+  // Tutar yetkisini SUNUCU bildirir (orders-api.js sonuc_counts); yetki mantigi burada kurulmaz.
+  const paraVar=state.data.sonuc_counts!==null&&state.data.sonuc_counts!==undefined;
+  const baslik=(key,label)=>{
+   // Paraya gore siralama DIZILISIYLE sonucu soyler (ilk satir en cok kaybettiren). Yetki yoksa
+   // sutun basligi tiklanabilir bir siralama dugmesi olmaz; sunucu da o siralamayi yok sayar.
+   if(!paraVar&&PARA_SUTUN.includes(key))return `<th class="ol-h-${key}">${esc(label)}</th>`;
+   const aktif=anahtar===key;return `<th class="ol-h-${key}" aria-sort="${aktif?(yon==='asc'?'ascending':'descending'):'none'}"><button type="button" data-ol-sortkey="${key}" title="${esc(label)} sütununa göre sırala">${esc(label)}<span aria-hidden="true">${aktif?(yon==='asc'?' ▲':' ▼'):' ↕'}</span></button></th>`;};
   if(!packages.length){const filtered=state.search||state.filter||state.channel||state.sonuc||state.from||state.to||state.watch;box.innerHTML=`<div class="v2-empty"><h3>${filtered?'Bu filtrelerle sipariş bulunamadı.':'Henüz sipariş yok.'}</h3><p>${filtered?'Aramayı veya filtreleri temizleyerek tüm siparişlere dönebilirsin.':'Yeni sipariş ekleyerek başlayabilirsin. Pazaryeri raporundan aktarılan siparişler de burada görünür.'}</p>${filtered?btn('Tüm filtreleri temizle','clear-filters','',true):btn('Yeni sipariş','new')}</div>`;return;}
   box.innerHTML=`<div class="ol-table-wrap"><table class="ol-table" data-list-tools="off"><thead><tr><th class="ol-h-urun">Sipariş / satılan ürün</th><th class="ol-h-kanal">Kanal</th>${baslik('date','Tarih')}<th class="ol-h-durum">Durum</th>${baslik('amount','Tutar')}${baslik('profit','Cebine kalan')}</tr></thead><tbody>${packages.map(p=>{
    const elapsed=p.status==='shipped'&&p.return_status!=='tam'&&p.shipped_on?Math.max(0,Math.floor((Date.parse(today())-Date.parse(p.shipped_on))/86400000)):null;

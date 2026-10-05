@@ -3,6 +3,7 @@ import {resolveMapping} from './catalog-api.js';
 import {ordersQuery,AKTARIM_ARTIGI} from './orders-query.js';
 import {assertReportLinkFresh} from './report-link-guard.js';
 import {paketSonuclari,komisyonOraniBps} from './performance-api.js';
+import {can} from '../public/permissions.js';
 const fail=(m,s=400)=>{throw Object.assign(new Error(m),{status:s});};
 const id=()=>crypto.randomUUID();
 const text=(v,label,max=200)=>{if(typeof v!=='string'||!v.trim()||v.length>max)fail(label+' alanını kontrol edin.');return v.trim();};
@@ -129,14 +130,22 @@ export async function ordersApi(request,env,path,readBody){
   // yalnız görünen sayfayı sıralamak/süzmek yanlış olurdu. Cebine kalan (nakit) bütün paketler için
   // hesaplanır: kâr/zarar düğmelerindeki sayılar da diğer filtrelere göre buradan çıkar.
   // Değeri olmayan (kesintisi bekleyen) paketler sıralamada her yönde en sonda.
-  const [anahtar,yon]=sort.split('_'),artan=yon==='asc';
+  let [anahtar,yon]=sort.split('_'),artan=yon==='asc';
   let hepsi=(await statement(db,'SELECT id,occurred_on,created_at,rowid rid,(SELECT SUM(l.gross_cents) FROM order_lines l WHERE l.package_id=order_packages.id) brut FROM order_packages'+scope,args).all()).results;
   const ozet=await nakitOzeti(hepsi.map(r=>r.id));
   const nakitOf=r=>ozet.get(r.id)?.nakit??null;
   // KÂR / ZARAR listedeki "cebine kalan" rakamına göre: sıfırdan büyük kâr, küçük zarar.
   // Kesintisi henüz gelmemiş (rakamı olmayan) sipariş ikisine de girmez.
-  const sonucSayilari={hepsi:hepsi.length,kar:hepsi.filter(r=>nakitOf(r)>0).length,zarar:hepsi.filter(r=>nakitOf(r)!==null&&nakitOf(r)<0).length};
-  if(sonuc)hepsi=hepsi.filter(r=>{const n=nakitOf(r);return n!==null&&(sonuc==='kar'?n>0:n<0);});
+  // Kâr/zarar SAYILARI, kâr/zarar SÜZGECİ ve paraya göre SIRALAMA parasal bilgidir:
+  // tutarları gizlemek yetmez, çünkü üçü de sunucuda nakit sonuca göre çalışır.
+  // Süzgeç 'zarar' seçilince zarar eden paketlerin TAMAMINI sayfa sayfa listeletiyordu;
+  // sıralama da aynı bilgiyi dizilişiyle veriyordu (ilk satır en çok kaybettiren).
+  // Yetki yoksa: sayılar null (arayüz süzgeci hiç basmaz), süzgeç yok sayılır,
+  // paraya göre sıralama tarihe düşer. Miktar ve durum bilgisi aynen kalır.
+  const paraGorur=!env.USER||!!env.USER.owner||can(env.USER,env.WORKSPACE,'amounts');
+  const sonucSayilari=paraGorur?{hepsi:hepsi.length,kar:hepsi.filter(r=>nakitOf(r)>0).length,zarar:hepsi.filter(r=>nakitOf(r)!==null&&nakitOf(r)<0).length}:null;
+  if(sonuc&&paraGorur)hepsi=hepsi.filter(r=>{const n=nakitOf(r);return n!==null&&(sonuc==='kar'?n>0:n<0);});
+  if(!paraGorur&&['profit','amount'].includes(anahtar)){anahtar='date';artan=false;}
   const deger=r=>anahtar==='profit'?nakitOf(r):(r.brut??null);
   if(anahtar==='date')hepsi.sort((a,b)=>{const c=a.occurred_on.localeCompare(b.occurred_on)||String(a.created_at).localeCompare(String(b.created_at))||a.rid-b.rid;return artan?c:-c;});
   else hepsi.sort((a,b)=>{const x=deger(a),y=deger(b);if(x===null||y===null)return x===null&&y===null?b.occurred_on.localeCompare(a.occurred_on):x===null?1:-1;return artan?x-y:y-x;});

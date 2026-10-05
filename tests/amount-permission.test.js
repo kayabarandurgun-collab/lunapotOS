@@ -206,3 +206,93 @@ test('Tutar yetkisi olmayan personel receteyi duzenler ama giderleri sifirlayama
   assert.equal(sonra.items.find(i=>i.material_id===material).quantity,3,'personelin miktar degisikligi uygulanmali');
  }finally{f.close();}
 });
+
+// ---------------------------------------------------------------------------
+// B GRUBU — zarar/kâr eden paket SAYILARI. Tutar null'lanmasi yetmiyordu: "kac paket
+// zarar etti" sorusunun cevabi sayinin kendisinde duruyor ve ekranda basiliydi.
+// Paket, hesaplanabilen ve eksik SAYILARI is bilgisidir, kalir.
+test('Zarar ve kar eden paket sayilari personele gitmez, paket sayilari kalir',()=>{
+ const personel={owner:false,ec_access:'read',permissions:{ec:{performance:'read',amounts:'none'},lp:{}}};
+ const o=scrubAmounts({
+  periods:[{key:'tum',label:'Tüm zamanlar',packages:7,calculated:5,missing:2,losses:2,gains:3,loss_cents:-1200,gain_cents:4500}],
+  pending:{packages:2,calculated:2,losses:1,gains:1},
+  channels:[{channel:'trendyol',packages:4,calculated:4,cash_calculated:4,losses:1,cash_losses:1,profit_cents:900}],
+ },personel,'ec');
+ const p=o.periods[0];
+ assert.equal(p.losses,null,'zarar eden paket sayisi gizlenmeli');
+ assert.equal(p.gains,null,'kar eden paket sayisi gizlenmeli');
+ assert.equal(p.loss_cents,null);assert.equal(p.gain_cents,null);
+ assert.equal(p.label,'Tüm zamanlar','donem etiketi para degildir');
+ assert.equal(p.packages,7,'paket sayisi para degildir');
+ assert.equal(p.calculated,5,'hesaplanabilen paket sayisi para degildir');
+ assert.equal(p.missing,2,'eksik paket sayisi para degildir');
+ assert.equal(o.pending.losses,null);assert.equal(o.pending.gains,null);
+ assert.equal(o.pending.packages,2,'kargodaki paket sayisi gorunur');
+ assert.equal(o.channels[0].losses,null,'kanal basina zarar sayisi gizlenmeli');
+ assert.equal(o.channels[0].cash_losses,null,'kanal basina nakit zarar sayisi gizlenmeli');
+ assert.equal(o.channels[0].channel,'trendyol','kanal adi para degildir');
+ assert.equal(o.channels[0].packages,4);assert.equal(o.channels[0].cash_calculated,4);
+});
+
+// Siparis listesinin kar/zarar SUZGECI, SAYILARI ve paraya gore SIRALAMASI sunucuda
+// nakit sonuca gore calisiyordu ve yetki kontrolu yoktu (orders-api.js). Personel
+// "Zarar edenler" diyerek zarar eden paketlerin TAMAMINI sayfa sayfa listeletiyordu.
+// Tutar yetkisi olmayanda: sayilar null, suzgec yok sayilir, para sirasi tarihe duser.
+async function siparisli(){
+ const f=appFixture();await f.setup();
+ f.sqlite.exec("INSERT INTO ec_products(id,name,sku,stock_unit) VALUES('p1','Torf 10 L','T10','adet')");
+ // KDV orani olmadan nakit sonuc hesaplanamaz; kar/zarar sayilari da bos cikar.
+ f.sqlite.exec("INSERT INTO ec_price_profiles(product_id,vat_bps,replacement_cost_cents,packaging_cents,other_cents,withholding_bps,length_mm,width_mm,height_mm,weight_grams,units_per_parcel) VALUES('p1',2000,0,0,0,0,100,100,100,500,1)");
+ f.sqlite.exec('UPDATE ec_stock_balances SET quantity_milli=1000000,value_cents=4600000');
+ // Kesinti KDV'si beyan edilmemisse nakit sonuc hesaplanmaz (orders-api.js nakitOzeti).
+ f.sqlite.exec("INSERT INTO ec_report_stores(id,provider,code,name) VALUES('st-ty','trendyol','TY','TY')");
+ f.sqlite.exec("INSERT INTO ec_report_profiles(id,provider,kind,signature,version,mapping_json,options_json,created_by) VALUES('pf-ty','trendyol','finance','sig',1,'{}','{\"fee_amounts_include_vat\":true,\"fee_vat_bps\":2000}','t')");
+ const paket=(id,gun,{satis=11000,maliyet=4600,kom=1610}={})=>{
+  f.sqlite.exec(`INSERT INTO ec_order_packages(id,channel,external_id,order_no,occurred_on,status,source_fingerprint) VALUES('${id}','trendyol','E-${id}','S-${id}','${gun}','draft','t')`);
+  f.sqlite.exec(`INSERT INTO ec_order_lines(id,package_id,external_id,name,quantity_milli,net_revenue_cents,gross_cents,vat_bps) VALUES('l-${id}','${id}','L-${id}','Torf 10 L',1000,${satis},${Math.round(satis*1.2)},2000)`);
+  f.sqlite.exec(`INSERT INTO ec_sale_entries(id,channel,external_id,product_id,kind,quantity_milli,revenue_cents,cost_cents,commission_cents,shipping_cents,other_cents,fees_status,occurred_on) VALUES('s-${id}','trendyol','X-${id}','p1','sale',1000,${satis},${maliyet},${kom},0,0,'confirmed','${gun}')`);
+  f.sqlite.exec(`INSERT INTO ec_order_line_components(id,line_id,product_id,quantity_milli,revenue_share_bps,sale_id,stock_unit) VALUES('c-${id}','l-${id}','p1',1000,10000,'s-${id}','adet')`);
+  for(const d of ['reserved','shipped'])f.sqlite.exec(`UPDATE ec_order_packages SET status='${d}'${d==='shipped'?",shipped_on='"+gun+"'":''} WHERE id='${id}'`);
+  f.sqlite.exec(`UPDATE ec_order_packages SET status='delivered',delivered_on='${gun}' WHERE id='${id}'`);
+ };
+ paket('kar','2026-09-10');                        // cebine kalan artida
+ paket('zarar','2026-09-11',{maliyet:20000});      // cebine kalan ekside
+ const staff=await f.ok('/admin/users',{name:'Sipariş',username:'siparis',
+  permissions:{ec:{orders:'read',amounts:'none'},lp:{},delete_records:false}});
+ await f.req('/auth/accept-invite',{token:staff.invite_path.split('invite=')[1],password:'siparis-personel-sifresi'});
+ const login=await f.req('/auth/login',{username:'siparis',password:'siparis-personel-sifresi'});
+ return {f,cookie:login.cookie};
+}
+
+test('Siparis listesinin kar/zarar suzgeci ve para sirasi tutar yetkisi olmayanda calismaz',async()=>{
+ const {f,cookie}=await siparisli();try{
+  const hepsi=await f.req('/ec/orders',undefined,cookie);
+  assert.equal(hepsi.status,200);
+  assert.equal(hepsi.data.sonuc_counts,null,'kar/zarar paket sayilari gonderilmemeli');
+  assert.equal(hepsi.data.packages.length,2,'siparisler gorunmeye devam etmeli');
+
+  // SUZGEC YOK SAYILIR: 'zarar' secilse de liste daralmaz, yoksa personel zarar eden
+  // paketlerin tam listesini enumere ederdi.
+  const suzulmus=await f.req('/ec/orders?sonuc=zarar',undefined,cookie);
+  assert.equal(suzulmus.status,200);
+  assert.equal(suzulmus.data.packages.length,2,'sonuc suzgeci yok sayilmali');
+
+  // PARA SIRASI TARIHE DUSER: dizilisin kendisi "en cok kaybettiren ustte" bilgisidir.
+  const paraSirasi=await f.req('/ec/orders?sort=profit_asc',undefined,cookie);
+  assert.equal(paraSirasi.status,200);
+  assert.deepEqual(paraSirasi.data.packages.map(p=>p.id),['zarar','kar'],'tarih · yeniden eskiye sirasi');
+  const tersi=await f.req('/ec/orders?sort=amount_desc',undefined,cookie);
+  assert.deepEqual(tersi.data.packages.map(p=>p.id),['zarar','kar'],'tutara gore siralama da tarihe duser');
+  for(const p of hepsi.data.packages)assert.equal(p.cash_result_cents??null,null,'paket tutari gizli kalmali');
+ }finally{f.close();}
+});
+
+test('Yonetici siparis listesinde kar/zarar sayilarini, suzgeci ve para sirasini aynen gorur',async()=>{
+ const {f}=await siparisli();try{
+  const hepsi=await f.ok('/ec/orders');
+  assert.deepEqual(hepsi.sonuc_counts,{hepsi:2,kar:1,zarar:1},'yoneticide sayilar gelmeli');
+  assert.deepEqual((await f.ok('/ec/orders?sonuc=zarar')).packages.map(p=>p.id),['zarar'],'suzgec yoneticide calismali');
+  assert.deepEqual((await f.ok('/ec/orders?sort=profit_asc')).packages.map(p=>p.id),['zarar','kar'],'en az kalan ustte');
+  assert.deepEqual((await f.ok('/ec/orders?sort=profit_desc')).packages.map(p=>p.id),['kar','zarar'],'en cok kalan ustte');
+ }finally{f.close();}
+});
