@@ -6,6 +6,10 @@ export function movementLabel(row){
  if(row.kind==='adjustment')return 'Alış maliyeti düzeltmesi';
  if(row.kind==='cost_settlement')return 'Stoksuz satışın maliyeti kapandı';
  if(row.kind==='cost_revaluation')return 'Maliyet düzeltmesi (FIFO)';
+ // SIRA ÖNEMLİ: hayalet telafisinin referansı da 'GECICI-SAYIM-' ile başlıyor, bu yüzden bu iki
+ // satır onun ÖNÜNDE durur; yoksa 392 adetlik en büyük düzeltme "Faturasız mal girişi" okunurdu.
+ if(/^GECICI-SAYIM-.*-SAT-/.test(String(row.reference)))return 'Hatalı raf sayımı telafisi (0072)';
+ if(String(row.reference).startsWith('TELAFI-IPTAL-'))return 'Raf sayımı telafisi geri alındı';
  if(String(row.reference).startsWith('GECICI-SAYIM-'))return 'Faturasız mal girişi';
  if(String(row.reference).startsWith('GECICI-IPTAL-'))return 'Faturasız giriş iptal edildi';
  if(String(row.reference).startsWith('provisional-close:'))return 'Faturasız giriş faturayla kapandı';

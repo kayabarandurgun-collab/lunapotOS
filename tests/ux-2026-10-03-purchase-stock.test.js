@@ -39,6 +39,11 @@ test('history distinguishes incoming unbilled goods from physical count and purc
  assert.equal(movementLabel({kind:'count',reference:'GECICI-SAYIM-IRS1'}),'Faturasız mal girişi');
  assert.equal(movementLabel({kind:'count',reference:'provisional-close:abc'}),'Faturasız giriş faturayla kapandı');
  assert.equal(movementLabel({kind:'count',reference:'COUNT1'}),'Sayım farkı');
+ // 0072: hayalet telafisinin referansı da 'GECICI-SAYIM-' ile başlıyor. Etiketlenmezse 392 adetlik
+ // en büyük düzeltme stok kartında "Faturasız mal girişi" diye okunurdu.
+ assert.equal(movementLabel({kind:'count',reference:'GECICI-SAYIM-000879-SAT-ab12cd34'}),'Hatalı raf sayımı telafisi (0072)');
+ assert.equal(movementLabel({kind:'purchase',reference:'TELAFI-IPTAL-GECICI-SAYIM-000879-SAT-ab12cd34'}),'Raf sayımı telafisi geri alındı');
+ assert.equal(movementLabel({kind:'purchase',reference:'GECICI-IPTAL-000879'}),'Faturasız giriş iptal edildi');
  const html=linksBlock({product:{stock_unit:'adet'},links:[{source:'purchase',external_code:'X',quantity_milli:6000,component_count:1}]});
  assert.match(html,/1 fatura biriminde 6 adet giriş/);assert.doesNotMatch(html,/1 satışta/);
 });

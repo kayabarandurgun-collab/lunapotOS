@@ -485,21 +485,28 @@ test('Otomatik aktarım: KDV ürün profiline bakmadan ayardan gelir, aktarım d
   } finally { f.close(); }
 });
 
-test('Otomatik aktarım: ürün sipariş tarihinden sonra rafta sayıldıysa satış kaydedilir, sayım satış kadar artar, raf değişmez', async () => {
+// ESKİ BEKLENTİ YANLIŞI DOĞRU SANMIŞTI (0072). Bu test "sayım satış kadar artar, raf değişmez"
+// diyerek hayalet stok üreten davranışı sözleşmeye bağlamıştı. 'GECICI-SAYIM-%' bir raf anlık
+// görüntüsü DEĞİL, faturasız girişin GELEN MİKTARIDIR (ledger-api.js:380); satılan adedi geri
+// eklemek gelen miktarı ikinci kez saymaktı. Canlıda 341 hareket / 398 adet / 13.492,34 TL
+// hayalet biriktirdi. Artık satış sayımdan DÜŞER ve raf gerçek adete iner.
+test('Otomatik aktarım: faturasız giriş sayımı raf fotoğrafı sanılmaz; satış sayımdan düşer, telafi yazılmaz', async () => {
   const f = appFixture(); await f.setup(); try {
     const product = await fourPack(f);
     const s = store(f);
     startDate(f, DATE);
-    await f.ok('/ec/stock', {product_id: product.id, quantity: 24, unit_cost: 10, kind: 'count', reference: 'GECICI-SAYIM-X', notes: 'Raf sayımı', occurred_on: '2026-09-15'});
+    await f.ok('/ec/stock', {product_id: product.id, quantity: 24, unit_cost: 10, kind: 'count', reference: 'GECICI-SAYIM-X', notes: 'Faturasız mal girişi', occurred_on: '2026-09-15'});
     record(f, s, 'TY-1', line({package_id: 'PKS', line_id: 'LS', order_no: 'OS', status: 'Teslim Edildi', delivered_date: '2026-09-13'}), 1);
     const r = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
-    assert.match(r.results[0].done || '', /raf sayımı satışla düzeltildi.*gönderildi/, JSON.stringify(r.results[0]));
-    assert.equal(stockOf(f, product.id), 24000, 'raf 24 kaldı: satış (8) düştü, sayım 8 arttı');
-    const ek = f.sqlite.prepare("SELECT quantity_milli,occurred_on FROM ec_stock_movements WHERE reference LIKE 'GECICI-SAYIM-X-SAT-%'").all();
-    assert.deepEqual(ek.map(x => [x.quantity_milli, x.occurred_on]), [[8000, '2026-09-15']], 'ek sayım sayımın tarihinde, satılan adet kadar');
+    assert.match(r.results[0].done || '', /gönderildi/, JSON.stringify(r.results[0]));
+    assert.ok(!/raf sayımı satışla düzeltildi/.test(r.results[0].done || ''), 'telafi adımı artık yok');
+    assert.equal(stockOf(f, product.id), 16000, 'raf 16: gelen 24, satılan 8');
+    assert.deepEqual(f.sqlite.prepare("SELECT quantity_milli FROM ec_stock_movements WHERE reference LIKE 'GECICI-SAYIM-X-SAT-%'").all(), [],
+      'hayalet telafi hareketi yazılmaz');
+    assert.equal(f.sqlite.prepare('SELECT COUNT(*) n FROM ec_report_count_offsets').get().n, 0, 'telafi niyeti de yazılmaz');
     const again = await f.ok('/ec/reports/stock-link/auto', {store_id: s, skip: []});
     assert.equal(again.results.length, 0, 'ikinci çalıştırma yazmaz');
-    assert.equal(stockOf(f, product.id), 24000);
+    assert.equal(stockOf(f, product.id), 16000);
   } finally { f.close(); }
 });
 

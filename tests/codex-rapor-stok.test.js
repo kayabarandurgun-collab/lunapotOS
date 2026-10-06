@@ -74,18 +74,37 @@ test('R05: kargolanmış pakette rezervasyon başarısız olursa telafi artış�
   } finally { f.close(); }
 });
 
-test('R05: gönderimde bir satış ve bir telafi; raf sayımı siparişten küçük olsa da gönderilir; tekrar etkisiz', async () => {
+// ESKİ BEKLENTİ YANLIŞI DOĞRU SANMIŞTI (0072). "raf 6: satış 8 düştü, telafi 8" cümlesi hayalet
+// stok üreten telafiyi sözleşmeye bağlamıştı: 'GECICI-SAYIM-%' raf fotoğrafı değil, faturasız
+// girişin GELEN MİKTARIDIR (ledger-api.js:380). Telafi kalkınca 0050:82'nin kapasite bonusu da
+// kalkar; bu yüzden test ikiye bölünür. Canlıda allow_negative_stock=1 olduğu için ÜRETİM
+// DAVRANIŞI (b) şıkkıdır.
+test('R05/0072-a: ayar kapalıyken gelen miktar siparişten küçükse paket taslak kalır, telafi yazılmaz', async () => {
   const f = appFixture(); await f.setup(); try {
-    const p = await kur(f, {acilis: 0, sayim: 6});             // 8 şişe sayımdan önce gitmiş, rafta 6 kalmış
+    const p = await kur(f, {acilis: 0, sayim: 6});             // faturasız giriş 6 adet, sipariş 8 adet
+    record(f, {status: 'Teslim Edildi', delivered_date: '2026-09-13'});
+    const r = await oto(f);
+    assert.ok(r.results[0].skipped, JSON.stringify(r.results));
+    assert.match(r.results[0].reason || '', /stok yetersiz/, 'sebep stok yetersizliği (ORDER_INSUFFICIENT_STOCK): ' + JSON.stringify(r.results[0]));
+    assert.equal(stok(f, p.id), 6000, 'defter değişmedi');
+    assert.deepEqual(telafiler(f), []);
+    assert.deepEqual(satislar(f), []);
+  } finally { f.close(); }
+});
+
+test('R05/0072-b: ayar açıkken gönderilir, stok eksiye iner (gerçek eksik görünür), telafi yazılmaz', async () => {
+  const f = appFixture(); await f.setup(); try {
+    const p = await kur(f, {acilis: 0, sayim: 6});
+    sql(f, 'UPDATE workspace_settings SET allow_negative_stock=1 WHERE workspace=?', 'ec');   // canlıdaki ayar
     record(f, {status: 'Teslim Edildi', delivered_date: '2026-09-13'});
     const r = await oto(f);
     assert.match(r.results[0].done || '', /gönderildi/, JSON.stringify(r.results));
-    assert.equal(stok(f, p.id), 6000, 'raf 6: satış 8 düştü, telafi 8');
-    assert.deepEqual(telafiler(f), [8000]);
+    assert.equal(stok(f, p.id), -2000, 'raf -2: gelen 6, satılan 8 — eksik giriş gizlenmez');
+    assert.deepEqual(telafiler(f), [], 'hayalet telafi yok');
     assert.deepEqual(satislar(f).map(s => s.q), [8000]);
     await oto(f); await oto(f);
-    assert.equal(stok(f, p.id), 6000);
-    assert.deepEqual(telafiler(f), [8000], 'ikinci telafi yok');
+    assert.equal(stok(f, p.id), -2000);
+    assert.deepEqual(telafiler(f), []);
     assert.equal(satislar(f).length, 1, 'ikinci satış yok');
   } finally { f.close(); }
 });

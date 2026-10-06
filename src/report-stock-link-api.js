@@ -426,44 +426,24 @@ async function tazeleTaslakBagi(db, packageId) {
   return {updated: true, repriced: ozet};
 }
 
-// RAF SAYIMI DÜZELTMESİ. Ürün, sipariş tarihinden SONRA rafta geçici sayılmışsa (GECICI-SAYIM) o
-// sayım satıştan SONRAKİ rafı gösterir. Satış şimdi stoktan düşülürse raf eksik görünür. Satış
-// kaydedilir ve aynı sayım, satılan adet kadar artırılır (ayrı referanslı ek sayım hareketi,
-// sayımın kendi birim değeriyle). Raf değişmez; ek adet de faturasızdır ve fatura gelince
-// geçici sayımla birlikte kendiliğinden kapanır. Tekrar çalıştırmada ikinci kez yazılmaz.
+// RAF SAYIMI TELAFİSİ KALDIRILDI (0072). Buradaki sayimTelafisiHazirla(), 'GECICI-SAYIM-%'
+// kaydını bir RAF ANLIK GÖRÜNTÜSÜ sanıyordu ("sayım satıştan sonraki rafı gösterir, satış şimdi
+// düşülürse raf eksik görünür") ve arada satılan adedi geri ekliyordu. O kayıt raf fotoğrafı
+// DEĞİL, faturasız girişin GELEN MİKTARIDIR (ledger-api.js:380 irsaliye miktarını 'count' yazar).
+// Gelen miktar + satılan miktar = hayalet stok: 341 hareket / 398 adet / 13.492,34 TL
+// (ölçüm 05.10.2026), panel adedinin %38'i. 0072 bunların uygun olanını geri çekti ve mekanizmayı
+// hem JS'te hem şemada kapattı (ec_report_count_offset_retired).
 //
-// İPTAL EDİLEN GİRİŞİN SAYIMI TELAFİ ADAYI DEĞİLDİR (0070): o sayımın malı stoktan geri
-// çekilmiştir, telafi hayalet mal yazardı. İptal edilmiş sayım atlanır, varsa sonraki sağlam
-// sayım seçilir. 0070'teki ec_report_count_offset_cancel_guard son duraktır; bu süzgeç olmadan
-// tetik burada atar ve bütün rapor turu çöker (bu çağrı try/catch dışındadır).
-// R05: Artış eskiden rezervasyondan ÖNCE yazılıyordu; sipariş yalnız hazırlanıp iptal edilince ya da
-// ayırma başarısız olunca stok fazladan artmış kalıyordu. Artık burada yalnız NİYET kaydedilir
-// (ec_report_count_offsets; stok değişmez) ve yalnız raporda kargoya verilmiş paket için. Sayım
-// hareketi, paket 'reserved' → 'shipped' geçtiği an aynı işlemde tetikle yazılır (0050): gönderim
-// yoksa telafi yok, gönderim bir kez olduğu için telafi de bir kez. Eski sürümün aynı referansla
-// yazdığı telafi varsa niyet yazılmaz.
-async function sayimTelafisiHazirla(db, packageId, occurred) {
-  const rows = (await db.prepare(`SELECT c.product_id,SUM(c.quantity_milli) q,
-      (SELECT m.id FROM ec_stock_movements m WHERE m.product_id=c.product_id AND m.kind='count' AND m.quantity_milli>0
-        AND m.reference LIKE 'GECICI-SAYIM-%' AND m.reference NOT LIKE '%-SAT-%' AND m.occurred_on>=?
-        AND NOT EXISTS(SELECT 1 FROM ec_stock_movements x WHERE x.kind='purchase' AND x.product_id=m.product_id
-          AND x.reference='GECICI-IPTAL-'||substr(m.reference,14))
-        ORDER BY m.occurred_on,m.rowid LIMIT 1) sayim_id
-    FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id WHERE l.package_id=? GROUP BY c.product_id`).bind(occurred, packageId).all()).results
-    .filter(r => r.sayim_id);
-  let niyet = 0;
-  for (const r of rows) {
-    const m = await db.prepare('SELECT id,reference,quantity_milli,value_cents,occurred_on FROM ec_stock_movements WHERE id=?').bind(r.sayim_id).first();
-    const ref = m.reference + '-SAT-' + packageId.slice(0, 8);
-    if (await db.prepare("SELECT 1 FROM ec_stock_movements WHERE kind='count' AND reference=? AND product_id=?").bind(ref, r.product_id).first()) continue;
-    await db.prepare(`INSERT INTO ec_report_count_offsets(id,package_id,product_id,count_movement_id,quantity_milli,value_cents,reference,notes,occurred_on)
-      VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(package_id,product_id) DO NOTHING`).bind(crypto.randomUUID(), packageId, r.product_id, m.id, r.q,
-      Math.max(0, Math.round(m.value_cents * r.q / m.quantity_milli)), ref,
-      'Geçici sayım, sayımdan önceki satış kadar artırıldı (' + m.reference + '). Raf değişmez; fatura gelince kapanır.', m.occurred_on).run();
-    niyet++;
-  }
-  return niyet;
-}
+// Gerçek raf sayımı delta yazar (accounting.js:185, 0067:85) ve rezervasyon çakışması 0067'nin
+// WAREHOUSE_RESERVED kapısıyla çözülür; bu yola ihtiyaç yoktu.
+//
+// Eski yorumun "bu çağrı try/catch dışındadır" cümlesi de yanlıştı: çağrı aşağıdaki sipariş
+// döngüsünün try/catch'i (529 → 627) İÇİNDEYDİ, yani 0070'in tetiği atsa yalnız o sipariş
+// 'skipped' olurdu, bütün rapor turu çökmezdi. 0072'nin sert kapısı bu yüzden güvenle eklendi.
+//
+// DOKUNULMAZ: ledger-api.js:380'deki 'GECICI-SAYIM-' öneki 0065'in bütün bağ makinesinin
+// (ec_provisional_link_candidates, ec_provisional_line_movements) çapasıdır; değiştirmek mevcut
+// 41 sayımı yetim bırakır. Hata yazıcıda değil, okuyucunun o kaydı "raf fotoğrafı" sanmasındaydı.
 
 
 // SATIŞ KDV ORANI PAZARYERİNDEN ALINMAZ. Hepsiburada bazı ilanlarda %10 bildiriyordu; kullanıcı
@@ -635,18 +615,12 @@ export async function reportStockLinkApi(request, env, path, readBody) {
         const eksik = cur?.status === 'reserved' ? [] : ls.filter(l => l.net_revenue_cents === null && l.gross_cents !== null && l.mapping_id);
         if (eksik.length) { await call(ordersApi, '/api/orders/' + id + '/map', {lines: eksik.map(l => ({id: l.id, mapping_id: l.mapping_id, vat_rate: kdvBps / 100}))}); steps.push('KDV satış ayarından'); }
         const linked = {occurred_on: occurred};
-        // Ürün sipariş tarihinden sonra rafta geçici sayıldıysa sayım satış kadar artırılır. Yalnız raporda
-        // kargoya verilmiş paket için ve yalnız NİYET: artış gönderimle aynı işlemde yazılır (R05).
-        if (cur?.status !== 'reserved' && GITTI.test(durum)) await sayimTelafisiHazirla(db, id, occurred || c.order_date);
         try { if (cur?.status !== 'reserved') { await call(ordersApi, '/api/orders/' + id + '/reserve', {}); steps.push('stok ayrıldı'); } }
         // Taslak kalma sebebine ilan eşleşmesinin sebebi de eklenir: kullanıcı ne yapacağını görür.
         catch (e) { results.push({...out, skipped: true, order_package: id,
           reason: ['Sipariş taslak kaldı: ' + e.message, ...eslesmeSebebi].join(' ')}); continue; }
         if (GITTI.test(durum)) {
-          const telafi = "SELECT COUNT(*) n FROM ec_report_count_offsets WHERE package_id=? AND applied_at IS NOT NULL";
-          const once = (await db.prepare(telafi).bind(id).first()).n;
           await call(ordersApi, '/api/orders/' + id + '/ship', {occurred_on: linked.occurred_on || c.order_date, reference: 'RAPOR-' + pkg});
-          if ((await db.prepare(telafi).bind(id).first()).n > once) steps.push('raf sayımı satışla düzeltildi');
           steps.push('gönderildi');
           if (!c.not_delivered && day(c.delivered_on)) { await call(ordersApi, '/api/orders/' + id + '/deliver', {occurred_on: c.delivered_on}); steps.push('teslim edildi'); }
         }
