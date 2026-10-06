@@ -105,6 +105,11 @@
 .workflow-orders .ol-toolbar{gap:14px;align-items:end;padding:16px}
 .workflow-orders .ol-seg{flex-wrap:wrap}.workflow-orders .ol-seg button{white-space:normal}
 .workflow-orders .ol-chips{flex-wrap:wrap;overflow:visible;gap:8px;margin:0 0 16px}
+/* KALICI İLAN BAĞLANTISI. Kutunun altındaki adet alanı dar durur; çoklu paket ilanında bir
+   satışın kaç adet düşeceği tahmin edilmeyip sorulduğu için burada yaşıyor. */
+.ol-kalici-adet{display:grid;gap:4px;max-width:220px;font-size:13px}
+.ol-kalici-adet input{max-width:96px}
+.ol-kalici-adet small{opacity:.72;line-height:1.4}
 .workflow-orders .ol-chip{border:1px solid var(--line);border-radius:var(--radius-dugme);background:#fff}
 .workflow-orders .ol-chip[aria-pressed=true],.workflow-orders .ol-seg button[aria-pressed=true]{background:var(--brand-soft);color:var(--ink);border-color:#aec2a5}
 .workflow-orders .ol-chip[aria-pressed=true] b{color:var(--ink)}

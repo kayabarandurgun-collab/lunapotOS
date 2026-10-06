@@ -5,6 +5,19 @@ const qty=v=>v===null||v===undefined?'Bilinmiyor':new Intl.NumberFormat('tr-TR',
 const today=()=>new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Istanbul'});
 const ref=prefix=>prefix+'-'+crypto.randomUUID().slice(0,12);
 const safeInvoiceURL=value=>{try{const url=new URL(value);return url.protocol==='https:'?url.href:null;}catch{return null;}};
+// KALICI BAĞLANTI ANAHTARI. Rapordan gelen sipariş satırında barkod HER ZAMAN boştur: plan()
+// satıra barcode alanı geçirmiyor, ilan kodunu sku'ya yazıyor (report-stock-link-api.js:275).
+// "Bu ilanı kalıcı bağla" kutusu yalnız l.barcode'a baktığı sürece hiç görünmüyordu, dolayısıyla
+// sipariş ekranından yapılan eşleştirme hiçbir yere kaydedilmiyor ve aynı ilan her raporda
+// yeniden soruluyordu (kullanıcı 06.10.2026: "her seferinde işaretleme yapmama gerek kalmamalı").
+// Sunucunun kendiliğinden eşleşmede kullandığı anahtarın AYNISI kullanılır: önce barkod, barkod
+// yoksa ilan kodu (orders-api.js:43). Harfi harfine "merchantSku" olan kod DIŞLANIR — migration
+// 0059: 29 ayrı ilan bu kodu taşıyor, ona açılacak tek bağlantı hepsini aynı stok kartına bağlardı.
+export const kaliciIlanKodu=l=>{
+ const barkod=String(l?.barcode||'').trim();if(barkod)return barkod;
+ const kod=String(l?.sku||'').trim();
+ return /^merchantsku$/i.test(kod)?'':kod;
+};
 const statuses={draft:'Hazırlık bekliyor',reserved:'Stok ayrıldı',shipped:'Kargoda',delivered:'Teslim edildi',cancelled:'İptal edildi'};
 const channels={trendyol:'Trendyol',hepsiburada:'Hepsiburada',other:'Diğer'};
 const readiness={needs_mapping:'Ürün eşleşmesi eksik',needs_amounts:'Net satış tutarı eksik',needs_stock:'Stok yetersiz',source_changed:'Kaynak sipariş değişti',ready:'Hazırlamaya uygun'};
@@ -313,7 +326,7 @@ export function mountOrders(root,namespace='ec'){
  async function mapping(p){
   state.catalog=await api('/catalog');const lines=linesOf(p.id);
   const mappingOptions=line=>{const current=stockComponents(line),mappingId=current[0]?.mapping_id;return '<option value="">Bağlantı veya stok kartı seçin</option>'+state.catalog.mappings.filter(m=>!m.archived_at&&m.source===p.channel).map(m=>`<option value="mapping:${esc(m.id)}" ${m.id===mappingId?'selected':''}>Bağlantı: ${esc(m.external_name||m.external_code)} · ${esc(m.external_code)}</option>`).join('')+state.data.products.filter(product=>p.channel==='other'||product.stock_unit==='adet').map(product=>`<option value="product:${esc(product.id)}" ${!mappingId&&product.id===line.product_id?'selected':''}>Doğrudan: ${esc(product.name)} · ${esc(product.sku)}</option>`).join('');};
-  dialog('Paketin ürünlerini eşleştir',`<p class="help">İlan bağlantısı veya sanal set seçildiğinde depodan düşecek bileşenler otomatik hesaplanır. Doğrudan stok kartı seçimi tek ürün içindir.</p><p><a class="text-button" href="#catalog">Kalıcı ilan / set bağlantısı oluştur →</a></p>${lines.map(l=>`<fieldset data-map-line="${esc(l.id)}" class="ac-invoice-line"><legend>${esc(l.name)} · ${qty(l.quantity_milli)} ilan birimi</legend><div class="v2-form-grid"><label class="full">İlan bağlantısı veya stok kartı<select data-product required>${mappingOptions(l)}</select></label>${l.barcode?`<label class="full ol-kalici"><input type="checkbox" data-kalici data-barkod="${esc(l.barcode)}" data-ad="${esc(l.name)}" checked> Bu ilanı <strong>barkoduyla</strong> kalıcı bağla — sonraki siparişler kendiliğinden eşleşir <small>Barkod: ${esc(l.barcode)}</small></label>`:'<p class="help">Bu ilanın barkodu kayıtlı değil; yalnız bu paket için eşleşir.</p>'}${field('KDV oranı (%)','vat_'+l.id,l.vat_bps===null?'':l.vat_bps/100,'number','min="0" max="100" step="0.01" data-vat')}${field('Net satır toplamı (TL)','net_'+l.id,l.net_revenue_cents===null?'':l.net_revenue_cents/100,'number','min="0" step="0.01" data-net')}</div><p class="help">KDV dahil toplam: ${money(l.gross_cents)}. Vergi oranını değiştirdiğinizde net tutarı güncelleyin veya otomatik hesap için boş bırakın.</p></fieldset>`).join('')}`,'Eşleşmeleri kaydet',async form=>{
+  dialog('Paketin ürünlerini eşleştir',`<p class="help">İlan bağlantısı veya sanal set seçildiğinde depodan düşecek bileşenler otomatik hesaplanır. Doğrudan stok kartı seçimi tek ürün içindir.</p><p><a class="text-button" href="#catalog">Kalıcı ilan / set bağlantısı oluştur →</a></p>${lines.map(l=>`<fieldset data-map-line="${esc(l.id)}" class="ac-invoice-line"><legend>${esc(l.name)} · ${qty(l.quantity_milli)} ilan birimi</legend><div class="v2-form-grid"><label class="full">İlan bağlantısı veya stok kartı<select data-product required>${mappingOptions(l)}</select></label>${kaliciIlanKodu(l)?`<label class="full ol-kalici"><input type="checkbox" data-kalici data-kod="${esc(kaliciIlanKodu(l))}" data-ad="${esc(l.name)}" checked> Bu ilanı <strong>koduyla</strong> kalıcı bağla — sonraki siparişler kendiliğinden eşleşir <small>${l.barcode?'Barkod':'İlan kodu'}: ${esc(kaliciIlanKodu(l))}</small></label><label class="ol-kalici-adet">Bir ilan kaç adet düşsün<input type="number" data-kalici-adet value="1" min="1" max="99" step="1"><small>Çoklu paket ilanıysa paketteki adedi yaz; tekliyse 1 kalsın.</small></label>`:'<p class="help">Bu ilanın kodu kayıtlı değil; yalnız bu paket için eşleşir.</p>'}${field('KDV oranı (%)','vat_'+l.id,l.vat_bps===null?'':l.vat_bps/100,'number','min="0" max="100" step="0.01" data-vat')}${field('Net satır toplamı (TL)','net_'+l.id,l.net_revenue_cents===null?'':l.net_revenue_cents/100,'number','min="0" step="0.01" data-net')}</div><p class="help">KDV dahil toplam: ${money(l.gross_cents)}. Vergi oranını değiştirdiğinizde net tutarı güncelleyin veya otomatik hesap için boş bırakın.</p></fieldset>`).join('')}`,'Eşleşmeleri kaydet',async form=>{
    const rows=[...form.querySelectorAll('[data-map-line]')];
    const sonuc=await api('/orders/'+p.id+'/map',{lines:rows.map(row=>{const selected=row.querySelector('[data-product]').value,[kind,id]=selected.split(':');return {id:row.dataset.mapLine,...(kind==='mapping'?{mapping_id:id}:{product_id:id}),vat_rate:row.querySelector('[data-vat]').value===''?null:Number(row.querySelector('[data-vat]').value),net_revenue:row.querySelector('[data-net]').value===''?null:Number(row.querySelector('[data-net]').value)};})});
    // KALICI BAĞLANTI BARKODLA KURULUR. Paketin eşleşmesi yukarıda ZATEN kaydedildi; buradaki hata
@@ -323,8 +336,12 @@ export function mountOrders(root,namespace='ec'){
     const kalici=row.querySelector('[data-kalici]');if(!kalici?.checked)continue;
     const [kind,id]=row.querySelector('[data-product]').value.split(':');
     if(kind!=='product'||!id)continue;   // hazır bağlantı seçildiyse yeni bağlantı açılmaz
-    try{await api('/catalog/mappings',{source:p.channel,match_by:'code',external_code:kalici.dataset.barkod,external_name:kalici.dataset.ad||'',components:[{product_id:id,quantity_milli:1000,revenue_share_bps:10000}]});}
-    catch(err){sorunlar.push(kalici.dataset.barkod+': '+err.message);}
+    // ÇOKLU PAKET TAHMİN EDİLMEZ, SORULUR. İlan "5 Adet" ise bir satış 5 adet düşmeli; başlıktan
+    // çıkarım yanılabiliyor ("Saksı 2 Adet Hediyeli"), yanlış kalıcı bağlantı stoğu kalıcı bozar.
+    const adetKutu=row.querySelector('[data-kalici-adet]'),adet=Math.round(Number(adetKutu?.value||1));
+    if(!Number.isSafeInteger(adet)||adet<1||adet>99){sorunlar.push(kalici.dataset.kod+': bir ilanın kaç adet düşeceği 1 ile 99 arasında olmalı.');continue;}
+    try{await api('/catalog/mappings',{source:p.channel,match_by:'code',external_code:kalici.dataset.kod,external_name:kalici.dataset.ad||'',components:[{product_id:id,quantity_milli:adet*1000,revenue_share_bps:10000}]});}
+    catch(err){sorunlar.push(kalici.dataset.kod+': '+err.message);}
    }
    if(sorunlar.length)throw new Error('Paketin eşleşmesi kaydedildi. Kalıcı bağlantı kurulamadı — '+sorunlar.join(' · '));
    return sonuc;
