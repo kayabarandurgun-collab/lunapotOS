@@ -9,6 +9,9 @@
 //  · satış iadesi önce satışın bekleyen (hiç stoktan çıkmamış) adedini iptal eder; kalanı satışın
 //    tükettiği partilerin parçası olarak, satışın gerçek maliyetiyle kuyruğa döner (kümülatif kuruş);
 //  · geri alınan mal teslimi (receipt-reverse) hiç olmamış sayılır: teslim de ters kaydı da oynatılmaz;
+//  · geri çekilmiş geçici sayım (0070 iptali, 0072 telafi geri alımı) hiç olmamış sayılır: sayım da
+//    tam aynası da oynatılmaz; böylece ayna raftaki gerçek partileri tüketip kapanışta kayıp
+//    gideri doğurmaz;
 //  · geçici sayımın fatura kapanışı (provisional-close:<sayım>:<fatura>:<teslim>) sayım partisinin
 //    kapanan adetlerini (önce satılmış olanlar, sonra raftakiler) faturanın GERÇEK birim maliyetine
 //    çeker; faturanın aynı adetleri ikinci kez stokta durmaz;
@@ -60,7 +63,29 @@ export async function fifoHesap(db, productId) {
   const duz = new Map(duzR.map(r => [r.sale_id, r.d]));
   const kabul = new Map(kabulR.map(g => [g.id, g]));
   // Geri alınan teslim ve ters kaydı: ikisi de oynatılmaz (teslim hiç olmamış).
+  // AYNI DOKTRİN GERİ ÇEKİLMİŞ GEÇİCİ SAYIM İÇİN (0070 iptali, 0072 telafi geri alımı): sayım da,
+  // TAM aynası da oynatılmaz. Ayna normal yoldan oynatılsa eksi 'purchase' + kapanış olmayan
+  // referans aşağıdaki son dala (orantili) düşer; orantili raftaki BÜTÜN partilerden orantılı
+  // tüketir ve her tüketimi lotKayit'e sale:null yazar. Fatura kapanışı (kapanisIsle) o adetleri
+  // KAYIP sanıp fatura farkını ec_close_cost_revaluations kind='kayip' yazar; bunu
+  // accounting.js:159 ve money-planning-api.js:165 kayıp GİDERİ gösterir (canlıda ölçüldü:
+  // Klasmann TS1'de -1.725,27 TL, 04.10.2026; sentetik ölçüm tests/hayalet-sayim-telafisi.test.js).
+  // Yalnız TAM ayna düşülür: miktar ve değerin tam negatifi tutmayan kayıt eski yoldan oynar.
+  // Kapanışı yazılmış sayım düşülmez (kapanış sayım partisini arar); o yüzden önce
+  // provisional-close var mı diye sorulur.
+  const aynasi = new Map();
+  for (const m of mv) {
+    if (m.kind !== 'purchase' || m.quantity_milli >= 0 || !m.reference) continue;
+    if (m.reference.startsWith('TELAFI-IPTAL-')) aynasi.set(m.reference.slice(13), m);
+    else if (m.reference.startsWith('GECICI-IPTAL-')) aynasi.set('GECICI-SAYIM-' + m.reference.slice(13), m);
+  }
   const dus = new Set(kabulR.filter(g => g.ters).flatMap(g => [g.id, g.ters]));
+  for (const m of mv) {
+    const a = m.kind === 'count' && aynasi.get(m.reference);
+    if (!a || a.quantity_milli !== -m.quantity_milli || a.value_cents !== -m.value_cents) continue;
+    if (mv.some(x => x.reference?.startsWith('provisional-close:' + m.id + ':'))) continue;
+    dus.add(m.id); dus.add(a.id);
+  }
   const tersDuz = new Set(adjR.filter(a => a.reversal_of).flatMap(a => [a.id, a.reversal_of]));
   // Aynı gün: önce girişler, sonra çıkışlar; yalnız-değer düzeltmesi çıkışlar arasına kayıt anına göre girer.
   const sonRid = t => mv.reduce((r, m) => m.created_at <= t ? Math.max(r, m.rid) : r, 0);
