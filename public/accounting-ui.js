@@ -48,6 +48,35 @@ const belgeDugmesi=inv=>inv.document?`<button class="secondary" type="button" da
 const ref=prefix=>prefix+'-'+crypto.randomUUID().slice(0,12);
 // Siparişten oluşan satışın referansı: uzun iç kodlar (RPT-…) gösterilmez; pazaryeri paket numarası yeter.
 const saleReference=entry=>{const id=String(entry.external_id||'');if(!id.startsWith('order:'))return id;const parca=String(entry.notes||'').split(' / ').map(x=>x.trim().replace(/^Paket /,''));const no=parca.map(x=>(/^RAPOR-(\d+)$/.exec(x)||/^HB-(\d+)$/.exec(x)||[])[1]).find(Boolean);if(no)return 'Paket '+no;const kod=parca.find(x=>x&&!/^RPT-[0-9a-f]{20,}$/.test(x));return kod?'Paket '+kod:'Siparişten oluşan satış';};
+// ÜRÜN ARAMA SÜZGECİ. 38 kalemlik açılır listeden seçmek telefonda kullanılamıyordu (kullanıcı
+// 06.10.2026: "açılır listeden bulmak çok zor"). Yazılan her kelime ürün ADINDA ya da STOK
+// KODUNDA aranır, hepsi birden tutmalı, sıra önemsiz ("torf 20", "20 torf", "gg-torf" aynı sonucu
+// verir). Türkçe katlama ŞART: 'I' ile 'İ' ayrı harfler, düz toLowerCase() 'İRSALİYE' yazısını
+// 'irsaliye' aramasıyla eşleştirmez. Arşivli kart listede çıkmaz (archivedHidden); geçmiş
+// hareketlerde, bakiyede ve ekstrede durmaya devam eder — yalnız yeni seçim listesinden düşer.
+export function urunSuz(stock,query,limit=60){
+ const liste=(Array.isArray(stock)?stock:[]).filter(p=>p&&!archivedHidden(p));
+ const kelimeler=String(query??'').toLocaleLowerCase('tr-TR').split(/\s+/).filter(Boolean);
+ if(!kelimeler.length)return liste.slice(0,Math.max(0,limit));
+ return liste.filter(p=>{
+  const saman=(String(p.name??'')+' '+String(p.sku??'')).toLocaleLowerCase('tr-TR');
+  return kelimeler.every(k=>saman.includes(k));
+ }).slice(0,Math.max(0,limit));
+}
+
+// YENİ ÜRÜN TASLAĞA DÖNÜŞÜ. Faturasız giriş penceresinden "yeni ürün kartı" açılınca pencere
+// kapanır (dialog() tek pencere tutuyor); kart kaydedildikten sonra buraya dönülür. Yeni ürün
+// taslağın İLK BOŞ satırına yazılır; boş satır yoksa sona eklenir, dolu satırlar hiç oynamaz.
+export function taslagaUrunYaz(draft,productId){
+ if(!productId)return draft||{};
+ const temel=draft&&typeof draft==='object'?draft:{};
+ const satirlar=Array.isArray(temel.lines)?temel.lines.map(x=>({...x})):[];
+ const bos=satirlar.findIndex(x=>!x||!x.product_id);
+ if(bos>=0)satirlar[bos]={...satirlar[bos],product_id:productId};
+ else satirlar.push({product_id:productId,quantity:'',unit_cost:'',vat_rate:''});
+ return {...temel,lines:satirlar};
+}
+
 function refreshLineVisibility(root){
  for(const line of root.querySelectorAll('[data-invoice-line],[data-map-line]')){
   const expense=line.querySelector('[name="line_type"]')?.value==='expense';
@@ -118,6 +147,78 @@ export function mountAccounting(root,namespace='ec',initialView='overview',embed
  const remove=path=>api(path,{method:'DELETE'});
  const notice=message=>{const box=$('#ac-error');if(box){box.textContent=message;box.hidden=false;box.scrollIntoView({block:'nearest'});}};
  const productOptions=()=>state.data.stock.filter(p=>!archivedHidden(p)).map(p=>[p.id,`${p.name} · ${p.sku} (${p.stock_unit})`]);
+ const urunEtiketi=p=>p?`${p.name} · ${p.sku} (${p.stock_unit})`:'';
+ const urunBul=id=>state.data.stock.find(p=>p.id===id);
+ // ÜRÜN SEÇİCİ (yazarak süz). Gizli alanın adı 'product_id' olarak KALDI; draftCollect,
+ // updateUnbilled ve gönderim hepsi [name="product_id"] üzerinden okuyor, görünen kutu isimsiz
+ // olduğu için forma gitmez. Seçimden sonra gizli alana ELLE 'change' ve 'input' olayı atılır:
+ // JS ile değer yazmak kendiliğinden olay üretmez, atılmazsa KDV oranı dolmaz, stok önizlemesi
+ // ve yarım kalan giriş taslağı güncellenmeden kalır.
+ let pickSayac=0;
+ function productPicker(label,name,current='',extra=''){
+  const p=urunBul(current),id='ac-pick-'+(++pickSayac);
+  return '<label class="ac-pick" data-ac-pick>'+esc(label)+req(extra)
+   +'<input class="ac-pick-input" data-ac-pick-input type="text" role="combobox" aria-expanded="false" aria-controls="'+id+'" aria-autocomplete="list" autocomplete="off" spellcheck="false" placeholder="Ürün adı ya da kodu yaz" value="'+esc(urunEtiketi(p))+'">'
+   +'<input type="hidden" name="'+name+'" value="'+esc(current||'')+'">'
+   +'<ul class="ac-pick-list" id="'+id+'" data-ac-pick-list role="listbox" hidden></ul>'
+   +'<small class="ac-pick-note" data-ac-pick-note>'+(p?'Seçili: '+esc(p.name):'Harf yazdıkça liste süzülür; ürünü listeden seç.')+'</small></label>';
+ }
+ const pickKutu=el=>el.closest('[data-ac-pick]');
+ const pickGizli=wrap=>wrap.querySelector('input[type="hidden"]');
+ // Kutudaki metin seçili ürünün tam etiketiyse süzgeç BOŞ sayılır: seçimden sonra liste yeniden
+ // açıldığında tek bir ürüne kilitlenmesin, tüm liste gezilebilsin.
+ function pickCiz(wrap,acik=true){
+  const giris=wrap.querySelector('[data-ac-pick-input]'),liste=wrap.querySelector('[data-ac-pick-list]'),secili=pickGizli(wrap).value;
+  const metin=giris.value.trim(),suzgec=metin&&metin!==urunEtiketi(urunBul(secili))?metin:'';
+  const rows=urunSuz(state.data.stock,suzgec);
+  const secenekler=rows.map((p,i)=>'<li class="ac-pick-option" role="option" id="'+liste.id+'-o'+i+'" data-ac-pick-option data-id="'+esc(p.id)+'" aria-selected="'+(p.id===secili)+'"><b>'+esc(p.name)+'</b><small>'+esc(p.sku)+' · '+esc(p.stock_unit)+'</small></li>').join('');
+  // LİSTEDE OLMAYAN ÜRÜN. Kullanıcı 06.10.2026: "listede olmayan bi ürünü ben nasıl ekliycem".
+  // Yazılan metin varsa listenin sonunda yeni kart açma satırı durur; hiç eşleşme yoksa tek
+  // seçenek odur. Metin yoksa gösterilmez (ne ekleneceği belli değil).
+  const yeni=suzgec?'<li class="ac-pick-new" role="option" id="'+liste.id+'-yeni" data-ac-pick-new data-ad="'+esc(suzgec)+'" aria-selected="false"><b>＋ Yeni ürün kartı aç</b><small>'+esc(suzgec)+'</small></li>':'';
+  liste.innerHTML=(secenekler||(suzgec?'':'<li class="ac-pick-empty">Depoda ürün kartı yok.</li>'))+yeni;
+  liste.hidden=!acik;giris.setAttribute('aria-expanded',String(acik));
+  if(acik)pickEtkin(wrap,0);else giris.removeAttribute('aria-activedescendant');
+ }
+ function pickSatirlar(wrap){return Array.from(wrap.querySelectorAll('[data-ac-pick-option],[data-ac-pick-new]'));}
+ function pickEtkin(wrap,index){
+  const giris=wrap.querySelector('[data-ac-pick-input]'),satirlar=pickSatirlar(wrap);
+  if(!satirlar.length){giris.removeAttribute('aria-activedescendant');return;}
+  const i=Math.max(0,Math.min(satirlar.length-1,index));
+  satirlar.forEach((li,n)=>li.classList.toggle('etkin',n===i));
+  giris.setAttribute('aria-activedescendant',satirlar[i].id);
+  satirlar[i].scrollIntoView({block:'nearest'});
+ }
+ function pickKapat(wrap){
+  const giris=wrap.querySelector('[data-ac-pick-input]');
+  wrap.querySelector('[data-ac-pick-list]').hidden=true;giris.setAttribute('aria-expanded','false');giris.removeAttribute('aria-activedescendant');
+ }
+ function pickSec(wrap,id){
+  const p=urunBul(id);if(!p)return;
+  const giris=wrap.querySelector('[data-ac-pick-input]'),gizli=pickGizli(wrap);
+  giris.value=urunEtiketi(p);gizli.value=p.id;
+  wrap.querySelector('[data-ac-pick-note]').textContent='Seçili: '+p.name;
+  pickKapat(wrap);giris.focus({preventScroll:true});
+  gizli.dispatchEvent(new Event('change',{bubbles:true}));
+  gizli.dispatchEvent(new Event('input',{bubbles:true}));
+ }
+ // Kutuda yazan metin bir ürünün tam etiketi değilse seçim YOK sayılır: yarım yazılmış ad
+ // kazara önceki seçimle gönderilmesin. Boşaltma da olay atar; KDV ve önizleme sıfırlanır.
+ function pickDogrula(wrap){
+  const giris=wrap.querySelector('[data-ac-pick-input]'),gizli=pickGizli(wrap),p=urunBul(gizli.value);
+  if(p&&giris.value.trim()===urunEtiketi(p))return;
+  if(gizli.value){gizli.value='';gizli.dispatchEvent(new Event('change',{bubbles:true}));gizli.dispatchEvent(new Event('input',{bubbles:true}));}
+  wrap.querySelector('[data-ac-pick-note]').textContent=giris.value.trim()?'Henüz ürün seçilmedi; listeden birine dokun.':'Harf yazdıkça liste süzülür; ürünü listeden seç.';
+ }
+ // LİSTEDE OLMAYAN ÜRÜNÜ BURADAN AÇ. dialog() tek pencere tuttuğu için faturasız giriş kapanır;
+ // yazılanlar her tuşta taslağa kaydedildiği için kaybolmaz. Kart kaydedilince submit bu bayrağı
+ // görüp taslağa yeni ürünü yazar ve faturasız giriş penceresini geri açar.
+ function pickYeniUrun(wrap,ad){
+  const form=wrap.closest('form');
+  if(form)draftWrite(draftCollect(form));
+  state.yeniUrunAdi=ad;state.yeniUrunDonus=true;
+  pickKapat(wrap);showForm('product');
+ }
  const dates=(deger)=>field('İşlem tarihi','occurred_on',deger||date(),'date','required');
  const heading=(subtitle,actions='')=>`<div class="page-heading"><div><span class="eyebrow">${namespace==='ec'?'E-ticaret':'Lunapot'} / İşlemler</span><h1>${views[state.view]}</h1><p>${subtitle}</p></div><div class="ac-actions">${actions}</div></div>`;
  const stats=values=>`<div class="stats">${values.map(([label,value,help],i)=>`<article class="stat ${i===3?'highlight':''}"><span>${label}</span><strong class="ac-number">${value}</strong><small>${help}</small></article>`).join('')}</div>`;
@@ -214,10 +315,24 @@ export function mountAccounting(root,namespace='ec',initialView='overview',embed
   return {supplier_id:d.get('supplier_id'),occurred_on:d.get('occurred_on'),reference:d.get('reference'),
    due_on:d.get('due_on'),notes:d.get('notes'),lines};
  }
+ // KOMPAKT SATIR. Kullanıcı 06.10.2026: "her ürün eklediğimde liste aşağı doğru bayağı uzuyor".
+ // Satır artık <details>: kapanınca başlıkta yalnız ürün adı ve özet (miktar × birim maliyet)
+ // kalır. "Başka ürün ekle" basıldığında DOLU satırlar kapanır; EKSİK satır açık bırakılır
+ // çünkü kapalı <details> içindeki required alan Chrome'da "not focusable" hatası verip
+ // gönderimi sessizce kilitliyor. Çıkarma düğmesi başlıkta: summary içindeki tıklama
+ // kendiliğinden açıp kapatır, o yüzden işleyicisinde preventDefault var.
  function unbilledLine(productId='',vals=null){
-  const product=state.data.stock.find(p=>p.id===(vals?.product_id||productId));
-  return '<fieldset class="unbilled-line" data-unbilled-line><legend>Gelen ürün</legend>'+select('Fiziksel stok ürünü','product_id',[['','Ürün seç'],...productOptions()],vals?.product_id||productId,'required')+'<div class="field-grid">'+field('Bu teslimatta gelen miktar','quantity',vals?.quantity||'','number','required min="0.001" max="1000000" step="0.001" inputmode="decimal"')+amountField('Birim alış maliyeti · KDV hariç','unit_cost',vals?.unit_cost||'',true)+field('KDV oranı · %','vat_rate',vals?.vat_rate||(Number.isSafeInteger(product?.vat_bps)?product.vat_bps/100:''),'number','required min="0" max="100" step="0.01" inputmode="decimal"')+'</div><output class="stock-count-preview" data-unbilled-preview aria-live="polite">Ürünü ve yeni gelen miktarı seç.</output><button type="button" class="text-button" data-ac="remove-unbilled-line">Bu ürünü çıkar</button></fieldset>';
+  const seciliId=vals?.product_id||productId,product=urunBul(seciliId);
+  return '<details class="unbilled-line" data-unbilled-line open><summary class="unbilled-head">'
+   +'<span class="unbilled-head-name" data-unbilled-name>'+(product?esc(product.name):'Ürün seç')+'</span>'
+   +'<span class="unbilled-head-sum" data-unbilled-sum></span>'
+   +'<button type="button" class="unbilled-drop" data-ac="remove-unbilled-line" aria-label="Bu ürünü çıkar" title="Bu ürünü çıkar">×</button></summary>'
+   +'<div class="unbilled-body">'+productPicker('Fiziksel stok ürünü','product_id',seciliId,'required')
+   +'<div class="field-grid unbilled-numbers">'+field('Gelen miktar','quantity',vals?.quantity||'','number','required min="0.001" max="1000000" step="0.001" inputmode="decimal"')+amountField('Birim maliyet · KDV hariç','unit_cost',vals?.unit_cost||'',true)+field('KDV · %','vat_rate',vals?.vat_rate||(Number.isSafeInteger(product?.vat_bps)?product.vat_bps/100:''),'number','required min="0" max="100" step="0.01" inputmode="decimal"')+'</div>'
+   +'<output class="stock-count-preview" data-unbilled-preview aria-live="polite">Ürünü ve yeni gelen miktarı seç.</output></div></details>';
  }
+ // Satır eksiksiz mi: kapatılabilmesi için üç sayının ve ürünün dolu olması gerekir.
+ const unbilledTam=row=>['product_id','quantity','unit_cost','vat_rate'].every(name=>String(row.querySelector('[name="'+name+'"]')?.value||'').trim()!=='');
  function updateUnbilled(form){
   if(!form)return;
   const rows=Array.from(form.querySelectorAll('[data-unbilled-line]'));
@@ -226,6 +341,14 @@ export function mountAccounting(root,namespace='ec',initialView='overview',embed
    const show=n=>n===null?'Bilinmiyor':qty(n)+(p?.stock_unit?' '+p.stock_unit:'');
    row.querySelector('[data-unbilled-preview]').textContent='Kayıtlı depo: '+show(v.on_hand_milli)+' · Yeni gelen: '+show(v.incoming_milli)+' · Girişten sonra: '+show(v.after_milli);
    row.querySelector('[data-ac="remove-unbilled-line"]').disabled=rows.length===1;
+   // Kapalı satırda görünen tek şey başlıktır; girilen sayılar oradan okunabilmeli.
+   const ad=row.querySelector('[data-unbilled-name]');if(ad)ad.textContent=p?p.name:'Ürün seç';
+   const ozet=row.querySelector('[data-unbilled-sum]');
+   if(ozet){
+    const miktar=String(row.querySelector('[name="quantity"]').value||'').trim(),birim=String(row.querySelector('[name="unit_cost"]').value||'').trim();
+    const olcu=miktar?miktar+(p?.stock_unit?' '+p.stock_unit:''):'';
+    ozet.textContent=olcu&&birim?olcu+' × '+birim+' ₺':olcu;
+   }
   }
  }
  function filteredStock(){return selectProducts(state.data.stock,state,state.data.productStats);}
@@ -300,7 +423,9 @@ export function mountAccounting(root,namespace='ec',initialView='overview',embed
    dialog('Ürün kartını sil','delete-product',field('Ürün','product_id',key,'hidden')
     +'<div class="notice"><strong>'+esc(p.name)+' · '+esc(p.sku)+'</strong></div>'
     +'<p>Kalıcı silme yalnız <b>hiçbir yerde kullanılmamış</b> kartta çalışır. Stok hareketi, satış, alış faturası satırı, ilan eşleşmesi, sipariş ya da ürün ailesi bağı varsa işlem reddedilir; o durumda kartı arşivleyin.</p><p>Bu kartı silmek istediğinize emin misiniz?</p>');return;}
-  if(action==='product')dialog('E-ticaret ürünü ekle','product',field('Ürün adı','name','','text','required maxlength="200" placeholder="Örn. Torf 20 L torba"')+field('Stok / ürün kodu','sku','','text','required maxlength="80"')+`<div class="field-grid">${select('Stok birimi','stock_unit',['adet','kg','g','L','ml'].map(u=>[u,u]),'adet')}${field('Düşük stok sınırı','min_stock',0,'number','required min="0" max="1000000" step="0.001"')}</div>`+productMetadata());
+  // Faturasız giriş seçicisinden gelindiyse yazılan metin ürün adına hazır düşer.
+  if(action==='product'){const hazirAd=state.yeniUrunAdi||'';state.yeniUrunAdi='';
+   dialog('E-ticaret ürünü ekle','product',field('Ürün adı','name',hazirAd,'text','required maxlength="200" placeholder="Örn. Torf 20 L torba"')+field('Stok / ürün kodu','sku','','text','required maxlength="80"')+`<div class="field-grid">${select('Stok birimi','stock_unit',['adet','kg','g','L','ml'].map(u=>[u,u]),'adet')}${field('Düşük stok sınırı','min_stock',0,'number','required min="0" max="1000000" step="0.001"')}</div>`+productMetadata());return;}
   if(action==='unbilled'){
    if(!canUnbilled())throw Error('Faturasız mal girişi için Cariler ve nakit yazma yetkisi gerekir.');
    ensureProducts();if(state.data.unbilledSuppliersError)throw Error('Tedarikçiler yüklenemedi: '+state.data.unbilledSuppliersError);const suppliers=state.data.suppliers.filter(x=>x.kind==='supplier'&&!x.archived_at);
@@ -312,6 +437,9 @@ export function mountAccounting(root,namespace='ec',initialView='overview',embed
    dialog('Faturasız mal girişi','unbilled','<div class="notice subtle"><strong>Yalnızca yeni gelen miktarı ekle.</strong><p>Depoda 12 adet varsa ve 5 adet geldiyse buraya 5 yaz: stok 17 olur. Depodaki toplamı buraya yazma.</p></div>'+(taslakSatirlari.length?'<p class="help">Yarım kalan giriş geri yüklendi. Yanlışsa alanları değiştir ya da sayfayı yenileyip baştan başla.</p>':'')+select('Malı gönderen tedarikçi','supplier_id',[['','Tedarikçi seç'],...suppliers.map(x=>[x.id,x.name])],seciliTedarikci,'required')+'<div class="field-grid">'+dates(taslak.occurred_on)+field('İrsaliye / teslimat numarası','reference',taslak.reference||'','text','required maxlength="200" placeholder="Örn. IRS-2026-105"')+'</div><div data-unbilled-lines>'+(taslakSatirlari.length?taslakSatirlari.map(v=>unbilledLine('',v)).join(''):unbilledLine(key))+'</div>'+button('+ Başka ürün ekle','add-unbilled-line','type="button"',true)+'<details class="workflow-details"><summary>Vade ve açıklama · isteğe bağlı</summary>'+field('Ödeme vadesi','due_on',taslak.due_on||'','date')+field('Teslimat notu','notes',taslak.notes||'','text','maxlength="1000"')+'</details><p class="help">Bu kayıt stoğu artırır ve tedarikçiye geçici borç yazar; ödeme yapmaz. Fatura geldiğinde tedarikçiyi, ürünleri ve önceki teslimatı birlikte kontrol et. Fatura sonrası stok ve geçici borç durumunu doğrula; aynı malı sayımdan yeniden ekleme.</p>','<button class="primary" type="submit">Gelen malı kaydet</button>');
    const unbilledForm=$('[data-ac-form="unbilled"]');
    updateUnbilled(unbilledForm);
+   // Geri yüklenen taslakta tamamlanmış satırlar kapalı açılır: 10 satırlık yarım giriş
+   // ekranı baştan taşırmasın. Tek satır varsa hep açık kalır.
+   if(unbilledForm){const satirlar=unbilledForm.querySelectorAll('[data-unbilled-line]');if(satirlar.length>1)for(const row of satirlar)if(unbilledTam(row))row.open=false;}
    if(unbilledForm)unbilledForm.addEventListener('input',()=>draftWrite(draftCollect(unbilledForm)));
    return;
   }
@@ -438,12 +566,20 @@ export function mountAccounting(root,namespace='ec',initialView='overview',embed
    if(kind==='filters'){const error=validateDateRange(entries.from,entries.to);if(error)throw Error(error);state.from=entries.from;state.to=entries.to;state.salesPage=1;history.replaceState(history.state,'',dateRangeLink(location.hash,{preset:'custom',from:state.from,to:state.to}));await load();return;}
    if(['product','edit-product'].includes(kind)&&entries.category==='__new__'){entries.category=(entries.new_category||'').trim();if(!entries.category)throw new Error('Yeni kategori adını yazın.');}
    if(kind==='edit-product')await post('/products/'+entries.product_id,{...entries,min_stock:number('min_stock')});
-   if(kind==='product')await post('/products',{...entries,min_stock:number('min_stock')});
+   if(kind==='product'){
+    const yeniUrun=await post('/products',{...entries,min_stock:number('min_stock')});
+    // SEÇİCİDEN GELEN YENİ KART. Faturasız giriş penceresinden açıldıysa yeni ürün taslağın ilk
+    // boş satırına yazılır ve o pencere geri açılır; kullanıcı yarım kalan girişi baştan
+    // doldurmak zorunda kalmaz. Ürün listesi önce yenilenir, yoksa yeni kart seçicide görünmez.
+    if(state.yeniUrunDonus){state.yeniUrunDonus=false;draftWrite(taslagaUrunYaz(draftRead(),yeniUrun?.id));close();await load();showForm('unbilled');return;}
+   }
    if(kind==='unbilled'){
     if(!canUnbilled())throw Error('Faturasız mal girişi için yazma yetkisi gerekir.');
     const seen=new Set(),lines=Array.from(form.querySelectorAll('[data-unbilled-line]')).map(row=>{
      const value=name=>row.querySelector('[name="'+name+'"]').value,product_id=value('product_id');
-     if(!product_id||seen.has(product_id))throw Error('Her ürünü bir kez seç; aynı ürünün gelen miktarlarını birleştir.');seen.add(product_id);
+     if(!product_id)throw Error('Ürün seçilmedi. Ürün kutusuna harf yaz ve çıkan listeden seç.');
+     if(seen.has(product_id))throw Error('Her ürünü bir kez seç; aynı ürünün gelen miktarlarını birleştir.');
+     seen.add(product_id);
      if(['quantity','unit_cost','vat_rate'].some(name=>value(name).trim()===''))throw Error('Gelen miktarı, birim maliyeti ve KDV oranını doldur.');
      const quantity=Number(value('quantity')),unit_cost=Number(value('unit_cost')),vat_bps=Math.round(Number(value('vat_rate'))*100);
      if(unbilledStockPreview(null,quantity).incoming_milli===null||!Number.isFinite(unit_cost)||unit_cost<0||!Number.isSafeInteger(vat_bps)||vat_bps<0||vat_bps>10000)throw Error('Miktar, maliyet veya KDV oranını kontrol et.');
@@ -493,6 +629,44 @@ export function mountAccounting(root,namespace='ec',initialView='overview',embed
  const stokFiltreUygula=(f,odakla)=>{f.requestSubmit();if(odakla){const q=root.querySelector('[data-ac-form="stock-filters"] [name=q]');if(q){q.focus();q.setSelectionRange(q.value.length,q.value.length);}}};
  root.addEventListener('change',e=>{const f=e.target.closest('[data-ac-form="stock-filters"]');if(f&&e.target.matches('select'))stokFiltreUygula(f,false);},{signal:controller.signal});
  root.addEventListener('input',e=>{const f=e.target.closest('[data-ac-form="stock-filters"]');if(f&&e.target.name==='q'){clearTimeout(stokAramaZamani);stokAramaZamani=setTimeout(()=>stokFiltreUygula(f,true),300);}},{signal:controller.signal});
+ // ÜRÜN SEÇİCİ OLAYLARI. Kutu odağa gelince tüm liste açılır (açılır listenin yerini tutar),
+ // yazdıkça süzülür. Seçim 'pointerdown'da yapılır: 'click' beklenirse araya giren odak kaybı
+ // listeyi kapatıp seçimi yutuyor; pointerdown fare, dokunma ve kalemi birlikte karşılıyor.
+ root.addEventListener('input',event=>{const g=event.target.closest('[data-ac-pick-input]');if(!g)return;const wrap=pickKutu(g);pickDogrula(wrap);pickCiz(wrap,true);},{signal:controller.signal});
+ root.addEventListener('focusin',event=>{const g=event.target.closest('[data-ac-pick-input]');if(!g)return;pickCiz(pickKutu(g),true);},{signal:controller.signal});
+ root.addEventListener('focusout',event=>{
+  const wrap=event.target.closest('[data-ac-pick]');if(!wrap)return;
+  // Odak kutunun İÇİNDE başka bir öğeye gidiyorsa liste kapanmaz; bu yüzden bir tur beklenir.
+  setTimeout(()=>{if(!wrap.isConnected||wrap.contains(document.activeElement))return;pickDogrula(wrap);pickKapat(wrap);},0);
+ },{signal:controller.signal});
+ root.addEventListener('pointerdown',event=>{
+  const yeni=event.target.closest('[data-ac-pick-new]');
+  if(yeni){event.preventDefault();pickYeniUrun(pickKutu(yeni),yeni.dataset.ad||'');return;}
+  const li=event.target.closest('[data-ac-pick-option]');if(!li)return;
+  event.preventDefault();pickSec(pickKutu(li),li.dataset.id);
+ },{signal:controller.signal});
+ root.addEventListener('keydown',event=>{
+  const giris=event.target.closest('[data-ac-pick-input]');if(!giris)return;
+  const wrap=pickKutu(giris),liste=wrap.querySelector('[data-ac-pick-list]'),satirlar=pickSatirlar(wrap);
+  const etkin=satirlar.findIndex(li=>li.classList.contains('etkin'));
+  if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();if(liste.hidden)pickCiz(wrap,true);else pickEtkin(wrap,etkin+(event.key==='ArrowDown'?1:-1));return;}
+  if(event.key==='Enter'){
+   if(liste.hidden||!satirlar.length)return;
+   event.preventDefault();const li=satirlar[Math.max(0,etkin)];
+   if(li.matches('[data-ac-pick-new]'))pickYeniUrun(wrap,li.dataset.ad||'');else pickSec(wrap,li.dataset.id);
+   return;
+  }
+  // Pencerenin içindeyiz: Esc kaçırılırsa <dialog> tüm faturasız giriş formunu kapatıyor.
+  if(event.key==='Escape'&&!liste.hidden){event.preventDefault();event.stopPropagation();pickKapat(wrap);}
+ },{signal:controller.signal});
+ // KAPALI SATIRDA required KALKAR. Kapalı <details> içindeki boş required alan Chrome'da
+ // "An invalid form control is not focusable" verip Kaydet'i sessizce kilitliyor. Açılınca geri
+ // gelir; kapalı kalan eksik satırı gönderim doğrulaması zaten yakalıyor ("Gelen miktarı, birim
+ // maliyeti ve KDV oranını doldur"). 'toggle' kabarmaz, o yüzden yakalama evresinde dinlenir.
+ root.addEventListener('toggle',event=>{
+  const row=event.target;if(!row.matches?.('[data-unbilled-line]'))return;
+  for(const el of row.querySelectorAll('[name="quantity"],[name="unit_cost"],[name="vat_rate"]'))el.required=row.open;
+ },{capture:true,signal:controller.signal});
  root.addEventListener('input',event=>updateUnbilled(event.target.closest('[data-ac-form="unbilled"]')),{signal:controller.signal});
  root.addEventListener('change',event=>{
   const row=event.target.closest('[data-unbilled-line]');if(!row)return;
@@ -501,12 +675,16 @@ export function mountAccounting(root,namespace='ec',initialView='overview',embed
  },{signal:controller.signal});
  root.addEventListener('click',async event=>{const b=event.target.closest('[data-ac]');if(!b||state.busy)return;const action=b.dataset.ac,key=b.dataset.id;try{
   if(action==='apply-purchase-link'||action==='remember-purchase-link'){state.busy=true;b.disabled=true;try{const row=b.closest('[data-invoice-line],[data-map-line]');if(action==='apply-purchase-link')await applyPurchaseLink(row);else await rememberPurchaseLink(row);}finally{state.busy=false;b.disabled=false;}return;}
-  if(action==='close'){close();return;}if(action==='view'){close();disposeUpload?.();state.view=key;state.salesPage=1;await load();return;}
+  if(action==='close'){state.yeniUrunDonus=false;close();return;}if(action==='view'){close();disposeUpload?.();state.view=key;state.salesPage=1;await load();return;}
   if(['purchase-document','staged-import','invoice'].includes(action)&&!canUploadInvoice(currentUser,namespace)){notice(invoiceReadOnlyHelp);return;}
   if(action==='purchase-document'){openUpload();return;}
   if(action==='product-count'||action==='product-unbilled'){showForm(action==='product-count'?'stock':'unbilled',key);return;}
-  if(action==='add-unbilled-line'){const rows=$('[data-unbilled-lines]');if(rows.children.length>=200)throw Error('Bir teslimatta en fazla 200 ürün olabilir.');rows.insertAdjacentHTML('beforeend',unbilledLine());updateUnbilled(rows.closest('form'));rows.lastElementChild.querySelector('select').focus();return;}
-  if(action==='remove-unbilled-line'){const form=b.closest('form');if(form.querySelectorAll('[data-unbilled-line]').length>1)b.closest('[data-unbilled-line]').remove();updateUnbilled(form);return;}
+  if(action==='add-unbilled-line'){const rows=$('[data-unbilled-lines]');if(rows.children.length>=200)throw Error('Bir teslimatta en fazla 200 ürün olabilir.');
+   // Yeni satır açılırken tamamlanmış satırlar kapanır; eksik satır AÇIK kalır, çünkü kapalı
+   // <details> içindeki required alan Chrome'da "not focusable" hatası verip gönderimi kilitler.
+   for(const row of rows.querySelectorAll('[data-unbilled-line]'))if(unbilledTam(row))row.open=false;
+   rows.insertAdjacentHTML('beforeend',unbilledLine());updateUnbilled(rows.closest('form'));rows.lastElementChild.querySelector('[data-ac-pick-input]').focus();return;}
+  if(action==='remove-unbilled-line'){event.preventDefault();const form=b.closest('form');if(form.querySelectorAll('[data-unbilled-line]').length>1)b.closest('[data-unbilled-line]').remove();updateUnbilled(form);return;}
 
   if(action==='invoice-reset'){Object.assign(state,{invoiceQuery:'',invoiceStatus:'',invoiceSort:'',invoicePage:1});await load();$('[data-ac-form="invoice-filters"] [name="q"]')?.focus();return;}
   // Ödeme, cari ekranındaki fatura ödemeleri sekmesinde girilir; fatura orada işaretli açılır.
