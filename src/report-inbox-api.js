@@ -866,6 +866,48 @@ const FEE_COMPONENT = {commission: 'commission', cargo: 'shipping', service: 'ot
  *  - Faturaya bağlanmış (fee_allocations) kayda dokunulmaz; fatura her zaman üstündür.
  *  - fees_status 'pending' kalır: bu tutarlar faturayla doğrulanmadı.
  */
+/**
+ * KESİNTİ DÖNGÜSÜNÜN SAYFA BAŞINA ÖN OKUMASI. Ölçüldü (07.10.2026, canlı önizleme ucu zamanlandı):
+ * bir sayfa (50 sipariş) 8,7 saniye, yani sipariş başına ~174 ms. Döngü paket başına ÜÇ ayrı sorgu
+ * yapıyordu — gerçek iade var mı, defterdeki brüt, satış satırları — ve 50 siparişlik sayfa ~80
+ * SIRALI veritabanı turu demekti. Bütçe 50 saniye olduğundan tarama hiç bitmiyordu.
+ *
+ * Aynı veriler artık sayfanın tamamı için bir kerede okunur. KOŞULLAR BİREBİR AYNI: aynı WHERE,
+ * aynı DUZELTME- dışlaması, aynı faturalı sayımı. Hangi kesintinin yazılacağına karar veren kod
+ * hiç değişmedi; yalnız veriyi nereden okuduğu değişti.
+ *
+ * SIRA KORUNUR VE BU KRİTİKTİR: satış satırları paket içinde c.id sırasına göre diziye girer,
+ * çünkü allocateCents küsuratı SIRAYA göre dağıtıyor. Sıra bozulsa toplam değişmez ama kuruş
+ * başka satıra yazılır ve defter sessizce kayar.
+ */
+async function kesintiOnYukle(db, paketler, indirimliPaketler) {
+  const iadeliPaket = new Set(), satisSatirlari = new Map(), defterToplami = new Map();
+  for (const part of inChunks(paketler, 25)) {
+    const yer = part.map(() => '?').join(',');
+    for (const r of (await db.prepare("SELECT DISTINCT l.package_id p FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_sale_entries r ON r.parent_id=c.sale_id"
+      + ' WHERE l.package_id IN (' + yer + ") AND r.kind='return' AND r.external_id NOT LIKE 'DUZELTME-%'").bind(...part).all()).results)
+      iadeliPaket.add(String(r.p));
+    for (const r of (await db.prepare('SELECT l.package_id p,c.sale_id,s.revenue_cents,s.commission_cents,s.shipping_cents,s.other_cents,s.fees_status,'
+      + '(SELECT COUNT(*) FROM ec_fee_allocations a WHERE a.sale_id=c.sale_id AND a.reversed_at IS NULL) faturali '
+      + 'FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_sale_entries s ON s.id=c.sale_id '
+      + ' WHERE l.package_id IN (' + yer + ") AND s.kind='sale' AND s.external_id NOT LIKE 'DUZELTME-%' ORDER BY l.package_id,c.id").bind(...part).all()).results) {
+      const k = String(r.p);
+      if (!satisSatirlari.has(k)) satisSatirlari.set(k, []);
+      satisSatirlari.get(k).push(r);
+    }
+  }
+  // Defter toplamı YALNIZ indirimli pakette gerekiyordu; öyle kalıyor.
+  for (const part of inChunks(indirimliPaketler, 25)) {
+    const yer = part.map(() => '?').join(',');
+    for (const r of (await db.prepare('SELECT l.package_id p,COALESCE(SUM(l.gross_cents),0) b,'
+      + "(SELECT COALESCE(SUM(s.quantity_milli),0) FROM ec_order_line_components c JOIN ec_order_lines x ON x.id=c.line_id JOIN ec_sale_entries s ON s.id=c.sale_id WHERE x.package_id=l.package_id AND s.kind='sale') satilan,"
+      + "(SELECT COALESCE(SUM(r.quantity_milli),0) FROM ec_order_line_components c JOIN ec_order_lines x ON x.id=c.line_id JOIN ec_sale_entries r ON r.parent_id=c.sale_id WHERE x.package_id=l.package_id AND r.kind='return' AND r.external_id NOT LIKE 'DUZELTME-%') iade "
+      + 'FROM ec_order_lines l WHERE l.package_id IN (' + yer + ') GROUP BY l.package_id').bind(...part).all()).results)
+      defterToplami.set(String(r.p), r);
+  }
+  return {iadeliPaket, satisSatirlari, defterToplami};
+}
+
 export async function applyReportFees(db, storeId, {commit = false, cursor = 0, take = 50} = {}) {
   const store = await db.prepare('SELECT * FROM ec_report_stores WHERE id=?').bind(key(storeId)).first();
   if (!store) fail('Mağaza bulunamadı.', 404);
@@ -895,6 +937,10 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
     if (r.erp_package_id) { all.push(r); continue; }
     skipped.push({group: r.group, reason: 'Panelde karşılığı olan sipariş yok; kesinti yazılacak satış bulunamadı.'});
   }
+  const {iadeliPaket, satisSatirlari, defterToplami} = await kesintiOnYukle(db,
+    all.map(g => String(g.erp_package_id)),
+    all.filter(g => (g.discount_gross_cents || 0) > 0).map(g => String(g.erp_package_id)));
+
   for (const g of all) {
     // Teslim edilmemiş pakette kargo kesinleşmemiştir; deftere de yazılmaz (kâr kuralıyla aynı çizgi).
     // İade edilmiş paket de kesinleşmiştir: mal döndü, ekstre son hâlini verdi.
@@ -904,7 +950,7 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
     // beklemeden yazılır ve raporda komisyon yoksa SIFIR komisyon "kesinleşmiş" diye deftere geçerdi;
     // kopyanın kesintileri kâr raporunda ikize taşındığı için o sıfır doğrudan kârı şişirir. Kodun
     // geri kalanı da (IADE/DONEN, iade tahsisi, aşağıdaki iade düzeltmesi) DUZ'u iade saymaz.
-    const iadeli = g.erp_package_id ? await db.prepare("SELECT 1 FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_sale_entries r ON r.parent_id=c.sale_id WHERE l.package_id=? AND r.kind='return' AND r.external_id NOT LIKE 'DUZELTME-%' LIMIT 1").bind(g.erp_package_id).first() : null;
+    const iadeli = iadeliPaket.has(String(g.erp_package_id));
     if (!g.delivered && !iadeli) { skipped.push({group: g.group, reason: 'Teslim edilmedi; kargo kesinleşmeden kesinti yazılmaz.'}); continue; }
     // kaynak: tutarı olan kalem. bildirilen: ekstrede satırı OLAN kalem (tutarı 0 olsa da).
     // İkisi ayrıdır: "pazaryeri 0,00 beyan etti" gerçek sıfırdır, "satır hiç yok" bilinmeyendir.
@@ -942,10 +988,8 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
     const indirimBrut = g.discount_gross_cents || 0;
     if (indirimBrut > 0) {
       const raporBrut = g.lines.reduce((t, l) => t + (l.gross_cents || 0), 0);
-      const defter = await db.prepare("SELECT COALESCE(SUM(gross_cents),0) b," +
-        "(SELECT COALESCE(SUM(s.quantity_milli),0) FROM ec_order_line_components c JOIN ec_order_lines x ON x.id=c.line_id JOIN ec_sale_entries s ON s.id=c.sale_id WHERE x.package_id=?1 AND s.kind='sale') satilan," +
-        "(SELECT COALESCE(SUM(r.quantity_milli),0) FROM ec_order_line_components c JOIN ec_order_lines x ON x.id=c.line_id JOIN ec_sale_entries r ON r.parent_id=c.sale_id WHERE x.package_id=?1 AND r.kind='return' AND r.external_id NOT LIKE 'DUZELTME-%') iade " +
-        'FROM ec_order_lines WHERE package_id=?1').bind(g.erp_package_id).first();
+      // Satırı olmayan paket: eski sorgu da b/satilan/iade icin sifir donduruyordu (ciplak toplam).
+      const defter = defterToplami.get(String(g.erp_package_id)) || {b: 0, satilan: 0, iade: 0};
       const fark = raporBrut - defter.b;
       const kalanFark = defter.satilan > 0 && defter.iade > 0 ? Math.round(fark * Math.max(0, defter.satilan - defter.iade) / defter.satilan) : fark;
       if (Math.abs(fark - indirimBrut) <= 2 || Math.abs(kalanFark - indirimBrut) <= 2) {
@@ -953,12 +997,9 @@ export async function applyReportFees(db, storeId, {commit = false, cursor = 0, 
         skipped.push({group: g.group, reason: 'İndirim satış fiyatına zaten uygulanmış; gider olarak ikinci kez yazılmadı (' + (indirimBrut / 100).toFixed(2) + ' TL).'});
       }
     }
-    const rows = (await db.prepare(
-      'SELECT c.sale_id,s.revenue_cents,s.commission_cents,s.shipping_cents,s.other_cents,s.fees_status,' +
-      '(SELECT COUNT(*) FROM ec_fee_allocations a WHERE a.sale_id=c.sale_id AND a.reversed_at IS NULL) faturali ' +
-      'FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_sale_entries s ON s.id=c.sale_id ' +
-      // Düzeltme (ikame/ilave) satışları hariç: ciro taşımazlar, kesintileri asıl satışta durur.
-      "WHERE l.package_id=? AND s.kind='sale' AND s.external_id NOT LIKE 'DUZELTME-%' ORDER BY c.id").bind(g.erp_package_id).all()).results;
+    // Düzeltme (ikame/ilave) satışları ön okumada hariç tutuldu: ciro taşımazlar, kesintileri
+    // asıl satışta durur. Sıra c.id'ye göre geldi ve küsurat dağıtımı o sıraya bağlı.
+    const rows = satisSatirlari.get(String(g.erp_package_id)) || [];
     if (!rows.length) { skipped.push({group: g.group, reason: 'ERP paketinde satış kaydı yok (stok çıkışı yapılmamış).'}); continue; }
     if (rows.some(r => r.faturali)) { skipped.push({group: g.group, reason: 'Bu paketin gideri faturaya bağlanmış; fatura üstündür, dokunulmadı.'}); continue; }
     // İNDİRİM PAYI ANLAMSIZ ÇIKTIYSA (paketin kendi cirosundan büyük) HİÇBİR KESİNTİ YAZILMAZ:
