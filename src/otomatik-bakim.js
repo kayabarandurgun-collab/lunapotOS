@@ -70,6 +70,30 @@ const sureOzeti = ozet => {
   const parcalar = Object.entries(ozet.sure).map(([ad, ms]) => ad + ' ' + Math.round(ms / 100) / 10 + 'sn');
   return parcalar.length ? ' [' + parcalar.join(', ') + ']' : '';
 };
+/**
+ * ADIM BAŞINA SÜRE, EN ÇOK YİYENDEN AZA: (aktarım 70.1sn, kesinti 12.4sn). Aşama damgası üç kaba
+ * blok veriyordu (dosya/senkron/rapor) ve 'rapor' ALTI işi birden sayıyordu; hangisinin bütçeyi
+ * yediği ölçülemiyordu. Birikimli damgayla ayrıştırılamazlar da: iade ile kesinti mağaza
+ * döngüsünde iç içe geçiyor. Bu yüzden `adim` toplam süre tutar, `sure` birikimli damga kalır.
+ * Sıralama azalan: satırın ilk adı sorunun cevabıdır. 0,1 saniyenin altı yazılmaz, yoksa iz
+ * kaydı "teslim 0sn" gibi onlarca boş parçayla dolar.
+ */
+export const adimOzeti = ozet => {
+  const parcalar = Object.entries(ozet.adim || {}).filter(([, ms]) => ms >= 100)
+    .sort((a, b) => b[1] - a[1]).map(([ad, ms]) => ad + ' ' + Math.round(ms / 100) / 10 + 'sn');
+  return parcalar.length ? ' (' + parcalar.join(', ') + ')' : '';
+};
+/**
+ * Bakım adımlarının ölçen sarmalayıcısı: hatayı yutar, süreyi ozet.adim'e TOPLAR. Butceler gibi
+ * tek yerde durur ki sınanabilsin ve yeni bir adım eklendiğinde ölçülmesi unutulamasın.
+ * SÜRE CATCH'TEN SONRA YAZILIR: bütçeyi yiyip düşen adım, tam da arandığı turda ölçümden kaçmasın.
+ * Aynı ad birden çok kez çağrılır (iade ve kesinti mağaza başına); süreler toplanır.
+ */
+export const adimOlcer = (ozet, gecen) => async (ad, fn) => {
+  const bas = gecen();
+  try { await fn(); } catch (e) { ozet.hatalar.push(ad + ': ' + e.message); }
+  ozet.adim[ad] = (ozet.adim[ad] || 0) + (gecen() - bas);
+};
 const SENKRON_ILK_GUN = 3;   // hiç senkron yapılmamış bağlantıda ilk pencere (ilk tam alım elle yapılır)
 const coz = v => { try { return JSON.parse(v); } catch { return null; } };
 
@@ -282,10 +306,12 @@ async function bakimTuru(env, {sureMs = 50000, simdi = Date.now(), sakinDakika =
 
   const cagir = (handler, yol, govde) => handler(new Request('https://internal.invalid/api/ec' + yol.replace(/^\/api/, ''), {method: govde === undefined ? 'GET' : 'POST'}),
     ec, yol, async () => govde);
-  const ozet = {dosya: 0, siparis: 0, teslim: 0, iade: 0, kesinti: 0, maliyet: 0, eslestirme: 0, pazaryeriKesinti: 0, senkronKayit: 0, senkronTeslim: 0, senkronTaslak: 0, senkronAtlandi: [], senkronSebep: [], sure: {}, hatalar: [], bildirim: {...BILDIRIM_YOK}};
+  const ozet = {dosya: 0, siparis: 0, teslim: 0, iade: 0, kesinti: 0, maliyet: 0, eslestirme: 0, pazaryeriKesinti: 0, senkronKayit: 0, senkronTeslim: 0, senkronTaslak: 0, senkronAtlandi: [], senkronSebep: [], sure: {}, adim: {}, hatalar: [], bildirim: {...BILDIRIM_YOK}};
   // Aşama damgaları: hangi işin bütçeyi yediği ancak ölçülerek görülür. İz kaydına da yazılır.
   const asama = ad => { ozet.sure[ad] = gecen(); };
-  const dene = async (ad, fn) => { try { await fn(); } catch (e) { ozet.hatalar.push(ad + ': ' + e.message); } };
+  // HER ADIM KENDİ SÜRESİNİ TOPLAR (bkz. adimOlcer, adimOzeti): 'rapor' damgası altı işi birden
+  // sayıyordu ve hangisinin bütçeyi yediği ölçülemiyordu.
+  const dene = adimOlcer(ozet, gecen);
 
   // 1. Yarım kalan dosyalar. Hata veren dosya silinmez ve "işlendi" sayılmaz: deneme sayısı, son hata
   // ve bir sonraki deneme zamanı ec_report_file_attempts'e yazılır (ekranda görünür). Her tur önce hiç
@@ -404,7 +430,7 @@ async function bakimTuru(env, {sureMs = 50000, simdi = Date.now(), sakinDakika =
       + (bildirimMetni ? '; ' + bildirimMetni : '')
       // Aşama süreleri İŞ YAPILAN turda da yazılır: bütçeyi hangi adımın yediği yalnız boş turlarda
       // görülebiliyordu, oysa asıl merak edilen dolu turdur.
-      + sureOzeti(ozet)).run();
+      + sureOzeti(ozet) + adimOzeti(ozet)).run();
   // İŞ YOKKEN DE İZ BIRAKILIR (en çok 6 saatte bir): ekranda hiç satır olmayınca bakımın çalışıp
   // çalışmadığı anlaşılmıyordu. Her 15 dakikada yazmak listeyi doldururdu.
   // İŞ YOKKEN SEBEP DE YAZILIR: "iş yoktu" ile "senkrona sıra gelmedi" aynı şey değil. Süre bütçesi
@@ -413,6 +439,6 @@ async function bakimTuru(env, {sureMs = 50000, simdi = Date.now(), sakinDakika =
     + "WHERE NOT EXISTS(SELECT 1 FROM ec_activity WHERE description LIKE 'Otomatik bakım%' AND created_at>datetime('now','-6 hours'))")
     .bind(crypto.randomUUID(), ('Otomatik bakım çalıştı; yapılacak iş yoktu.'
       + (ozet.senkronSebep.length ? ' Senkron: ' + ozet.senkronSebep.join(' | ') : '')
-      + sureOzeti(ozet)).slice(0, 480)).run();
+      + sureOzeti(ozet) + adimOzeti(ozet)).slice(0, 480)).run();
   return ozet;
 }

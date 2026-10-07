@@ -213,7 +213,9 @@ test('Dolu turun iz kaydı da aşama sürelerini taşır', async () => {
     const r = await otomatikBakim(f.env, {simdi: AN, senkronGetir: ty.getir, kaynaklar: KAYNAKLAR});
     assert.ok(r.senkronKayit > 0, 'tur iş yapmalı');
     const iz = f.sqlite.prepare("SELECT description d FROM ec_activity WHERE description LIKE 'Otomatik bakım:%' ORDER BY created_at DESC, rowid DESC LIMIT 1").get();
-    assert.match(iz.d, /\[.*sn\]$/, 'süreler iz kaydının sonunda olmalı: ' + iz.d);
+    // Aşama damgaları [köşeli], adım süreleri (parantezli) ve bu sırayla iz kaydının SONUNDA durur.
+    // Adım özeti 0,1sn altını yazmadığı için hızlı turda hiç çıkmayabilir; o yüzden isteğe bağlı.
+    assert.match(iz.d, /\[[^\]]*sn\](?: \([^)]*sn\))?$/, 'süreler iz kaydının sonunda olmalı: ' + iz.d);
     assert.match(iz.d, /senkron /);
     assert.match(iz.d, /rapor /);
   } finally { f.close(); }
