@@ -103,6 +103,48 @@ export async function rematchDrafts(env,{limit=20}={}){
  if(items.length)await execute(db,items);
  return {checked:bosSatirlar.length,matched:eslesen,unmatched:kalan};
 }
+
+/**
+ * Pazaryerinin "bu paket iptal/iade oldu" demek için kullandığı sözcükler. TEK LİSTE: hem aşağıdaki
+ * süzgeç hem rapor yolu (report-stock-link-api.js) buradan türer, yoksa iki yol sessizce ayrışır.
+ */
+const IPTAL_SOZCUKLERI=['iptal','iade','cancel','return','refund'];
+export const PAZARYERI_IPTAL=new RegExp(IPTAL_SOZCUKLERI.join('|'),'i');
+
+/**
+ * PAZARYERİNDE İPTAL EDİLMİŞ AÇIK SİPARİŞİ KAPATIR. "Hazırlık bekliyor" listesinde, pazaryeri
+ * aylar önce iptal ettiği hâlde 9 paket duruyordu (en eskisi 15.08.2026). Sebep ÖLÇÜLDÜ: iptali
+ * işleyen tek yol rapor kayıtlarından geçiyor (report-stock-link-api.js /auto) ve bu paketlerin
+ * HİÇ rapor kaydı yok — onları API senkronu açmıştı, senkron 26.09'da kapatıldı, bir daha kimse
+ * bakmadı. Oysa iptal bilgisi paketin KENDİ üstünde duruyor: external_status.
+ *
+ * YALNIZ AÇIK PAKETE DOKUNUR (taslak/ayrılmış). Gönderilmiş ya da teslim edilmiş paket iptal
+ * EDİLMEZ: orada mal gerçekten hareket etmiştir, iade kaydı kullanılır. Ayrılmış paketin iptali
+ * ayrılan stoğu serbest bırakır — rapor yolu da bunu zaten böyle yapıyor. Satış yazılmış paket
+ * taslak olamaz, yani bu iş deftere dokunmaz.
+ *
+ * external_status BAYAT OLABİLİR AMA YALNIZ TERS YÖNDE: canlıda 33 gönderilmiş pakette hâlâ
+ * "Toplanmaya Başlandı" yazıyor. İptal pazaryerinde son durumdur; ilerlemiş bir pakette
+ * yanlışlıkla görünmez. Bu yüzden bu yön güvenli, tersi değil.
+ */
+export async function pazaryeriIptalleriniKapat(env,{limit=50}={}){
+ const db=env.DB;
+ // Süzgeç SQL'de daralır, kararı regex verir. İkisi birlikte çünkü LIMIT süzülmüş satırlara
+ // uygulanmalı: dolu bir listenin başındaki AÇIK siparişler iptalleri gölgelemesin.
+ const kosul=IPTAL_SOZCUKLERI.map(()=>'external_status LIKE ?').join(' OR ');
+ const adaylar=(await statement(db,"SELECT id,external_id,external_status,status FROM order_packages"
+  +" WHERE status IN ('draft','reserved') AND COALESCE(external_status,'')<>'' AND ("+kosul+")"
+  +' ORDER BY occurred_on,rowid LIMIT ?',[...IPTAL_SOZCUKLERI.map(s=>'%'+s+'%'),limit]).all()).results;
+ const items=[];
+ for(const p of adaylar){
+  if(!PAZARYERI_IPTAL.test(String(p.external_status).toLocaleLowerCase('tr-TR')))continue;
+  // Durum koşulu UPDATE'in İÇİNDE: kullanıcı tam bu sırada paketi gönderirse iptal edilmez.
+  const kapandi=(await execute(db,[statement(db,"UPDATE order_packages SET status='cancelled',cancel_reason=? WHERE id=? AND status IN ('draft','reserved') RETURNING id",
+   ['Pazaryeri durumu: '+p.external_status,p.id])]))[0].results;
+  if(kapandi.length)items.push({id:p.id,external_id:p.external_id,external_status:p.external_status,was:p.status});
+ }
+ return {checked:adaylar.length,cancelled:items.length,items};
+}
 // Provider adapter passes explicit normalized source facts. This function never dispatches orders remotely.
 export async function importOrders(env,provider,records){
  if(env.WORKSPACE!=='ec'||!['trendyol','hepsiburada'].includes(provider))fail('Sipariş aktarımı yalnızca e-ticaret alanında kullanılabilir.',403);

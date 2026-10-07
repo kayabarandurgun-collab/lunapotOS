@@ -14,7 +14,7 @@
 //  · İptal/iade ayrı olaydır; yeni satışa çevrilmez.
 //  · Gerçek paket/kalem kimliği yoksa aktarılmaz.
 //  · Aynı paket ikinci kez aktarılamaz: hem sipariş kimliği hem aktarım kaydı tekildir.
-import {ordersApi} from './orders-api.js';
+import {ordersApi, PAZARYERI_IPTAL} from './orders-api.js';
 import {reportLinkFingerprint} from './report-link-guard.js';
 import {pendingReturns} from './report-inbox-api.js';
 import {accountingApi} from './accounting.js';
@@ -38,7 +38,9 @@ const id = () => crypto.randomUUID();
 const key = v => { if (!/^[\w-]{1,100}$/.test(v || '')) fail('Mağaza veya paket seçimi geçersiz.'); return v; };
 const parse = (s, fallback) => { try { return JSON.parse(s); } catch { return fallback; } };
 const day = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && new Date(s).toISOString().slice(0, 10) === s;
-const CANCELLED = /iptal|iade|cancel|return|refund/i;
+// TEK LİSTE: pazaryeri iptal sözcükleri orders-api.js'de durur. Bu yol rapor kayıtlarından,
+// oradaki yol paketin kendi external_status'undan okuyor; ikisi aynı sözcüklere bakmalı.
+const CANCELLED = PAZARYERI_IPTAL;
 
 async function digest(parts) {
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(parts)));

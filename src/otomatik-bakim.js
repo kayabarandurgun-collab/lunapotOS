@@ -17,7 +17,7 @@ import {reportStockLinkApi} from './report-stock-link-api.js';
 import {syncProvider} from './connections-api.js';
 import {telegramAcik, telegramAriza, telegramBildir} from './telegram.js';
 import {fifoRevalue} from './fifo-cost.js';
-import {rematchDrafts} from './orders-api.js';
+import {rematchDrafts, pazaryeriIptalleriniKapat} from './orders-api.js';
 import {pazaryeriKesintileriniIsle} from './pazaryeri-kesinti.js';
 
 const SISTEM = {owner: true, id: 'otomatik-bakim', username: 'otomatik', name: 'Otomatik bakım'};
@@ -306,7 +306,7 @@ async function bakimTuru(env, {sureMs = 50000, simdi = Date.now(), sakinDakika =
 
   const cagir = (handler, yol, govde) => handler(new Request('https://internal.invalid/api/ec' + yol.replace(/^\/api/, ''), {method: govde === undefined ? 'GET' : 'POST'}),
     ec, yol, async () => govde);
-  const ozet = {dosya: 0, siparis: 0, teslim: 0, iade: 0, kesinti: 0, maliyet: 0, eslestirme: 0, pazaryeriKesinti: 0, senkronKayit: 0, senkronTeslim: 0, senkronTaslak: 0, senkronAtlandi: [], senkronSebep: [], sure: {}, adim: {}, hatalar: [], bildirim: {...BILDIRIM_YOK}};
+  const ozet = {dosya: 0, siparis: 0, teslim: 0, iade: 0, kesinti: 0, maliyet: 0, eslestirme: 0, pazaryeriKesinti: 0, pazaryeriIptal: 0, senkronKayit: 0, senkronTeslim: 0, senkronTaslak: 0, senkronAtlandi: [], senkronSebep: [], sure: {}, adim: {}, hatalar: [], bildirim: {...BILDIRIM_YOK}};
   // Aşama damgaları: hangi işin bütçeyi yediği ancak ölçülerek görülür. İz kaydına da yazılır.
   const asama = ad => { ozet.sure[ad] = gecen(); };
   // HER ADIM KENDİ SÜRESİNİ TOPLAR (bkz. adimOlcer, adimOzeti): 'rapor' damgası altı işi birden
@@ -354,6 +354,14 @@ async function bakimTuru(env, {sureMs = 50000, simdi = Date.now(), sakinDakika =
   await dene('pazaryeri kesintisi', async () => {
     const r = await pazaryeriKesintileriniIsle(ec, {provider: 'hepsiburada', commit: true, limit: 40});
     ozet.pazaryeriKesinti += r.sale_entries_changed;
+  });
+
+  // PAZARYERİNDE İPTAL EDİLMİŞ AÇIK SİPARİŞ. Yukarıdaki rapor yolu yalnız rapor kaydı OLAN paketi
+  // görüyor; API senkronunun açtığı taslaklar hiç rapor kaydı taşımıyor ve senkron kapatıldığından
+  // onlara bir daha kimse bakmıyordu (canlıda 9 paket, en eskisi 15.08). İptal bilgisi paketin
+  // kendi external_status'unda duruyor; yalnız taslak/ayrılmış pakete dokunulur.
+  await dene('pazaryeri iptali', async () => {
+    ozet.pazaryeriIptal += (await pazaryeriIptalleriniKapat(ec, {limit: 50})).cancelled;
   });
 
   await dene('eşleştirme', async () => {
@@ -417,11 +425,12 @@ async function bakimTuru(env, {sureMs = 50000, simdi = Date.now(), sakinDakika =
   if (ozet.hatalar.length) ozet.bildirim = await arizaBildir(env, ozet.hatalar, {simdi, gonder: bildirimGonder, db});
   const bildirimMetni = bildirimIzi(ozet.bildirim);
 
-  const is = ozet.dosya + ozet.siparis + ozet.teslim + ozet.iade + ozet.kesinti + ozet.maliyet + ozet.eslestirme + ozet.pazaryeriKesinti + ozet.senkronKayit + ozet.senkronTeslim + ozet.senkronTaslak;
+  const is = ozet.dosya + ozet.siparis + ozet.teslim + ozet.iade + ozet.kesinti + ozet.maliyet + ozet.eslestirme + ozet.pazaryeriKesinti + ozet.pazaryeriIptal + ozet.senkronKayit + ozet.senkronTeslim + ozet.senkronTaslak;
   if (is || ozet.hatalar.length)
     await db.prepare('INSERT INTO ec_activity(id,description) VALUES(?,?)').bind(crypto.randomUUID(),
       'Otomatik bakım: ' + [ozet.dosya && ozet.dosya + ' rapor dosyası bitirildi', ozet.siparis && ozet.siparis + ' sipariş aktarıldı', ozet.teslim && ozet.teslim + ' teslim',
         ozet.iade && ozet.iade + ' iade', ozet.kesinti && ozet.kesinti + ' satışa kesinti yazıldı', ozet.maliyet && ozet.maliyet + ' maliyet düzeltmesi', ozet.eslestirme && ozet.eslestirme + ' ilan kendiliğinden eşleşti', ozet.pazaryeriKesinti && ozet.pazaryeriKesinti + ' satışa pazaryeri kesintisi yazıldı',
+        ozet.pazaryeriIptal && ozet.pazaryeriIptal + ' sipariş pazaryeri iptaliyle kapatıldı',
         ozet.senkronKayit && ozet.senkronKayit + ' pazaryeri kaydı tarandı', ozet.senkronTaslak && ozet.senkronTaslak + ' yeni sipariş taslağı',
         ozet.senkronTeslim && ozet.senkronTeslim + ' paket teslim işaretlendi'].filter(Boolean).join(', ')
       + (ozet.hatalar.length ? (is ? '; ' : '') + 'sorun: ' + ozet.hatalar.join(' | ').slice(0, 400) : '')
