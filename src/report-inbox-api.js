@@ -882,28 +882,39 @@ const FEE_COMPONENT = {commission: 'commission', cargo: 'shipping', service: 'ot
  */
 async function kesintiOnYukle(db, paketler, indirimliPaketler) {
   const iadeliPaket = new Set(), satisSatirlari = new Map(), defterToplami = new Map();
-  for (const part of inChunks(paketler, 25)) {
-    const yer = part.map(() => '?').join(',');
-    for (const r of (await db.prepare("SELECT DISTINCT l.package_id p FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_sale_entries r ON r.parent_id=c.sale_id"
-      + ' WHERE l.package_id IN (' + yer + ") AND r.kind='return' AND r.external_id NOT LIKE 'DUZELTME-%'").bind(...part).all()).results)
-      iadeliPaket.add(String(r.p));
-    for (const r of (await db.prepare('SELECT l.package_id p,c.sale_id,s.revenue_cents,s.commission_cents,s.shipping_cents,s.other_cents,s.fees_status,'
-      + '(SELECT COUNT(*) FROM ec_fee_allocations a WHERE a.sale_id=c.sale_id AND a.reversed_at IS NULL) faturali '
-      + 'FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_sale_entries s ON s.id=c.sale_id '
-      + ' WHERE l.package_id IN (' + yer + ") AND s.kind='sale' AND s.external_id NOT LIKE 'DUZELTME-%' ORDER BY l.package_id,c.id").bind(...part).all()).results) {
+  // TEK GİDİŞ. Ölçüldü (07.10.2026, canlı A/B): sorguların kendisi hızlı — aynı sorgular yerelde
+  // 8.975 satırlık veriyle 20 kez 9 ms sürüyor ve üç indeks de yerinde (MULTI-INDEX OR). Pahalı
+  // olan D1'e AYRI AYRI gitmek: bir apply-fees çağrısında ~25 sıralı tur var ve tur başına
+  // gecikme toplamı 5 saniyeyi yapıyor. Bu yüzden parçaların sorguları tek db.batch ile gider.
+  const yer = part => part.map(() => '?').join(',');
+  const iade = part => db.prepare("SELECT DISTINCT l.package_id p FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_sale_entries r ON r.parent_id=c.sale_id"
+    + ' WHERE l.package_id IN (' + yer(part) + ") AND r.kind='return' AND r.external_id NOT LIKE 'DUZELTME-%'").bind(...part);
+  const satis = part => db.prepare('SELECT l.package_id p,c.sale_id,s.revenue_cents,s.commission_cents,s.shipping_cents,s.other_cents,s.fees_status,'
+    + '(SELECT COUNT(*) FROM ec_fee_allocations a WHERE a.sale_id=c.sale_id AND a.reversed_at IS NULL) faturali '
+    + 'FROM ec_order_line_components c JOIN ec_order_lines l ON l.id=c.line_id JOIN ec_sale_entries s ON s.id=c.sale_id '
+    + ' WHERE l.package_id IN (' + yer(part) + ") AND s.kind='sale' AND s.external_id NOT LIKE 'DUZELTME-%' ORDER BY l.package_id,c.id").bind(...part);
+  // Defter toplamı YALNIZ indirimli pakette gerekiyordu; öyle kalıyor.
+  const defter = part => db.prepare('SELECT l.package_id p,COALESCE(SUM(l.gross_cents),0) b,'
+    + "(SELECT COALESCE(SUM(s.quantity_milli),0) FROM ec_order_line_components c JOIN ec_order_lines x ON x.id=c.line_id JOIN ec_sale_entries s ON s.id=c.sale_id WHERE x.package_id=l.package_id AND s.kind='sale') satilan,"
+    + "(SELECT COALESCE(SUM(r.quantity_milli),0) FROM ec_order_line_components c JOIN ec_order_lines x ON x.id=c.line_id JOIN ec_sale_entries r ON r.parent_id=c.sale_id WHERE x.package_id=l.package_id AND r.kind='return' AND r.external_id NOT LIKE 'DUZELTME-%') iade "
+    + 'FROM ec_order_lines l WHERE l.package_id IN (' + yer(part) + ') GROUP BY l.package_id').bind(...part);
+
+  // Sıra ÖNEMLİ: sonuçlar gönderilen sırayla geri geliyor, hangi yanıtın hangi işe ait olduğu buradan bilinir.
+  const isler = [];
+  for (const part of inChunks(paketler, 25)) isler.push({tur: 'iade', st: iade(part)}, {tur: 'satis', st: satis(part)});
+  for (const part of inChunks(indirimliPaketler, 25)) isler.push({tur: 'defter', st: defter(part)});
+  if (!isler.length) return {iadeliPaket, satisSatirlari, defterToplami};
+  const cevaplar = await db.batch(isler.map(i => i.st));
+
+  for (let i = 0; i < isler.length; i++) {
+    const satirlar = cevaplar[i]?.results || [];
+    if (isler[i].tur === 'iade') for (const r of satirlar) iadeliPaket.add(String(r.p));
+    else if (isler[i].tur === 'defter') for (const r of satirlar) defterToplami.set(String(r.p), r);
+    else for (const r of satirlar) {
       const k = String(r.p);
       if (!satisSatirlari.has(k)) satisSatirlari.set(k, []);
       satisSatirlari.get(k).push(r);
     }
-  }
-  // Defter toplamı YALNIZ indirimli pakette gerekiyordu; öyle kalıyor.
-  for (const part of inChunks(indirimliPaketler, 25)) {
-    const yer = part.map(() => '?').join(',');
-    for (const r of (await db.prepare('SELECT l.package_id p,COALESCE(SUM(l.gross_cents),0) b,'
-      + "(SELECT COALESCE(SUM(s.quantity_milli),0) FROM ec_order_line_components c JOIN ec_order_lines x ON x.id=c.line_id JOIN ec_sale_entries s ON s.id=c.sale_id WHERE x.package_id=l.package_id AND s.kind='sale') satilan,"
-      + "(SELECT COALESCE(SUM(r.quantity_milli),0) FROM ec_order_line_components c JOIN ec_order_lines x ON x.id=c.line_id JOIN ec_sale_entries r ON r.parent_id=c.sale_id WHERE x.package_id=l.package_id AND r.kind='return' AND r.external_id NOT LIKE 'DUZELTME-%') iade "
-      + 'FROM ec_order_lines l WHERE l.package_id IN (' + yer + ') GROUP BY l.package_id').bind(...part).all()).results)
-      defterToplami.set(String(r.p), r);
   }
   return {iadeliPaket, satisSatirlari, defterToplami};
 }
