@@ -247,7 +247,7 @@ export async function ordersApi(request,env,path,readBody){
   if(!Array.isArray(x.lines))fail('Sipariş satırları gerekli.');
   return createPackage(env,x.channel,{...x,lines:x.lines.map(l=>({...l,quantity_milli:qty(l.quantity),gross_cents:money(l.gross),vat_bps:vat(l.vat_rate),net_revenue_cents:money(l.net_revenue)}))});
  }
- const match=path.match(/^\/api\/orders\/([\w-]+)\/(map|reserve|ship|deliver|cancel|refresh|duzeltme)$/);if(!match)return null;
+ const match=path.match(/^\/api\/orders\/([\w-]+)\/(map|reserve|ship|deliver|cancel|refresh|duzeltme|kayip)$/);if(!match)return null;
  const key=match[1],action=match[2],p=await statement(db,'SELECT * FROM order_packages WHERE id=?',[key]).first();if(!p)fail('Sipariş paketi bulunamadı.',404);
  const lines=(await statement(db,'SELECT * FROM order_lines WHERE package_id=? ORDER BY rowid',[key]).all()).results;
  const components=(await statement(db,'SELECT c.*,p.stock_unit current_stock_unit FROM order_line_components c JOIN order_lines l ON l.id=c.line_id JOIN products p ON p.id=c.product_id WHERE l.package_id=? ORDER BY c.rowid',[key]).all()).results;
@@ -343,6 +343,17 @@ export async function ordersApi(request,env,path,readBody){
   if(p.status==='cancelled')return {id:key,status:p.status,existing:true};
   if(!['draft','reserved'].includes(p.status))fail('Gönderilen sipariş iptal edilemez; iade kaydı kullanın.',409);
   await execute(db,[statement(db,"UPDATE order_packages SET status='cancelled',cancel_reason=? WHERE id=?",[text(x.reason,'İptal nedeni',1000),key])]);return {id:key,status:'cancelled'};
+ }
+ // KAYIP KARGO İŞARETİ. Pazaryeri raporunda "mal kayboldu" diye bir alan yok ve "teslim edilemedi"
+ // de kayıp demek değil (mal çoğu kez satıcıya döner). Bunu yalnız malın peşine düşen kişi bilir,
+ // o yüzden işaret elle konur. Konduktan sonra iade yine yazılır ama mal RAFA DÖNMEZ
+ // (report-stock-link-api.js /returns-apply restock'u buna bakarak geçer).
+ if(action==='kayip'){
+  if(!['shipped','delivered'].includes(p.status))fail('Yalnız kargoya verilmiş paket kayıp işaretlenebilir.',409);
+  const kayip=x.lost===false?0:1;
+  try{await execute(db,[statement(db,'UPDATE order_packages SET goods_lost=?,goods_lost_note=? WHERE id=?',[kayip,kayip?opt(x.reason,1000):'',key])]);}
+  catch(e){if(/no such column/i.test(String(e&&e.message||'')))fail('Kayıp kargo işareti için veritabanı güncellemesi (0073) henüz uygulanmadı.',503);throw e;}
+  return {id:key,goods_lost:kayip};
  }
  if(action==='deliver'){
   const date=day(x.occurred_on);if(p.status==='delivered')return {id:key,status:p.status,existing:true};

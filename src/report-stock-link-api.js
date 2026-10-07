@@ -638,6 +638,17 @@ export async function reportStockLinkApi(request, env, path, readBody) {
     const x = await readBody(request);
     if (x.confirm !== true) fail('İade aktarımını onaylayın.');
     const {store, pending, skipped} = await pendingReturns(db, x.store_id || '');
+    // KAYIP KARGO. Sahibin "mal geri gelmedi" işareti koyduğu paketlerde iade yine yazılır
+    // (pazaryeri parayı geri alıyor) ama mal RAFA KONMAZ. İşaret olmadan eskisi gibi döner.
+    // 0073 göçü gelmediyse işaret hiç yok sayılır: iade eskisi gibi malı rafa koyar. Bakım turu
+    // her 15 dakikada bunu çağırıyor; göç gecikmesi iadeleri tamamen durdurmamalı.
+    const kayipPaketler = await (async () => {
+      if (!pending.length) return new Set();
+      try {
+        return new Set((await db.prepare('SELECT id FROM ec_order_packages WHERE goods_lost=1 AND id IN (SELECT value FROM json_each(?))')
+          .bind(JSON.stringify([...new Set(pending.map(p => p.erp_package_id).filter(Boolean))])).all()).results.map(r => r.id));
+      } catch (e) { if (/no such table|no such column/i.test(String(e && e.message || ''))) return new Set(); throw e; }
+    })();
     const done = [], errors = [];
     for (const p of pending.slice(0, 20)) for (const l of p.lines) {
       const url = '/api/accounting/sales/' + l.sale_id + '/return';
@@ -645,13 +656,16 @@ export async function reportStockLinkApi(request, env, path, readBody) {
       // çalıştırma (ekran + bakım) aynı referansı üretir; satış defterindeki (kanal, referans)
       // tekilliği ikinciyi yazdırmaz. Sonraki kısmi iade yeni durumdan yeni referans alır.
       const ref = (p.tur === 'teslim-edilemedi' ? 'IADE-T-' : 'IADE-') + p.order_no + '-' + String(l.sale_id).slice(0, 8) + (l.prior_milli ? '-' + l.prior_milli : '');
+      const kayip = kayipPaketler.has(p.erp_package_id);
       try {
         await accountingApi(new Request('https://internal.invalid' + url, {method: 'POST'}), env, url, async () => ({
-          quantity: l.quantity, revenue: l.revenue_cents / 100, restock: true,
+          quantity: l.quantity, revenue: l.revenue_cents / 100, restock: !kayip,
           // Kesinti siparişin son hâlinde (satış kaydında) durur; iadeye ayrıca yazılmaz.
           commission: 0, shipping: 0, other: 0, fees_status: 'confirmed',
           external_id: ref, occurred_on: l.occurred_on,
-          notes: (p.reason || 'Pazaryeri raporunda iade: ' + p.order_no + '.') + ' Mal geri döndü; kargo ve hizmet bedeli gider olarak kalır.'}));
+          notes: (p.reason || 'Pazaryeri raporunda iade: ' + p.order_no + '.') + (kayip
+            ? ' Paket KAYIP işaretli: mal rafa geri konmadı, maliyeti gider olarak kalır.'
+            : ' Mal geri döndü; kargo ve hizmet bedeli gider olarak kalır.')}));
         done.push({order_no: p.order_no, sale_id: l.sale_id});
       } catch (e) {
         // Aynı iadeyi başka bir çalıştırma az önce yazdı: hata değil, iş yapılmış.
