@@ -3,7 +3,14 @@ export async function attentionApi(request,env,path){
  if(path!=='/api/attention'||request.method!=='GET')return null;
  if(env.WORKSPACE!=='ec')throw Object.assign(new Error('İş listesi e-ticaret alanına aittir.'),{status:403});
  const day=new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Istanbul'});
- const next=new Date(Date.parse(day+'T00:00:00Z')+7*86400000).toISOString().slice(0,10);
+// TARİFE UYARISI BİR HAFTA ÖNCEDEN GELİYORDU VE BU ÇOK GEÇ. Canlıda kargo ve komisyon
+// tarifelerinin HEPSİ 31.12.2026'da bitiyor (iki kanal, 13 satır): yedi günlük pencere uyarıyı
+// 24 Aralık'ta, yılbaşı tatiline denk getiriyordu. Tarife bittiği an kesinti ve kâr hesabı
+// dayanaksız kalıyor, yani yeni tarifeyi almak için bir haftadan fazlası gerekir.
+// Pencere gün sayısı DEĞİL TARİH söylenir (bkz. aşağıdaki expires_on): "bir hafta içinde"
+// gibi bir metin pencere değişince sessizce yanlışa düşer.
+ const TARIFE_UYARI_GUN=30;
+ const next=new Date(Date.parse(day+'T00:00:00Z')+TARIFE_UYARI_GUN*86400000).toISOString().slice(0,10);
  const queries=[
   `SELECT COUNT(*) total,
    COALESCE(SUM(source_changed=1 AND status!='cancelled'),0) changed,
@@ -41,7 +48,11 @@ export async function attentionApi(request,env,path){
    (SELECT COUNT(*) FROM shipping_rates WHERE archived_at IS NULL AND valid_from<=? AND valid_to>=?) shipping_active,
    (SELECT COUNT(*) FROM commission_rates WHERE archived_at IS NULL AND valid_from<=? AND valid_to>=?) commission_active,
    (SELECT COUNT(*) FROM shipping_rates WHERE archived_at IS NULL AND valid_from<=? AND valid_to BETWEEN ? AND ?) shipping_expiring,
-   (SELECT COUNT(*) FROM commission_rates WHERE archived_at IS NULL AND valid_from<=? AND valid_to BETWEEN ? AND ?) commission_expiring`,
+   (SELECT COUNT(*) FROM commission_rates WHERE archived_at IS NULL AND valid_from<=? AND valid_to BETWEEN ? AND ?) commission_expiring,
+   -- YÜRÜRLÜKTEKİ TARİFENİN BİTTİĞİ İLK GÜN. Ekran ve akşam özeti süreyi değil bu TARİHİ yazar:
+   -- sabit bir "bir hafta içinde" metni uyarı penceresi değişince sessizce yanlış olur.
+   (SELECT MIN(valid_to) FROM shipping_rates WHERE archived_at IS NULL AND valid_to>=?) shipping_expires_on,
+   (SELECT MIN(valid_to) FROM commission_rates WHERE archived_at IS NULL AND valid_to>=?) commission_expires_on`,
   // PAZARYERI VERISI AKIYOR MU? Bagli API tek yol degil: kullanici raporu elle de yukleyebilir
   // (26.09.2026'da API'ler bilerek kapatildi ve elle rapor duzenine gecildi). "Baglanti yok"
   // tek basina eksik is degildir; eksik olan VERININ AKMAMASIDIR. Son islenen rapor buradan okunur.
@@ -61,7 +72,7 @@ export async function attentionApi(request,env,path){
     (SELECT COUNT(*) FROM ec_activity WHERE description LIKE 'Otomatik bak%sorun:%'
       AND created_at > datetime('now','-1 day')) bakim_sorunu`
  ];
- const results=await env.DB.batch(queries.map((sql,i)=>i===4?env.DB.prepare(sql).bind(day,day,day,day,day,day,next,day,day,next):i===0?env.DB.prepare(sql).bind(day):env.DB.prepare(sql)));
+ const results=await env.DB.batch(queries.map((sql,i)=>i===4?env.DB.prepare(sql).bind(day,day,day,day,day,day,next,day,day,next,day,day):i===0?env.DB.prepare(sql).bind(day):env.DB.prepare(sql)));
  const [orders,stock,invoices,sales,tariffs,reports]=results.map(r=>r.results[0]);
  return {as_of:day,scope:'all_time',orders,stock,invoices,sales,tariffs,reports};
 }

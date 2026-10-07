@@ -1,4 +1,6 @@
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/** Tarife bitiş tarihi, kısa Türkçe: 31 Ara 2026. */
+const tarifeGun=v=>new Date(v+'T12:00:00Z').toLocaleDateString('tr-TR',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
 export function attentionItems(data,connections,settings,pendingFees=0){
  const list=[],add=(count,href,title,detail,tone='warning')=>{if(count>0)list.push({count,href,title,detail,tone});};
  const {orders,stock,invoices,sales,tariffs}=data;
@@ -20,7 +22,12 @@ export function attentionItems(data,connections,settings,pendingFees=0){
  add(pendingFees>0?1:0,'#reconciliation','Satışlara dağıtılacak kesinti faturası','Kargo ve komisyon belgelerini satışlara eşleştir.');
  // Component allocations are not independent sold offerings; profitability belongs to Satış ve kâr.
 
- add(tariffs.shipping_expiring+tariffs.commission_expiring,'#pricing','7 gün içinde bitecek tarife','Geçerlilik tarihlerini ve yeni fiyat koşullarını kontrol et.');
+ // TARİFENİN BİTTİĞİ TARİH YAZILIR, "N gün içinde" DEĞİL: uyarı penceresi değişince sabit metin
+ // sessizce yanlışa düşer (eskiden "7 gün içinde" yazıyordu). Tarih hem kesin hem eyleme çevrilebilir.
+ const tarifeBitis=[tariffs.shipping_expires_on,tariffs.commission_expires_on].filter(Boolean).sort()[0];
+ add(tariffs.shipping_expiring+tariffs.commission_expiring,'#pricing',
+  tarifeBitis?'Tarife '+tarifeGun(tarifeBitis)+' tarihinde bitiyor':'Bitmek üzere olan tarife',
+  'Tarife bitince kesinti ve kâr hesabı dayanaksız kalır. Yeni fiyat koşullarını şimdiden al.');
  add(!settings.tax_id||!settings.legal_name?1:0,'#settings','Şirket bilgilerini tamamla','Alış faturalarının doğru şirket adına geldiğini doğrulayalım.','neutral');
  add(stock.total?stock.no_history:1,'#stock',stock.total?'Stok geçmişi olmayan ürün':'İlk stok kartlarını oluştur','Açılış veya mal teslimi olmadan depodaki gerçek miktar bilinmez.','neutral');
  add(!tariffs.shipping_active||!tariffs.commission_active?1:0,'#pricing','Geçerli kargo / komisyon tarifesi eksik','Maliyetler tamamlanmadan güvenilir kâr tahmini oluşmaz.','neutral');

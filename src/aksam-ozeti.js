@@ -59,9 +59,12 @@ const SATIRLAR = [
 // İki satır AYNI mesajda bulunamaz: "tarife tanımlı değil" ile "tarife bitiyor" birbirini
 // yalanlar. Yürürlükte hiç tarife yoksa söylenecek tek şey odur.
 const TARIFELER = [
-  ['kargo', l => l.tariffs?.shipping_active, l => l.tariffs?.shipping_expiring],
-  ['komisyon', l => l.tariffs?.commission_active, l => l.tariffs?.commission_expiring]
+  ['kargo', l => l.tariffs?.shipping_active, l => l.tariffs?.shipping_expiring, l => l.tariffs?.shipping_expires_on],
+  ['komisyon', l => l.tariffs?.commission_active, l => l.tariffs?.commission_expiring, l => l.tariffs?.commission_expires_on]
 ];
+
+/** Tarife bitiş tarihi, panelde görünenle AYNI biçimde: 31 Ara 2026. */
+const tarifeGun = v => new Date(v + 'T12:00:00Z').toLocaleDateString('tr-TR', {day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC'});
 
 /** Takvim günü farkı: "kaç gündür" sorusu saat farkıyla değil gün dönümüyle ölçülür. */
 const gunFarki = (a, b) => Math.floor((Date.parse(a + 'T00:00:00Z') - Date.parse(b + 'T00:00:00Z')) / 86400000);
@@ -82,9 +85,12 @@ export function aksamOzetiMetni(liste, {simdi = Date.now()} = {}) {
   const bugun = gunTR(simdi);
   const satirlar = [];
   for (const [oku, cumle] of SATIRLAR) { const n = Number(oku(liste) || 0); if (n > 0) satirlar.push(cumle(n)); }
-  for (const [ad, aktif, biten] of TARIFELER) {
+  for (const [ad, aktif, biten, bitis] of TARIFELER) {
     if (Number(aktif(liste) || 0) === 0) satirlar.push(ad + ' tarifesi tanımlı değil');
-    else if (Number(biten(liste) || 0) > 0) satirlar.push(biten(liste) + ' ' + ad + ' tarifesi bir hafta içinde bitiyor');
+    // SABİT "bir hafta" METNİ YAZILMAZ: uyarı penceresi 30 güne çıktı ve metin sessizce yanlış
+    // kalmıştı. Tarih varsa o söylenir, yoksa süresiz "bitiyor".
+    else if (Number(biten(liste) || 0) > 0) satirlar.push(biten(liste) + ' ' + ad + ' tarifesi'
+      + (bitis(liste) ? ' ' + tarifeGun(bitis(liste)) + ' tarihinde bitiyor' : ' bitmek üzere'));
   }
   const rapor = raporSatiri(liste, bugun);
   if (rapor) satirlar.push(rapor);
