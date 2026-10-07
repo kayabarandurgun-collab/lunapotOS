@@ -296,6 +296,24 @@ export async function otomatikBakim(env, secenekler = {}) {
   }
 }
 
+/**
+ * BAKIM İMLECİ: bir işin kaldığı sayfa, turlar arasında. Göç gelmemişse özellik KAPALI sayılır —
+ * imleç 0 döner ve yazma sessizce atlanır, yani bugünkü davranışın aynısı. Yalnız 'no such table'
+ * yutulur; başka her veritabanı hatası yükselir ve arıza haberine düşer (07.10 dersi: geniş catch
+ * gerçek arızayı sessiz bırakır).
+ */
+export async function imlecOku(db, anahtar) {
+  try { return Number((await db.prepare('SELECT imlec FROM ec_bakim_imleci WHERE anahtar=?').bind(anahtar).first())?.imlec) || 0; }
+  catch (e) { if (gocYok(e)) return 0; throw e; }
+}
+export async function imlecYaz(db, anahtar, imlec) {
+  try {
+    await db.prepare('INSERT INTO ec_bakim_imleci(anahtar,imlec) VALUES(?,?) ON CONFLICT(anahtar) DO UPDATE SET imlec=excluded.imlec,updated_at=CURRENT_TIMESTAMP')
+      .bind(anahtar, Math.max(0, Number(imlec) || 0)).run();
+  } catch (e) { if (gocYok(e)) return; throw e; }
+}
+const gocYok = e => /no such table|no such column/i.test(String(e && e.message || ''));
+
 async function bakimTuru(env, {sureMs = 50000, simdi = Date.now(), sakinDakika = 10, senkronGetir = fetch, saat = Date.now, kaynaklar = SENKRON_KAYNAKLARI, bildirimGonder = telegramAriza} = {}) {
   const {gecen, vakitVar, raporVakti, senkronVakti} = butceler(sureMs, saat);
   const ec = {...env, DB: scopedDB(env.DB, 'ec'), ROOT_DB: env.DB, WORKSPACE: 'ec', USER: SISTEM};
@@ -389,14 +407,23 @@ async function bakimTuru(env, {sureMs = 50000, simdi = Date.now(), sakinDakika =
     await dene('iade', async () => {
       for (let i = 0; i < 10 && raporVakti(); i++) { const r = await cagir(reportStockLinkApi, '/api/reports/stock-link/returns-apply', {store_id: m.id, confirm: true}); ozet.iade += r.done.length; if (!r.remaining || !r.done.length) break; }
     });
+    // KESİNTİ TURLAR ARASI SÜRER. Ölçüldü (07.10, canlı): bir sayfa 7-8,7 saniye, iki mağazanın
+    // tam taraması ~188 saniye, bütçe ise 50 saniye — tarama hiç bitmiyordu. İmleç her tur sıfırdan
+    // başladığı için aynı ilk sayfalar 15 dakikada bir yeniden okunuyor, ilk sayfalarda yazılacak
+    // kesinti SIFIR olduğu hâlde bütçenin tamamı oraya gidiyordu. Artık tur kaldığı yerden sürer,
+    // sona varınca başa döner; hangi kesintinin yazılacağına karar veren kod DEĞİŞMEDİ.
     await dene('kesinti', async () => {
-      let cursor = 0;
+      const anahtar = 'kesinti:' + m.id;
+      let cursor = await imlecOku(db, anahtar);
+      let bitti = false;
       for (let i = 0; i < 40 && raporVakti(); i++) {
         const f = await cagir(reportInboxApi, '/api/reports/apply-fees', {store_id: m.id, confirm: true, cursor});
         ozet.kesinti += f.sale_entries_changed || 0;
-        if (!f.next_cursor || f.next_cursor <= cursor) break;
+        if (!f.next_cursor || f.next_cursor <= cursor) { bitti = true; break; }
         cursor = f.next_cursor;
       }
+      // Sona varıldıysa başa dön: yeni gelen kesintiler baştaki siparişlerde de olabilir.
+      await imlecYaz(db, anahtar, bitti ? 0 : cursor);
     });
   }
 
