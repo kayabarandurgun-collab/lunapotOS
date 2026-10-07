@@ -6,6 +6,10 @@ import {applyPurchaseMappings} from './purchase-mapping.js';
 import {cents as rawCents,milli as rawMilli} from '../public/accounting-math.js';
 import {integrationStatus,previewIntegration} from './integrations.js';
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
+// Göçü henüz uygulanmamış tabloyu/sütunu okuyan sorgu: özellik KAPALI sayılır, çağıran boş liste
+// alır. Başka hiçbir veritabanı hatası yutulmaz — yutulsaydı gerçek bir arıza sessiz kalırdı.
+export const gocEksik=e=>/no such table|no such column/i.test(String(e&&e.message||''));
+async function gocsuzBos(calistir){try{return (await calistir()).results;}catch(e){if(gocEksik(e))return [];throw e;}}
 const cents=v=>{try{return rawCents(v);}catch(e){fail(e.message);}};
 const milli=v=>{try{return rawMilli(v);}catch(e){fail(e.message);}};
 const text=(v,label,max=200)=>{if(typeof v!=='string'||!v.trim()||v.length>max)fail(label+' alanını kontrol edin.');return v.trim();};
@@ -161,7 +165,14 @@ export async function accountingApi(request,env,path,readBody){
   const costMovements=env.WORKSPACE==='ec'?(await db.prepare(`SELECT a.id,l.product_id,p.name product_name,p.stock_unit,0 quantity_milli,iif(a.reversal_of IS NULL,-a.stock_cents,a.stock_cents) value_cents,'purchase' kind,'price-adjustment:'||a.id reference,a.reference||' · '||a.reason notes,a.occurred_on,a.created_at FROM purchase_adjustments a JOIN purchase_lines l ON l.id=a.line_id JOIN products p ON p.id=l.product_id WHERE a.stock_cents!=0 ORDER BY a.created_at DESC,a.rowid DESC LIMIT 200`).all()).results:[];
   // Sabit gider planları gider ekranında listelenir; arşivlenenler gösterilmez.
   const schedules=(await statement(db,'SELECT * FROM expense_schedules WHERE archived_at IS NULL ORDER BY day_of_month,label',[]).all()).results;
-  return filterAccounting({from,to,expense_schedules:schedules,stock,sales,expenses:[...expenses,...adjustments,...credits,...closeLoss],suppliers,invoices,movements:[...movements,...costMovements].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,200),pending_fee_cents:pendingFees[0].pending_fee_cents},env.USER,env.WORKSPACE);
+  // SATIŞ DIŞI GELİR AYRI DİZİDE. Gider dizisine eksi tutarla karıştırılmaz: işletme sonucunun
+  // durumu overhead.length'e bakıyor (money-planning-api.js:178) ve tek bir gelir satırı
+  // "bu dönemde genel gider kaydı yok" uyarısını sessizce kaldırırdı.
+  // GÖÇ GELMEDİYSE ÖZELLİK YOK SAYILIR, DEFTER DÜŞMEZ. 07.10.2026: kod yayına çıktı ama 0074 göçü
+  // Cloudflare D1 yetkisi (hata 7403) yüzünden uygulanamadı; ana defter ve işletme sonucu 500 verdi,
+  // yani panelin yarısı EK bir özellik yüzünden kapandı. Yalnız "tablo/sütun yok" yutulur.
+  const otherIncome=env.WORKSPACE==='ec'?await gocsuzBos(()=>statement(db,'SELECT * FROM ec_other_income WHERE occurred_on BETWEEN ? AND ? AND archived_at IS NULL ORDER BY occurred_on DESC LIMIT 501',[from,to]).all()):[];
+  return filterAccounting({from,to,expense_schedules:schedules,stock,sales,other_income:otherIncome,expenses:[...expenses,...adjustments,...credits,...closeLoss],suppliers,invoices,movements:[...movements,...costMovements].sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,200),pending_fee_cents:pendingFees[0].pending_fee_cents},env.USER,env.WORKSPACE);
  }
  if(path==='/api/accounting/suppliers'&&method==='POST'){
   const x=await readBody(request),key=id(),tax=optional(x.tax_id);if(tax&&!/^\d{10,11}$/.test(tax))fail('VKN/TCKN 10 veya 11 rakam olmalı.');
@@ -236,6 +247,38 @@ export async function accountingApi(request,env,path,readBody){
  // (permission-policy: 'expenses'); ayrıca bir süzgeç gerekmez.
  if(path==='/api/accounting/expenses/archived'&&method==='GET')
   return {expenses:(await statement(db,'SELECT * FROM expenses WHERE archived_at IS NOT NULL ORDER BY archived_at DESC LIMIT 200',[]).all()).results};
+ // SATIŞ DIŞI GELİR (tazminat). Uçlar bilerek /expenses/ altında: gider ekranının yetkisini ve
+ // tutar maskesini olduğu gibi devralır, yetki haritasına yeni satır gerekmez. SIRA ÖNEMLİ —
+ // aşağıdaki expenseMatch regex'i 'other-income' dizgesini de yakalar, bu yüzden ondan ÖNCE durur.
+ // Silme arşivdir: referans tekil, satır gerçekten silinseydi aynı referans yeniden yazılabilirdi.
+ if(path==='/api/accounting/expenses/other-income'&&env.WORKSPACE==='ec'){
+  if(method==='POST'){
+   const x=await readBody(request),key=id();
+   if(!['compensation','other'].includes(x.kind||'compensation'))fail('Gelir türü geçersiz.');
+   const vat=x.vat_rate===null||x.vat_rate===undefined||x.vat_rate===''?null:Math.round(Number(x.vat_rate)*100);
+   if(vat!==null&&(!Number.isSafeInteger(vat)||vat<0||vat>10000))fail('KDV oranını kontrol edin.');
+   const paket=optional(x.package_id);
+   if(paket&&!await statement(db,'SELECT id FROM order_packages WHERE id=?',[paket]).first())fail('Sipariş paketi bulunamadı.',404);
+   await batch(db,[statement(db,'INSERT INTO ec_other_income(id,reference,kind,label,amount_cents,vat_bps,occurred_on,received,package_id,notes) VALUES(?,?,?,?,?,?,?,?,?,?)',
+    [key,text(x.reference,'Gelir referansı'),x.kind||'compensation',optional(x.label).slice(0,200),amount(x.amount),vat,day(x.occurred_on),x.received===true?1:0,paket||null,optional(x.notes).slice(0,2000)]),
+    log(db,'Satış dışı gelir kaydedildi')]);
+   return {id:key};
+  }
+  if(method==='GET')return {other_income:(await statement(db,'SELECT * FROM ec_other_income WHERE archived_at IS NOT NULL ORDER BY archived_at DESC LIMIT 200',[]).all()).results};
+ }
+ const incomeMatch=env.WORKSPACE==='ec'?path.match(/^\/api\/accounting\/expenses\/other-income\/([\w-]+)(?:\/(restore))?$/):null;
+ if(incomeMatch&&(method==='POST'||method==='DELETE'&&!incomeMatch[2])){
+  const [,key,action]=incomeMatch;
+  const old=await statement(db,'SELECT * FROM ec_other_income WHERE id=?',[key]).first();if(!old)fail('Gelir kaydı bulunamadı.',404);
+  if(method==='DELETE'){await batch(db,[statement(db,'UPDATE ec_other_income SET archived_at=CURRENT_TIMESTAMP WHERE id=? AND archived_at IS NULL',[key]),log(db,'Satış dışı gelir arşivlendi')]);return {id:key,archived:true};}
+  if(action==='restore'){await batch(db,[statement(db,'UPDATE ec_other_income SET archived_at=NULL WHERE id=?',[key]),log(db,'Satış dışı gelir arşivden alındı')]);return {id:key,archived:false};}
+  const x=await readBody(request);
+  const vat=x.vat_rate===null||x.vat_rate===undefined||x.vat_rate===''?null:Math.round(Number(x.vat_rate)*100);
+  if(vat!==null&&(!Number.isSafeInteger(vat)||vat<0||vat>10000))fail('KDV oranını kontrol edin.');
+  await batch(db,[statement(db,'UPDATE ec_other_income SET label=?,amount_cents=?,vat_bps=?,occurred_on=?,received=?,notes=? WHERE id=?',
+   [optional(x.label).slice(0,200),amount(x.amount),vat,day(x.occurred_on),x.received===true?1:0,optional(x.notes).slice(0,2000),key]),log(db,'Satış dışı gelir düzeltildi')]);
+  return {id:key};
+ }
  const expenseMatch=path.match(/^\/api\/accounting\/expenses\/([\w-]+)(?:\/(restore))?$/);
  if(expenseMatch&&(method==='POST'||method==='DELETE'&&!expenseMatch[2])){
   const [,key,action]=expenseMatch;

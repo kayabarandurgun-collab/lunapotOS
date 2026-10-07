@@ -264,11 +264,28 @@ export function mountAccounting(root,namespace='ec',initialView='overview',embed
   }
   function sabitGiderKarti(){const plans=state.data.expense_schedules||[];
    return `<section class="card"><h3>Sabit giderler</h3>`+(plans.length?table(['Ad','Kategori','Aylık tutar','Ayın günü','Başlangıç / bitiş','İşlem'],plans.map(x=>row([esc(x.label),categories[x.category]||'Diğer',money(x.amount_cents),esc(String(x.day_of_month)),esc(x.starts_on)+(x.ends_on?' → '+esc(x.ends_on):''),`<button class="secondary" type="button" data-ac="archive-schedule" data-id="${esc(x.id)}">Durdur</button>`]))):'<p class="help">Henüz sabit gider tanımlı değil. Kira, elektrik, yakıt gibi her ay tekrarlayan giderleri bir kez tanımla; sonra “Eksik ayları oluştur” de, aylar kendiliğinden yazılsın.</p>')+`</section>`;}
-  if(state.view==='expenses')view.innerHTML=heading('Satışlara ayrıca yazılmamış genel işletme giderleri.',button('+ Genel gider','expense')+button('+ Sabit gider','expense-schedule','',true)+button('Eksik ayları oluştur','generate-expenses','',true))+sabitGiderKarti()+filters()+`<div class="notice subtle">Satış satırına eklediğiniz kargo veya komisyonu burada tekrar girmeyin. Alış faturası ödemeleri Cariler ve nakit ekranından kaydedilir; tekrar gider yazılmaz.</div><section class="card">${table(['Tarih','Referans','Ad / Kategori','Tutar (KDV hariç)','Ödeme','Not','İşlem'],s.expenses.map(e=>row([esc(e.occurred_on),esc(e.reference),(e.label?esc(e.label)+'<small>'+categories[e.category]+'</small>':categories[e.category]),money(e.amount_cents),['loss','purchase_variance','purchase_correction'].includes(e.category)?'Nakit hareketi yok':e.paid?'Ödendi olarak kaydedildi':'Ödeme kaydı yok',esc(e.notes),giderIslem(e)])), 'Genel gideriniz kayıtlı değil — bu yüzden ekrandaki rakam kâr değil, brüt katkı. Kira, reklam, personel ve ambalaj girilince gerçek kârınız görünür. Sağ üstteki “+ Genel gider” ile başlayın.')}</section>${arsivliGiderler()}<p class="help">Alış iadesi maliyet farkı, iade bedeli ile stoktan çıkan ortalama maliyet arasındaki farktır. Eksi tutar gideri azaltır; bu fark kanal satış kârına yüklenmez.</p>`;
+  if(state.view==='expenses')view.innerHTML=heading('Satışlara ayrıca yazılmamış genel işletme giderleri.',button('+ Genel gider','expense')+(namespace==='ec'?button('+ Tazminat geliri','other-income','',true):'')+button('+ Sabit gider','expense-schedule','',true)+button('Eksik ayları oluştur','generate-expenses','',true))+sabitGiderKarti()+digerGelirKarti()+filters()+`<div class="notice subtle">Satış satırına eklediğiniz kargo veya komisyonu burada tekrar girmeyin. Alış faturası ödemeleri Cariler ve nakit ekranından kaydedilir; tekrar gider yazılmaz.</div><section class="card">${table(['Tarih','Referans','Ad / Kategori','Tutar (KDV hariç)','Ödeme','Not','İşlem'],s.expenses.map(e=>row([esc(e.occurred_on),esc(e.reference),(e.label?esc(e.label)+'<small>'+categories[e.category]+'</small>':categories[e.category]),money(e.amount_cents),['loss','purchase_variance','purchase_correction'].includes(e.category)?'Nakit hareketi yok':e.paid?'Ödendi olarak kaydedildi':'Ödeme kaydı yok',esc(e.notes),giderIslem(e)])), 'Genel gideriniz kayıtlı değil — bu yüzden ekrandaki rakam kâr değil, brüt katkı. Kira, reklam, personel ve ambalaj girilince gerçek kârınız görünür. Sağ üstteki “+ Genel gider” ile başlayın.')}</section>${arsivliGiderler()}<p class="help">Alış iadesi maliyet farkı, iade bedeli ile stoktan çıkan ortalama maliyet arasındaki farktır. Eksi tutar gideri azaltır; bu fark kanal satış kârına yüklenmez.</p>`;
   if(state.view==='integrations'){view.innerHTML=heading('Yalnızca e-ticaret çalışma alanına ait bağlantılar.')+'<div id="ac-integrations"><p>Bağlantı durumu yükleniyor…</p></div>';loadProviders().catch(e=>notice(e.message));}
  }
  const canStockWrite=()=>can(currentUser,namespace,namespace==='ec'?'stock':'accounts',true);
  const canUnbilled=()=>namespace==='ec'&&can(currentUser,namespace,'ledger',true);
+ // SATIŞ DIŞI GELİR (tazminat). Gider listesine KARIŞTIRILMAZ: işletme sonucunun "bu dönemde
+ // genel gider kaydı yok" uyarısı gider dizisinin uzunluğuna bakıyor (money-planning-api.js:178),
+ // eksi tutarlı bir gelir satırı o uyarıyı sessizce kaldırırdı. Ayrı kart, ayrı toplam.
+ function digerGelirKarti(){
+  if(namespace!=='ec')return '';
+  const rows=state.data.other_income||[];
+  const toplam=rows.reduce((t,r)=>t+(Number.isSafeInteger(r.amount_cents)?r.amount_cents:0),0);
+  const gizli=rows.some(r=>!Number.isSafeInteger(r.amount_cents));
+  return '<section class="card ac-income"><div class="card-heading"><h2>Satış dışı gelirler</h2><p>Kargo tazminatı gibi, mal satışı olmayan girişler. Dönem sonucuna ayrıca eklenir; gider değildir.</p></div>'
+   +(rows.length?table(['Tarih','Referans','Açıklama','Tutar','Durum',''],rows.map(r=>row([
+     esc(r.occurred_on),esc(r.reference),esc(r.label||(r.kind==='compensation'?'Tazminat':'Diğer gelir')),
+     gizli&&!Number.isSafeInteger(r.amount_cents)?'Tutar gizli':money(r.amount_cents),
+     r.received?'Para geldi':'Tahsil edilmedi',
+     button('Arşivle','archive-income','data-id="'+esc(r.id)+'" type="button"',true)])),'Henüz satış dışı gelir yok.')
+    +'<p class="pad muted">Dönem toplamı: <b>'+(gizli?'Tutar gizli':money(toplam))+'</b>. Tahsilat kasaya Cariler ve nakit ekranından ayrıca girilir; bu kayıt kasaya para yazmaz.</p>'
+    :'<p class="pad muted">Henüz satış dışı gelir yok. Kargo kaybolan bir paketi tazmin ederse buraya yaz.</p>')+'</section>';
+ }
  function stockTasks(){return '<section class="stock-tasks" aria-label="Depo işlemleri"><div class="stock-primary-actions">'+(namespace==='ec'?button('<span aria-hidden="true">＋</span> Faturasız mal girişi','unbilled',canUnbilled()?'type="button"':'type="button" disabled'):'')+button('Depo sayımı yap','stock',canStockWrite()?'type="button"':'type="button" disabled',true)+'</div><details class="stock-task-help"><summary>Diğer depo işlemleri</summary><div class="stock-task-popover"><p><strong>Yeni mal geldi:</strong> Faturasız girişe yalnız yeni gelen miktarı yaz. <strong>Depoyu saydım:</strong> Sayıma depoda bulduğun toplamı yaz.</p>'+(namespace==='ec'?'<div class="ac-actions">'+button('+ Ürün ekle','product',canStockWrite()?'type="button"':'type="button" disabled',true)+button('Katalog dosyası yükle','catalog-bootstrap','type="button"',true)+'<a class="secondary" href="#invoices?action=upload">Alış faturası yükle →</a><a class="secondary" href="#catalog">Ürün bağlantıları ve setler →</a></div>':'')+(namespace==='ec'&&!canUnbilled()?'<p class="help">Faturasız giriş için Cariler ve nakit yazma yetkisi gerekir.</p>':'')+'</div></details></section>';}
 
  function invoiceIntake(){
@@ -474,6 +491,21 @@ export function mountAccounting(root,namespace='ec',initialView='overview',embed
    +field('Şu tarihe kadar','through',date(),'date','required'));
   if(action==='archive-schedule')dialog('Sabit gideri durdur','archive-schedule',
    '<p>Bu sabit gider için yeni ay üretilmeyecek. Daha önce yazılmış giderler yerinde kalır, silinmez.</p>'+field('Plan','id',key,'hidden'));
+  // TAZMİNAT / SATIŞ DIŞI GELİR. KDV alanı yok: tazminat mal ya da hizmet teslimi değildir, kural
+  // olarak KDV'siz kesilir. Oran gerekirse sunucu kabul ediyor (vat_rate), ekrana sonra eklenir.
+  if(action==='other-income'){
+   if(namespace!=='ec')throw Error('Satış dışı gelir yalnız e-ticaret alanında kaydedilir.');
+   dialog('Satış dışı gelir · tazminat','other-income',
+    '<div class="notice subtle"><strong>Bu bir satış değildir.</strong><p>Stoktan ürün düşmez. Kargo kaybolan paketi tazmin ettiğinde, paketin iadesini ayrıca "kargoda kayboldu" olarak işaretle ki mal rafa geri konmasın.</p></div>'
+    +select('Gelir türü','kind',[['compensation','Kargo / pazaryeri tazminatı'],['other','Diğer satış dışı gelir']],'compensation')
+    +field('Açıklama','label','','text','maxlength="200" placeholder="Örn. Kargo dosya 12345 tazminatı"')
+    +amountField('Tutar','amount','',true)+dates()
+    +field('Benzersiz referans','reference',ref('TAZMINAT'),'text','required maxlength="200"')
+    +select('Tahsilat','received',[['false','Henüz para gelmedi'],['true','Para hesaba geçti']],'false')
+    +field('Not','notes','','text','maxlength="2000"')
+    +'<p class="help">Para kasaya bu kayıtla girmez; tahsilatı Cariler ve nakit ekranından ayrıca yaz. Dönem sonucuna gelir olarak eklenir, gider listesine karışmaz.</p>');
+   return;
+  }
   if(action==='expense')dialog('Genel gider kaydet','expense',field('Gider adı · isteğe bağlı','label','','text','maxlength="200" placeholder="Elektrik"')+select('Kategori','category',Object.entries(categories).filter(([k])=>!['loss','purchase_variance','purchase_correction'].includes(k)))+amountField('Tutar · KDV hariç','amount','',true)+dates()+field('Fatura / gider referansı','reference',ref('GIDER'),'text','required')+select('Ödeme durumu','paid',[['false','Henüz ödeme kaydı yok'],['true','Ödendi']])+field('Açıklama','notes'));
   if(action==='invoice')newInvoice();
  }
@@ -571,6 +603,7 @@ export function mountAccounting(root,namespace='ec',initialView='overview',embed
    if(kind==='filters'){const error=validateDateRange(entries.from,entries.to);if(error)throw Error(error);state.from=entries.from;state.to=entries.to;state.salesPage=1;history.replaceState(history.state,'',dateRangeLink(location.hash,{preset:'custom',from:state.from,to:state.to}));await load();return;}
    if(['product','edit-product'].includes(kind)&&entries.category==='__new__'){entries.category=(entries.new_category||'').trim();if(!entries.category)throw new Error('Yeni kategori adını yazın.');}
    if(kind==='edit-product')await post('/products/'+entries.product_id,{...entries,min_stock:number('min_stock')});
+   if(kind==='other-income')await post('/expenses/other-income',{...entries,amount:number('amount'),received:entries.received==='true'});
    if(kind==='product'){
     const yeniUrun=await post('/products',{...entries,min_stock:number('min_stock')});
     // SEÇİCİDEN GELEN YENİ KART. Faturasız giriş penceresinden açıldıysa yeni ürün taslağın ilk
@@ -680,6 +713,7 @@ export function mountAccounting(root,namespace='ec',initialView='overview',embed
  },{signal:controller.signal});
  root.addEventListener('click',async event=>{const b=event.target.closest('[data-ac]');if(!b||state.busy)return;const action=b.dataset.ac,key=b.dataset.id;try{
   if(action==='apply-purchase-link'||action==='remember-purchase-link'){state.busy=true;b.disabled=true;try{const row=b.closest('[data-invoice-line],[data-map-line]');if(action==='apply-purchase-link')await applyPurchaseLink(row);else await rememberPurchaseLink(row);}finally{state.busy=false;b.disabled=false;}return;}
+  if(action==='archive-income'){await remove('/expenses/other-income/'+key);await load();return;}
   if(action==='close'){state.yeniUrunDonus=false;close();return;}if(action==='view'){close();disposeUpload?.();state.view=key;state.salesPage=1;await load();return;}
   if(['purchase-document','staged-import','invoice'].includes(action)&&!canUploadInvoice(currentUser,namespace)){notice(invoiceReadOnlyHelp);return;}
   if(action==='purchase-document'){openUpload();return;}

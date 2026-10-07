@@ -15,8 +15,10 @@ const owner={owner:true};
 const staff=(ns,permissions) => ({owner:false,ec_access:'none',lp_access:'none',[ns+'_access']:'read',permissions:{[ns]:permissions}});
 function fixture() {
   const sqlite=new DatabaseSync(':memory:');sqlite.exec('PRAGMA foreign_keys=ON');
-  // Freeze base financial schema: sibling agents own later additive migrations.
-  for(const file of readdirSync(new URL('../migrations/',import.meta.url)).filter(f=>f.endsWith('.sql') && parseInt(f,10)<=65).sort())sqlite.exec(readFileSync(new URL('../migrations/'+file,import.meta.url),'utf8'));
+  // Freeze base financial schema: sibling agents own later additive migrations. 0074 is named
+  // explicitly because businessResult now reads ec_other_income (compensation income kept out of
+  // the overhead array on purpose), and the table has to exist for the result to be computed.
+  for(const file of readdirSync(new URL('../migrations/',import.meta.url)).filter(f=>f.endsWith('.sql') && (parseInt(f,10)<=65 || f==='0074_diger_gelir.sql')).sort())sqlite.exec(readFileSync(new URL('../migrations/'+file,import.meta.url),'utf8'));
   const queries=[];
   const raw={prepare(sql){queries.push(sql);return {args:[],bind(...args){this.args=args;return this;},first(){return sqlite.prepare(sql).get(...this.args) || null;},all(){return {results:sqlite.prepare(sql).all(...this.args)};},run(){return sqlite.prepare(sql).run(...this.args);}};},async batch(items){sqlite.exec('BEGIN');try{const result=items.map(s=>s.all());sqlite.exec('COMMIT');return result;}catch(e){sqlite.exec('ROLLBACK');throw e;}}};
   const env=(ns,user=owner)=>({DB:scopedDB(raw,ns),ROOT_DB:raw,WORKSPACE:ns,USER:user});

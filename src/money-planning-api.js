@@ -169,6 +169,15 @@ async function businessResult(env, range, user) {
     amount_cents:e.amount_cents,date:e.occurred_on,note:e.notes,source,
     source_link:link('#expenses',{from:e.occurred_on,to:e.occurred_on})});
   const overhead=[...expenses.map(e => mapExpense(e,'expense')),...adjustments.map(e => mapExpense(e,'adjustment')),...returns.map(e => mapExpense(e,'return_variance')),...revaluations.map(e => mapExpense(e,'loss_revaluation'))];
+  // SATIŞ DIŞI GELİR (tazminat) AYRI DURUR, overhead'e KARIŞMAZ. Aşağıdaki status satırı
+  // overhead.length'e bakıyor: gelir o diziye girseydi hiç gider yazılmamış bir dönem "kayıtlı"
+  // görünür ve "bu dönemde genel gider kaydı yok" uyarısı sessizce kaybolurdu.
+  // Göç gelmediyse özellik kapalı sayılır; EK bir gelir kalemi işletme sonucunu düşüremez
+  // (07.10.2026: 0074 D1 yetkisi yüzünden uygulanamadı ve bu uç 500 verdi).
+  const otherIncome=await (async()=>{try{return await readRows(db,`SELECT id,reference,kind,label,amount_cents,occurred_on,received,notes
+    FROM ec_other_income WHERE archived_at IS NULL AND occurred_on BETWEEN ? AND ?`,[from,to]);}
+   catch(e){if(/no such table|no such column/i.test(String(e&&e.message||'')))return [];throw e;}})();
+  const otherIncomeTotal=sum(otherIncome.map(r => r.amount_cents));
   const contribution=sum(packageRows.map(r => r.profit_cents)), knownPackages=packageRows.filter(r => integer(r.profit_cents));
   const overheadTotal=sum(overhead.map(e => e.amount_cents));
   const knownContribution=knownPackages.length || !packageRows.length ? sum(knownPackages.map(r => r.profit_cents)) : null;
@@ -182,10 +191,13 @@ async function businessResult(env, range, user) {
     summary:{packages:packageRows.length,missing_packages:missing,estimated_packages:estimated,overhead_records:overhead.length,
       revenue_net_cents:sum(packageRows.map(r => r.revenue_net_cents)),cost_net_cents:sum(packageRows.map(r => r.cost_net_cents)),
       contribution_cents:contribution,calculated_contribution_cents:knownContribution,overhead_cents:overheadTotal,
-      operating_result_cents:valid ? sum([contribution,-overheadTotal]) : null,calculated_result_cents:calculated,
+      other_income_cents:otherIncomeTotal,other_income_records:otherIncome.length,
+      operating_result_cents:valid ? sum([contribution,-overheadTotal,otherIncomeTotal]) : null,
+      calculated_result_cents:calculated === null || otherIncomeTotal === null ? calculated : sum([calculated,otherIncomeTotal]),
       unallocated_fee_cents:integer(pending) ? pending : null},packages:packageRows,overhead,
     expense_categories:[...new Set(overhead.map(e => e.category))].map(category => ({category,label:categories[category] || category,amount_cents:sum(overhead.filter(e => e.category===category).map(e => e.amount_cents))})),
-    notice:'KDV hariç işletme sonucu: teslim dönemindeki Trendyol ve Hepsiburada paket katkısı eksi bu dönemde kaydedilen ortak giderler. Web mağaza, diğer satışlar ve üretim alanı bu kapsama girmez. Sonradan işlenen iadeler ortak satış raporundaki gibi teslim dönemine yansır.',
+    other_income:otherIncome,
+    notice:'KDV hariç işletme sonucu: teslim dönemindeki Trendyol ve Hepsiburada paket katkısı eksi bu dönemde kaydedilen ortak giderler artı satış dışı gelirler (tazminat). Web mağaza, diğer satışlar ve üretim alanı bu kapsama girmez. Sonradan işlenen iadeler ortak satış raporundaki gibi teslim dönemine yansır.',
     cost_notice:'Ürün maliyeti paket katkısında bir kez düşülür. Mal alışları, borç ödemeleri ve para çekimleri yeniden gider değildir. Gelir/kurumlar vergisi dahil değildir; şirketin net kârı veya banka bakiyesi değildir.',
     completeness_notice:!overhead.length ? 'Bu dönemde genel gider kaydı yok. Görülen paket katkısı işletmenin net kârı sayılmaz.' : 'Yalnız kaydedilmiş ortak giderler kapsanır; bu kayıtlar tüm işletme giderlerinin eksiksiz olduğunu doğrulamaz.',
     unallocated_notice:'Dağıtılmamış kesinti tutarı çalışma alanının tamamına aittir; bu döneme yeniden gider yazılmaz ve sonuç kesinleşmiş gösterilmez.'};
