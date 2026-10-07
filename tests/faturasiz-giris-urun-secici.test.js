@@ -1,5 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {urunSuz,taslagaUrunYaz} from '../public/accounting-ui.js';
 
 // Faturasız mal girişinde ürün 38 kalemlik açılır listeden seçiliyordu; kullanıcı 06.10.2026
@@ -80,4 +81,26 @@ test('kimlik yoksa taslak olduğu gibi kalır', () => {
  const taslak={lines:[{product_id:'p1'}]};
  assert.equal(taslagaUrunYaz(taslak,''),taslak);
  assert.equal(taslagaUrunYaz(taslak,null),taslak);
+});
+
+// commerce-workflows.css:242 penceredeki içinde gizli alan bulunan HER label'ı display:none
+// yapıyor (gizli alanın başıboş etiket metnini silmek için). Ürün seçicinin görünen kutusu ile
+// gizli product_id alanı aynı label içindeyken kutu CANLIDA hiç görünmedi. Gizli alan label'ın
+// DIŞINDA, sarmalayıcı div'in içinde kalmalı.
+const ui=readFileSync(new URL('../public/accounting-ui.js',import.meta.url),'utf8');
+const css=readFileSync(new URL('../public/stock-workflow.css',import.meta.url),'utf8');
+const kural=readFileSync(new URL('../public/commerce-workflows.css',import.meta.url),'utf8');
+
+test('seçicinin gizli alanı label içinde değil', () => {
+ assert.ok(ui.includes('<div class="ac-pick" data-ac-pick><label class="ac-pick-label">'),'sarmalayıcı div olmalı, label değil');
+ assert.ok(ui.includes("</label>'"),'görünen kutunun etiketi gizli alandan önce kapanmalı');
+ assert.ok(!ui.includes('<label class="ac-pick" data-ac-pick>'),'eski label sarmalayıcı kalmamalı');
+ const basla=ui.indexOf('<div class="ac-pick" data-ac-pick>');
+ const labelSonu=ui.indexOf("</label>'",basla),gizli=ui.indexOf('<input type="hidden" name=',basla);
+ assert.ok(labelSonu>0&&gizli>labelSonu,'gizli alan label kapandıktan SONRA gelmeli');
+});
+
+test('gizleyen kural duruyor, görünen kutunun kendi biçimi var', () => {
+ assert.ok(kural.includes('label:has(>input[type=hidden]){display:none}'),'kural hâlâ yürürlükte olmalı');
+ assert.ok(css.includes('.ac-pick-label{display:grid'),'görünen kutunun kendi label biçimi olmalı');
 });

@@ -157,11 +157,16 @@ export function mountAccounting(root,namespace='ec',initialView='overview',embed
  let pickSayac=0;
  function productPicker(label,name,current='',extra=''){
   const p=urunBul(current),id='ac-pick-'+(++pickSayac);
-  return '<label class="ac-pick" data-ac-pick>'+esc(label)+req(extra)
-   +'<input class="ac-pick-input" data-ac-pick-input type="text" role="combobox" aria-expanded="false" aria-controls="'+id+'" aria-autocomplete="list" autocomplete="off" spellcheck="false" placeholder="Ürün adı ya da kodu yaz" value="'+esc(urunEtiketi(p))+'">'
+  // SARMALAYICI <label> DEĞİL <div>. commerce-workflows.css:242 penceredeki içinde gizli alan
+  // bulunan HER label'ı display:none yapıyor (gizli alanın başıboş etiket metnini silmek için).
+  // Kutu label içinde olunca o kurala takılıp görünmez oluyordu — canlıda ölçüldü. Gizli alan,
+  // liste ve not artık label'ın DIŞINDA, sarmalayıcının içinde; görünen kutu kendi label'ında
+  // kalıyor, böylece pencerenin label biçimlendirmesini aynen alıyor.
+  return '<div class="ac-pick" data-ac-pick><label class="ac-pick-label">'+esc(label)+req(extra)
+   +'<input class="ac-pick-input" data-ac-pick-input type="text" role="combobox" aria-expanded="false" aria-controls="'+id+'" aria-autocomplete="list" autocomplete="off" spellcheck="false" placeholder="Ürün adı ya da kodu yaz" value="'+esc(urunEtiketi(p))+'"></label>'
    +'<input type="hidden" name="'+name+'" value="'+esc(current||'')+'">'
    +'<ul class="ac-pick-list" id="'+id+'" data-ac-pick-list role="listbox" hidden></ul>'
-   +'<small class="ac-pick-note" data-ac-pick-note>'+(p?'Seçili: '+esc(p.name):'Harf yazdıkça liste süzülür; ürünü listeden seç.')+'</small></label>';
+   +'<small class="ac-pick-note" data-ac-pick-note>'+(p?'Seçili: '+esc(p.name):'Harf yazdıkça liste süzülür; ürünü listeden seç.')+'</small></div>';
  }
  const pickKutu=el=>el.closest('[data-ac-pick]');
  const pickGizli=wrap=>wrap.querySelector('input[type="hidden"]');

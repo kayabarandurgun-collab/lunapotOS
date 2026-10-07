@@ -117,6 +117,7 @@ body.workspace-redesign .workflow-stock .stock-ledger-row .product-available>str
 /* ÜRÜN SEÇİCİ. Liste AKIŞ İÇİNDE durur, konumlandırılmaz: pencere gövdesi (.form-body)
    overflow-y:auto olduğu için mutlak konumlu açılır liste kenarda kırpılıyordu. */
 .ac-pick{display:block}
+.ac-pick-label{display:grid;gap:5px}
 .ac-pick-list{margin:4px 0 0;padding:4px;max-height:min(42vh,300px);overflow-y:auto;overscroll-behavior:contain;list-style:none;border:1px solid var(--line,#e3e7ed);border-radius:10px;background:var(--surface,#fff)}
 .ac-pick-option,.ac-pick-new,.ac-pick-empty{display:flex;flex-direction:column;gap:1px;padding:8px 10px;border-radius:8px;font-weight:400}
 .ac-pick-option,.ac-pick-new{cursor:pointer}
