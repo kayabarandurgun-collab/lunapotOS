@@ -1,3 +1,19 @@
+/**
+ * "YOLDA" SAYILMAYAN PAKETLER. İadesi tamamlanmış (dönmüş) paket yolda değildir. İKAME ters kaydı
+ * iade DEĞİLDİR: siparişteki ürün yerine başkası gönderilmiştir, paket yine yolda — sayılsaydı
+ * düzeltilen sipariş kargo takibinden sessizce düşerdi. Çift aktarımın asıl kaydı da yolda
+ * sayılmaz: teslimi kopyasıyla gelmiştir.
+ *
+ * TEK METİN, İKİ EKRAN. İş listesi rozeti ile sipariş ekranının süzgeci AYNI koşulu kullanmalı.
+ * Ayrı yazıldıkları sürece ayrıştılar: ölçüldü (07.10.2026) rozet "2" diyordu, rozete tıklayınca
+ * liste 10 satır gösteriyordu — kullanıcı aynı işi iki ekranda iki farklı sayıyla görüyordu.
+ * Koşul `order_packages`a dışarıdan bağlanır, yani hem SUM(...) içinde hem WHERE'de çalışır.
+ */
+export const YOLDA_DEGIL = "NOT EXISTS(SELECT 1 FROM order_lines l JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries s ON s.id=c.sale_id"
+ + " WHERE l.package_id=order_packages.id AND s.kind='sale' AND (SELECT COALESCE(SUM(r.quantity_milli),0) FROM sale_entries r WHERE r.parent_id=s.id AND r.kind='return' AND r.external_id NOT LIKE 'DUZELTME-IKAME-%')>=s.quantity_milli)"
+ + " AND NOT EXISTS(SELECT 1 FROM order_packages d JOIN order_lines l ON l.package_id=d.id JOIN order_line_components c ON c.line_id=l.id JOIN sale_entries r ON r.parent_id=c.sale_id"
+ + " WHERE d.channel=order_packages.channel AND d.order_no=order_packages.order_no AND d.status='delivered' AND r.kind='return' AND r.external_id LIKE 'DUZELTME-CIFT-%')";
+
 const fail=message=>{throw Object.assign(new Error(message),{status:400});};
 const date=value=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFinite(Date.parse(value))||new Date(value).toISOString().slice(0,10)!==value)fail('Tarih geçersiz.');return value;};
 // Bind all user values. Search applies before paging, including old packages.
@@ -27,7 +43,9 @@ export function ordersQuery(url,today=new Date().toLocaleDateString('sv-SE',{tim
  if(watch==='source_changed')add("source_changed=1 AND status!='cancelled'");
  if(watch==='unmapped')add("status='draft' AND EXISTS(SELECT 1 FROM order_lines l WHERE l.package_id=order_packages.id AND (SELECT COALESCE(SUM(c.revenue_share_bps),0) FROM order_line_components c WHERE c.line_id=l.id)!=10000)");
  if(watch==='missing_amounts')add("status='draft' AND EXISTS(SELECT 1 FROM order_lines l WHERE l.package_id=order_packages.id AND (l.net_revenue_cents IS NULL OR l.gross_cents IS NULL OR l.vat_bps IS NULL))");
- if(watch==='long_shipping')add("status='shipped' AND shipped_on<=?",new Date(Date.parse(date(today))-7*86400000).toISOString().slice(0,10));
+ // Rozetle AYNI koşul (YOLDA_DEGIL): eskiden yalnız "7 günden eski ve kargoda" bakılıyordu ve
+ // iadesi dönmüş / çift aktarım ikizi paketler de listeye giriyordu.
+ if(watch==='long_shipping')add("status='shipped' AND shipped_on<=? AND "+YOLDA_DEGIL,new Date(Date.parse(date(today))-7*86400000).toISOString().slice(0,10));
  // Pazaryeri "teslim edilemedi" diyor ama bizde teslim/kargoda duruyor. Durum KENDİLİĞİNDEN
  // geri alınmaz: teslim kaydını geri çevirmek satışı ve stoğu da geri almak demektir, o karar
  // kullanıcınındır. Burada yalnız görünür kılınır.
