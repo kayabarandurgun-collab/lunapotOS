@@ -27,6 +27,7 @@
 // böylece stok değeri = kalan parçaların değeri. Satışın açık (tahmini) kısmına dokunulmaz; FIFO'nun
 // bekleyen adedi açık maliyet kaydıyla uyuşmuyorsa (geriye tarihli kayıt) o satışa yazılmaz.
 
+const fail = (message, status = 400) => { throw Object.assign(new Error(message), {status}); };
 const yuvarla = x => Math.round(x);
 // `toplam`ı `paylar` oranında böler; kümülatif yuvarlama, parçaların toplamı tam `toplam`.
 function bol(toplam, paylar) {
@@ -40,7 +41,7 @@ const topla = (l, f) => l.reduce((a, x) => a + f(x), 0);
 /** Ürünün FIFO modelini kurar; yazılacak farkları ve tanı bilgisini döner (yazmaz). */
 export async function fifoHesap(db, productId) {
   const oku = async (sql, ...a) => (await db.prepare(sql).bind(...a).all()).results;
-  const [mv, entries, acikR, kapananR, duzR, kabulR, adjR, bakiyeR, tamamR] = await Promise.all([
+  const [mv, entries, acikR, kapananR, duzR, kabulR, adjR, bakiyeR, tamamR, kilitR] = await Promise.all([
     oku('SELECT rowid rid,id,kind,quantity_milli,value_cents,reference,occurred_on,created_at FROM ec_stock_movements WHERE product_id=?', productId),
     oku('SELECT rowid rid,id,kind,parent_id,quantity_milli,cost_cents,restock FROM ec_sale_entries WHERE product_id=?', productId),
     oku('SELECT sale_id,open_milli,settled_milli,cancelled_milli FROM ec_open_costs WHERE product_id=?', productId),
@@ -49,13 +50,21 @@ export async function fifoHesap(db, productId) {
     oku('SELECT g.id,g.line_id,l.invoice_id,g.reference,(SELECT x.id FROM ec_receipt_reversals x WHERE x.receipt_id=g.id) ters FROM ec_goods_receipts g JOIN ec_purchase_lines l ON l.id=g.line_id WHERE l.product_id=?', productId),
     oku("SELECT a.rowid rid,a.id,a.line_id,a.net_cents,a.stock_cents,a.occurred_on,a.created_at,a.reversal_of FROM ec_purchase_adjustments a JOIN ec_purchase_lines l ON l.id=a.line_id WHERE l.product_id=? AND a.kind='price' AND a.stock_cents!=0", productId),
     oku('SELECT value_cents v FROM ec_stock_balances WHERE product_id=?', productId),
-    oku('SELECT movement_id,kind,SUM(value_cents) v FROM ec_close_cost_revaluations WHERE product_id=? GROUP BY movement_id,kind', productId)
+    oku('SELECT movement_id,kind,SUM(value_cents) v FROM ec_close_cost_revaluations WHERE product_id=? GROUP BY movement_id,kind', productId),
+    // ELLE BELİRLENMİŞ MALİYET (göç 0076): kilitli satışa FIFO bir daha dokunmaz. Tablo yoksa
+    // özellik KAPALI sayılır, yani motor bugünkü gibi her satışı hesaplar.
+    oku('SELECT sale_id FROM ec_sale_cost_locks WHERE sale_id IN (SELECT id FROM ec_sale_entries WHERE product_id=?)', productId).catch(e => {
+      if (/no such table/i.test(String(e && e.message || ''))) return [];
+      throw e;
+    })
   ]);
   // 0065 kısmi teslimleri aynı kaynak değeri birikimli böler: son kuruş son payda kalır.
   const closePlan = mv.some(m => m.kind === 'purchase' && m.quantity_milli < 0 && m.reference.includes(':FA65-'))
     ? await oku('SELECT reference,value_cents FROM ec_provisional_closure_plan WHERE product_id=?', productId) : [];
   const closeValues = new Map(closePlan.map(p => [p.reference, p.value_cents]));
   const tamamlanan = new Map(tamamR.map(r => [r.kind + ':' + r.movement_id, r.v]));
+  // Maliyeti elle belirlenmiş satışlar: hesaba girer (raftan düştüğü değer sayılır) ama ÜSTÜNE YAZILMAZ.
+  const kilitli = new Set(kilitR.map(r => String(r.sale_id)));
   const tamamla = [];          // kapanış tamamlamaları {movement_id, kind, value} (bkz. 0049)
   const sales = new Map(entries.map(s => [s.id, s]));
   const acik = new Map(acikR.map(o => [o.sale_id, o]));
@@ -307,12 +316,15 @@ export async function fifoHesap(db, productId) {
     if (sales.get(id)?.kind !== 'sale') continue;
     // Stok tarafı: satış hareketinin düştüğü değer + kapanışlar + önceki farklar (tahmin hariç).
     const stok = -(mvDeger.get(id) || 0) + (kapanan.get(id) || 0) + (duz.get(id) || 0);
-    if (!tutarli(id)) { if (hedef !== stok) atlanan.push(id); continue; }
+    // ELLE BELİRLENMİŞ MALİYET DOKUNULMAZ. Geçmişi bozuk üründe FIFO'nun hedefi gerçek alış
+    // fiyatını tutmayabiliyor (canlıda 1.958,60 — en pahalı alış 1.400). Kilit o satışı ayırır;
+    // 'tutarli' olmayan satışla aynı kapıdan atlanır, yalnız atlananlarda görünür.
+    if (kilitli.has(id) || !tutarli(id)) { if (hedef !== stok) atlanan.push(id); continue; }
     if (hedef !== stok) writes.push({sale_id: id, delta: hedef - stok});
   }
   for (const [id, hedef] of iadeDeger) {
     const stok = (mvDeger.get(id) || 0) - (duz.get(id) || 0);
-    if (!tutarli(sales.get(id).parent_id)) { if (stok !== hedef) atlanan.push(id); continue; }
+    if (kilitli.has(id) || kilitli.has(String(sales.get(id).parent_id)) || !tutarli(sales.get(id).parent_id)) { if (stok !== hedef) atlanan.push(id); continue; }
     if (stok !== hedef) writes.push({sale_id: id, delta: stok - hedef});
   }
   // Önce stoğa değer döndüren farklar: bakiye batch içinde hiçbir an eksiye inmez.
@@ -393,7 +405,52 @@ export async function gecmisKapasiteOnizleme(db) {
 
 // POST /api/ec/cost-fifo — bekleyen ürünleri hemen işler (toplu yeniden hesap; kalan 0 olana dek çağrılır).
 // GET  /api/ec/cost-fifo/preview[?product_id=] — yazmadan önizleme; GET /api/ec/cost-fifo/history-capacity — R15.
+/**
+ * SATIŞIN MALİYETİNİ ELLE BELİRLER (göç 0076). Normalde maliyet FIFO'nundur ve elle değiştirilen
+ * her tutarı bir sonraki hesapta geri alır. Bu uç yalnız geçmişi bozulmuş ürün için vardır:
+ * canlıda iki satış hiçbir faturaya uymayan maliyet taşıyordu (TS1 1.958,60 / en pahalı alış
+ * 1.400; SAB 1.250 / 80 L'nin alışı 450) ve kaynağı düzeltmenin yolu kapalıydı — fatura `posted`
+ * (IMMUTABLE_INVOICE), alış fiyatı düzeltmesi yalnız rafta kalan mal kadar pay alıyor ve iki
+ * üründe de o mal satılmıştı.
+ *
+ * STOK BAKİYESİNE DOKUNULMAZ. ec_cost_revaluations yolundan geçseydi tetik (0048:25) bakiyeyi de
+ * oynatır, rafta mal olmadan para doğardı — yani temizlediğimiz hayaletin aynısı. Bakiye zaten
+ * doğru; düzeltilen tek şey satışa yazılmış maliyet.
+ *
+ * Kilit YAZILMADAN maliyet değiştirilmez: ikisi tek batch'tedir, yoksa FIFO ilk turda geri alır.
+ */
+async function satisMaliyetiBelirle(db, {sale_id, cost_cents, reason}) {
+  const sale = await db.prepare("SELECT id,cost_cents,kind FROM ec_sale_entries WHERE id=?").bind(sale_id).first();
+  if (!sale) fail('Satış kaydı bulunamadı.', 404);
+  if (sale.kind !== 'sale') fail('Yalnız satış kaydının maliyeti belirlenir; iade kaydı asıl satışla birlikte oynar.', 409);
+  if (!Number.isSafeInteger(cost_cents) || cost_cents < 0) fail('Maliyet tutarını kontrol edin.');
+  // Göç gelmemişse özellik KAPALI: 503 ile açıkça söylenir, sessizce yanlış maliyet yazılmaz.
+  let varOlan;
+  try { varOlan = await db.prepare('SELECT sale_id FROM ec_sale_cost_locks WHERE sale_id=?').bind(sale_id).first(); }
+  catch (e) {
+    if (/no such table/i.test(String(e && e.message || ''))) fail('Elle maliyet için veritabanı güncellemesi (0076) henüz uygulanmadı.', 503);
+    throw e;
+  }
+  if (varOlan) fail('Bu satışın maliyeti daha önce elle belirlenmiş; kayıt değiştirilmez.', 409);
+  await db.batch([
+    db.prepare('INSERT INTO ec_sale_cost_locks(sale_id,previous_cost_cents,cost_cents,reason) VALUES(?,?,?,?)')
+      .bind(sale_id, sale.cost_cents, cost_cents, String(reason || '').slice(0, 500)),
+    db.prepare('UPDATE ec_sale_entries SET cost_cents=? WHERE id=?').bind(cost_cents, sale_id),
+    db.prepare('INSERT INTO ec_activity(id,description) VALUES(?,?)').bind(crypto.randomUUID(),
+      'Satış maliyeti elle belirlendi: ' + (sale.cost_cents / 100).toFixed(2) + ' → ' + (cost_cents / 100).toFixed(2) + ' TL · ' + String(reason || '').slice(0, 200))
+  ]);
+  return {sale_id, previous_cost_cents: sale.cost_cents, cost_cents};
+}
+
 export async function fifoApi(request, env, path, readBody) {
+  // POST /api/ec/cost-fifo/sale-cost — bir satışın maliyetini elle belirler ve FIFO'ya kilitler.
+  if (path === '/api/cost-fifo/sale-cost' && request.method === 'POST') {
+    if (env.WORKSPACE !== 'ec') fail('Bu işlem e-ticaret çalışma alanına aittir.', 403);
+    const x = await readBody(request);
+    if (x?.confirm !== true) fail('Maliyeti elle belirlemeyi onaylayın.');
+    if (!String(x.reason || '').trim()) fail('Düzeltme gerekçesi yazın.');
+    return satisMaliyetiBelirle(env.DB, {sale_id: String(x.sale_id || ''), cost_cents: Number(x.cost_cents), reason: x.reason});
+  }
   if (path === '/api/cost-fifo/preview' && request.method === 'GET') {
     if (env.WORKSPACE !== 'ec') return {urunler: []};
     const u = new URL(request.url), product = u.searchParams.get('product_id') || '';
