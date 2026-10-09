@@ -62,4 +62,27 @@
 .logo-art[data-family=background]{position:relative;display:block;padding:0}
 .logo-art[data-family=background] img{position:absolute;inset:18px;width:calc(100% - 36px);height:calc(100% - 36px);max-height:none;object-fit:contain}
 @media(max-width:780px){.logo-art[data-family=background] img{inset:14px;width:calc(100% - 28px);height:calc(100% - 28px)}}
+
+/* 03 / MARKA YAZI TİPİ — panele eklenen bölüm. */
+.font-section{background:var(--ink);color:var(--paper);padding:75px 0 80px}
+.font-section .eyebrow{margin-bottom:22px;color:#c8cebf}
+.font-section h2{font-size:55px;line-height:1.06;letter-spacing:-.055em;font-weight:480}
+.font-grid{display:grid;grid-template-columns:.9fr 1.1fr;gap:90px;align-items:start}
+.font-copy>p:not(.eyebrow){font-size:12px;line-height:1.9;max-width:365px;color:#b8c0b0;margin-top:22px}
+.font-meta{margin-top:26px;border-top:1px solid #ffffff26;font-size:11px;color:#b8c0b0}
+.font-meta div{display:flex;justify-content:space-between;gap:20px;padding:11px 0;border-bottom:1px solid #ffffff14}
+.font-meta strong{font-weight:550;color:var(--paper)}
+.font-downloads{display:flex;gap:12px;margin-top:24px;flex-wrap:wrap}
+.font-downloads a{display:flex;justify-content:space-between;align-items:center;gap:25px;min-height:47px;padding:12px 17px;font-size:11px;background:var(--paper);color:var(--ink);border:1px solid var(--paper)}
+.font-downloads a+a{background:transparent;color:var(--paper)}
+.font-downloads a span{font-size:18px}
+.font-try{background:var(--paper);color:var(--ink);padding:25px;min-height:430px;display:flex;flex-direction:column;gap:18px}
+.font-try-top{display:flex;justify-content:space-between;align-items:center;gap:15px;font-size:8px;letter-spacing:.04em}
+.font-try textarea{width:100%;flex:1;min-height:170px;border:1px solid #b7bdb0;background:transparent;padding:18px;resize:vertical;font-family:LkInter,Inter,sans-serif;line-height:1.25;letter-spacing:-.03em;border-radius:0;color:inherit}
+.font-controls{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.font-controls label{display:block;font-size:10px;font-weight:550;margin-bottom:9px}
+.font-controls input[type=range]{width:100%;accent-color:#637d12}
+.font-controls output{font-size:10px;color:var(--muted)}
+@media(max-width:780px){.font-grid{grid-template-columns:1fr 1fr;gap:30px}.font-section h2{font-size:40px}.font-section{padding:53px 0 58px}}
+@media(max-width:560px){.font-grid{grid-template-columns:1fr;gap:30px}.font-section h2{font-size:45px}.font-try{min-height:340px;padding:20px}.font-controls{grid-template-columns:1fr}}
 }

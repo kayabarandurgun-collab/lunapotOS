@@ -30,6 +30,7 @@ export function mountBrandLogos(root, namespace) {
     data: null, layout: 'all', color: 'all', family: 'background',
     custom: {layout: 'yatay', hex: '#20251F', mode: 'background', bgHex: '#D5EF74', size: 2048},
     preview: 'light', svg: '', busy: false, revision: 0,
+    font: {text: 'İmzan hazır. Zemini de.', size: 44, weight: 480},
     error: '', status: 'Logo kaynağı hazırlanıyor…', contrast: false, disposed: false
   };
   const sources = new Map();
@@ -113,7 +114,8 @@ export function mountBrandLogos(root, namespace) {
       '<img src="/marka/logo-v2/Uygulama/lunapot-wordmark-dark.svg" alt="Lunapot" width="150" height="54"></a>' +
       '<span class="edition">MARKA KAYNAKLARI / 2026</span>' +
       '<nav aria-label="Sayfa bölümleri"><a href="#logolar" data-lk-jump="logolar">Hazır dosyalar</a>' +
-      '<a href="#ozel-renk" data-lk-jump="ozel-renk">Kendi rengin</a></nav>' +
+      '<a href="#ozel-renk" data-lk-jump="ozel-renk">Kendi rengin</a>' +
+      '<a href="#yazi-tipi" data-lk-jump="yazi-tipi">Yazı tipi</a></nav>' +
       (zip ? '<a class="all-download" href="' + esc(zip) + '" download="' + esc(data.zip) + '">Logo paketi <span aria-hidden="true">↓</span></a>' : '') +
       '</header>' +
 
@@ -204,6 +206,33 @@ export function mountBrandLogos(root, namespace) {
         : 'Şeffaf dosya; önizleme zemini indirilmez.') + '</span></div>' +
       '</div></div></section>' +
 
+      // 03 / MARKA YAZI TİPİ — kaynak sayfada yok, panele eklendi.
+      // Yazı tipi Inter'dir (SIL Open Font License); markanın kendi çizdiği bir
+      // font değildir, bu yüzden adı ve lisansı olduğu gibi yazılır.
+      '<section class="font-section" id="lk-yazi-tipi" aria-labelledby="lk-font-title"><div class="frame font-grid">' +
+      '<div class="font-copy"><p class="eyebrow">03 / MARKA YAZI TİPİ</p>' +
+      '<h2 id="lk-font-title">Yazın da aynı<br>imzadan olsun.</h2>' +
+      '<p>Logoda ve belgelerde kullanılan yazı tipi. Sağdaki alana kendi metnini yaz, ' +
+      'ağırlığını ve boyutunu dene; beğendiğinde font dosyasını indirip kendi programında kullan.</p>' +
+      '<div class="font-meta">' +
+      [['Yazı tipi', 'Inter'], ['Dosya', 'InterVariable.woff2'], ['Ağırlık aralığı', '100 – 900 (değişken)'],
+       ['Lisans', 'SIL Open Font License 1.1'], ['Kullanım', 'Ticari kullanım serbest']]
+        .map(([ad, deger]) => '<div><span>' + esc(ad) + '</span><strong>' + esc(deger) + '</strong></div>').join('') +
+      '</div>' +
+      '<div class="font-downloads">' +
+      '<a href="/marka/logo-v2/Uygulama/InterVariable.woff2" download="InterVariable.woff2">Yazı tipini indir <span aria-hidden="true">↓</span></a>' +
+      '<a href="/marka/logo-v2/Uygulama/Inter-LICENSE.txt" download="Inter-LICENSE.txt">Lisans <span aria-hidden="true">↓</span></a>' +
+      '</div></div>' +
+      '<div class="font-try"><div class="font-try-top"><span>KENDİ METNİNİ DENE</span>' +
+      '<span>INTER / ' + state.font.weight + '</span></div>' +
+      '<textarea data-lk-font="text" rows="4" aria-label="Denemek istediğin metni yaz">' + esc(state.font.text) + '</textarea>' +
+      '<div class="font-controls">' +
+      '<div><label for="lk-font-size">Boyut <output>' + state.font.size + ' px</output></label>' +
+      '<input id="lk-font-size" type="range" min="14" max="96" step="1" value="' + state.font.size + '" data-lk-font="size"></div>' +
+      '<div><label for="lk-font-weight">Ağırlık <output>' + state.font.weight + '</output></label>' +
+      '<input id="lk-font-weight" type="range" min="100" max="900" step="50" value="' + state.font.weight + '" data-lk-font="weight"></div>' +
+      '</div></div></div></section>' +
+
       '<section class="closing frame"><div><p class="eyebrow">HEPSİ ELİNİN ALTINDA.</p>' +
       '<h2>Düzenli klasörler.<br>Kolay kullanım.</h2></div><div>' +
       '<p>Şeffaf logolar ve renkli zeminli görseller ayrı. Her yerleşim kendi klasöründe; her seçenek için bir SVG, bir PNG.</p>' +
@@ -215,6 +244,15 @@ export function mountBrandLogos(root, namespace) {
       '</div>';
 
     paintDots();
+    paintFont();
+  }
+
+  // Deneme alaninin boyut/agirligi CSSOM ile yazilir: satir ici style CSP'ye takilir.
+  function paintFont() {
+    const alan = root.querySelector('[data-lk-font="text"]');
+    if (!alan) return;
+    alan.style.fontSize = state.font.size + 'px';
+    alan.style.fontWeight = String(state.font.weight);
   }
 
   // Renk noktaları CSSOM ile boyanır: satır içi style niteliği `style-src 'self'`
@@ -407,6 +445,16 @@ export function mountBrandLogos(root, namespace) {
       refreshCustom();
       const next = root.querySelector('[data-lk-custom="' + key + '"]');
       if (next) { next.focus({preventScroll: true}); try { next.setSelectionRange(caret, caret); } catch { /* imleç sonda kalır */ } }
+      return;
+    }
+    const font = field.dataset.lkFont;
+    if (font === 'text') { state.font.text = field.value; return; }
+    if (font === 'size' || font === 'weight') {
+      state.font[font] = Number(field.value);
+      // Yalniz deneme alanini guncelle: her kaydirmada butun sayfayi kurma.
+      paintFont();
+      const cikti = field.closest('div')?.querySelector('output');
+      if (cikti) cikti.textContent = font === 'size' ? state.font.size + ' px' : String(state.font.weight);
       return;
     }
     if (key === 'picker') { state.custom.hex = field.value.toUpperCase(); refreshCustom(); return; }
