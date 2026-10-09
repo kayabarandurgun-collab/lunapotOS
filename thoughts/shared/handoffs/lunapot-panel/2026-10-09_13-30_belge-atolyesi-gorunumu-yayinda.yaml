@@ -1,0 +1,56 @@
+---
+session: lunapot-panel
+date: 2026-10-09
+status: done
+outcome: BELGE ATÖLYESİ GÖRÜNÜMÜ BİTTİ VE YAYINDA · Codex 09.10 paketi kapandı
+onceki: thoughts/shared/handoffs/lunapot-panel/2026-10-09_12-10_marka-atolyesi-logo-v2-belge-kaldi.yaml
+
+goal: "Önceki turdan kalan TEK iş: Belge Atölyesi'nin görünümünü kaynak tasarıma taşımak. BİTTİ."
+now: "Marka Atölyesi paketinde yapılacak kalmadı. Devam edilecek işler aşağıda 'onceki_oturumdan_devam' altında; hepsi dış olay bekliyor."
+
+test:
+  komut: "node --test tests/*.test.js"
+  son_olcum: "1605 geçti · 2 kaldı · 31 atlandı — TABANIN AYNISI"
+  kalan_iki: "tests/seed-local-catalog.test.js ve tests/store-sync.test.js — repo DIŞI ../lunapot-store-preview okuyor. Bu işten değil."
+
+canli_durum:
+  adres: "https://muhasebe.lunapot.com"
+  onbellek: "lunapot-shell-v199-belge-atolyesi"
+  goc: "YENİ GÖÇ YOK. 0077 en son; SQL'e dokunulmadı."
+  HEAD: "84b7ce4 (origin'e push EDİLMEDİ, yalnız deploy edildi — önceki turlardaki gibi)"
+  deploy: "wrangler 4.130.0 · 3 dosya yüklendi (sw.js, belge-sayfasi.css, brand-documents-ui.js) · 565 varlık"
+
+bitenler:
+  - "KAĞIT KAYNAK TASARIMA GEÇTİ: antrasit (#20251f) araç çubuğu, lime (#d5ef74) taslak bandı, siyah tablo başlığı, Inter, çizgili imza alanları. Eski hâli yeşil/Segoe, kutulu muhatap, gri tablo başlığıydı."
+  - "CANLIDAN ÖLÇÜLDÜ: kâğıt 210×297mm, dolgu 18/17/15mm, gövde 9pt/1.45, logo 51mm (oran korunuyor), antet çizgisi 2px, muhatap 1px üst/alt."
+  - "STİLİ OLMAYAN 19 SINIF: .ba-workspace, .ba-editor, .ba-preview, .ba-preview-bar, .ba-types, .ba-form, .ba-grid, .ba-lines, .ba-import* ... hiçbirinin kuralı YOKTU; ekran tek uzun sütuna iniyordu. Hepsi yazıldı."
+  - "ÇOKLU JSON: dosyadaki tanınan türlerin HEPSİ düğme olarak listeleniyor, dosyanın kendi 'active' türü önseçili, tür değişince dosya yeniden okunmadan önizleme kuruluyor, uyarı ötekilerin dosyada kaldığını yazıyor."
+  - "2 MB üstü / boş / bozuk JSON artık açıklayıcı hata veriyor; büyük dosya hiç OKUNMUYOR."
+
+tuzaklar_bu_oturumda_yasandi:
+  - "PANELİN GLOBAL CSS'İ KÂĞIDA SIZIYOR. En belirgin yabancı kural `.workspace-redesign table td strong` (0,1,3). Ayrıca style.css'teki `table{white-space:nowrap}` kelime sarmasını kapatıyor ve `overflow-wrap:anywhere` ile birleşince tutarlar rakam ortasından bölünüyor: ₺125,00 ekrana '₺125,0' + '0' diye iniyordu. ÇÖZÜM: kâğıdın her kuralı `.ba-sheet` ile öneklendi (0,2,x) ve tabloya `white-space:normal` yazıldı. ÖNEKİ KALDIRMA."
+  - "Sıfırlama katmanı `.ba-sheet.ba-sheet :is(...)` — sınıf BİLEREK iki kez yazılı. Yabancı kuralların üstüne çıkar ama kendi `.ba-sheet .ba-*` kurallarımla eşitlenip sıraya girer. Tek sınıfa indirirsen panel kuralları geri sızar."
+  - "Ölçüyü GÖZLE onaylama. CSS'te 8pt yazmak hiçbir şey ifade etmiyordu; getComputedStyle 13px döndürüyordu. Tarayıcıda `document.styleSheets` üzerinde `el.matches(sel)` taraması yapıp kazanan kuralı bul."
+  - "DÜĞME YARIÇAPI `var(--radius-dugme)` OLMAK ZORUNDA. 6px yazınca tests/arayuz-olcek.test.js kırıldı (iki test). Panelde tek yarıçap ölçeği var."
+  - "A4 + 248px kenar çubuğu 1440 ekrana SIĞMIYOR: kâğıdın 97px'i kırpılıyordu. İki sütun artık 1530px'ten sonra açılıyor (248+76+360+20+794+32). Altında editör üste geçiyor, kâğıt tam görünüyor. Kaynak 1440'ta sığıyordu çünkü onda kenar çubuğu yok."
+  - "POWERSHELL: `&&` yok (parser hatası) VE `npx` bir .ps1 olduğu için çalıştırma ilkesine takılıyor. Doğru komut: `.\\node_modules\\.bin\\wrangler.cmd deploy`. İki tur boşa gitti."
+  - "Tarayıcı panelinde canlı panelin OTURUMU YOK. Canlı CSS'i doğrulamak için canlı origin içinde iframe kurup /print.css yükleyip ölçtüm — giriş gerekmiyor, oturum açmaya kalkma."
+
+degismeyecekler:
+  - "Kâğıdın bütün kuralları `.ba-sheet` önekli kalacak. Önek = panelin global etiket kurallarına karşı tek savunma."
+  - "Baskıda kâğıt dolgusu SIFIR. Kenar boşluğu yalnız print.css'teki @page'ten (16mm) gelir; ikisini üst üste koyarsan metin alanı iki kez daralır."
+  - "print.css zaten belge-sayfasi.css'i @import ediyor; @font-face oradan geliyor, baskı çerçevesinde Inter YÜKLENİYOR (canlıda doğrulandı). doc-engine.js'e dokunmak gerekmedi."
+  - "Mobilde kâğıt oranı değişmez: .ba-paper kendi içinde yatay kayar, sayfa yana kaymaz. Kaynak da böyle yapıyor."
+  - "ONAYLI V8 GEOMETRİSİ, public/marka/logo/ eski dizini, antet listesinin 32'de kalması, offer-math.js/belge-sayi.js hesap sözleşmesi — hepsi aynen duruyor."
+
+onceki_oturumdan_devam:
+  - "Seçkin'e 4 adet TS1 borcu ₺7.380; faturaları gelince Belge yükle."
+  - "Kayıp kargo tazminatı (HB 4302703706); para gelince Giderler → Tazminat geliri."
+  - "Tropikal faturaları ~₺52.716 + 6.750; geldiğinde 13 ürün için FIFO önizlemesi ZORUNLU."
+  - "İSTENMEYEN: ikmal/tedarik motoru; Pina Store."
+
+ortam:
+  repo: "C:/Users/baran/Desktop/site/lunapot-panel · Documents/Codex kopyası ESKİ, DOKUNMA"
+  onizleme: "node scripts/design-preview.mjs --port=8812 — gerçek worker, bellekte sqlite, sentetik veri, canlıya dokunmaz. scratchpad/tam-sunucu.mjs artık yok, bunu kullan."
+  terminal: "PowerShell 5.1 — && yok, npx.ps1 engelli. wrangler için .cmd kısayolu."
+  kullanici: "ÇOK KISA YAZ, tablo + kalın rakam. Türkçe."
