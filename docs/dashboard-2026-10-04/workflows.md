@@ -1,6 +1,6 @@
 # Dashboard workflow verification — 2026-10-04
 
-Run: 2026-10-04T13:32:02.846Z → 2026-10-04T13:32:23.760Z. Origin: http://127.0.0.1:18731. Chrome: 154.0.8037.97.
+Run: 2026-10-04T16:02:08.335Z → 2026-10-04T16:02:22.639Z. Origin: http://127.0.0.1:8790. Chrome: 154.0.8037.97.
 
 **21/21 workflow cases passed; 0 failed.** Verified against the running synthetic preview at the timestamp shown; results apply to the listed local cases.
 
@@ -65,7 +65,7 @@ Existing no-amount contract retains amounts/margins/revenue-share protection whi
 | /api/ec/urun-karlilik | 200 | None found |
 | /api/ec/purchases | 200 | None found |
 | /api/ec/ledger | 200 | None found |
-| /api/ec/party-profiles/aebe1188-d213-4db3-ba5d-bbce0ec34cbb | 200 | None found |
+| /api/ec/party-profiles/81c12a58-6840-4f73-bb80-9762d0ddb0be | 200 | None found |
 | /api/ec/warehouse | 200 | None found |
 | /api/ec/workbench | 200 | None found |
 | /api/ec/money-calendar | 403 | None found |
@@ -83,7 +83,7 @@ Document overflow is checked at both widths. Mobile standalone enabled controls 
 
 | Width | Role | Screen | Overflow | Controls below 44px | Capture |
 | ---: | --- | --- | --- | --- | --- |
-| 1440 | owner | dashboard | 1440/1440 fits | Siparişleri gör ↗ 132.1×40.2; Tarih 5 Eyl 2026 – 4 Eki 2026 202.3×37.2; Maliyet ve kesintiler ↓ 130.2×36; Bugüne kadar ↓ 101.6×36; Depo ve günlük işler ↓ 134.9×36; Giderler sonrası sonucu gör → 248.7×32; Satış dökümü → 210.3×32; Maliyet dağılımı ↓ 248.7×32; Kesintileri incele ↓ 210.3×32; Ciro 56.1×36; Maliyet ve kesintiler 142.7×36; Kalan 64×36; Grafiğin rakamlarını aç 637.2×38; Maliyet ve kesintilerin paket dökümü 46.5×36; Kayıtlı ve tahmini tutarları ayır 394.8×38; Tüm dönemi aç ↗ 85.6×36; Kâr bırakan 22 266.3×38; Zarar eden 6 266.3×38; Başa baş 0 266.3×38; Hesap bekleyen 0 266.3×38; Hesap kapsamı ve iadeler 27 pakette tahmini tutar 1144×38; Diğer 4 kontrolü göster 619.2×38; Bekleyenlerin kanal dağılımı 412.8×38; Bütün dönemler · nakit, ciro ve zarar 1106×38; Ödeme takvimi → 136.8×40; Giderler sonrası işletme sonucu → 239.9×40; Sayım ve tedarik → 144.8×40; Bu ekrandaki rakamlar neyi kapsıyor? 1144×38 | [PNG](workflow-checks/owner-1440-dashboard.png) |
+| 1440 | owner | dashboard | 1440/1440 fits | Siparişleri gör ↗ 132.1×40.2; Tarih 5 Eyl 2026 – 4 Eki 2026 202.3×37.2; Maliyet ve kesintiler ↓ 130.2×36; Bugüne kadar ↓ 101.6×36; Depo ve günlük işler ↓ 134.9×36; Giderler sonrası sonucu gör → 248.7×32; Satış dökümü → 210.3×32; Maliyet dağılımı ↓ 248.7×32; Kesintileri incele ↓ 210.3×32; Ciro 56.1×36; Maliyet ve kesintiler 142.7×36; Kalan 64×36; Grafiğin rakamlarını aç 637.2×38; Maliyet ve kesintilerin paket dökümü 46.5×36; Kayıtlı ve tahmini tutarları ayır 394.8×38; Tüm dönemi aç ↗ 85.6×36; Kâr bırakan 22 266.3×38; Zarar eden 6 266.3×38; Başa baş 0 266.3×38; Hesap bekleyen 0 266.3×38; Hesap kapsamı ve iadeler 27 pakette tahmini tutar 1144×38; Paket dökümü → 92.2×32; Hesap kapsamı ve yöntemi 1082×38; Diğer 4 kontrolü göster 619.2×38; Bekleyenlerin kanal dağılımı 412.8×38; Bütün dönemler · nakit, ciro ve zarar 1106×38; Şimdi kontrol et 127.9×40.2; Ne zaman uyarır, ne zaman bekler? 1094×38; Ödeme takvimi → 136.8×40; Giderler sonrası işletme sonucu → 239.9×40; Sayım ve tedarik → 144.8×40; Bu ekrandaki rakamlar neyi kapsıyor? 1144×38 | [PNG](workflow-checks/owner-1440-dashboard.png) |
 | 1440 | owner | report-choice | 1440/1440 fits | Günlük işler 103.1×40.2; Sipariş raporu 115.3×40.2; Finans / kesinti raporu 163.6×40.2 | [PNG](workflow-checks/owner-1440-report-choice.png) |
 | 1440 | owner | report-source-handoff | 1440/1440 fits | Günlük işler 103.1×40.2; Günlük akışa dön 135.2×40.2; Siparişlere git → 128.4×40.2; Rapor yükle 90.9×40; Dosyalar 73.2×40; İnceleme 74.8×40; Sonuçlar 73.2×40; Mağaza seçin… Hepsiburada · Sentetik hepsiburada mağazası (HB) Trendyol · Sentetik trendyo 499×42; ← Geri (dosya seçimine) 173×40.2; Dosyayı kontrol et 139.5×40.2; Yükledikten sonra ne olur? 1014×32; Alış faturası mı yükleyeceksin? → 1014×19.2 | [PNG](workflow-checks/owner-1440-report-source-handoff.png) |
 | 1440 | owner | report-handoff | 1440/1440 fits | Günlük işler 103.1×40.2; Günlük akışa dön 135.2×40.2; Siparişlere git → 128.4×40.2; Rapor yükle 90.9×40; Dosyalar 73.2×40; İnceleme 74.8×40; Sonuçlar 73.2×40; Sipariş raporu Finans / hakediş raporu 291.8×42; — bu dosyada yok — Alan Bilgi 393.2×42; — bu dosyada yok — Alan Bilgi 393.2×42; — bu dosyada yok — Alan Bilgi 393.2×42; — bu dosyada yok — Alan Bilgi 393.2×42; — bu dosyada yok — Alan Bilgi 393.2×42; — bu dosyada yok — Alan Bilgi 393.2×42; — bu dosyada yok — Alan Bilgi 393.2×42; — bu dosyada yok — Alan Bilgi 393.2×42; — bu dosyada yok — Alan Bilgi 393.2×42; — bu dosyada yok — Alan Bilgi 393.2×42; — bu dosyada yok — Alan Bilgi 393.2×42; — bu dosyada yok — Alan Bilgi 393.2×42; — bu dosyada yok — Alan Bilgi 393.2×42; — bu dosyada yok — Alan Bilgi 393.2×42; ← Geri (dosya bilgilerine) 180.5×40.2; Vazgeç 73.1×40.2; Eşleştirmeyi kaydet ve kontrol et 225.8×40.2 | [PNG](workflow-checks/owner-1440-report-handoff.png) |

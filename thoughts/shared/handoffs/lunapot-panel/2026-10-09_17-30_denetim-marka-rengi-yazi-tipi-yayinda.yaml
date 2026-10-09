@@ -7,7 +7,7 @@ onceki: thoughts/shared/handoffs/lunapot-panel/2026-10-09_13-30_belge-atolyesi-g
 ---
 
 goal: "Günün ikinci yarısı: antet profilleri (göç 0078), uçtan uca sistem denetimi, marka paleti her yere, yazı tipi sorunu, giriş ekranı amblemi."
-now: "Yapılacak kalmadı. Canlı v204, 7 commit (4fe910e…ea877da), origin'e push EDİLMEDİ."
+now: "Yapılacak kalmadı. Canlı v204; 13 commit origin/main'de (c2873d5), yerel = origin. Sonraki oturum temiz başlar: /resume_handoff thoughts/shared/handoffs/lunapot-panel/2026-10-09_17-30_denetim-marka-rengi-yazi-tipi-yayinda.yaml"
 
 test: {komut: "node --test tests/*.test.js", son_olcum: "1653 test · 1620 geçti · 2 kaldı (repo dışı, eski) · 31 atlandı"}
 
