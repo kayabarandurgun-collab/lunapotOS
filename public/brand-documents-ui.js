@@ -140,15 +140,28 @@ export function mountBrandDocuments(root, namespace, user) {
   const V2_CURRENCIES = ['TRY', 'EUR', 'USD', 'GBP'];
   const metin = (value, max = 4000) => String(value ?? '').slice(0, max);
 
-  function parseAtelierJson(text) {
+  // Dosya 2 MB'ı aşarsa OKUNMAZ: atölyenin kendi çıktısı birkaç yüz kilobayttır,
+  // bundan büyüğü yanlış dosyadır ve tarayıcıyı boşuna meşgul etmesin.
+  const ICE_AKTARIM_EN_COK_BAYT = 2 * 1024 * 1024;
+  const mb = bayt => (bayt / (1024 * 1024)).toLocaleString('tr-TR', {maximumFractionDigits: 1});
+
+  // Dosyayı okur ve İÇİNDEKİ TÜM tanınan türleri listeler. Hangisinin
+  // yükleneceğini kullanıcı seçer; seçilmeyenler dosyada kalır, sessizce DÜŞMEZ.
+  function readAtelierFile(text) {
     let input;
     try { input = JSON.parse(text); }
     catch { throw new Error('Bu dosya okunabilir bir JSON değil.'); }
-    if (!input || typeof input !== 'object' || input.version !== 2 || typeof input.documents !== 'object')
+    if (!input || typeof input !== 'object' || input.version !== 2
+      || !input.documents || typeof input.documents !== 'object')
       throw new Error('Bu atölyeye ait bir v2 JSON dosyası seçin.');
-    const typeId = TYPES.some(type => type.id === input.active) ? input.active
-      : TYPES.map(type => type.id).find(id => input.documents[id]);
-    if (!typeId) throw new Error('Dosyada tanınan bir belge türü yok.');
+    const mevcut = TYPES.map(type => type.id)
+      .filter(id => input.documents[id] && typeof input.documents[id] === 'object');
+    if (!mevcut.length) throw new Error('Dosyada tanınan bir belge türü yok.');
+    return {input, mevcut, secili: mevcut.includes(input.active) ? input.active : mevcut[0]};
+  }
+
+  function parseAtelierJson(dosya, typeId) {
+    const {input, mevcut} = dosya;
     const type = typeOf(typeId);
     const source = input.documents[typeId] || {};
     const items = Array.isArray(source.items) ? source.items : [];
@@ -202,8 +215,13 @@ export function mountBrandDocuments(root, namespace, user) {
     if (draft.recipient.name) warnings.push({metin:
       'Muhatap metni dosyadan geldi. Kayıtlı cariye bağlamak istersen listeden kendin seç; ' +
       'ada bakarak otomatik eşleştirme YAPILMAZ.'});
+    // Çok türlü dosyada ne olduğu ve ne OLMADIĞI açıkça yazılır.
+    if (mevcut.length > 1) warnings.push({metin:
+      'Dosyada ' + mevcut.length + ' belge türü var: ' + mevcut.map(id => typeOf(id).name).join(', ') + '. ' +
+      'Yalnız seçtiğin tür düzenleyiciye yüklenir; ötekiler dosyadan silinmez, ' +
+      'birini daha almak için yukarıdan türünü seç.'});
 
-    return {typeId, type, draft, currency, warnings, belgeNo: metin(source.number, 60)};
+    return {dosya, mevcut, typeId, type, draft, currency, warnings, belgeNo: metin(source.number, 60)};
   }
 
   function importHtml() {
@@ -216,6 +234,14 @@ export function mountBrandDocuments(root, namespace, user) {
     return '<section class="card pad ba-import"><div class="section-heading"><div><span class="eyebrow">ÖNİZLEME</span>' +
       '<h3>Yüklenecek belge</h3><p>Bu bir önizlemedir. Henüz hiçbir şey değişmedi ve <strong>hiçbir kayıt oluşmadı</strong>.</p></div>' +
       '<button type="button" class="secondary" data-ba-action="import-cancel">Vazgeç</button></div>' +
+      // Dosyada birden çok tür varsa hepsi gösterilir: hangisinin geldiği
+      // ve hangilerinin beklediği görünür olsun.
+      (yuk.mevcut.length > 1
+        ? '<div class="ba-import-types" role="group" aria-label="Dosyadaki belge türleri">' +
+          yuk.mevcut.map(id => '<button type="button" data-ba-import-type="' + esc(id) + '"' +
+            ' aria-pressed="' + (id === yuk.typeId) + '">' + esc(typeOf(id).name) + '</button>').join('') +
+          '</div>'
+        : '') +
       '<div class="table-wrap"><table><tbody>' +
       [['Belge türü', yuk.type.name],
        ['Dosyadaki belge no', yuk.belgeNo || '—'],
@@ -407,11 +433,14 @@ export function mountBrandDocuments(root, namespace, user) {
         : state.view === 'list' ? listHtml()
         : '<div class="ba-workspace"><section class="card pad ba-editor">' + editorHtml(draft, type) + '</section>' +
           '<section class="ba-preview"><div class="ba-preview-bar">' +
+          '<strong>Lunapot / Belge atölyesi</strong>' +
           (writable ? '<button type="button" class="primary" data-ba-action="save"' + (state.busy ? ' disabled' : '') + '>Sunucuya kaydet</button>' : '') +
           '<button type="button" class="secondary" data-ba-action="print">Yazdır / PDF</button>' +
           (state.record && writable ? '<button type="button" class="secondary" data-ba-action="duplicate">Çoğalt</button>' +
             '<button type="button" class="secondary" data-ba-action="revise">Yeni revizyon</button>' : '') +
-          '</div>' + sheetHtml(draft, type) + '</section></div>');
+          // Kâğıt KENDİ kutusunda yatay kayar; sayfanın tamamı yana kaymaz ve
+          // A4 oranı hiçbir ekran genişliğinde bozulmaz.
+          '</div><div class="ba-paper">' + sheetHtml(draft, type) + '</div></section></div>');
   }
 
   function listHtml() {
@@ -708,6 +737,18 @@ export function mountBrandDocuments(root, namespace, user) {
       state.dirty = false; state.error = ''; state.status = ''; state.view = 'editor';
       render(); return;
     }
+    // Çok türlü dosyada önizlemeyi başka bir türe çevirir. Dosya yeniden
+    // okunmaz, taslak değişmez: yalnız önizleme kurulur.
+    const importType = event.target.closest('[data-ba-import-type]');
+    if (importType && state.importing?.dosya) {
+      const next = importType.dataset.baImportType;
+      if (next !== state.importing.typeId) {
+        try { state.importing = parseAtelierJson(state.importing.dosya, next); }
+        catch (error) { state.importing = {error: error.message}; }
+        render();
+      }
+      return;
+    }
     const open = event.target.closest('[data-ba-open]');
     if (open) { openRecord(open.dataset.baOpen); return; }
     const remove = event.target.closest('[data-ba-remove]');
@@ -802,10 +843,18 @@ export function mountBrandDocuments(root, namespace, user) {
       const file = target.files?.[0];
       target.value = '';
       if (!file) return;
+      const durdur = hata => { state.importing = {error: hata}; render(); };
+      if (!file.size) return durdur('Dosya boş: içinde okunacak bir şey yok.');
+      if (file.size > ICE_AKTARIM_EN_COK_BAYT)
+        return durdur('Dosya çok büyük: ' + mb(file.size) + ' MB. En fazla 2 MB yüklenebilir. ' +
+          'Atölyenin kendi JSON çıktısı bundan çok küçüktür; yanlış dosyayı seçmiş olabilirsin.');
       file.text().then(text => {
         if (state.disposed) return;
         // Dosyayı açmak kayıt YARATMAZ: yalnız önizleme kurulur.
-        try { state.importing = parseAtelierJson(text); }
+        try {
+          const dosya = readAtelierFile(text);
+          state.importing = parseAtelierJson(dosya, dosya.secili);
+        }
         catch (error) { state.importing = {error: error.message}; }
         render();
         root.querySelector('.ba-import')?.scrollIntoView({block: 'start'});

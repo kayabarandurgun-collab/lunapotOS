@@ -1,110 +1,463 @@
-/* BELGE ATÖLYESİ'NİN A4 SAYFASI.
-   Hem ekran önizlemesi hem yazdırma çıktısı bu dosyayı kullanır: önizleme ile
-   PDF/yazdırma AYNI değerleri gösterir. print.css bu dosyayı @import eder.
+/* BELGE ATÖLYESİ.
 
-   Bütün kurallar .ba- önekli sınıflara bağlıdır. Global body, form, table ya da
-   print kuralı YOKTUR: başka ekranların görünümü bu dosyadan etkilenmez.
-   Kaynak tasarım: lunapot-kurumsal-moduller-devir/01-Belge-Atolyesi/business-style.css */
+   İKİ KATMAN:
+   (1) ATÖLYE KABUĞU — araç çubuğu, editör, kâğıt zemini. YALNIZ EKRAN.
+       @media screen içine alınmıştır; baskı çıktısına karışmaz.
+   (2) A4 SAYFASI — ekran önizlemesi ile yazdırma çıktısı AYNI kuralları
+       kullanır, böylece önizleme ile PDF birebir aynıdır.
+
+   print.css bu dosyayı @import eder: kâğıt kuralları oradan da gelir.
+
+   Bütün seçiciler .ba- önekli bir sınıfa dayanır. Global body, form, table
+   ya da print kuralı YOKTUR: başka ekranların görünümü bu dosyadan etkilenmez.
+   (Dosya ecommerce.html ve production.html tarafından da yükleniyor; bu yüzden
+   kapsam kaçağı olmamalı.)
+
+   Kaynak tasarım: lunapot-claude-modul-guncelleme-2026-10-09/02-Belge-Atolyesi/
+   business-style.css + business-print.css. Baskı düzeltmeleri kaynakta ayrı bir
+   dosyadaydı ve en son yükleniyordu; burada BİRLEŞTİRİLMİŞ hâli yazılıdır
+   (tablo sabit düzen, satır kaydırma, daraltılmış baskı boşlukları). */
+
+@font-face {
+  font-family: BaInter;
+  src: url('/marka/logo-v2/Uygulama/InterVariable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+.ba-workspace, .ba-intro, .ba-import, .ba-sheet {
+  --ba-ink: #20251f;
+  --ba-lime: #d5ef74;
+  --ba-paper: #fafaf6;
+  --ba-stone: #e7e6dd;
+  --ba-muted: #656a64;
+  --ba-canvas: #eceee8;
+  --ba-field: #bdc2b7;
+}
+
+/* ===================================================================
+   1) ATÖLYE KABUĞU — yalnız ekran
+   =================================================================== */
+
+@media screen {
+
+  /* ---------- Giriş kartı: başlık, işlemler, belge türleri ---------- */
+
+  .ba-head-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+  .ba-import-pick {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 9px 14px;
+    font-size: var(--yazi-dugme);
+    font-weight: var(--kalinlik-dugme);
+    color: var(--brand);
+    background: var(--brand-soft);
+    border: 1px solid var(--brand-border);
+    border-radius: var(--radius-dugme);
+    cursor: pointer;
+  }
+  .ba-import-pick:hover { background: var(--surface); }
+  /* Dosya girdisi gizlenir; tıklama etiketin kendisinden gelir. */
+  .ba-import-pick input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+  .ba-types {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 18px 0 0;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+  }
+  .ba-types button {
+    min-height: 44px;
+    padding: 9px 14px;
+    font-size: var(--yazi-dugme-kucuk);
+    font-weight: var(--kalinlik-dugme);
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-dugme);
+    cursor: pointer;
+  }
+  .ba-types button:hover { color: var(--ink); background: var(--canvas); }
+  /* Seçili tür antrasitle işaretlenir: kâğıdın başlık rengiyle aynı dil. */
+  .ba-types button[aria-pressed='true'] {
+    color: var(--ba-paper);
+    background: var(--ba-ink);
+    border-color: var(--ba-ink);
+  }
+
+  .ba-open, .ba-dirty { margin: 12px 0 0; font-size: 13px; }
+  .ba-dirty { color: #8a5a12; }
+
+  /* ---------- JSON içe aktarma önizlemesi ---------- */
+
+  .ba-import-warnings { margin: 12px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.6; }
+  .ba-import-warnings .ba-blocking { color: #9a4b32; font-weight: 600; }
+  .ba-custom-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+
+  /* Dosyada birden çok tür varsa hangisinin aktarılacağı BURADA seçilir;
+     seçilmeyen türler sessizce düşmesin diye hepsi listelenir. */
+  .ba-import-types { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0; }
+  .ba-import-types button {
+    min-height: 44px;
+    padding: 8px 13px;
+    font-size: var(--yazi-dugme-kucuk);
+    font-weight: var(--kalinlik-dugme);
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-dugme);
+    cursor: pointer;
+  }
+  .ba-import-types button[aria-pressed='true'] {
+    color: var(--ba-paper);
+    background: var(--ba-ink);
+    border-color: var(--ba-ink);
+  }
+
+  /* ---------- Çalışma alanı: solda editör, sağda kâğıt ---------- */
+
+  .ba-workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+    align-items: start;
+    margin-top: 20px;
+  }
+  /* İki sütun YALNIZ A4'ün tamamı sağa sığdığında açılır; yoksa kâğıt kırpılır.
+     Gereken genişlik: 248 kenar çubuğu + 76 ana dolgu + 360 editör + 20 boşluk
+     + 794 (210mm) kâğıt + 32 kâğıt dolgusu = 1530px. Bunun altında editör
+     üste alınır ve kâğıt tam genişlikte, BÜTÜN hâlinde görünür. */
+  @media (min-width: 1530px) {
+    .ba-workspace { grid-template-columns: 360px minmax(0, 1fr); }
+  }
+  /* Tek sütunda form kaynak tasarımdaki gibi ortalanır ve taşmaz. */
+  @media (max-width: 1529px) {
+    .ba-editor { width: 100%; max-width: 820px; margin-inline: auto; }
+  }
+
+  .ba-editor { height: max-content; }
+  .ba-editor h3 { margin: 24px 0 10px; font-size: 15px; }
+  .ba-editor h3:first-child { margin-top: 0; }
+
+  /* İki sütunlu alan ızgarası: kaynak tasarımın .field-grid'i. */
+  .ba-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+  @media (max-width: 560px) { .ba-grid { grid-template-columns: 1fr; } }
+  .ba-grid > label, .ba-grid > :is(label, div) { min-width: 0; }
+  .ba-form > label { display: block; }
+  .ba-check { display: flex; align-items: center; gap: 9px; font-weight: 400; }
+  .ba-check input { width: auto; min-height: 0; margin: 0; }
+
+  .ba-lines fieldset {
+    margin: 14px 0;
+    padding: 10px 12px;
+    border: 1px solid var(--ba-stone);
+    border-radius: 8px;
+    min-width: 0;
+  }
+  .ba-lines legend { padding: 0 4px; font-size: 12px; font-weight: 600; }
+  .ba-remove {
+    min-height: 32px;
+    margin-left: 10px;
+    padding: 2px 9px;
+    font-size: 12px;
+    color: #9b2c2c;
+    background: var(--surface);
+    border: 1px solid #e3cdc8;
+    border-radius: var(--radius-dugme);
+    cursor: pointer;
+  }
+
+  /* ---------- Antrasit araç çubuğu ---------- */
+
+  .ba-preview { min-width: 0; }
+
+  .ba-preview-bar {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    background: var(--ba-ink);
+    color: var(--ba-paper);
+    border-radius: 10px 10px 0 0;
+  }
+  .ba-preview-bar strong { margin-right: auto; font-size: 17px; font-weight: 600; }
+  .ba-preview-bar button {
+    min-height: 44px;
+    padding: 9px 14px;
+    font: inherit;
+    font-size: var(--yazi-dugme-kucuk);
+    font-weight: var(--kalinlik-dugme);
+    color: var(--ba-paper);
+    background: none;
+    border: 1px solid #73766d;
+    border-radius: var(--radius-dugme);
+    cursor: pointer;
+  }
+  .ba-preview-bar button:hover { background: #ffffff1a; }
+  .ba-preview-bar button.primary { color: var(--ba-ink); background: var(--ba-lime); border-color: var(--ba-lime); }
+  .ba-preview-bar button.primary:hover { background: #c8e65e; }
+  .ba-preview-bar button:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* ---------- Kâğıt zemini ---------- */
+  /* Kâğıt ORANI hiçbir ekranda değişmez: dar alanda sayfa küçültülmez,
+     kendi kutusu içinde yatay kayar. Sayfanın tamamı yana kaymaz. */
+  .ba-paper {
+    overflow-x: auto;
+    padding: 16px;
+    background: var(--ba-canvas);
+    border-radius: 0 0 10px 10px;
+  }
+  @media (max-width: 600px) { .ba-paper { padding: 10px; } }
+
+}
+
+
+/* ===================================================================
+   2) A4 SAYFASI — ekran önizlemesi ve baskı AYNI kurallar
+   ===================================================================
+
+   BELİRGİNLİK NOTU. Kaynak tasarım kendi başına duran bir sayfaydı; burada
+   kâğıt, kendi global etiket kuralları olan bir uygulamanın içinde duruyor.
+   Paneldeki en belirgin yabancı kural `.workspace-redesign table td strong`
+   (0,1,3) seviyesinde; `style.css`teki `table{white-space:nowrap}` ise satır
+   tablosunda kelime sarmasını kapatıp tutarları rakam ortasından bölüyordu.
+   Bu yüzden kâğıdın BÜTÜN kuralları `.ba-sheet` ile öneklenir (0,2,x): sınıf
+   sayısı daha yüksek olduğu için hepsi yabancı kuralların üstünde kalır.
+   Önek kaldırılırsa panelin td/th/small/strong kuralları kâğıda sızar. */
+
+/* Sıfırlama katmanı. `.ba-sheet.ba-sheet` sınıfı bilerek iki kez yazılmıştır:
+   0,2,1 belirginliğiyle yabancı kuralların üstüne çıkar, ama altındaki kendi
+   `.ba-sheet .ba-*` kurallarımla eşitlenip onlara sırayı bırakır. */
+.ba-sheet.ba-sheet :is(p, h1, h2, h3, th, td, dt, dd, small, strong, span) {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  background: none;
+  text-align: inherit;
+  white-space: normal;
+  letter-spacing: inherit;
+}
 
 .ba-sheet {
-  --ba-ink: #243830;
-  --ba-muted: #6a766f;
-  --ba-line: #d9e0db;
-  --ba-brand: #24644f;
   box-sizing: border-box;
   width: 210mm;
   min-height: 297mm;
-  max-width: 100%;
   margin: 0 auto;
-  padding: 16mm;
+  padding: 18mm 17mm 15mm;
   background: #fff;
   color: var(--ba-ink);
-  font: 12px/1.6 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+  box-shadow: 0 12px 32px #17211814;
+  font: 9pt/1.45 BaInter, Inter, Arial, sans-serif;
+  /* Rakam ve harf çiftlerinin baskıda kaymaması için bağlamsal biçimler kapalı. */
+  font-feature-settings: "calt" 0, "liga" 0;
 }
 .ba-sheet * { box-sizing: border-box; }
 
-.ba-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding-bottom: 12px; border-bottom: 2px solid var(--ba-brand); }
-/* Logo oranı önizlemede, PDF'te ve yazdırmada AYNI: yükseklik sabit, genişlik oranla gelir. */
-.ba-brand { display: block; height: 15mm; width: auto; flex: 0 0 auto; }
-.ba-kind { text-align: right; }
-.ba-kind p { margin: 0; font-size: 8px; font-weight: 650; letter-spacing: 1.4px; color: var(--ba-muted); }
-.ba-kind h1 { margin: 2px 0 3px; font-size: 19px; line-height: 1.25; }
-.ba-kind span { font-size: 11px; color: var(--ba-muted); }
+/* ---------- Antet ---------- */
 
-.ba-sample { padding: 7px 11px; font-size: 10px; font-weight: 650; letter-spacing: 1px; color: #8a5a12; background: #fdf4e3; border: 1px solid #f0dcb4; border-radius: 4px; }
+.ba-sheet .ba-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14mm;
+  padding-bottom: 11mm;
+  border-bottom: 2px solid var(--ba-ink);
+}
+/* Logo 51mm genişliğinde durur (kaynak ölçü). Dikey ve amblem antetler aynı
+   kutuya sığdırılır; oran object-fit ile KORUNUR, hiçbir varyant gerilmez. */
+.ba-sheet .ba-brand {
+  display: block;
+  width: 51mm;
+  max-height: 17mm;
+  height: auto;
+  margin-top: 3mm;
+  flex: 0 0 auto;
+  object-fit: contain;
+  object-position: left top;
+}
+.ba-sheet .ba-kind { flex: 1; min-width: 0; text-align: right; overflow-wrap: anywhere; }
+.ba-sheet .ba-kind p {
+  margin: 0 0 2mm;
+  font-size: 7.3pt;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ba-muted);
+}
+.ba-sheet .ba-kind h1 { margin: 0 0 2mm; font-size: 22pt; font-weight: 700; line-height: 1.1; letter-spacing: -.045em; }
+.ba-sheet .ba-kind span { font-size: 8pt; color: var(--ba-ink); }
 
-.ba-meta { display: flex; justify-content: space-between; gap: 24px; }
-.ba-meta > div { min-width: 0; }
-.ba-meta h2 { margin: 0 0 4px; font-size: 14px; line-height: 1.35; }
-.ba-meta p { margin: 0 0 2px; font-size: 11px; color: var(--ba-muted); }
-.ba-meta dl { margin: 0; display: grid; gap: 3px; min-width: 52mm; }
-.ba-meta dl > div { display: flex; justify-content: space-between; gap: 12px; font-size: 11px; }
-.ba-meta dt { color: var(--ba-muted); }
-.ba-meta dd { margin: 0; font-weight: 600; }
+.ba-sheet .ba-sample { margin-top: 4mm; padding: 2mm 3mm; background: var(--ba-lime); font-size: 7.4pt; }
 
-.ba-eyebrow { margin: 0 0 2px; font-size: 8px; font-weight: 650; letter-spacing: 1.3px; text-transform: uppercase; color: var(--ba-muted); }
-.ba-recipient, .ba-subject { padding: 10px 12px; background: #f7f9f7; border-left: 3px solid var(--ba-brand); border-radius: 0 4px 4px 0; }
-.ba-recipient h2, .ba-subject h2 { margin: 0; font-size: 13px; line-height: 1.4; }
-.ba-recipient p { margin: 3px 0 0; font-size: 11px; color: var(--ba-muted); }
+/* ---------- Şirket ve belge künyesi ---------- */
 
-.ba-items { width: 100%; border-collapse: collapse; font-size: 11px; }
-.ba-items thead th { padding: 7px 8px; text-align: left; font-size: 9px; font-weight: 650; letter-spacing: .5px; text-transform: uppercase; color: var(--ba-muted); background: #f2f5f2; border-bottom: 1px solid var(--ba-line); }
-.ba-items th.num, .ba-items td.num { text-align: right; }
-.ba-items tbody td { padding: 7px 8px; vertical-align: top; border-bottom: 1px solid var(--ba-line); }
-.ba-items tbody td small { display: block; margin-top: 1px; font-size: 9px; color: var(--ba-muted); }
-.ba-items td.strong { font-weight: 650; }
+.ba-sheet .ba-meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 12mm;
+  margin: 7mm 0 6mm;
+}
+.ba-sheet .ba-meta > * { min-width: 0; }
+.ba-sheet .ba-meta h2 { margin: 0 0 2mm; font-size: 11pt; font-weight: 600; }
+.ba-sheet .ba-meta p { margin: 1mm 0; font-size: 8pt; overflow-wrap: anywhere; }
+.ba-sheet .ba-meta dl { margin: 0; }
+.ba-sheet .ba-meta dl > div { display: flex; justify-content: space-between; gap: 5mm; margin-bottom: 2mm; font-size: 8pt; }
+.ba-sheet .ba-meta dt { color: var(--ba-muted); }
+.ba-sheet .ba-meta dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
 
-.ba-totals { display: flex; justify-content: flex-end; }
-.ba-totals dl { margin: 0; min-width: 72mm; display: grid; gap: 3px; }
-.ba-totals dl > div { display: flex; justify-content: space-between; gap: 16px; font-size: 11px; padding: 2px 0; }
-.ba-totals dt { color: var(--ba-muted); }
-.ba-totals dd { margin: 0; font-weight: 600; }
-.ba-totals .ba-grand { margin-top: 4px; padding-top: 6px; border-top: 2px solid var(--ba-brand); font-size: 13px; }
-.ba-totals .ba-grand dt { color: var(--ba-ink); font-weight: 650; }
-.ba-totals .ba-grand dd { font-weight: 700; }
-.ba-problem, .ba-hidden-money { margin: 0; font-size: 11px; color: #9a4b32; }
-.ba-hidden-money { color: var(--ba-muted); }
+.ba-sheet .ba-eyebrow {
+  margin: 0 0 2mm;
+  font-size: 7.3pt;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ba-muted);
+}
 
-.ba-notes h3, .ba-payment h3 { margin: 0 0 4px; font-size: 10px; font-weight: 650; letter-spacing: .8px; text-transform: uppercase; color: var(--ba-muted); }
-.ba-notes p, .ba-payment p { margin: 0; font-size: 11px; line-height: 1.7; }
+.ba-sheet .ba-recipient {
+  padding: 4mm 0;
+  border-top: 1px solid var(--ba-stone);
+  border-bottom: 1px solid var(--ba-stone);
+}
+.ba-sheet .ba-recipient h2,
+.ba-sheet .ba-subject h2 { margin: 0 0 2mm; font-size: 11pt; font-weight: 600; overflow-wrap: anywhere; }
+.ba-sheet .ba-recipient p { margin: 1mm 0; font-size: 8pt; overflow-wrap: anywhere; }
+.ba-sheet .ba-subject { margin: 7mm 0 5mm; }
 
-.ba-signatures { display: flex; gap: 24px; margin-top: auto; padding-top: 16px; }
-.ba-signatures > div { flex: 1; padding-top: 7px; border-top: 1px solid var(--ba-line); }
-.ba-signatures p { margin: 0 0 14px; font-size: 9px; font-weight: 650; letter-spacing: .6px; text-transform: uppercase; color: var(--ba-muted); }
-.ba-signatures strong { font-size: 11px; }
+/* ---------- Satır tablosu ---------- */
+/* Sabit düzen: uzun ürün adı ya da uzun tutar sütunu kaydırmaz, sarar. */
 
-.ba-foot { display: flex; justify-content: space-between; gap: 16px; padding-top: 8px; border-top: 1px solid var(--ba-line); font-size: 9px; color: var(--ba-muted); }
+.ba-sheet .ba-items {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 8pt;
+  white-space: normal;
+}
+.ba-sheet .ba-items thead { display: table-header-group; }
+.ba-sheet .ba-items th {
+  padding: 2.6mm 2mm;
+  text-align: left;
+  font-size: 7pt;
+  font-weight: 600;
+  line-height: 1.3;
+  color: #fff;
+  background: var(--ba-ink);
+  overflow-wrap: anywhere;
+}
+.ba-sheet .ba-items th:first-child { width: 7%; }
+.ba-sheet .ba-items th:nth-child(2) { width: 31%; }
+.ba-sheet .ba-items td {
+  padding: 3mm 2mm;
+  vertical-align: top;
+  border-bottom: 1px solid var(--ba-stone);
+  font-size: 8pt;
+  line-height: 1.45;
+  overflow-wrap: break-word;
+}
+.ba-sheet .ba-items td:first-child { color: var(--ba-muted); }
+.ba-sheet .ba-items td strong { font-weight: 600; color: inherit; }
+.ba-sheet .ba-items small { display: block; margin-top: 1mm; font-size: 7pt; color: var(--ba-muted); }
+.ba-sheet .ba-items .num { text-align: right; }
+.ba-sheet .ba-items .strong { font-weight: 600; }
+.ba-sheet .ba-items tr { break-inside: avoid; }
 
-/* Uzun belge: tablo başlığı her sayfada tekrar eder, imza ve satır sayfa arasında bölünmez. */
-.ba-items thead { display: table-header-group; }
-.ba-items tbody tr { break-inside: avoid; }
-.ba-signatures, .ba-totals, .ba-foot { break-inside: avoid; }
-.ba-recipient, .ba-subject { break-inside: avoid; }
+/* ---------- Toplamlar ---------- */
 
-/* Yazdırma: kâğıt kenar boşluğu @page'ten gelir, sayfanın kendi dolgusu kalkar. */
-.ba-print .ba-sheet { width: auto; min-height: 0; margin: 0; padding: 0; max-width: none; }
-.ba-print .ba-head { padding-top: 0; }
+.ba-sheet .ba-totals { display: flex; justify-content: flex-end; margin: 6mm 0; }
+.ba-sheet .ba-totals dl { width: 78mm; margin: 0; font-size: 8pt; }
+.ba-sheet .ba-totals dl > div { display: flex; justify-content: space-between; gap: 5mm; margin-bottom: 2mm; }
+.ba-sheet .ba-totals dt { color: var(--ba-muted); }
+.ba-sheet .ba-totals dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+.ba-sheet .ba-totals .ba-grand {
+  margin-top: 3mm;
+  padding-top: 3mm;
+  border-top: 1.5px solid var(--ba-ink);
+  font-size: 11pt;
+  font-weight: 700;
+}
+.ba-sheet .ba-totals .ba-grand dt { color: var(--ba-ink); }
+.ba-sheet .ba-totals .ba-problem { margin: 0; font-size: 8pt; color: #9a4b32; }
+.ba-sheet .ba-totals .ba-hidden-money { margin: 0; font-size: 8pt; color: var(--ba-muted); }
 
-/* Türkçe uzun tek kelime satırı taşırmasın. */
-.ba-sheet h1, .ba-sheet h2, .ba-items td, .ba-notes p, .ba-payment p, .ba-meta p { overflow-wrap: anywhere; }
+/* ---------- Notlar, ödeme, imza, dipnot ---------- */
 
-/* Dar ekranda A4 sayfası kâğıt ölçüsünü korumaya çalışıp sayfayı yatay kaydırmasın.
-   @media screen ile sınırlıdır: YAZDIRMA çıktısı bu kurallardan etkilenmez,
-   kâğıtta ölçüler ve logo oranları aynen kalır. */
-@media screen and (max-width: 720px) {
-  .ba-sheet { width: auto; min-height: 0; padding: 10mm 6mm; gap: 11px; }
-  .ba-head { flex-direction: column; align-items: flex-start; gap: 10px; }
-  .ba-kind { text-align: left; }
-  .ba-brand { height: 11mm; }
-  .ba-meta { flex-direction: column; gap: 12px; }
-  .ba-meta dl { min-width: 0; }
-  .ba-signatures { flex-direction: column; gap: 14px; }
-  .ba-foot { flex-direction: column; gap: 3px; }
-  .ba-totals dl { min-width: 0; width: 100%; }
-  /* Satır tablosu KENDİ içinde kayar; sayfanın tamamını kaydırmaz. */
-  .ba-items { display: block; overflow-x: auto; white-space: nowrap; }
-  .ba-items tbody td small { white-space: normal; }
+.ba-sheet .ba-notes,
+.ba-sheet .ba-payment { margin-top: 5mm; break-inside: avoid; }
+.ba-sheet .ba-notes h3,
+.ba-sheet .ba-payment h3 { margin: 0 0 2mm; font-size: 8pt; font-weight: 600; }
+.ba-sheet .ba-notes p,
+.ba-sheet .ba-payment p { margin: 0; font-size: 8pt; overflow-wrap: anywhere; }
+
+.ba-sheet .ba-signatures { display: flex; gap: 25mm; margin-top: 10mm; break-inside: avoid; }
+.ba-sheet .ba-signatures > div { width: 55mm; min-width: 0; padding-top: 3mm; border-top: 1px solid var(--ba-stone); }
+.ba-sheet .ba-signatures p { margin: 0 0 2mm; font-size: 7pt; color: var(--ba-muted); }
+.ba-sheet .ba-signatures strong { font-size: 8pt; font-weight: 600; color: var(--ba-ink); overflow-wrap: anywhere; }
+
+.ba-sheet .ba-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 10mm;
+  margin-top: 9mm;
+  padding: 3mm 0 0;
+  border-top: 1px solid var(--ba-stone);
+  font-size: 6.7pt;
+  color: var(--ba-muted);
+  break-inside: avoid;
+}
+.ba-sheet .ba-foot span { min-width: 0; color: var(--ba-muted); overflow-wrap: anywhere; }
+
+.ba-sheet .ba-totals,
+.ba-sheet .ba-recipient,
+.ba-sheet .ba-subject { break-inside: avoid; }
+
+/* ---------- Türe özel düzen ---------- */
+
+.ba-sheet[data-document='dosya-kapagi'] .ba-subject { margin: 23mm 0 16mm; }
+.ba-sheet[data-document='dosya-kapagi'] .ba-subject h2 { font-size: 26pt; line-height: 1.2; max-width: 150mm; }
+.ba-sheet[data-document='antet'] .ba-notes,
+.ba-sheet[data-document='toplanti-notu'] .ba-notes { min-height: 72mm; }
+.ba-sheet[data-document='teknik-bilgi'] .ba-notes { min-height: 50mm; }
+
+/* ---------- Yazdırma ---------- */
+/* Kâğıt kenar boşluğu YALNIZ @page'ten gelir (print.css: 16mm). Sayfanın kendi
+   18/17/15mm dolgusu burada SIFIRLANIR; iki katman üst üste binip metin alanını
+   iki kez daraltmasın. */
+
+@media print {
+  .ba-sheet {
+    width: auto;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+    break-after: page;
+  }
+  .ba-sheet:last-child { break-after: auto; }
+  /* Baskıda dikey boşluklar daraltılır: içerik sayfaya sığsın. */
+  .ba-sheet .ba-head { padding-bottom: 7mm; }
+  .ba-sheet .ba-meta { margin: 5mm 0; }
+  .ba-sheet .ba-recipient { padding: 3mm 0; }
+  .ba-sheet .ba-subject { margin: 5mm 0 3mm; }
+  .ba-sheet .ba-items td { padding: 2mm; }
+  .ba-sheet .ba-totals { margin: 4mm 0; }
+  .ba-sheet .ba-totals dl > div { margin-bottom: 1.5mm; }
+  .ba-sheet .ba-notes,
+  .ba-sheet .ba-payment { margin-top: 4mm; }
+  .ba-sheet .ba-signatures { margin-top: 7mm; }
+  .ba-sheet .ba-foot { margin-top: 6mm; }
+  /* Antrasit tablo başlığı ve lime taslak bandı kâğıda da basılır. */
+  .ba-sheet,
+  .ba-sheet .ba-items th,
+  .ba-sheet .ba-sample { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
