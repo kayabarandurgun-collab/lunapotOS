@@ -1,0 +1,95 @@
+---
+session: lunapot-panel
+date: 2026-10-09
+status: in_progress
+outcome: LOGO BİTTİ VE YAYINDA · BELGE ATÖLYESİ GÖRÜNÜMÜ KALDI
+onceki: thoughts/shared/handoffs/lunapot-panel/2026-10-08_23-00_kurumsal-moduller-yapilacaklar.yaml
+---
+
+goal: "Codex'in 09.10 paketi: mevcut iki modülü (Logo Kütüphanesi, Belge Atölyesi) kaynak tasarıma getir. Logo tarafı BİTTİ ve yayında. BELGE ATÖLYESİ'NİN GÖRÜNÜMÜ HENÜZ YAPILMADI — tek kalan iş bu."
+now: "Belge Atölyesi'nin görünümünü kaynak tasarıma taşı: antrasit araç çubuğu, solda 360px editör, sağda gri zeminde beyaz A4. Veri akışına (kayıt/numara/revizyon/API) DOKUNMA, o çalışıyor."
+
+test:
+  komut: "node --test tests/*.test.js"
+  son_olcum: "1605 geçti · 2 kaldı · 31 atlandı"
+  kalan_iki: "tests/seed-local-catalog.test.js ve tests/store-sync.test.js — ikisi de repo DIŞI ../lunapot-store-preview okuyor. BU İŞTEN DEĞİL, oturum başında da kırmızıydı. Taban 1504'tü."
+
+canli_durum:
+  adres: "https://muhasebe.lunapot.com"
+  onbellek: "lunapot-shell-v198-yeni-logo-font"
+  goc: "0077_marka_belge_profili.sql UYGULANDI (canlıdan doğrulandı)"
+  deploy: "73,9 MB / 540 dosya · 25 MiB üstü dosya YOK"
+  HEAD: "9eb3843 (origin'e push EDİLMEDİ, yalnız deploy edildi)"
+  commitler:
+    - "2b02da0 iki modül eklendi (yetki, API, göç, atölye arayüzü)"
+    - "fcc6ea6 /atolye/ ayrı uygulama oldu + JSON içe aktarma, ürün seçici, PDF logosu, çıkış uyarısı"
+    - "a7beb1c logo kütüphanesi v2 kataloğuna geçti (64 varyant)"
+    - "9eb3843 sistem ikonları onaylı amblem + marka yazı tipi bölümü"
+
+bitenler:
+  - "MARKA ATÖLYESİ AYRI UYGULAMA: /atolye/ — e-ticaret/üretim menüsünde DEĞİL. Ana ekranda kendi kartı var. Kullanıcı bunu açıkça istedi: 'e ticaretin içinde görmek istemiyorum'. GERİ TAŞIMA."
+  - "İki ayrı yetki: brand_documents, brand_logos. OPT_IN kümesinde — permissions:null olan eski hesap bunları MİRASLA ALMAZ (webshop ile aynı kalıp)."
+  - "Teklif/proforma mevcut offers kaydında; `presentation` alanı snapshot_json içinde (göç gerekmedi). Dokuz yeni tür ec_/lp_brand_documents'ta."
+  - "Logo Kütüphanesi v2: 32 şeffaf + 32 renkli zemin = 64. Kart başına 1 SVG + 1 PNG (2048px). Kaynak tasarım .lk-root altına yuvalandı."
+  - "Marka yazı tipi bölümü (03 / MARKA YAZI TİPİ): Inter, SIL OFL, yazıp deneme + font/lisans indirme."
+  - "Sistem ikonları onaylı amblemle değişti: icon.svg, ecommerce-icon.svg, favicon.svg, icon-192/512.png, ecommerce-192/512.png."
+
+KALAN_IS_BELGE_ATOLYESI:
+  kaynak: "C:/Users/baran/Desktop/site/lunapot-claude-modul-guncelleme-2026-10-09/02-Belge-Atolyesi/"
+  dosyalar: "BELGE-ATOLYESI.html, business-style.css, business-print.css, business-app.js, assets/ (Inter TTF x3, lunapot-horizontal.svg)"
+  referans_gorsel: "04-Referans-Gorunum/05-belge-atolyesi-1440.png, 06-belge-a4.png, 07-belge-mobil-390.png"
+  hedef: "public/brand-documents-ui.js (veri akışı DURSUN), public/belge-sayfasi.css, public/print.css"
+  kaynaktan_cikarilan_olculer:
+    layout: "grid 360px + minmax(0,1fr) · gap 28px · max-width 1580px · padding 28px"
+    editor: "background #fff · padding 22px · border-radius 10px · height max-content"
+    preview_wrap: "min-width 0 · overflow auto"
+    sheet: "210mm x min 297mm · padding 18mm 17mm 15mm · margin 0 auto 28px · box-shadow 0 12px 32px #17211814 · font-size 9pt · line-height 1.45"
+    toolbar: "sticky top 0 · background var(--ink) ANTRASİT · padding 18px 28px · flex gap 14px"
+    brand_logo: "width 51mm · height auto · margin-top 3mm"
+    doc_header: "flex space-between · border-bottom 2px solid ink · padding-bottom 11mm · gap 14mm"
+    baski: "business-print.css: A4 marj üst 14 / yan 15 / alt 15 mm; ekrandaki kâğıt padding'i baskıda SIFIRLANIR — iki katmanı üst üste uygulayıp metin alanını İKİ KEZ DARALTMA"
+  yapilacaklar:
+    - "Antrasit araç çubuğu, sol editör, sağ A4 görünümünü taşı. Siyah tablo başlığı, lime taslak bandı, çizgiler, imza boşlukları."
+    - "1000px altında kaynak davranışı: form tek sütuna iner. MOBİLDE KÂĞIT ORANINI DEĞİŞTİRME; gerekirse yalnız 'sayfaya sığdır' ölçeği."
+    - "business-print.css düzeltmeleri EN SON yüklenecek."
+    - "doc-engine.js baskı yoluna yeni stil ve fontları bağla; yalnız ekran CSS'i yetmez."
+    - "Kayıt/cari/ürün kontrolleri editöre; KÂĞIDIN İÇİNE BASILMASIN."
+    - "Çoklu JSON: v2 dosyada birden çok tür varsa önizleme/seçimle aktar, tek türü alıp ötekini SESSİZCE KAYBETME. (Şu an tek tür alıyor — EKSİK.)"
+    - "2 MB üstü / 200 satır üstü / geçersiz dosyada açıklayıcı hata."
+
+tuzaklar_bu_oturumda_yasandi:
+  - "TARAYICI MODÜL ÖNBELLEĞİ: aynı adrese navigate() SAYFAYI YENİDEN YÜKLEMEZ (yalnız hash değişir), eski ES modülü bellekte kalır. Ölçüm tuhafsa location.reload() yap ya da BAŞKA PORT kullan. Beni iki kez yanılttı."
+  - "Test sunucusu: scratchpad/tam-sunucu.mjs — gerçek worker + gerçek göçler + BELLEKTE sqlite. PANEL_PORT=8811 gibi port verilebilir. Canlı veriye dokunmaz. /__ikon-yaz ucu yalnız geliştirme içindir."
+  - "CSP: connect-src 'self' blob: fetch'ini ENGELLER. Üretilen SVG'yi okumak için fetch(blobUrl) çalışmaz; önizleme <img>'ini canvas'a çizip ölç."
+  - "SATIR İÇİ style NİTELİĞİ YASAK: style-src 'self' engelliyor. Panelde kullanan başka dosya yok; renkleri CSSOM (.style.x=) ile ata. Test bunu kilitliyor."
+  - "printDocument() çerçevenin KENDİ print()'ini çağırır; window.print stub'lamak yetmez, baskı diyaloğu açılır ve sekme kilitlenir. Escape ile kurtulur. Baskıyı denemek için çerçeveyi elle kurup print() ÇAĞIRMA."
+  - "bash heredoc/`-e` içinde TERS TIRNAK ve ${} bash tarafından çalıştırılıyor. Uzun JS/CSS yazarken Write aracını kullan."
+  - "git commit -m @'...'@ PowerShell söz dizimidir, Bash'te mesaja '@' kaçar. Heredoc kullan."
+
+degismeyecekler:
+  - "ONAYLI V8 GEOMETRİSİ: amblem parçaları, path, radii, açı, aralık, oran, wordmark harfleri. Yalnız renk ve eş oranlı bütün ölçek. tests/marka-logo-v2.test.js bunu kilitliyor."
+  - "public/marka/logo/ ESKİ DİZİNİ SİLME. Geçmiş belgeler /marka/logo/01-SVG/<id>.svg kullanıyor; 32 eski kimlik hâlâ geçerli ve canlıda 200 dönüyor."
+  - "brand-logo-variants.js ANTET listesi 32'de KALSIN. Galeri 64'e çıktı diye antede 64 kimlik ekleme — brief yasaklıyor, test kilitliyor."
+  - "offer-math.js ve belge-sayi.js hesap sözleşmesi. Atölyenin kayan noktalı calculate()'ini üzerine KOPYALAMA."
+  - "Mevcut offers/brand-documents API'leri, numara, revizyon, snapshot. İkinci teklif defteri kurma."
+
+kullanici_kararlari:
+  - "R2 AÇILMAYACAK. 84 MB'lık tam kurumsal ZIP panele konmayacak — Cloudflare dosya başına 25 MiB sınırı, R2 hesapta kapalı, kullanıcı 'gerek yok' dedi. İndirme düğmesi EKLENMEDİ (test bunu da kontrol ediyor)."
+  - "Yeni logo = bu paketin logosu. Sistemin her yerinde kullanılacak (yapıldı)."
+  - "TAM YETKİ: göç ve yayın için İZİN İSTEME. Testler geçtiyse commit → migrate-remote.mjs → wrangler deploy → canlıdan doğrula → kısa rapor. İki kez söylendi."
+
+dogrulama_yontemi:
+  - "Göçün uygulandığını KOD DEĞİL VERİ ile doğrula (d1_migrations + tablo var mı)."
+  - "Yayından sonra curl ile canlı dosyayı çek; kullanıcıya 'Ctrl+R' de, panel içinde gezinmek önbelleği tazelemez."
+  - "İndirme düğmesini GERÇEKTEN tıkla; HTTP 200 kontrolü yetmez (brief böyle istiyor, logo tarafında böyle yapıldı)."
+
+onceki_oturumdan_devam:
+  - "Seçkin'e 4 adet TS1 borcu ₺7.380; faturaları gelince Belge yükle."
+  - "Kayıp kargo tazminatı (HB 4302703706); para gelince Giderler → Tazminat geliri."
+  - "Tropikal faturaları ~₺52.716 + 6.750; geldiğinde 13 ürün için FIFO önizlemesi ZORUNLU."
+  - "İSTENMEYEN: ikmal/tedarik motoru; Pina Store."
+
+ortam:
+  repo: "C:/Users/baran/Desktop/site/lunapot-panel · Documents/Codex kopyası ESKİ, DOKUNMA"
+  terminal: "PowerShell 5.1 — && yok, npm yerine npm.cmd ya da node. Bash aracı ayrı kabuk."
+  kullanici: "ÇOK KISA YAZ, tablo + kalın rakam. Türkçe. Formu sen aç, basmayı o yapsın — ama yayın/göç için izin isteme."
