@@ -1,0 +1,35 @@
+---
+session: lunapot-panel
+date: 2026-10-09
+status: done
+outcome: ANTET PROFİLLERİ + SİSTEM DENETİMİ + MARKA PALETİ + TEK YAZI TİPİ — HEPSİ CANLIDA (v204)
+onceki: thoughts/shared/handoffs/lunapot-panel/2026-10-09_13-30_belge-atolyesi-gorunumu-yayinda.yaml
+---
+
+goal: "Günün ikinci yarısı: antet profilleri (göç 0078), uçtan uca sistem denetimi, marka paleti her yere, yazı tipi sorunu, giriş ekranı amblemi."
+now: "Yapılacak kalmadı. Canlı v204, 7 commit (4fe910e…ea877da), origin'e push EDİLMEDİ."
+
+test: {komut: "node --test tests/*.test.js", son_olcum: "1653 test · 1620 geçti · 2 kaldı (repo dışı, eski) · 31 atlandı"}
+
+canli_durum:
+  onbellek: "lunapot-shell-v204-tek-yazi-tipi"
+  goc: "0078_antet_profilleri.sql UYGULANDI (canlıdan okundu: profil-ec 'Dekovill' varsayılan; adres/telefon alanları BOŞ — kullanıcı dolduracak)"
+  dogrulanan: "favicon 200, /magaza/ HTML 404, InterVariable 352240b, body jetonu + son söz bloğu canlı, giriş amblemi + 4 çizgi ikon, theme-color #20251f, yabancı yazı tipi 0"
+
+rapor: "thoughts/shared/research/2026-10-09_sistem-denetimi.md — 7 kod bulgusu (4-7 yapıldı; 1-2-3 kullanıcı 'gereksiz' dedi), canlı veri bulguları, doğrulanan matematik."
+
+kullanici_kararlari:
+  - "KDV HARİÇ gösterim bulguları (komisyon etiketi, sipariş detayı tabanı, satış tablosu) DÜZELTİLMEYECEK — kullanıcı 'ben KDV dahil istedim, 1-2-3 gereksiz' dedi."
+  - "Eksi stok (Gartengold Torf 20L -3) OLAĞAN: elinde mal yok. Genel gider girilmedi, kargo payı kabul, Üretim boş — hepsi bilinçli."
+  - "Cloudflare enjeksiyonu (Web Analytics beacon + GTM G-7JSLS4B6KQ) PANELDEN kapatılacak; CSP gevşetilmeyecek (test kilitliyor)."
+
+tuzaklar_bu_oturumda_yasandi:
+  - "Deploy 'Unable to authenticate [10001]': OAuth anahtarı tam yenilenirken geldi, GEÇİCİ. whoami çalışıyorsa tekrar bas. wrangler komutu: .\\node_modules\\.bin\\wrangler.cmd deploy (npx .ps1 ilkeye takılır, && yok)."
+  - "Jeton bloğunu değiştirirken seçicinin 'body' kısmı yorumun önünde kaldı → 'body .workspace-redesign' (torun) oldu, kök kural ÖLDÜ. Önizlemede yazı tipi yüklenmeyince yakalandı. Blok başı değiştirirken seçiciyi tam al."
+  - "Dört CSS dosyası kabuk başına --accent'i yeniden tanımlıyor (body.commerce/.commerce). Paleti YALNIZ workspace-design.css SONUNDAKİ 'JETONLARIN SON SÖZÜ' bloğundan değiştir; getComputedStyle ile ölç."
+  - "Hash navigasyonu CSS'i tazelemez; location.reload() gerek. Tarayıcı paneli ara sıra kapanıyor, navigate yeniden açar."
+  - "Türkçe harf bozulması = alt küme Inter (35 KB latin). Artık her alias (Local, Inter, LunapotInter, LkInter, BaInter) tam InterVariable.woff2'ye bağlı."
+
+onceki_oturumdan_devam:
+  - "Antet profilinde adres/telefon/banka: kullanıcı Marka Atölyesi → Şirket profilleri → Dekovill → Düzenle ile girecek; ikinci şirket için Profil ekle."
+  - "Seçkin TS1 ₺7.380, kayıp kargo 4302703706 tazminatı, Tropikal ~₺52.716+6.750 — değişmedi."
