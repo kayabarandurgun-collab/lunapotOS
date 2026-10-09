@@ -1,5 +1,5 @@
 /* Lunapot 3 · shared visual language for every workspace. No remote fonts/assets. */
-:root{--brand:#20251f;--brand-dark:#0f120e;--brand-soft:#eef5cf;--brand-border:#cfdd93;--accent:#d5ef74;--accent-dark:#c8e65e;--ink:#20251f;--muted:#656a64;--line:#e7e6dd;--surface:#fff;--canvas:#eceee8;--sidebar-width:258px;--shell:#20251f;--shell-text:#c9cdc0;--radius:18px;--shadow:0 4px 20px #20251f05;font-family:'Segoe UI Variable','Segoe UI',system-ui,-apple-system,sans-serif}
+:root{--brand:#20251f;--brand-dark:#0f120e;--brand-soft:#eef5cf;--brand-border:#cfdd93;--accent:#d5ef74;--accent-dark:#c8e65e;--ink:#20251f;--muted:#656a64;--line:#e7e6dd;--surface:#fff;--canvas:#eceee8;--sidebar-width:258px;--shell:#20251f;--shell-text:#c9cdc0;--radius:18px;--shadow:0 4px 20px #20251f05;font-family:LunapotInter,Inter,'Segoe UI',system-ui,sans-serif}
 body{background:var(--canvas);color:var(--ink);font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased}
 body.commerce{--brand:#656a64;--brand-dark:#20251f;--brand-soft:#f4f5ef;--brand-border:#eef5cf;--ink:#20251f;--muted:#6f6c81;--line:#e5e1ed;--canvas:#f4f5ef;--shell:#20251f;--shell-text:#e7e6dd}
 *,*::before,*::after{box-sizing:border-box}button,input,select,textarea{font-family:inherit}button,a{-webkit-tap-highlight-color:transparent}a,button{touch-action:manipulation}[hidden]{display:none!important}
