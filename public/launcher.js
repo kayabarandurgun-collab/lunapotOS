@@ -1,5 +1,8 @@
 import {dailyTasks,dailyTaskMarkup} from './daily-actions.js';
 import {can} from './permissions.js';
+import {icon} from './ui-icons.js';
+// Kart simgeleri yazı karakteri (↗ ◇ ✎ ▦) değil, panelin kendi çizgi ikonları; amblem ayrı img.
+for(const el of document.querySelectorAll('.portal-icon[data-icon]'))el.innerHTML=icon(el.dataset.icon);
 // Preserve saved links to the original production panel, including setup links.
 if(location.hash.length>1)location.replace('/uretim/'+location.search+location.hash);
 document.querySelector('#today').textContent=new Intl.DateTimeFormat('tr-TR',{day:'numeric',month:'long',year:'numeric'}).format(new Date());

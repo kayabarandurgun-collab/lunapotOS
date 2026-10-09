@@ -1,10 +1,12 @@
 /* Lunapot workspace system — one authoritative foundation, loaded after feature styles.
    Features own layout; this file owns palette, typography, controls and app chrome. */
-@font-face{font-family:LunapotInter;src:url('/workspace-inter.woff2') format('woff2');font-style:normal;font-weight:100 900;font-display:swap}
+/* workspace-inter.woff2 35 KB'lık bir Latin alt kümesiydi: İ, ş, ğ gibi Türkçe harfler yoktu ve başlıklar
+   karışık yazı tipiyle çıkıyordu ("İşine buradan başla"). Tam Inter zaten marka paketiyle sunuluyor. */
+@font-face{font-family:LunapotInter;src:url('/marka/logo-v2/Uygulama/InterVariable.woff2') format('woff2');font-style:normal;font-weight:100 900;font-display:swap}
 :root{--radius-dugme:12px;--radius-kart:22px;--radius-rozet:8px;--yazi-dugme:13px;--yazi-dugme-kucuk:12px;--yazi-rozet:11px;--kalinlik-dugme:600;--dolgu-dugme:10px 15px;--dolgu-dugme-kucuk:8px 12px;--dolgu-kart:22px;--dolgu-kart-dar:16px}
-body/* MARKA PALETİ (09.10.2026): Antrasit #20251f · Lime #d5ef74 · Taş #e7e6dd · Kâğıt #fafaf6.
+/* MARKA PALETİ (09.10.2026): Antrasit #20251f · Lime #d5ef74 · Taş #e7e6dd · Kâğıt #fafaf6.
    Marka rengi antrasit; lime yalnız vurgu ve birincil düğme zemini (üstüne daima antrasit yazı). */
-.workspace-redesign{--brand:#20251f;--brand-dark:#0f120e;--brand-soft:#eef5cf;--brand-border:#cfdd93;--green:#20251f;--accent:#d5ef74;--accent-dark:#c8e65e;--ink:#20251f;--muted:#656a64;--line:#e7e6dd;--canvas:#eceee8;--surface:#fff;--shell:#20251f;--shell-text:#c9cdc0;--sidebar-width:236px;--radius:22px;--tone-sage:#eef5cf;--tone-blue:#eef5cf;--tone-lilac:#f4f5ef;--tone-honey:#f8f0d9;margin:0;color:var(--ink);background:var(--canvas);font:14px/1.5 LunapotInter,Inter,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased}
+body.workspace-redesign{--brand:#20251f;--brand-dark:#0f120e;--brand-soft:#eef5cf;--brand-border:#cfdd93;--green:#20251f;--accent:#d5ef74;--accent-dark:#c8e65e;--ink:#20251f;--muted:#656a64;--line:#e7e6dd;--canvas:#eceee8;--surface:#fff;--shell:#20251f;--shell-text:#c9cdc0;--sidebar-width:236px;--radius:22px;--tone-sage:#eef5cf;--tone-blue:#eef5cf;--tone-lilac:#f4f5ef;--tone-honey:#f8f0d9;margin:0;color:var(--ink);background:var(--canvas);font:14px/1.5 LunapotInter,Inter,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased}
 .workspace-redesign *{box-sizing:border-box}
 .workspace-redesign [hidden]{display:none!important}
 .workspace-redesign :is(button,input,select,textarea){font-family:inherit}
