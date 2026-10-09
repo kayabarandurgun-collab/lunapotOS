@@ -7,6 +7,8 @@ body.workspace-redesign .ol-workbench .ol-heading-actions{display:flex;align-ite
 body.workspace-redesign .ol-workbench .ol-heading-actions a{text-decoration:none;white-space:nowrap}
 body.workspace-redesign .ol-workbench .ol-card{padding:0;overflow:hidden;background:#fff;border:1px solid var(--line,#e3e7ed);border-radius:var(--radius-kart);box-shadow:none;min-width:0}
 body.workspace-redesign .ol-workbench .ol-chips{display:flex;flex-wrap:nowrap;gap:4px;overflow-x:auto;min-width:0;scrollbar-width:thin;margin:0;padding:12px 16px;border-bottom:1px solid var(--line,#e3e7ed)}
+/* Dar ekranda serit yana kayar; sag kenardaki solma 'devami var' ipucudur. */
+@media (max-width:767px){body.workspace-redesign .ol-workbench .ol-chips{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 36px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 36px),transparent);padding-right:40px}}
 body.workspace-redesign .ol-workbench .ol-chip{position:relative;display:inline-flex;align-items:center;gap:7px;flex:none;white-space:nowrap;min-height:36px;padding:7px 11px;border:0;border-radius:var(--radius-dugme);font-size:var(--yazi-dugme-kucuk);font-weight:var(--kalinlik-dugme);color:var(--muted,#667382);background:transparent;box-shadow:none}
 body.workspace-redesign .ol-workbench .ol-chip b{display:inline-block;background:#f2f4f8;color:var(--muted,#667382);border-radius:5px;padding:2px 5px;font-size:11px;line-height:1.2;font-weight:500}
 body.workspace-redesign .ol-workbench .ol-chip:hover{background:#f6f8fc}
