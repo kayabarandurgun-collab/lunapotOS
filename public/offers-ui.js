@@ -194,7 +194,7 @@ export function mountOffers(root, namespace) {
     // Belge Atölyesi AYNI kaydı açar: ikinci bir kopya oluşmaz, aynı offer.id düzenlenir.
     // Sözleşme atölye setinin bir türü değildir; bağlantı yalnız teklif ve proformada çıkar.
     const workshop = ['quote', 'proforma'].includes(d.kind) && can(state.user, namespace, 'brand_documents')
-      ? `<p class="help"><a href="#belge-atolyesi?offer=${encodeURIComponent(d.id)}&tur=${d.kind === 'proforma' ? 'proforma' : 'teklif'}">Atölyede düzenle →</a> · Aynı belge açılır, yeni kayıt oluşmaz.</p>`
+      ? `<p class="help"><a href="/atolye/#belge-atolyesi?alan=${namespace}&offer=${encodeURIComponent(d.id)}&tur=${d.kind === 'proforma' ? 'proforma' : 'teklif'}">Marka Atölyesi'nde düzenle →</a> · Aynı belge açılır, yeni kayıt oluşmaz.</p>`
       : '';
 
     return card(`${d.document_no} · ${d.revision}. sürüm`, `<div class="v2-card-body">

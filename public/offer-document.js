@@ -94,13 +94,25 @@ export function offerBlocks(payload) {
   return blocks;
 }
 
+// Onaylı yatay logo, koyu renkte: beyaz kâğıtta okunur. Belgede kayıtlı bir
+// logo seçimi varsa o kullanılır; yoksa varsayılan antrasit yerleşim.
+const BRAND_LOGO_BASE = '/marka/logo/02-PNG/';
+const DEFAULT_BRAND_LOGO = 'lunapot-yatay-antrasit';
+const brandOf = snapshot => {
+  const id = snapshot?.presentation?.logo_variant_id;
+  // Yalnız bilinen biçimdeki kimlik kabul edilir; serbest metin yola girmez.
+  const safe = typeof id === 'string' && /^lunapot-[a-z]+-[a-z-]+$/.test(id) ? id : DEFAULT_BRAND_LOGO;
+  return {src: BRAND_LOGO_BASE + safe + '-1024px.png', height: 30};
+};
+
 export function offerPdfDocument(payload) {
   const {snapshot} = payload, offer = merged(payload);
   return {
     title: kindName(offer.kind),
     subtitle: `${snapshot.party.name} · ${offer.document_no} · ${offer.revision}. sürüm`,
     blocks: offerBlocks(payload),
-    footer: snapshot.notice || ACCEPT_NOTICE
+    footer: snapshot.notice || ACCEPT_NOTICE,
+    brand: brandOf(snapshot)
   };
 }
 

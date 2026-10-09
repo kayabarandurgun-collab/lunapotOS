@@ -55,8 +55,11 @@ export function mountBrandDocuments(root, namespace, user) {
   const state = {
     type: 'teklif', draft: null, record: null, dirty: false, busy: false,
     company: null, companyAvailable: true, parties: [], partiesLoaded: false,
+    products: [], productsLoaded: false,
     brandAvailable: true, brandNotice: '', list: [], listLoaded: false,
-    error: '', status: '', disposed: false, view: 'editor'
+    error: '', status: '', disposed: false, view: 'editor',
+    // İçe aktarım ÖNİZLEMELİDİR: dosyayı açmak tek başına ne kayıt yaratır ne de taslağı değiştirir.
+    importing: null
   };
 
   const $ = selector => root.querySelector(selector);
@@ -125,6 +128,115 @@ export function mountBrandDocuments(root, namespace, user) {
       return {description: String(item.name).trim(), unit: String(item.unit ?? '').trim(),
         product_id: item.product_id ?? null, quantity_milli: qty, note: String(item.note ?? '').trim()};
     });
+  }
+
+  // ---------- Atölye v2 JSON içe aktarımı ----------
+  //
+  // Dosyayı açmak TEK BAŞINA hiçbir şey yapmaz: ne cari yaratır, ne muhasebe kaydı,
+  // ne de açık taslağı değiştirir. Önce ne geleceği gösterilir, kullanıcı açıkça
+  // "yükle" der, sonra da ayrıca "Sunucuya kaydet" demesi gerekir.
+  //
+  // Tarihler DOSYADAN gelir: içe aktarılan belgenin tarihi bugünle ezilmez.
+  const V2_CURRENCIES = ['TRY', 'EUR', 'USD', 'GBP'];
+  const metin = (value, max = 4000) => String(value ?? '').slice(0, max);
+
+  function parseAtelierJson(text) {
+    let input;
+    try { input = JSON.parse(text); }
+    catch { throw new Error('Bu dosya okunabilir bir JSON değil.'); }
+    if (!input || typeof input !== 'object' || input.version !== 2 || typeof input.documents !== 'object')
+      throw new Error('Bu atölyeye ait bir v2 JSON dosyası seçin.');
+    const typeId = TYPES.some(type => type.id === input.active) ? input.active
+      : TYPES.map(type => type.id).find(id => input.documents[id]);
+    if (!typeId) throw new Error('Dosyada tanınan bir belge türü yok.');
+    const type = typeOf(typeId);
+    const source = input.documents[typeId] || {};
+    const items = Array.isArray(source.items) ? source.items : [];
+    if (items.length > 200) throw new Error('En fazla 200 satır yüklenebilir. Dosyada ' + items.length + ' satır var.');
+
+    const warnings = [];
+    const currency = V2_CURRENCIES.includes(source.currency) ? source.currency : 'TRY';
+    // Döviz SESSİZCE TRY'ye çevrilmez. Desteklenmiyor, açıkça söylenir ve kaydedilmez.
+    if (currency !== 'TRY') warnings.push({engel: true, metin:
+      currency + ' para birimi desteklenmiyor. Panel teklifleri yalnız TRY tutar. ' +
+      'Tutarları TRY olarak yeniden yazmadan bu belge kaydedilemez.'});
+
+    const gun = value => /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) && !isNaN(Date.parse(value)) ? value : '';
+    const issue = gun(source.date);
+    if (source.date && !issue) warnings.push({metin: 'Dosyadaki tarih okunamadı ("' + metin(source.date, 40) + '"); boş bırakıldı.'});
+
+    const draft = {
+      title: metin(source.subject, 200),
+      issue_date: issue,
+      valid_until: type.validity ? gun(source.validUntil) : '',
+      reference: metin(source.reference, 200),
+      party_id: '',
+      recipient: {name: metin(source.recipient, 200), address: metin(source.address, 400), tax: metin(source.tax, 200)},
+      notes: metin(source.note, 8000),
+      prepared: metin(source.prepared, 120),
+      approved: metin(source.approved, 120),
+      example: source.example !== false,
+      logo_variant_id: DEFAULT_LOGO,
+      items: !type.table ? [] : items.map(item => ({
+        name: metin(item?.name, 300), sku: metin(item?.sku, 60),
+        qty: metin(item?.qty, 40), unit: metin(item?.unit, 40),
+        price: metin(item?.price, 40), discount: metin(item?.discount, 40),
+        vat: metin(item?.vat, 40), note: metin(item?.note, 300), product_id: null
+      }))
+    };
+
+    // Hassasiyet farkı ÖNCEDEN gösterilir: kaydederken sürpriz olmasın.
+    if (type.money && type.table) {
+      try {
+        const lines = draft.items.map((item, index) => toCanonicalLine(item, index));
+        const totals = offerTotals(lines);
+        draft.__preview = {toplam: totals.total_cents, satir: lines.length};
+      } catch (error) {
+        warnings.push({engel: true, metin: 'Satır değerleri panelin kurallarına uymuyor: ' + error.message});
+      }
+    }
+    if (type.validity && !draft.valid_until)
+      warnings.push({metin: 'Dosyada geçerlilik tarihi yok. Kaydetmeden önce yazman gerekiyor.'});
+    if (!draft.title) warnings.push({metin: 'Dosyada ' + type.subject.toLocaleLowerCase('tr-TR') + ' boş. Kaydetmeden önce yaz.'});
+    // Cari metin eşleşmesiyle OTOMATİK bağlanmaz: kullanıcı listeden seçer.
+    if (draft.recipient.name) warnings.push({metin:
+      'Muhatap metni dosyadan geldi. Kayıtlı cariye bağlamak istersen listeden kendin seç; ' +
+      'ada bakarak otomatik eşleştirme YAPILMAZ.'});
+
+    return {typeId, type, draft, currency, warnings, belgeNo: metin(source.number, 60)};
+  }
+
+  function importHtml() {
+    const yuk = state.importing;
+    if (!yuk) return '';
+    if (yuk.error) return '<section class="card pad ba-import"><div class="section-heading"><div>' +
+      '<h3>JSON içe aktarma</h3></div><button type="button" class="secondary" data-ba-action="import-cancel">Kapat</button></div>' +
+      '<p class="notice" role="alert">' + esc(yuk.error) + '</p></section>';
+    const engel = yuk.warnings.some(w => w.engel);
+    return '<section class="card pad ba-import"><div class="section-heading"><div><span class="eyebrow">ÖNİZLEME</span>' +
+      '<h3>Yüklenecek belge</h3><p>Bu bir önizlemedir. Henüz hiçbir şey değişmedi ve <strong>hiçbir kayıt oluşmadı</strong>.</p></div>' +
+      '<button type="button" class="secondary" data-ba-action="import-cancel">Vazgeç</button></div>' +
+      '<div class="table-wrap"><table><tbody>' +
+      [['Belge türü', yuk.type.name],
+       ['Dosyadaki belge no', yuk.belgeNo || '—'],
+       ['Konu', yuk.draft.title || '—'],
+       ['Tarih', yuk.draft.issue_date || '—'],
+       ['Geçerlilik', yuk.draft.valid_until || '—'],
+       ['Muhatap', yuk.draft.recipient.name || '—'],
+       ['Para birimi', yuk.currency],
+       ['Satır sayısı', String(yuk.draft.items.length)],
+       ['Hesaplanan toplam', yuk.draft.__preview && showMoney ? money(yuk.draft.__preview.toplam)
+         : yuk.draft.__preview ? 'Tutarları görme yetkin yok' : '—']]
+        .map(([ad, deger]) => '<tr><td>' + esc(ad) + '</td><td><strong>' + esc(deger) + '</strong></td></tr>').join('') +
+      '</tbody></table></div>' +
+      (yuk.warnings.length ? '<ul class="ba-import-warnings">' + yuk.warnings.map(w =>
+        '<li' + (w.engel ? ' class="ba-blocking"' : '') + '>' + esc(w.metin) + '</li>').join('') + '</ul>' : '') +
+      '<div class="ba-custom-actions">' +
+      '<button type="button" class="primary" data-ba-action="import-apply"' + (engel ? ' disabled' : '') + '>' +
+      'Bu belgeyi düzenleyiciye yükle</button>' +
+      '<button type="button" class="secondary" data-ba-action="import-cancel">Vazgeç</button></div>' +
+      '<p class="help">Yükledikten sonra sunucuya yazmak için ayrıca <strong>Sunucuya kaydet</strong> demen gerekir.</p>' +
+      '</section>';
   }
 
   // ---------- A4 önizleme. Kaynak tasarım korunur. ----------
@@ -238,11 +350,22 @@ export function mountBrandDocuments(root, namespace, user) {
       (type.table ? linesHtml(draft, type) : '') + '</form>';
   }
 
+  // Kayıtlı üründen seçmek ad, stok kodu ve birimi doldurur; fiyat ELLE yazılır.
+  function productPicker(item, index) {
+    if (!state.products.length) return '';
+    return '<label>Kayıtlı üründen seç<select data-ba-product="' + index + '"' + (writable ? '' : ' disabled') + '>' +
+      '<option value="">— serbest giriş —</option>' +
+      state.products.map(product => '<option value="' + esc(product.id) + '"' +
+        (item.product_id === product.id ? ' selected' : '') + '>' +
+        esc(product.name) + (product.sku ? ' · ' + esc(product.sku) : '') + '</option>').join('') +
+      '</select></label>';
+  }
+
   function linesHtml(draft, type) {
     return '<h3>Satırlar</h3><div class="ba-lines">' + draft.items.map((item, index) =>
       '<fieldset><legend>Satır ' + (index + 1) +
       (writable ? ' <button type="button" class="ba-remove" data-ba-remove="' + index + '" aria-label="' + (index + 1) + '. satırı sil">Sil</button>' : '') +
-      '</legend><div class="ba-grid">' +
+      '</legend><div class="ba-grid">' + productPicker(item, index) +
       ['name:Ürün / hizmet', 'sku:Stok kodu', 'qty:Miktar', 'unit:Birim',
         ...(type.money ? ['price:Birim fiyat (KDV hariç)', 'discount:İskonto %', 'vat:KDV %'] : ['note:Kontrol / açıklama'])]
         .map(pair => {
@@ -263,7 +386,9 @@ export function mountBrandDocuments(root, namespace, user) {
       'diğer türler kurumsal evrak defterine. Hiçbiri fatura, irsaliye ya da stok hareketi yaratmaz.</p></div>' +
       '<div class="ba-head-actions">' +
       '<button type="button" class="secondary" data-ba-action="list">Kayıtlı belgeler</button>' +
-      (writable ? '<button type="button" class="secondary" data-ba-action="sample">Örnek veriyle doldur</button>' : '') +
+      (writable ? '<button type="button" class="secondary" data-ba-action="sample">Örnek veriyle doldur</button>' +
+        '<label class="ba-import-pick"><span>JSON yükle</span>' +
+        '<input type="file" accept="application/json,.json" data-ba-import></label>' : '') +
       '</div></div>' +
       '<div class="ba-types" role="group" aria-label="Belge türü">' + TYPES.map(item =>
         '<button type="button" data-ba-type="' + esc(item.id) + '" aria-pressed="' + (item.id === state.type) + '">' +
@@ -275,7 +400,7 @@ export function mountBrandDocuments(root, namespace, user) {
       (state.dirty ? '<p class="ba-dirty" role="status">Kaydedilmemiş değişiklik var.</p>' : '') +
       (state.error ? '<p class="notice" role="alert">' + esc(state.error) + '</p>' : '') +
       (state.status ? '<p class="help" role="status">' + esc(state.status) + '</p>' : '') +
-      '</section>' +
+      '</section>' + importHtml() +
       (kapali
         ? '<section class="card pad"><h3>' + esc(type.name) + ' henüz açılmadı</h3><p role="status">' +
           esc(state.brandNotice || 'Kurumsal evrak defteri kurulduğunda bu tür açılır.') + '</p></section>'
@@ -327,6 +452,17 @@ export function mountBrandDocuments(root, namespace, user) {
       state.parties = data.parties || [];
     } catch (error) { if (error.name !== 'AbortError') state.parties = []; }
     state.partiesLoaded = true;
+  }
+
+  // Ürün kartından yalnız ad, stok kodu ve birim gelir. FİYAT GELMEZ: ne maliyet ne
+  // satış fiyatı belgeye sessizce taşınır, birim fiyatı kullanıcı açıkça yazar.
+  async function loadProducts() {
+    if (state.productsLoaded) return;
+    try {
+      const data = await api('/brand-documents/lookups/products');
+      state.products = data.products || [];
+    } catch (error) { if (error.name !== 'AbortError') state.products = []; }
+    state.productsLoaded = true;
   }
 
   async function probeBrandStore() {
@@ -588,6 +724,16 @@ export function mountBrandDocuments(root, namespace, user) {
     if (action === 'duplicate' || action === 'revise') { recordAction(action === 'duplicate' ? 'duplicate' : 'revise'); return; }
     if (action === 'list') { state.view = 'list'; loadList(); return; }
     if (action === 'editor') { state.view = 'editor'; render(); return; }
+    if (action === 'import-cancel') { state.importing = null; render(); return; }
+    // Açık kaydetme adımı: önizlemeyi onaylamak taslağı DEĞİŞTİRİR, sunucuya YAZMAZ.
+    if (action === 'import-apply' && writable && state.importing && !state.importing.error) {
+      const {typeId, draft} = state.importing;
+      delete draft.__preview;
+      state.type = typeId; state.record = null; state.draft = draft;
+      state.importing = null; state.dirty = true; state.error = '';
+      state.status = 'Dosya düzenleyiciye yüklendi. Sunucuda henüz hiçbir kayıt yok — kaydetmek için "Sunucuya kaydet" de.';
+      render(); return;
+    }
     if (action === 'new') {
       if (state.dirty && !confirm('Kaydedilmemiş değişiklik var. Yeni boş belge açılsın mı?')) return;
       state.record = null; state.draft = freshDraft(state.type); state.dirty = false;
@@ -636,9 +782,44 @@ export function mountBrandDocuments(root, namespace, user) {
       return;
     }
     if (target.dataset.baScope === 'draft' && target.dataset.baKey === 'logo_variant_id') {
-      state.draft.logo_variant_id = target.value; state.dirty = true; render();
+      state.draft.logo_variant_id = target.value; state.dirty = true; render(); return;
+    }
+    if (target.dataset.baProduct !== undefined) {
+      const line = state.draft.items[Number(target.dataset.baProduct)];
+      const product = state.products.find(entry => entry.id === target.value);
+      if (product) {
+        // Doğrulanmış product_id ile ad, kod ve birimin anlık kopyası. Fiyat ELLE.
+        line.product_id = product.id;
+        line.name = product.name || '';
+        line.sku = product.sku || '';
+        line.unit = product.unit || line.unit;
+      } else {
+        line.product_id = null;
+      }
+      state.dirty = true; render(); return;
+    }
+    if (target.hasAttribute('data-ba-import')) {
+      const file = target.files?.[0];
+      target.value = '';
+      if (!file) return;
+      file.text().then(text => {
+        if (state.disposed) return;
+        // Dosyayı açmak kayıt YARATMAZ: yalnız önizleme kurulur.
+        try { state.importing = parseAtelierJson(text); }
+        catch (error) { state.importing = {error: error.message}; }
+        render();
+        root.querySelector('.ba-import')?.scrollIntoView({block: 'start'});
+      }).catch(() => {
+        if (state.disposed) return;
+        state.importing = {error: 'Dosya okunamadı.'};
+        render();
+      });
     }
   }, {signal});
+
+  // Kaydedilmemiş taslakla sayfadan ayrılmak istersen tarayıcı sorar.
+  const leaveGuard = event => { if (state.dirty && !state.disposed) { event.preventDefault(); event.returnValue = ''; } };
+  window.addEventListener('beforeunload', leaveGuard);
 
   root.addEventListener('submit', event => { if (event.target.matches('[data-ba-form]')) event.preventDefault(); }, {signal});
 
@@ -671,12 +852,16 @@ export function mountBrandDocuments(root, namespace, user) {
   state.draft = freshDraft(state.type);
   root.innerHTML = '<section class="card pad" role="status"><p>Belge Atölyesi yükleniyor…</p></section>';
   (async () => {
-    await Promise.all([loadCompany(), loadParties(), probeBrandStore()]);
+    await Promise.all([loadCompany(), loadParties(), loadProducts(), probeBrandStore()]);
     if (state.disposed) return;
     if (!openFromHash()) render();
   })();
 
-  const dispose = () => { state.disposed = true; controller.abort(); };
+  const dispose = () => {
+    state.disposed = true;
+    window.removeEventListener('beforeunload', leaveGuard);
+    controller.abort();
+  };
   dispose.onHash = () => { if (!state.disposed) openFromHash(); };
   return dispose;
 }

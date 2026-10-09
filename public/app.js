@@ -14,7 +14,7 @@ const decimal=v=>new Intl.NumberFormat('tr-TR',{maximumFractionDigits:4}).format
 const legacyIcons={dashboard:'▦',products:'◇',materials:'▤',recipes:'▧',costs:'∑',accounts:'₺',ai:'✧'};
 // Menu isleri konusuna gore gruplar; anahtarlar degismedigi icin mevcut #adresler ve hizli gecis calisir.
 // Hammadde karti ile depo hareketi ayni grupta durur, iki ayri kart sistemi gibi gorunmez.
-const titles={product:'Ürün dosyası',"party":"Cari dosyası","money":"Ödeme takvimi","intake":"Belge yükle","workbench":"Günlük işler",dashboard:'Genel durum',production:'Üretim kayıtları',products:'Ürünler',recipes:'Reçeteler',costs:'Maliyet hesaplama',materials:'Hammaddeler',materialstock:'Hammadde deposu',barcodes:'Barkod',lots:'Parti ve koli etiketi',accounts:'Alış ve stok',catalog:'Ürün bağlantıları',ledger:'Cariler ve nakit',offers:'Teklif ve belgeler',reconciliation:'Kesinti eşleştirme',settings:'Şirket ve yedek',ai:'Lunapot AI','belge-atolyesi':'Belge Atölyesi','logo-kutuphanesi':'Logo Kütüphanesi'};
+const titles={product:'Ürün dosyası',"party":"Cari dosyası","money":"Ödeme takvimi","intake":"Belge yükle","workbench":"Günlük işler",dashboard:'Genel durum',production:'Üretim kayıtları',products:'Ürünler',recipes:'Reçeteler',costs:'Maliyet hesaplama',materials:'Hammaddeler',materialstock:'Hammadde deposu',barcodes:'Barkod',lots:'Parti ve koli etiketi',accounts:'Alış ve stok',catalog:'Ürün bağlantıları',ledger:'Cariler ve nakit',offers:'Teklif ve belgeler',reconciliation:'Kesinti eşleştirme',settings:'Şirket ve yedek',ai:'Lunapot AI'};
 let data={products:[],materials:[],recipes:[],activity:[]}, route=location.hash.slice(1).split('?')[0]||'dashboard', search='', modal=null, editing=null, draftItems=[], refreshing=null;
 let currentUser=null,authenticated=false,dataReady=false;
 let installPrompt=null;
@@ -85,8 +85,6 @@ const routeViews={
  lots:{load:()=>import('./lot-ui.js'),mount:(module,root)=>module.mountLots(root,'lp')},
  barcodes:{load:()=>import('./barcode-ui.js'),mount:(module,root)=>module.mountBarcodes(root,'lp')},
  offers:{load:()=>import('./offers-ui.js'),mount:(module,root)=>module.mountOffers(root,'lp')},
- 'logo-kutuphanesi':{load:()=>import('./brand-logos-ui.js'),mount:(module,root)=>module.mountBrandLogos(root,'lp')},
- 'belge-atolyesi':{load:()=>import('./brand-documents-ui.js'),mount:(module,root)=>module.mountBrandDocuments(root,'lp',currentUser)},
  settings:{load:()=>import('./operations-ui.js'),mount:(module,root)=>module.mountOperations(root,'lp','settings')}
 };
 function deferStudioRender(root){

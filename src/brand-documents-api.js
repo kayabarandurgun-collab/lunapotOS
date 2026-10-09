@@ -313,11 +313,16 @@ export async function brandDocumentsApi(request, env, path, readBody) {
   if (sub === '/lookups/products' && method === 'GET') {
     const query = (url.searchParams.get('q') || '').trim().slice(0, 100);
     try {
-      // Maliyet satış fiyatı SAYILMAZ: yalnız ad, kod ve birim döner.
+      // Yalnız ad, kod ve birim döner. FİYAT DÖNMEZ: ne maliyet ne satış fiyatı
+      // belgeye sessizce taşınır; birim fiyatı kullanıcı açıkça yazar.
+      // Sütun adı iki şemada da stock_unit'tir ('unit' DİYE BİR SÜTUN YOK).
+      // Arşivlenmiş kart yeni belgede seçilemez.
       const rows = (await db.prepare(
-        'SELECT id,name,sku,unit FROM products WHERE (?1=\'\' OR name LIKE ?2 OR sku LIKE ?2) ORDER BY name LIMIT 50'
+        'SELECT id,name,sku,stock_unit FROM products WHERE archived_at IS NULL ' +
+        'AND (?1=\'\' OR name LIKE ?2 OR sku LIKE ?2) ORDER BY name LIMIT 50'
       ).bind(query, '%' + query + '%').all()).results;
-      return {workspace: env.WORKSPACE, products: rows};
+      return {workspace: env.WORKSPACE, products: rows.map(row =>
+        ({id: row.id, name: row.name, sku: row.sku, unit: row.stock_unit}))};
     } catch (error) {
       if (missingTable(error)) return {workspace: env.WORKSPACE, products: [], available: false};
       throw error;

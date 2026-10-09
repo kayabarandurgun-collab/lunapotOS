@@ -114,3 +114,56 @@ test('Servis calisani: onbellek adi yukseldi, 14 MB varlik ON BELLEGE ALINMADI',
  const surum=Number(ad.match(/v(\d+)/)?.[1]);
  assert.ok(surum>=194,'public/ degisti, onbellek adi yukselmeli (su an '+ad+')');
 });
+
+// --- Eski Teklif ekraninin PDF ciktisinda marka basligi ---
+import {offerPdfDocument} from '../public/offer-document.js';
+import {pdfBytes} from '../public/doc-engine.js';
+import {pdfKit} from './helpers/pdf-kit.js';
+import {offerTotals} from '../public/offer-math.js';
+
+const ornekYuk = (sunum) => ({
+  offer: {kind: 'quote', document_no: 'TKF-2026-0007', revision: 1, status: 'draft'},
+  today: '2026-10-09',
+  snapshot: {
+    party: {name: 'Şişli Çiçekçilik', tax_id: '1234567890'},
+    workspace: 'ec', kind: 'quote', title: 'Deneme',
+    issue_date: '2026-10-01', valid_until: '2026-10-31', terms: '', currency: 'TRY',
+    totals: offerTotals([{description: 'Saksı', unit: 'adet', quantity_milli: 2000,
+      unit_price_cents: 12500, discount_bps: 1000, vat_bps: 2000}]),
+    notice: 'Bu belge bir ticari tekliftir.',
+    ...(sunum === undefined ? {} : {presentation: sunum})
+  }
+});
+
+test('PDF belgesi marka basligi tasir ve onaylı logoya isaret eder',()=>{
+ const varsayilan=offerPdfDocument(ornekYuk());
+ assert.ok(varsayilan.brand,'marka blogu yok');
+ assert.equal(varsayilan.brand.src,'/marka/logo/02-PNG/lunapot-yatay-antrasit-1024px.png');
+ assert.ok(varsayilan.brand.height>0);
+ // Belgede kayitli logo secimi varsa O kullanilir.
+ const secili=offerPdfDocument(ornekYuk({logo_variant_id:'lunapot-dikey-siyah'}));
+ assert.equal(secili.brand.src,'/marka/logo/02-PNG/lunapot-dikey-siyah-1024px.png');
+});
+
+test('Uydurma logo kimligi YOLA girmez, varsayilana duser',()=>{
+ for(const kotu of ['../../etc/passwd','lunapot-yatay-antrasit/../../x','<script>',
+                    'lunapot_yatay_antrasit','',null,42,{}]){
+  const belge=offerPdfDocument(ornekYuk({logo_variant_id:kotu}));
+  assert.equal(belge.brand.src,'/marka/logo/02-PNG/lunapot-yatay-antrasit-1024px.png',
+   JSON.stringify(kotu)+' yola sizdi');
+ }
+});
+
+test('Logo YUKLENEMEZSE belge yine uretilir, yalnizca logosuz',async()=>{
+ // Test ortaminda fetch logoyu bulamaz; cikti alinamamasindansa logosuz cikmasi iyidir.
+ const bytes=await pdfBytes(offerPdfDocument(ornekYuk()),await pdfKit());
+ assert.ok(bytes.length>1000,'PDF uretilemedi');
+ assert.equal(new TextDecoder().decode(bytes.slice(0,5)),'%PDF-');
+});
+
+test('Marka blogu ISTEGE BAGLIDIR: eski cagrilar aynen calisir',async()=>{
+ const {brand,...markasiz}=offerPdfDocument(ornekYuk());
+ assert.equal('brand' in markasiz,false);
+ const bytes=await pdfBytes(markasiz,await pdfKit());
+ assert.ok(bytes.length>1000,'markasiz cagri bozuldu');
+});

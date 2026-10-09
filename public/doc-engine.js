@@ -307,8 +307,23 @@ function wrap(text, font, size, width) {
  * blocks: [{type:'heading'|'text'|'small'|'spacer'|'keyvalue'|'table', ...}]
  * Cok sayfali cikti otomatik olusur; her sayfada alt bilgi ve sayfa numarasi bulunur.
  */
+// Marka basligi: ciktinin ustune onayli logo konur. ISTEGE BAGLIDIR — `brand`
+// verilmeyen her eski cagri AYNEN eskisi gibi calisir. Logo yuklenemezse belge
+// yine uretilir, yalnizca logosuz: cikti alinamamasindansa logosuz cikmasi iyidir.
+async function embedBrand(doc, lib, brand) {
+  if (!brand?.src) return null;
+  try {
+    const response = await fetch(brand.src);
+    if (!response.ok) throw new Error('logo');
+    const image = await doc.embedPng(await response.arrayBuffer());
+    const height = brand.height || 30;
+    // Oran KORUNUR: yukseklik verilir, genislik dogal orandan gelir.
+    return {image, height, width: height * (image.width / image.height)};
+  } catch { return null; }
+}
+
 // kit yalnizca testte disaridan verilir; tarayicida her zaman tembel yukleyiciden gelir.
-export async function pdfBytes({title, subtitle, blocks = [], footer = ''}, kit) {
+export async function pdfBytes({title, subtitle, blocks = [], footer = '', brand = null}, kit) {
   const {lib, fontkit, fontBytes} = kit || await loadPdfKit();
   const {PDFDocument, rgb} = lib;
   const doc = await PDFDocument.create();
@@ -330,7 +345,13 @@ export async function pdfBytes({title, subtitle, blocks = [], footer = ''}, kit)
   const draw = (text, {size = 10, color = ink, x = MARGIN} = {}) =>
     page.drawText(String(text ?? ''), {x, y, size, font, color});
 
+  const mark = await embedBrand(doc, lib, brand);
   newPage();
+  if (mark) {
+    y -= mark.height;
+    page.drawImage(mark.image, {x: MARGIN, y, width: mark.width, height: mark.height});
+    y -= 14;
+  }
   draw(title || 'Belge', {size: 17}); y -= 21;
   if (subtitle) { draw(subtitle, {size: 10, color: muted}); y -= 16; }
   y -= 6;

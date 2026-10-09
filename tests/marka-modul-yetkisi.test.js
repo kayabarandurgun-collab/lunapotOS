@@ -74,31 +74,63 @@ test('Calisma alani sinirı: ec yetkisi lp ucunu acmaz',()=>{
  assert.throws(()=>permit(lpYazar,'/api/ec/brand-documents','GET'),/yetkiniz yok/);
 });
 
-// --- Menu gorunurlugu ---
+// --- Yerlesim: marka modulleri AYRI bir uygulamadir ---
+// Kullanici 09.10'da acikca istedi: "ben e ticaretin icinde gormek istemiyorum ki bunu,
+// muhasebe sayfasina ayri bi modul kur". Iki modul artik /atolye/ altinda yasar.
 import {navigationGroups} from '../public/workspace-navigation.js';
-const ecBasliklar={overview:'Genel durum',offers:'Teklif ve belgeler',settings:'Şirket ve yedek','logo-kutuphanesi':'Logo Kütüphanesi'};
-const lpBasliklar={dashboard:'Genel durum',offers:'Teklif ve belgeler',settings:'Şirket ve yedek','logo-kutuphanesi':'Logo Kütüphanesi'};
-const rotalar=(user,ns,basliklar)=>navigationGroups(ns,basliklar,user).flatMap(g=>g.routes);
+import {moduleHref as href} from '../public/permissions.js';
+import {readFileSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
+import {dirname, join} from 'node:path';
 
-test('Logo Kutuphanesi menude AYRI giris olarak cikar',()=>{
- const grup=navigationGroups('ec',ecBasliklar,owner).find(g=>g.key==='brand');
- assert.ok(grup,'marka grubu yok');
- assert.deepEqual(grup.routes,['logo-kutuphanesi']);
- // Teklif ekraninin icinde DEGIL: kendi grubunda.
- const teklifGrubu=navigationGroups('ec',ecBasliklar,owner).find(g=>g.routes.includes('offers'));
- assert.ok(!teklifGrubu.routes.includes('logo-kutuphanesi'));
+const kok = join(dirname(fileURLToPath(import.meta.url)), '..');
+const oku = yol => readFileSync(join(kok, yol), 'utf8');
+
+const ecBasliklar = {overview: 'Genel durum', offers: 'Teklif ve belgeler', settings: 'Şirket ve yedek'};
+const lpBasliklar = {dashboard: 'Genel durum', offers: 'Teklif ve belgeler', settings: 'Şirket ve yedek'};
+const rotalar = (user, ns, basliklar) => navigationGroups(ns, basliklar, user).flatMap(g => g.routes);
+
+test('Marka modulleri e-ticaret ve uretim menusunde YOKTUR', () => {
+  for (const [ns, basliklar] of [['ec', ecBasliklar], ['lp', lpBasliklar]]) {
+    const liste = rotalar(owner, ns, basliklar);
+    assert.equal(liste.includes('belge-atolyesi'), false, ns + ' menusunde belge-atolyesi var');
+    assert.equal(liste.includes('logo-kutuphanesi'), false, ns + ' menusunde logo-kutuphanesi var');
+    assert.equal(navigationGroups(ns, basliklar, owner).some(g => g.key === 'brand'), false, ns + ' marka grubu geri gelmis');
+  }
+  // Kabuklarda da rota kaydi kalmamali: yoksa adres calisir ama menu gostermez.
+  for (const dosya of ['public/ecommerce.js', 'public/app.js', 'public/workspace-navigation.js'])
+    for (const rota of ['belge-atolyesi', 'logo-kutuphanesi'])
+      assert.equal(oku(dosya).includes(rota), false, dosya + ' icinde ' + rota + ' izi kalmis');
 });
 
-test('Yetkisiz personel menude Logo girisini GORMEZ',()=>{
- assert.ok(!rotalar(secilmemis,'ec',ecBasliklar).includes('logo-kutuphanesi'));
- assert.ok(!rotalar(eskiHesap,'ec',ecBasliklar).includes('logo-kutuphanesi'));
- assert.ok(!rotalar(eskiHesap,'lp',lpBasliklar).includes('logo-kutuphanesi'));
- assert.ok(!rotalar(belgeOkur,'ec',ecBasliklar).includes('logo-kutuphanesi'));
+test('Marka Atolyesi kendi uygulamasidir: rota, kabuk ve ana ekran karti yerinde', () => {
+  const kabuk = oku('public/atolye.js');
+  assert.ok(kabuk.includes("'belge-atolyesi'"), 'atolye kabugunda belge rotasi yok');
+  assert.ok(kabuk.includes("'logo-kutuphanesi'"), 'atolye kabugunda logo rotasi yok');
+  assert.ok(oku('public/atolye.html').includes('/atolye.js'), 'atolye sayfasi kabugu yuklemiyor');
+  // Worker /atolye adresini sayfaya baglamali.
+  assert.match(oku('src/worker.js'), /path==='\/atolye'\|\|path==='\/atolye\/'/, 'worker rotasi yok');
+  // Ana ekranda kart olmali: kullanici buradan bulacak.
+  const anaEkran = oku('public/index.html');
+  assert.ok(anaEkran.includes('href="/atolye/#belge-atolyesi"'), 'ana ekranda atolye karti yok');
+  assert.ok(anaEkran.includes('Marka Atölyesi'), 'kart basligi yok');
 });
 
-test('Logo yetkisi verilen personel menude girisi gorur, iki alanda da',()=>{
- assert.ok(rotalar(logoOkur,'ec',ecBasliklar).includes('logo-kutuphanesi'));
- const lpLogo={lp_access:'read',permissions:parsePermissions({lp:{brand_logos:'read'}})};
- assert.ok(rotalar(lpLogo,'lp',lpBasliklar).includes('logo-kutuphanesi'));
- assert.ok(rotalar(owner,'lp',lpBasliklar).includes('logo-kutuphanesi'));
+test('Personel kartlari ve kisayollar /atolye/ adresine gider', () => {
+  assert.equal(href('ec', 'brand_documents'), '/atolye/#belge-atolyesi?alan=ec');
+  assert.equal(href('lp', 'brand_documents'), '/atolye/#belge-atolyesi?alan=lp');
+  assert.equal(href('ec', 'brand_logos'), '/atolye/#logo-kutuphanesi?alan=ec');
+  assert.equal(href('ec', 'webshop'), '/webmagaza/');
+  assert.equal(href('ec', 'orders'), '#orders');
+  // Teklif ekranindaki baglanti da oraya gitmeli.
+  assert.match(oku('public/offers-ui.js'), /\/atolye\/#belge-atolyesi\?alan=/, 'Teklif ekrani eski adrese gidiyor');
+});
+
+test('Yetki kontrolu atolye kabugunda da calisir', () => {
+  // Kabuk canRoute ile sorar; rota takma adlari duruyor.
+  assert.equal(canRoute(belgeOkur, 'ec', 'belge-atolyesi'), true);
+  assert.equal(canRoute(belgeOkur, 'ec', 'logo-kutuphanesi'), false);
+  assert.equal(canRoute(belgeOkur, 'lp', 'belge-atolyesi'), false, 'ec yetkisi lp alanini acmamali');
+  assert.equal(canRoute(eskiHesap, 'ec', 'belge-atolyesi'), false);
+  assert.equal(canRoute(owner, 'lp', 'logo-kutuphanesi'), true);
 });

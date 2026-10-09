@@ -1,6 +1,6 @@
 export {mountQuickLogin,mountAccountControls} from './quick-access-ui.js';
 import {setWorkspaceUser} from './workspace-frame.js';
-import {modules,can,canRoute,level,moduleRoute} from './permissions.js';
+import {modules,can,canRoute,level,moduleHref} from './permissions.js';
 let observer=null;
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function accessAllowed(user,ns,root){
@@ -31,4 +31,4 @@ export function accessAllowed(user,ns,root){
  observer=new MutationObserver(apply);observer.observe(root,{childList:true,subtree:true});apply();return true;
 }
 
-export function staffHome(user,ns){return '<section class="access-hero"><span>KİŞİSEL ÇALIŞMA ALANIN</span><h1>Merhaba, '+esc(user.name)+'</h1><p>Yöneticinin açtığı ekranlar burada. Her kartta işlem yapma veya görüntüleme yetkini görebilirsin.</p></section><div class="staff-modules">'+Object.entries(modules[ns]).filter(([key])=>key!=='amounts'&&can(user,ns,key)).map(([key,[title,help]])=>'<a href="'+(key==='webshop'?'/webmagaza/':'#'+moduleRoute(key))+'"><strong>'+title+'</strong>'+esc(help)+'<small>'+ (level(user,ns,key)==='write'?'Görüntüleme ve işlem →':'Yalnızca görüntüleme →')+'</small></a>').join('')+'</div>'; }
+export function staffHome(user,ns){return '<section class="access-hero"><span>KİŞİSEL ÇALIŞMA ALANIN</span><h1>Merhaba, '+esc(user.name)+'</h1><p>Yöneticinin açtığı ekranlar burada. Her kartta işlem yapma veya görüntüleme yetkini görebilirsin.</p></section><div class="staff-modules">'+Object.entries(modules[ns]).filter(([key])=>key!=='amounts'&&can(user,ns,key)).map(([key,[title,help]])=>'<a href="'+moduleHref(ns,key)+'"><strong>'+title+'</strong>'+esc(help)+'<small>'+ (level(user,ns,key)==='write'?'Görüntüleme ve işlem →':'Yalnızca görüntüleme →')+'</small></a>').join('')+'</div>'; }

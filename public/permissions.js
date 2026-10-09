@@ -23,6 +23,10 @@ const BRAND_ROUTES={'belge-atolyesi':'brand_documents','logo-kutuphanesi':'brand
 // Yetki anahtari ile rota adi ayni olmayabilir: personel kartlari rotaya gider.
 const MODULE_ROUTE=Object.fromEntries(Object.entries(BRAND_ROUTES).map(([route,key])=>[key,route]));
 export const moduleRoute=key=>MODULE_ROUTE[key]||key;
+// Marka modulleri e-ticaretin ya da uretimin icinde DEGIL; /atolye/ ayri bir uygulamadir.
+// Personel kartlari ve kisayollar oraya gider, calisma alani adreste tasinir.
+export const moduleHref=(ns,key)=>key==='webshop'?'/webmagaza/'
+ :MODULE_ROUTE[key]?'/atolye/#'+MODULE_ROUTE[key]+'?alan='+ns:'#'+key;
 const routeAliases={ec:{documents:'invoices',reports:'orders',bank:'ledger',party:'ledger',warehouse:'stock',product:'stock',money:'ledger','business-result':'performance',...BRAND_ROUTES},lp:{party:'ledger',product:'accounts',money:'ledger',...BRAND_ROUTES}};
 export const routeKey=(ns,route)=>routeAliases[ns]?.[route]||route;
 // Match route-level OR permissions already enforced by the API; amount access alone is not a screen.

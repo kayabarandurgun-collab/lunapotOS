@@ -214,8 +214,20 @@ test('Cari ve urun secimi yetkili alandan gelir', async () => {
     assert.equal(arama.parties.length, 1);
     const bos = await f.ok('/ec/brand-documents/lookups/parties?q=bulunmayan-cari');
     assert.equal(bos.parties.length, 0);
+    // Urun secici GERCEKTEN veri dondurmeli: bos dizi testi sutun hatasini kacirirdi.
+    const urun = await f.ok('/ec/products', {name: 'Terracotta saksı 30 cm', sku: 'LUN-TS-30', stock_unit: 'adet', min_stock: 0});
     const urunler = await f.ok('/ec/brand-documents/lookups/products');
-    assert.ok(Array.isArray(urunler.products));
+    assert.equal(urunler.products.length, 1, 'urun secici bos dondu');
+    assert.equal(urunler.products[0].id, urun.id);
+    assert.equal(urunler.products[0].name, 'Terracotta saksı 30 cm');
+    assert.equal(urunler.products[0].sku, 'LUN-TS-30');
+    assert.equal(urunler.products[0].unit, 'adet', 'birim stock_unit sutunundan gelmeli');
+    // FIYAT DONMEZ: ne maliyet ne satis fiyati belgeye sessizce tasinir.
+    assert.equal('sale_price' in urunler.products[0], false, 'fiyat sizdi');
+    assert.equal('price' in urunler.products[0], false, 'fiyat sizdi');
+    const urunArama = await f.ok('/ec/brand-documents/lookups/products?q=Terracotta');
+    assert.equal(urunArama.products.length, 1);
+    assert.equal((await f.ok('/ec/brand-documents/lookups/products?q=bulunmayan')).products.length, 0);
   } finally { f.close(); }
 });
 
