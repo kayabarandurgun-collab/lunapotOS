@@ -3,6 +3,9 @@
    yazdırma penceresine gömülen stiller sessizce uygulanmaz ve çıktı stilsiz basılır.
    Buradaki stiller her zaman beyaz kâğıt düzenidir; kullanıcı koyu temadayken de okunaklıdır. */
 
+/* Belge Atolyesi'nin A4 sayfasi: onizleme ile cikti AYNI dosyadan gelir. */
+@import url('/belge-sayfasi.css');
+
 @page { size: A4; margin: 16mm; }
 
 :root { color-scheme: light; }

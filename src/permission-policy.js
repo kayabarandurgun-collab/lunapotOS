@@ -28,7 +28,7 @@ export function permit(user,path,method){
  let feature;
  if(!match){if(!['products','materials','recipes'].includes(head))deny();feature=head;}
  else if(head==='production'){feature=parts[1]==='material-stock'?'materialstock':parts.length===1&&!write?'production-read':'production';}
- else feature=({'party-profiles':'ledger',warehouse:ns==='ec'?'stock':null,'product-profile':ns==='ec'?'stock':'accounts',products:ns==='ec'?'stock':'products',stock:ns==='ec'?'stock':'accounts',sales:ns==='ec'?'sales':'accounts',documents:ns==='ec'?'invoices':'accounts',returns:ns==='ec'?'sales':'accounts',fees:ns==='ec'?'sales':'accounts',expenses:ns==='ec'?'expenses':'accounts',invoices:ns==='ec'?'invoices':'accounts',purchases:ns==='ec'?'invoices':'accounts',suppliers:ns==='ec'?'ledger':'accounts',payments:'ledger',catalog:'catalog',ledger:'ledger',statement:'ledger',offers:'offers',pricing:'pricing',reconciliation:'reconciliation',orders:'orders',reports:'orders',performance:'performance',panorama:'performance',
+ else feature=({'brand-documents':'brand_documents','brand-logos':'brand_logos','brand-profile':'brand_documents','party-profiles':'ledger',warehouse:ns==='ec'?'stock':null,'product-profile':ns==='ec'?'stock':'accounts',products:ns==='ec'?'stock':'products',stock:ns==='ec'?'stock':'accounts',sales:ns==='ec'?'sales':'accounts',documents:ns==='ec'?'invoices':'accounts',returns:ns==='ec'?'sales':'accounts',fees:ns==='ec'?'sales':'accounts',expenses:ns==='ec'?'expenses':'accounts',invoices:ns==='ec'?'invoices':'accounts',purchases:ns==='ec'?'invoices':'accounts',suppliers:ns==='ec'?'ledger':'accounts',payments:'ledger',catalog:'catalog',ledger:'ledger',statement:'ledger',offers:'offers',pricing:'pricing',reconciliation:'reconciliation',orders:'orders',reports:'orders',performance:'performance',panorama:'performance',
   // Ekranların arka plan uçları ekranın kendi yetkisiyle: Kaça satmalıyım = fiyat ekranı, ürün kârlılığı = stok ekranı.
   // Yalnız e-ticaret alanında; üretim alanında eşleme yok (kapalı kalır).
   'fiyat-hesap':ns==='ec'?'pricing':null,'urun-karlilik':ns==='ec'?'stock':null})[head];
@@ -96,18 +96,25 @@ const RANK_SORTED={setler:'ad'};
 const alfabetik=(list,field)=>Array.isArray(list)
  ?[...list].sort((a,b)=>String(a?.[field]??'').localeCompare(String(b?.[field]??''),'tr')):list;
 const MONEY_TEXT=new Set(['notes','reason']);
+// Bu agaclarin ALTINDAKI her metinde tutar gizlenir. Yeni serbest alan eklendiginde
+// anahtar adini tek tek listelemek gerekmez; agaca girmek yeter.
+const MONEY_TEXT_TREE=new Set(['presentation','content']);
 const MONEY_IN_TEXT=/-?\d{1,3}(?:\.\d{3})*,\d{2}|-?\d+,\d{2}/g;
 const maskMoneyText=v=>typeof v==='string'?v.replace(MONEY_IN_TEXT,'(tutar gizli)'):Array.isArray(v)?v.map(maskMoneyText):v;
 export function scrubAmounts(payload,user,ns){
  if(user?.owner||can(user,ns,'amounts'))return payload;
  // Aynı nesne yanıtta iki kez geçebilir: ikinci geçişte ÖZGÜN nesne değil, gizlenmiş kopyası döner.
- const seen=new WeakMap();
- const walk=(value,parent='')=>{
-  if(!value||typeof value!=='object')return value;
-  if(seen.has(value))return seen.get(value);
-  const out=Array.isArray(value)?[]:{};seen.set(value,out);
+ // Metin gizlemesi açık ve kapalı geçişler AYRI önbelleklenir: aynı nesne hem sunum
+ // ağacının içinde hem dışında geçerse yanlış kopya dönmesin.
+ const seen=new WeakMap(),seenMasked=new WeakMap();
+ const walk=(value,parent='',maskText=false)=>{
+  // Serbest metin sunum ağacının altındaysa içindeki tutar YAZIYLA da sızmaz.
+  if(!value||typeof value!=='object')return maskText?maskMoneyText(value):value;
+  const cache=maskText?seenMasked:seen;
+  if(cache.has(value))return cache.get(value);
+  const out=Array.isArray(value)?[]:{};cache.set(value,out);
   // Dizi ogeleri kapsayicinin adini DEVRALIR: totals/incoming/prior bir dizi icinde de gelebilir.
-  if(Array.isArray(value))value.forEach((item,i)=>{out[i]=walk(item,parent);});
+  if(Array.isArray(value))value.forEach((item,i)=>{out[i]=walk(item,parent,maskText);});
   else {
    // Panorama günlük satırında kanal anahtarları kuruştur; genel kanal metadata'sı değildir.
    // Şema nesnenin kendisinden tanınır: başka bir alandaki aynı nesne takma adı da gizlenir.
@@ -135,8 +142,11 @@ export function scrubAmounts(payload,user,ns){
     if(reportRow&&REPORT_MONEY.has(key)){out[key]=null;continue;}
     if(recipeRow&&RECIPE_MONEY.has(key)){out[key]=null;continue;}
     if(estimateRow&&(key==='value'||key==='low'||key==='high')){out[key]=null;continue;}
-    if(MONEY_TEXT.has(key)){out[key]=maskMoneyText(walk(item,key));continue;}
-    out[key]=MONEY_KEY.test(key)||MONEY_NAMES.has(key)||dailyCash&&(key==='trendyol'||key==='hepsiburada')?null:walk(item,key);
+    // Sunum ağacı: atölyenin antet/referans/hazırlayan metinleri anahtar bazlı
+    // süzgece güvenemez. Ağaca girince bütün alt metinler gizlenir.
+    const altMetin=maskText||MONEY_TEXT_TREE.has(key);
+    if(MONEY_TEXT.has(key)){out[key]=maskMoneyText(walk(item,key,altMetin));continue;}
+    out[key]=MONEY_KEY.test(key)||MONEY_NAMES.has(key)||dailyCash&&(key==='trendyol'||key==='hepsiburada')?null:walk(item,key,altMetin);
    }
   }
   return out;

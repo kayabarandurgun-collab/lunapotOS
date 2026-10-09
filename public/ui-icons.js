@@ -31,5 +31,7 @@ const paths={
  lots:'M4 8h16v12H4z M4 8l2-4h12l2 4 M9 12h6',
  barcodes:'M4 5v14 M7 5v14 M10 5v14 M13 5v10 M16 5v14 M20 5v14',
  offers:'M6 3h9l4 4v14H6z M15 3v4h4 M9 12h7 M9 16h5',
- ai:'m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z'};
+ ai:'m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z',
+ 'logo-kutuphanesi':'M4 5h16v14H4z M8 12a4 4 0 0 1 8 0 M12 8v8',
+ 'belge-atolyesi':'M7 3h7l4 4v14H7z M14 3v4h4 M10 12h6 M10 16h4'};
 export const icon=name=>'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+(paths[name]||paths.overview)+'"/></svg>';

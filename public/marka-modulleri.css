@@ -1,0 +1,173 @@
+/* Marka modülleri: Logo Kütüphanesi ve Belge Atölyesi.
+   Bütün kurallar modül köküne hapsedilmiştir. Global body, form, table veya print
+   kuralı YOKTUR; başka ekranların görünümü bu dosyadan etkilenmez. */
+
+/* ---------- Logo Kütüphanesi ---------- */
+
+.marka-logo-intro .section-heading { align-items: center; gap: 16px; flex-wrap: wrap; }
+.marka-logo-intro .section-heading > div { flex: 1 1 320px; }
+
+.marka-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end;
+  margin: 16px 0 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.marka-filters fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.marka-filters legend {
+  padding: 0 0 6px;
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.marka-layout-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+.marka-layout-buttons button {
+  min-height: 44px;
+  padding: 9px 14px;
+  font-size: var(--yazi-dugme);
+  font-weight: var(--kalinlik-dugme);
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-dugme);
+  cursor: pointer;
+}
+.marka-layout-buttons button:hover { color: var(--ink); background: var(--canvas); }
+.marka-layout-buttons button[aria-pressed='true'] {
+  color: var(--brand);
+  background: var(--brand-soft);
+  border-color: var(--brand-border);
+}
+.marka-filters label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); }
+.marka-filters select { min-height: 38px; }
+
+.marka-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(238px, 1fr));
+}
+.marka-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.marka-art {
+  display: grid;
+  place-items: center;
+  min-height: 132px;
+  padding: 18px;
+  border-radius: 9px;
+  /* Şeffaflık görünür kalsın: kareli zemin indirilen dosyaya girmez. */
+  background:
+    linear-gradient(45deg, #eceee9 25%, transparent 25%, transparent 75%, #eceee9 75%) 0 0 / 16px 16px,
+    linear-gradient(45deg, #eceee9 25%, transparent 25%, transparent 75%, #eceee9 75%) 8px 8px / 16px 16px,
+    var(--surface);
+}
+/* Beyaz ve açık renkli logolar koyu önizlemede okunur; indirilen dosya şeffaf kalır. */
+.marka-art[data-background='dark'] { background: #1b211d; }
+.marka-art[data-layout='dikey'] { min-height: 176px; }
+.marka-art img { display: block; max-width: 100%; max-height: 112px; height: auto; }
+.marka-art[data-layout='dikey'] img { max-height: 152px; }
+.marka-art[data-layout='amblem'] img { max-height: 92px; }
+
+.marka-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.marka-card-head h3 { margin: 0; font-size: 13px; font-weight: 600; line-height: 1.4; }
+.marka-dots { display: inline-flex; gap: 4px; flex: 0 0 auto; }
+.marka-dots i {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1px solid #0000001f;
+}
+.marka-card-info { margin: 0; font-size: 11px; color: var(--muted); }
+
+.marka-downloads { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: auto; }
+.marka-downloads a {
+  min-height: 44px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--brand);
+  background: var(--brand-soft);
+  border: 1px solid var(--brand-border);
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+}
+.marka-downloads a:hover { background: var(--surface); }
+.marka-png { display: inline-flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.marka-png > span {
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.marka-png a { color: var(--muted); background: var(--surface); border-color: var(--line); font-weight: 500; }
+.marka-png a:hover { color: var(--ink); background: var(--canvas); }
+.marka-empty { margin: 0; padding: 24px; text-align: center; color: var(--muted); background: var(--canvas); border-radius: 10px; }
+
+/* ---------- Özel renk ---------- */
+
+.marka-custom-grid { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; margin-top: 16px; }
+.marka-custom-form { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.marka-custom-form label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); }
+.marka-custom-form input,
+.marka-custom-form select { min-height: 38px; }
+.marka-custom-form input[name='hex'] { font-family: ui-monospace, 'Cascadia Mono', 'Consolas', monospace; text-transform: uppercase; }
+.marka-custom-form input[aria-invalid='true'] { border-color: #b4452f; }
+.marka-swatch input[type='color'] { padding: 2px; min-height: 38px; cursor: pointer; }
+.marka-custom-form .help,
+.marka-custom-form .notice,
+.marka-custom-form .marka-custom-actions { grid-column: 1 / -1; }
+.marka-custom-form .help { margin: 0; font-size: 11px; }
+.marka-custom-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.marka-preview { padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.marka-preview-toggle { display: flex; gap: 6px; margin-bottom: 12px; }
+.marka-preview-toggle button {
+  min-height: 44px;
+  padding: 9px 13px;
+  font-size: var(--yazi-dugme-kucuk);
+  font-weight: var(--kalinlik-dugme);
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-dugme);
+  cursor: pointer;
+}
+.marka-preview-toggle button[aria-pressed='true'] { color: var(--brand); background: var(--brand-soft); border-color: var(--brand-border); }
+.marka-preview-art {
+  display: grid;
+  place-items: center;
+  min-height: 188px;
+  padding: 24px;
+  border-radius: 9px;
+  background:
+    linear-gradient(45deg, #eceee9 25%, transparent 25%, transparent 75%, #eceee9 75%) 0 0 / 16px 16px,
+    linear-gradient(45deg, #eceee9 25%, transparent 25%, transparent 75%, #eceee9 75%) 8px 8px / 16px 16px,
+    var(--surface);
+}
+.marka-preview[data-background='dark'] .marka-preview-art { background: #1b211d; }
+.marka-preview-art img { display: block; max-width: 100%; max-height: 152px; height: auto; }
+.marka-preview-empty { font-size: 12px; color: var(--muted); }
+.marka-preview-label { margin: 10px 0 0; font-size: 12px; color: var(--muted); }
+
+@media (max-width: 860px) {
+  .marka-custom-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 520px) {
+  .marka-custom-form { grid-template-columns: minmax(0, 1fr); }
+  .marka-grid { grid-template-columns: minmax(0, 1fr); }
+  .marka-filters { gap: 12px; }
+}

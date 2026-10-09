@@ -7,6 +7,7 @@ import {storeApi,webshopAdminApi,demoEnabled} from './webshop-api.js';
 import {stockHistoryApi} from './stock-history-api.js';
 import {partyStatementApi} from './party-statement-api.js';
 import {offersApi} from './offers-api.js';
+import {brandDocumentsApi} from './brand-documents-api.js';
 import {barcodeApi} from './barcode-api.js';
 import {lotApi} from './lot-api.js';
 import {loginLimitSubjects} from './login-limits.js';
@@ -164,7 +165,7 @@ async function api(request,env,path){
  const workspace=path.match(/^\/api\/(ec|lp)(\/.*)?$/);
  if(workspace){
   const scoped={...env,DB:scopedDB(db,workspace[1]),ROOT_DB:db,WORKSPACE:workspace[1],USER:current.user},subpath=workspace[2]||'';
-  for(const handler of [partyProfileApi,warehouseApi,productProfileApi,moneyPlanningApi,workbenchApi,fifoApi,fiyatHesapApi,urunKarlilikApi,panoramaApi,stagedImportApi,purchaseDocumentApi,purchaseAutopostApi,salesDocumentApi,reportStockLinkApi,reportInboxApi,marketplaceReceivablesApi,bankMatchApi,bankApi,lotApi,barcodeApi,offersApi,partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null){await maliyetiTazele(scoped,request);return json(scrubAmounts(result,current.user,workspace[1]));}}
+  for(const handler of [partyProfileApi,warehouseApi,productProfileApi,moneyPlanningApi,workbenchApi,fifoApi,fiyatHesapApi,urunKarlilikApi,panoramaApi,stagedImportApi,purchaseDocumentApi,purchaseAutopostApi,salesDocumentApi,reportStockLinkApi,reportInboxApi,marketplaceReceivablesApi,bankMatchApi,bankApi,lotApi,barcodeApi,offersApi,brandDocumentsApi,partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null){await maliyetiTazele(scoped,request);return json(scrubAmounts(result,current.user,workspace[1]));}}
   const accounting=await accountingApi(request,scoped,'/api/accounting'+subpath,body);await maliyetiTazele(scoped,request);
   return json(scrubAmounts(accounting,current.user,workspace[1]));
  }
@@ -264,7 +265,7 @@ export default {
  if(response.status===200&&(response.headers.get('Content-Type')||'').startsWith('video/'))response=await videoRange(request,response);
  const headers=new Headers(response.headers);
  headers.set('X-Content-Type-Options','nosniff');headers.set('Referrer-Policy','no-referrer');headers.set('X-Frame-Options','DENY');
- headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src blob:; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
+ headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; object-src blob:; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
  headers.set('Permissions-Policy','camera=(), microphone=(), geolocation=()');
  if(new URL(request.url).protocol==='https:')headers.set('Strict-Transport-Security','max-age=31536000; includeSubDomains');
  return new Response(response.body,{status:response.status,headers});

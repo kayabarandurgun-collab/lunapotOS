@@ -1,0 +1,99 @@
+---
+session: lunapot-panel
+date: 2026-10-09
+status: implemented_not_deployed
+outcome: KOD HAZIR · GÖÇ VE YAYIN KULLANICIDA
+onceki: thoughts/shared/handoffs/lunapot-panel/2026-10-08_23-00_kurumsal-moduller-yapilacaklar.yaml
+---
+
+goal: "Belge Atölyesi ve Logo Kütüphanesi panele eklendi. İki AYRI modül: ayrı yetki, ayrı menü, ayrı rota. Kod yazıldı, testler geçti, tarayıcıda uçtan uca denendi. YAYINLANMADI."
+now: "Sırada iki iş var: (1) göç 0077'yi kullanıcı basacak, (2) yayın. Göç basılmadan dokuz yeni tür KAPALI görünür — panel çalışmaya devam eder, bu test edildi."
+
+test:
+  taban: "1504 geçti · 2 kaldı · 31 atlandı"
+  simdi: "1589 geçti · 2 kaldı · 31 atlandı — +85 yeni test, REGRESYON YOK"
+  kalan_iki: "tests/seed-local-catalog.test.js ve tests/store-sync.test.js — ikisi de repo DIŞI ../lunapot-store-preview okuyor, bu işten değil, taban ölçümünde de kırmızıydı"
+  komut: "node --test tests/*.test.js"
+
+yayin_adimlari:
+  - "1) GÖÇ: node scripts/migrate-remote.mjs — KULLANICI basar. 0077_marka_belge_profili.sql yalnız ekleyicidir: workspace_settings'e 8 antet sütunu, ec_/lp_brand_documents tabloları. Hiçbir mevcut satır değişmez."
+  - "2) Göçten sonra veriden doğrula: d1_migrations'da 0077 var mı, ec_brand_documents tablosu var mı."
+  - "3) YAYIN: npx wrangler deploy. public/sw.js önbellek adı v193 → v195'e yükseltildi; kullanıcı eski kodu görmez."
+  - "4) Yayından sonra: Ekip ve yetkiler ekranından Belge Atölyesi ve Logo Kütüphanesi yetkilerini ver. HİÇ KİMSEDE AÇIK DEĞİL (owner hariç) — bilerek böyle."
+  - "5) Şirket ve yedek ekranından antet alanlarını doldur (adres, telefon, e-posta, web, vergi dairesi, banka, IBAN). Boş kalırsa belgede boş basılır, uydurulmaz."
+
+degisen_dosyalar:
+  yeni:
+    - "migrations/0077_marka_belge_profili.sql — antet sütunları + iki kurumsal evrak tablosu"
+    - "src/brand-documents-api.js — dokuz türün API'si (liste/oluştur/oku/güncelle/revizyon/çoğalt/dondur/arşivle/cari-ürün seçimi/antet profili)"
+    - "public/brand-documents-ui.js — Belge Atölyesi arayüzü, 11 tür"
+    - "public/brand-logos-ui.js — Logo Kütüphanesi arayüzü"
+    - "public/belge-sayi.js — sayı giriş adaptörü (virgül/nokta, binlik reddi, ondalık sınırı)"
+    - "public/brand-logo-variants.js — 32 onaylı logo kimliği (manifestten üretildi)"
+    - "public/belge-sayfasi.css — A4 sayfa stili; ekran ve baskı AYNI dosyadan"
+    - "public/marka-modulleri.css — modül arayüz stili"
+    - "public/marka/logo/ — 32 SVG + 96 PNG + 4 özel renk + manifest + ZIP (13,9 MB / 134 dosya)"
+    - "tests/ — 6 yeni test dosyası, 85 test"
+  degisen:
+    - "src/offers-api.js — presentation alanı (whitelist'li, göç GEREKTİRMEDİ: snapshot_json içine girer)"
+    - "src/permission-policy.js — brand_documents/brand_logos rota eşlemesi; scrubAmounts'a presentation+content ağaç gizlemesi"
+    - "src/scoped-db.js — brand_documents izinli tablo listesine eklendi (handoff'un 'en kolay unutulan adım' dediği yer)"
+    - "src/worker.js — brandDocumentsApi bağlandı; CSP img-src'ye blob: eklendi"
+    - "public/permissions.js — iki yeni anahtar + OPT_IN kümesi + rota eşlemesi + moduleRoute"
+    - "public/workspace-navigation.js — 'Marka ve kurumsal evrak' grubu, iki AYRI giriş"
+    - "public/offers-ui.js — teklif/proformada 'Atölyede düzenle' bağlantısı (aynı offer.id)"
+    - "public/access-ui.js — personel kartları rota adına gider"
+    - "public/ecommerce.js, public/app.js, *.html, public/print.css, public/sw.js, public/ui-icons.js"
+
+tarayicida_dogrulandi:
+  nasil: "Gerçek worker + gerçek göçler + BELLEKTE veritabanı, gerçek CSP başlıklarıyla yerel sunucu. Canlı veriye dokunulmadı."
+  - "Logo: 32 varyant, 36/36 renk noktası, konsol TEMİZ, 0 bozuk görsel"
+  - "Logo PNG oranı onaylı dosyalarla BİREBİR: yatay 1024x237, dikey 1024x823, amblem 1024x1024, yazı 1024x290"
+  - "Atölye: teklif kaydedildi → TKF-2026-0001, 35800 kuruş, sunum (logo/hazırlayan/muhatap/firma) saklandı"
+  - "Paket listesi kaydedildi → PKT-2026-0001, para alanı YOK, 'Kontrol / açıklama' düzenlenebilir"
+  - "Eski tarihli belge açıldı: 2026-03-14 KORUNDU, bugünle (2026-10-09) ezilmedi"
+  - "Muhatap SNAPSHOT'tan geldi, canlı cari kartından değil"
+  - "Önizleme = baskı çıktısı BİREBİR: brüt 330 / iskonto 25 / net 305 / KDV 53 / toplam 358,00 TL"
+  - "Baskıda logo var, oranı korunmuş (245x57); tablo başlığı sayfalarda tekrar eder; imza bölünmez"
+  - "320 / 390 / 768 / 1440: yatay taşma YOK; 1440'ta sayfa tam 794px = A4"
+  - "Üretim alanı da çalışıyor; lp cari listesi boş geldi (alan ayrımı doğru)"
+
+handoffta_yanlis_olan_iki_sey:
+  - "Deploy boyutu 1,1 MB / 259 dosya DEĞİLDİ: başlangıçta 51,6 MB / 256 dosya (public/magaza görselleri). Şimdi 65,6 MB / 396. En büyük dosya 5,8 MB (logo ZIP), Cloudflare sınırı 25 MB — rahat."
+  - "Yetki anahtarları src/permission-policy.js'te değil, public/permissions.js `modules` içinde. Sonuç aynıydı (iki anahtar yoktu), yer farklıydı."
+
+handoffun_yazmadigi_iki_tuzak:
+  - "SESSİZ YETKİ GERÇEKTİ: public/permissions.js level() → permissions:null olan eski hesapta selected=envelope. Yeni anahtar eklenince eski personel otomatik WRITE alırdı. webshop bu yüzden ayrıca engellenmiş; iki yeni anahtar aynı OPT_IN kümesine konuldu ve test edildi."
+  - "SATIR İÇİ style NİTELİĞİ CSP'YE TAKILIYOR: style-src 'self' satır içi stili engelliyor. Panelde bu niteliği kullanan BAŞKA DOSYA YOK — hepsi programatik .style. kullanıyor. Renk noktalarını CSSOM ile atadım, kuralı teste bağladım (tests/marka-modul-korumalari.test.js)."
+
+yapilmadi:
+  - "JSON içe aktarma (önizlemeli, açık kaydetme adımıyla). Atölyenin yerel v2 JSON'unu panele almak İSTENMİŞTİ, yazılmadı. Yerel localStorage kaynak kayıt olarak KULLANILMIYOR — o kısım yapıldı."
+  - "Ürün seçici arayüzde yok. /brand-documents/lookups/products ucu VAR ve test edildi; arayüzde stok kodu hâlâ serbest metin."
+  - "Mevcut Teklif ekranının pdf-lib tabanlı PDF/Word dışa aktarımına logo EKLENMEDİ. Handoff ya/ya da diyordu: 'şablon adaptörü ekle YA DA aynı kanonik belgeden ayrı markalı renderer üret'. İkincisi yapıldı — atölyenin A4 baskısı markalı. Eski dışa aktarımlar dokunulmadan çalışıyor."
+  - "Sayfadan ayrılırken kaydedilmemiş değişiklik uyarısı (beforeunload) yok. Ekran içinde tür değiştirince ve yeni belge açarken onay soruluyor."
+  - "Faz 6'nın tam süpürmesi: klavye/focus turu ve çoklu kullanıcı eşzamanlı numara çakışması canlıda denenmedi. Numara çakışması sunucuda UNIQUE ile korunuyor ve 409 veriyor (offers'ın kanıtlanmış kalıbı)."
+
+tuzaklar_sonraki_oturum_icin:
+  - "scopedDB tablo listesi: yeni tablo eklerken src/scoped-db.js'e YAZ, yoksa sorgu sessizce yanlış tabloya gider."
+  - "public/ değişirse public/sw.js içindeki CACHE adını yükselt. Şu an v195."
+  - "Tarayıcı test sunucusunda CSS önbelleği beni bir kez yanılttı: stil dosyası güncellendiği hâlde eski kopya uygulanıyordu. Ölçüm tuhafsa önce cssRules sayısına bak."
+  - "printDocument çerçevenin KENDİ print()'ini çağırır; testte window.print'i stub'lamak yetmez, baskı diyaloğu açılır ve sekme kilitlenir. Escape ile kurtulur."
+  - "Kurumsal evrak belgeleri muhasebe kaydı DEĞİLDİR. Test bunu ölçüyor: dokuz türü de kaydedip stok/satış/fatura/kasa/cari sayılarının değişmediğini doğruluyor."
+
+matematik_sozlesmesi_degismedi:
+  - "public/offer-math.js'e DOKUNULMADI. Atölye aynı motoru kullanıyor."
+  - "Doğrulama: 2x125TL %10 isk %20 KDV → 27000 kuruş; 1x80TL %0 isk %10 KDV → 8800; birlikte 358,00 TRY. Hem testte hem tarayıcıda çıktı."
+  - "qty=0,333 price=0,10 vat=20 → brüt 3, KDV 1, toplam 4 kuruş. Testte."
+
+onceki_oturumdan_devam:
+  - "Seçkin'e 4 adet TS1 borcu ₺7.380; faturaları gelince Belge yükle."
+  - "Kayıp kargo tazminatı (HB 4302703706); para gelince Giderler → Tazminat geliri."
+  - "Tropikal faturaları ~₺52.716 + 6.750; geldiğinde 13 ürün için FIFO önizlemesi ZORUNLU."
+  - "Kesinti sayfasının kalan ~4 sn'si: Worker içine damga koyup ölç. Acil değil."
+  - "İSTENMEYEN: ikmal/tedarik motoru; 7 kurumsal HB faturası, Pina Small fiyat profili, Pina Store."
+
+ortam:
+  repo: "C:/Users/baran/Desktop/site/lunapot-panel (main, HEAD 6d6e43c + bu değişiklikler commit EDİLMEDİ). Documents/Codex kopyası ESKİ, DOKUNMA."
+  canli: "https://muhasebe.lunapot.com · önbellek şimdi lunapot-shell-v195 · göç 0077'ye kadar"
+  kaynak_paket: "C:/Users/baran/Desktop/site/lunapot-kurumsal-moduller-devir/ (354 dosya, bütünlük doğrulandı, geometri değişmemiş)"
+  kullanici: "ÇOK KISA YAZ, tablo + kalın rakam. Formu sen aç, basmayı o yapsın. Para/stok değiştiren işlemden sonra VERİDEN doğrula."

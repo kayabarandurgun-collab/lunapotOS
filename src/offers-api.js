@@ -1,4 +1,5 @@
 import {offerTotals, OFFER_PREFIX, NEXT_KIND, CLOSED_STATUS, effectiveStatus} from '../public/offer-math.js';
+import {isApprovedLogoVariant} from '../public/brand-logo-variants.js';
 
 // Teklif / proforma / sözleşme uçları.
 // Bu belgeler TİCARİ TEKLİFTİR: stok düşmez, cariye borç/alacak yazmaz, resmî fatura kesmez.
@@ -67,10 +68,90 @@ function readContent(input, kind) {
   };
 }
 
+// Belge Atölyesi'nin sunum verisi. YALNIZ bu alanlar saklanır; serbest SVG/HTML girmez.
+// Logo seçimi onaylı manifest kimlikleriyle sınırlıdır: uydurma kimlik kaydedilmez.
+const PRESENTATION_TEMPLATES = ['lunapot-business-v2'];
+const PARTY_SNAPSHOT_FIELDS = {name: 200, address: 400, contact: 200, tax: 200, bank: 200};
+const PRESENTATION_KEYS = ['schema_version', 'template_id', 'template_version', 'logo_variant_id',
+  'company_snapshot', 'recipient_snapshot', 'reference', 'prepared', 'approved', 'example',
+  'line_metadata', 'brand_version'];
+const PRESENTATION_MAX = 4000;
+
+const shortText = (value, label, max) => {
+  if (value === undefined || value === null || value === '') return '';
+  if (typeof value !== 'string' || value.length > max) fail(label + ' alanını kontrol edin.');
+  return value.trim();
+};
+
+function partySnapshot(value, label) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) fail(label + ' bilgisini kontrol edin.');
+  for (const key of Object.keys(value))
+    if (!Object.hasOwn(PARTY_SNAPSHOT_FIELDS, key)) fail(label + ' içinde tanınmayan alan var.');
+  const out = {};
+  for (const [key, max] of Object.entries(PARTY_SNAPSHOT_FIELDS)) out[key] = shortText(value[key], label, max);
+  return out;
+}
+
+// Alan GÖNDERİLMEDİĞİNDE mevcut sunum verisi korunur: sunumu bilmeyen eski istemci
+// bir taslağı kaydettiğinde atölyenin antet/logo seçimi silinmez. Açıkça null
+// gönderilirse temizlenir.
+function readPresentation(input, lineCount, previous) {
+  if (!Object.hasOwn(input, 'presentation')) return previous ?? null;
+  const value = input.presentation;
+  if (value === null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) fail('Belge sunumu geçersiz.');
+  for (const key of Object.keys(value))
+    if (!PRESENTATION_KEYS.includes(key)) fail('Belge sunumunda tanınmayan alan var.');
+  if (value.schema_version !== 1) fail('Belge sunum sürümü desteklenmiyor.');
+  if (!PRESENTATION_TEMPLATES.includes(value.template_id)) fail('Belge şablonu tanınmıyor.');
+  if (!Number.isSafeInteger(value.template_version) || value.template_version < 1 || value.template_version > 99)
+    fail('Belge şablon sürümü geçersiz.');
+  if (!isApprovedLogoVariant(value.logo_variant_id)) fail('Logo seçimi onaylı listede bulunamadı.');
+  if (value.brand_version !== 'v8') fail('Marka sürümü geçersiz.');
+  if (value.example !== undefined && typeof value.example !== 'boolean') fail('Örnek işareti geçersiz.');
+
+  const metadata = [];
+  if (value.line_metadata !== undefined && value.line_metadata !== null) {
+    if (!Array.isArray(value.line_metadata) || value.line_metadata.length > lineCount)
+      fail('Satır bilgisi belge satırlarıyla uyuşmuyor.');
+    for (const item of value.line_metadata) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) fail('Satır bilgisi geçersiz.');
+      for (const key of Object.keys(item))
+        if (!['index', 'sku'].includes(key)) fail('Satır bilgisinde tanınmayan alan var.');
+      if (!Number.isSafeInteger(item.index) || item.index < 0 || item.index >= lineCount)
+        fail('Satır bilgisi belge satırlarıyla uyuşmuyor.');
+      metadata.push({index: item.index, sku: shortText(item.sku, 'Stok kodu', 60)});
+    }
+  }
+
+  const presentation = {
+    schema_version: 1,
+    template_id: value.template_id,
+    template_version: value.template_version,
+    logo_variant_id: value.logo_variant_id,
+    company_snapshot: partySnapshot(value.company_snapshot, 'Firma bilgisi'),
+    recipient_snapshot: partySnapshot(value.recipient_snapshot, 'Muhatap bilgisi'),
+    reference: shortText(value.reference, 'Referans', 200),
+    prepared: shortText(value.prepared, 'Hazırlayan', 120),
+    approved: shortText(value.approved, 'Onaylayan', 120),
+    example: value.example === true,
+    line_metadata: metadata,
+    brand_version: 'v8'
+  };
+  if (JSON.stringify(presentation).length > PRESENTATION_MAX) fail('Belge sunumu çok büyük.');
+  return presentation;
+}
+
+const presentationOf = row => {
+  try { return JSON.parse(row.snapshot_json).presentation ?? null; } catch { return null; }
+};
+
 const snapshotOf = (card, workspace, kind, content) => ({
   party: card, workspace, kind,
   title: content.title, issue_date: content.issue_date, valid_until: content.valid_until, terms: content.terms,
   currency: 'TRY', totals: content.totals,
+  presentation: content.presentation ?? null,
   notice: 'Bu belge bir ticari tekliftir; resmî fatura değildir. İndirilmesi, yazdırılması veya iletilmesi kabul ya da imza anlamına gelmez.'
 });
 
@@ -170,6 +251,9 @@ export async function offersApi(request, env, path, readBody) {
       if (NEXT_KIND[source.kind] !== kind) fail('Bu belge türü kaynak belgeden türetilemez.');
       if (source.status !== 'accepted') fail('Yalnızca kabul edilmiş bir belgeden sonraki belge üretilir.', 409);
     }
+    // Revizyon ve türetilen belge, sunum göndermeyen istemcide önceki yerleşimi sürdürür.
+    const inherited = previous ? presentationOf(previous) : source ? presentationOf(source) : null;
+    content.presentation = readPresentation(input, content.totals.rows.length, inherited);
 
     const row = {
       id: id(), kind, party_id: party,
@@ -198,6 +282,7 @@ export async function offersApi(request, env, path, readBody) {
       fail('Bu belgenin daha yeni bir revizyonu var.', 409);
     const card = await partyCard(db, row.party_id);
     const content = readContent(input, row.kind);
+    content.presentation = readPresentation(input, content.totals.rows.length, presentationOf(row));
     try {
       await db.prepare(
         'UPDATE offers SET title=?,issue_date=?,valid_until=?,terms=?,gross_cents=?,discount_cents=?,net_cents=?,' +
@@ -272,6 +357,8 @@ export async function offersApi(request, env, path, readBody) {
       terms: input.terms === undefined ? snapshot.terms : input.terms,
       lines: snapshot.totals.rows
     }, kind);
+    // Türetilen belge kaynağın yerleşimini sürdürür; istemci isterse kendi sunumunu verir.
+    content.presentation = readPresentation(input, content.totals.rows.length, snapshot.presentation ?? null);
 
     const row = {
       id: id(), kind, party_id: source.party_id,

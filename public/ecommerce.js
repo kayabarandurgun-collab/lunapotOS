@@ -10,7 +10,7 @@ let loggingOut=false,startupRetry=start;
 const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // Menu sirasi ve adlari: once gunluk karar isleri, sonra kayit tutma. Anahtarlar degismez;
 // mevcut #adres baglantilari ve hizli gecis aynen calisir. Ekran yetkileri ve verileri birlesmez.
-const views={"party":"Cari dosyası","warehouse":"Sayım ve tedarik","product":"Ürün dosyası","money":"Ödeme takvimi","business-result":"İşletme sonucu","intake":"Belge yükle","workbench":"Günlük işler",overview:'Genel durum',performance:'Satış ve kâr',orders:'Siparişler',reports:'Rapor yükleme',pricing:'Satış fiyatı hesapla',stock:'Depomdaki ürünler',catalog:'Ürünler ve setler',invoices:'Alış faturaları',documents:'Fatura belgeleri',sales:'Satış ve kesinti kayıtları',reconciliation:'Kesinti eşleştirme',ledger:'Cariler ve nakit',bank:'Banka ekstresi',offers:'Teklif ve belgeler',expenses:'Genel giderler',integrations:'Bağlantılar',settings:'Şirket ve yedek'};
+const views={"party":"Cari dosyası","warehouse":"Sayım ve tedarik","product":"Ürün dosyası","money":"Ödeme takvimi","business-result":"İşletme sonucu","intake":"Belge yükle","workbench":"Günlük işler",overview:'Genel durum',performance:'Satış ve kâr',orders:'Siparişler',reports:'Rapor yükleme',pricing:'Satış fiyatı hesapla',stock:'Depomdaki ürünler',catalog:'Ürünler ve setler',invoices:'Alış faturaları',documents:'Fatura belgeleri',sales:'Satış ve kesinti kayıtları',reconciliation:'Kesinti eşleştirme',ledger:'Cariler ve nakit',bank:'Banka ekstresi',offers:'Teklif ve belgeler',expenses:'Genel giderler',integrations:'Bağlantılar',settings:'Şirket ve yedek','belge-atolyesi':'Belge Atölyesi','logo-kutuphanesi':'Logo Kütüphanesi'};
 function resetSession(){
  const owner=session.begin();authenticated=false;currentUser=null;mountedRoute='';loggingOut=false;
  disposeQuickLogin?.();disposeQuickLogin=null;routeLoader.begin();return owner;
@@ -34,6 +34,8 @@ const routeViews={
  ledger:{load:()=>import('./business-ui.js'),mount:(module,root)=>module.mountBusiness(root,'ec','ledger',currentUser)},
  pricing:{load:()=>import('./business-ui.js'),mount:(module,root)=>module.mountBusiness(root,'ec','pricing',currentUser)},
  offers:{load:()=>import('./offers-ui.js'),mount:(module,root)=>module.mountOffers(root,'ec')},
+ 'logo-kutuphanesi':{load:()=>import('./brand-logos-ui.js'),mount:(module,root)=>module.mountBrandLogos(root,'ec')},
+ 'belge-atolyesi':{load:()=>import('./brand-documents-ui.js'),mount:(module,root)=>module.mountBrandDocuments(root,'ec',currentUser)},
  orders:{load:()=>import('./orders-ui.js'),mount:(module,root)=>module.mountOrders(root,'ec')},
  reports:{load:()=>import('./report-inbox-ui.js'),mount:(module,root)=>module.mountReports(root,'ec')},
  bank:{load:()=>import('./bank-ui.js'),mount:(module,root)=>module.mountBank(root,'ec')},

@@ -1,0 +1,110 @@
+/* BELGE ATÖLYESİ'NİN A4 SAYFASI.
+   Hem ekran önizlemesi hem yazdırma çıktısı bu dosyayı kullanır: önizleme ile
+   PDF/yazdırma AYNI değerleri gösterir. print.css bu dosyayı @import eder.
+
+   Bütün kurallar .ba- önekli sınıflara bağlıdır. Global body, form, table ya da
+   print kuralı YOKTUR: başka ekranların görünümü bu dosyadan etkilenmez.
+   Kaynak tasarım: lunapot-kurumsal-moduller-devir/01-Belge-Atolyesi/business-style.css */
+
+.ba-sheet {
+  --ba-ink: #243830;
+  --ba-muted: #6a766f;
+  --ba-line: #d9e0db;
+  --ba-brand: #24644f;
+  box-sizing: border-box;
+  width: 210mm;
+  min-height: 297mm;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 16mm;
+  background: #fff;
+  color: var(--ba-ink);
+  font: 12px/1.6 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ba-sheet * { box-sizing: border-box; }
+
+.ba-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding-bottom: 12px; border-bottom: 2px solid var(--ba-brand); }
+/* Logo oranı önizlemede, PDF'te ve yazdırmada AYNI: yükseklik sabit, genişlik oranla gelir. */
+.ba-brand { display: block; height: 15mm; width: auto; flex: 0 0 auto; }
+.ba-kind { text-align: right; }
+.ba-kind p { margin: 0; font-size: 8px; font-weight: 650; letter-spacing: 1.4px; color: var(--ba-muted); }
+.ba-kind h1 { margin: 2px 0 3px; font-size: 19px; line-height: 1.25; }
+.ba-kind span { font-size: 11px; color: var(--ba-muted); }
+
+.ba-sample { padding: 7px 11px; font-size: 10px; font-weight: 650; letter-spacing: 1px; color: #8a5a12; background: #fdf4e3; border: 1px solid #f0dcb4; border-radius: 4px; }
+
+.ba-meta { display: flex; justify-content: space-between; gap: 24px; }
+.ba-meta > div { min-width: 0; }
+.ba-meta h2 { margin: 0 0 4px; font-size: 14px; line-height: 1.35; }
+.ba-meta p { margin: 0 0 2px; font-size: 11px; color: var(--ba-muted); }
+.ba-meta dl { margin: 0; display: grid; gap: 3px; min-width: 52mm; }
+.ba-meta dl > div { display: flex; justify-content: space-between; gap: 12px; font-size: 11px; }
+.ba-meta dt { color: var(--ba-muted); }
+.ba-meta dd { margin: 0; font-weight: 600; }
+
+.ba-eyebrow { margin: 0 0 2px; font-size: 8px; font-weight: 650; letter-spacing: 1.3px; text-transform: uppercase; color: var(--ba-muted); }
+.ba-recipient, .ba-subject { padding: 10px 12px; background: #f7f9f7; border-left: 3px solid var(--ba-brand); border-radius: 0 4px 4px 0; }
+.ba-recipient h2, .ba-subject h2 { margin: 0; font-size: 13px; line-height: 1.4; }
+.ba-recipient p { margin: 3px 0 0; font-size: 11px; color: var(--ba-muted); }
+
+.ba-items { width: 100%; border-collapse: collapse; font-size: 11px; }
+.ba-items thead th { padding: 7px 8px; text-align: left; font-size: 9px; font-weight: 650; letter-spacing: .5px; text-transform: uppercase; color: var(--ba-muted); background: #f2f5f2; border-bottom: 1px solid var(--ba-line); }
+.ba-items th.num, .ba-items td.num { text-align: right; }
+.ba-items tbody td { padding: 7px 8px; vertical-align: top; border-bottom: 1px solid var(--ba-line); }
+.ba-items tbody td small { display: block; margin-top: 1px; font-size: 9px; color: var(--ba-muted); }
+.ba-items td.strong { font-weight: 650; }
+
+.ba-totals { display: flex; justify-content: flex-end; }
+.ba-totals dl { margin: 0; min-width: 72mm; display: grid; gap: 3px; }
+.ba-totals dl > div { display: flex; justify-content: space-between; gap: 16px; font-size: 11px; padding: 2px 0; }
+.ba-totals dt { color: var(--ba-muted); }
+.ba-totals dd { margin: 0; font-weight: 600; }
+.ba-totals .ba-grand { margin-top: 4px; padding-top: 6px; border-top: 2px solid var(--ba-brand); font-size: 13px; }
+.ba-totals .ba-grand dt { color: var(--ba-ink); font-weight: 650; }
+.ba-totals .ba-grand dd { font-weight: 700; }
+.ba-problem, .ba-hidden-money { margin: 0; font-size: 11px; color: #9a4b32; }
+.ba-hidden-money { color: var(--ba-muted); }
+
+.ba-notes h3, .ba-payment h3 { margin: 0 0 4px; font-size: 10px; font-weight: 650; letter-spacing: .8px; text-transform: uppercase; color: var(--ba-muted); }
+.ba-notes p, .ba-payment p { margin: 0; font-size: 11px; line-height: 1.7; }
+
+.ba-signatures { display: flex; gap: 24px; margin-top: auto; padding-top: 16px; }
+.ba-signatures > div { flex: 1; padding-top: 7px; border-top: 1px solid var(--ba-line); }
+.ba-signatures p { margin: 0 0 14px; font-size: 9px; font-weight: 650; letter-spacing: .6px; text-transform: uppercase; color: var(--ba-muted); }
+.ba-signatures strong { font-size: 11px; }
+
+.ba-foot { display: flex; justify-content: space-between; gap: 16px; padding-top: 8px; border-top: 1px solid var(--ba-line); font-size: 9px; color: var(--ba-muted); }
+
+/* Uzun belge: tablo başlığı her sayfada tekrar eder, imza ve satır sayfa arasında bölünmez. */
+.ba-items thead { display: table-header-group; }
+.ba-items tbody tr { break-inside: avoid; }
+.ba-signatures, .ba-totals, .ba-foot { break-inside: avoid; }
+.ba-recipient, .ba-subject { break-inside: avoid; }
+
+/* Yazdırma: kâğıt kenar boşluğu @page'ten gelir, sayfanın kendi dolgusu kalkar. */
+.ba-print .ba-sheet { width: auto; min-height: 0; margin: 0; padding: 0; max-width: none; }
+.ba-print .ba-head { padding-top: 0; }
+
+/* Türkçe uzun tek kelime satırı taşırmasın. */
+.ba-sheet h1, .ba-sheet h2, .ba-items td, .ba-notes p, .ba-payment p, .ba-meta p { overflow-wrap: anywhere; }
+
+/* Dar ekranda A4 sayfası kâğıt ölçüsünü korumaya çalışıp sayfayı yatay kaydırmasın.
+   @media screen ile sınırlıdır: YAZDIRMA çıktısı bu kurallardan etkilenmez,
+   kâğıtta ölçüler ve logo oranları aynen kalır. */
+@media screen and (max-width: 720px) {
+  .ba-sheet { width: auto; min-height: 0; padding: 10mm 6mm; gap: 11px; }
+  .ba-head { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .ba-kind { text-align: left; }
+  .ba-brand { height: 11mm; }
+  .ba-meta { flex-direction: column; gap: 12px; }
+  .ba-meta dl { min-width: 0; }
+  .ba-signatures { flex-direction: column; gap: 14px; }
+  .ba-foot { flex-direction: column; gap: 3px; }
+  .ba-totals dl { min-width: 0; width: 100%; }
+  /* Satır tablosu KENDİ içinde kayar; sayfanın tamamını kaydırmaz. */
+  .ba-items { display: block; overflow-x: auto; white-space: nowrap; }
+  .ba-items tbody td small { white-space: normal; }
+}

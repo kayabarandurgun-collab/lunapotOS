@@ -191,12 +191,17 @@ export function mountOffers(root, namespace) {
     }
     if (d.status === 'accepted' && NEXT_KIND[d.kind] && !d.derived.some(x => x.kind === NEXT_KIND[d.kind]))
       actions.push(act(kindName(NEXT_KIND[d.kind]) + ' hazırla', 'convert', d.id, false));
+    // Belge Atölyesi AYNI kaydı açar: ikinci bir kopya oluşmaz, aynı offer.id düzenlenir.
+    // Sözleşme atölye setinin bir türü değildir; bağlantı yalnız teklif ve proformada çıkar.
+    const workshop = ['quote', 'proforma'].includes(d.kind) && can(state.user, namespace, 'brand_documents')
+      ? `<p class="help"><a href="#belge-atolyesi?offer=${encodeURIComponent(d.id)}&tur=${d.kind === 'proforma' ? 'proforma' : 'teklif'}">Atölyede düzenle →</a> · Aynı belge açılır, yeni kayıt oluşmaz.</p>`
+      : '';
 
     return card(`${d.document_no} · ${d.revision}. sürüm`, `<div class="v2-card-body">
       ${badge(statusName({...d, valid_until: d.valid_until ?? snapshot.valid_until}, now), badgeType(d.effective_status))}
       <h3>${esc(snapshot.title)}</h3>
       <p class="help">${esc(snapshot.party.name)} · ${esc(kindName(d.kind))} · ${esc(dayText(snapshot.issue_date))}${snapshot.valid_until ? ' · geçerlilik ' + esc(dayText(snapshot.valid_until)) : ''}</p>
-      ${expiredNote}${superseded}${chain}
+      ${expiredNote}${superseded}${chain}${workshop}
       ${lines}
       <div class="v2-summary-line"><span>KDV hariç toplam</span><strong>${esc(money(d.net_cents))}</strong></div>
       <div class="v2-summary-line"><span>KDV</span><strong>${esc(money(d.vat_cents))}</strong></div>
