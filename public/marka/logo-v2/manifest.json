@@ -1,0 +1,1966 @@
+{
+  "version": 2,
+  "date": "2026-10-09",
+  "approvedEmblem": "V8",
+  "families": [
+    {
+      "id": "background",
+      "label": "Renkli zeminli görseller"
+    },
+    {
+      "id": "transparent",
+      "label": "Şeffaf logolar"
+    }
+  ],
+  "layouts": [
+    {
+      "id": "yatay",
+      "label": "Yatay logo"
+    },
+    {
+      "id": "dikey",
+      "label": "Dikey logo"
+    },
+    {
+      "id": "amblem",
+      "label": "Yalnız amblem"
+    },
+    {
+      "id": "yazi",
+      "label": "Yalnız yazı"
+    }
+  ],
+  "colors": [
+    {
+      "id": "antrasit",
+      "label": "Antrasit",
+      "hex": "#20251F"
+    },
+    {
+      "id": "beyaz",
+      "label": "Beyaz",
+      "hex": "#FFFFFF"
+    },
+    {
+      "id": "siyah",
+      "label": "Siyah",
+      "hex": "#000000"
+    },
+    {
+      "id": "lime",
+      "label": "Lime",
+      "hex": "#D5EF74"
+    },
+    {
+      "id": "kirikbeyaz",
+      "label": "Kırık beyaz",
+      "hex": "#FAFAF6"
+    },
+    {
+      "id": "tas",
+      "label": "Taş",
+      "hex": "#E7E6DD"
+    },
+    {
+      "id": "gri",
+      "label": "Gri",
+      "hex": "#656A64"
+    },
+    {
+      "id": "lime-antrasit",
+      "label": "Lime + antrasit",
+      "hex": "#D5EF74",
+      "secondaryHex": "#20251F"
+    },
+    {
+      "id": "lime-beyaz",
+      "label": "Lime + beyaz",
+      "hex": "#D5EF74",
+      "secondaryHex": "#FFFFFF"
+    },
+    {
+      "id": "lime-zemin-antrasit",
+      "folder": "01-Lime-Zemin",
+      "label": "Lime zemin / antrasit logo",
+      "backgroundHex": "#D5EF74",
+      "hex": "#20251F"
+    },
+    {
+      "id": "antrasit-zemin-beyaz",
+      "folder": "02-Antrasit-Zemin-Beyaz-Logo",
+      "label": "Antrasit zemin / beyaz logo",
+      "backgroundHex": "#20251F",
+      "hex": "#FFFFFF"
+    },
+    {
+      "id": "antrasit-zemin-lime",
+      "folder": "03-Antrasit-Zemin-Lime-Logo",
+      "label": "Antrasit zemin / lime logo",
+      "backgroundHex": "#20251F",
+      "hex": "#D5EF74"
+    },
+    {
+      "id": "beyaz-zemin-antrasit",
+      "folder": "04-Beyaz-Zemin",
+      "label": "Beyaz zemin / antrasit logo",
+      "backgroundHex": "#FFFFFF",
+      "hex": "#20251F"
+    },
+    {
+      "id": "kirikbeyaz-zemin-antrasit",
+      "folder": "05-Kirik-Beyaz-Zemin",
+      "label": "Kırık beyaz zemin / antrasit logo",
+      "backgroundHex": "#FAFAF6",
+      "hex": "#20251F"
+    },
+    {
+      "id": "tas-zemin-antrasit",
+      "folder": "06-Tas-Zemin",
+      "label": "Taş zemin / antrasit logo",
+      "backgroundHex": "#E7E6DD",
+      "hex": "#20251F"
+    },
+    {
+      "id": "gri-zemin-beyaz",
+      "folder": "07-Gri-Zemin",
+      "label": "Gri zemin / beyaz logo",
+      "backgroundHex": "#656A64",
+      "hex": "#FFFFFF"
+    },
+    {
+      "id": "siyah-zemin-beyaz",
+      "folder": "08-Siyah-Zemin",
+      "label": "Siyah zemin / beyaz logo",
+      "backgroundHex": "#000000",
+      "hex": "#FFFFFF"
+    }
+  ],
+  "variants": [
+    {
+      "id": "lunapot-yatay-antrasit-seffaf",
+      "layout": "yatay",
+      "colorId": "antrasit",
+      "label": "Yatay logo · Antrasit",
+      "background": "light",
+      "svg": "01-Seffaf/01-Yatay/lunapot-yatay-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 474,
+          "path": "01-Seffaf/01-Yatay/lunapot-yatay-antrasit.png",
+          "transparent": true,
+          "sha256": "1e52fff42a71817c40235d622d72b433616e86687b9cd414a42b930d0081e3df"
+        }
+      ],
+      "width": 496.8263980303251,
+      "height": 115,
+      "sha256": "ed459afcb53fe55b0216a8ac3a6be157317787a024d6e3932b287551e411e0e1",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-yatay-beyaz-seffaf",
+      "layout": "yatay",
+      "colorId": "beyaz",
+      "label": "Yatay logo · Beyaz",
+      "background": "dark",
+      "svg": "01-Seffaf/01-Yatay/lunapot-yatay-beyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 474,
+          "path": "01-Seffaf/01-Yatay/lunapot-yatay-beyaz.png",
+          "transparent": true,
+          "sha256": "1e60d2358f163e9309b4d31a8b2112edfbffbef83e05a0e9d75e3a65dd707939"
+        }
+      ],
+      "width": 496.8263980303251,
+      "height": 115,
+      "sha256": "0fad8b1c18f6309662e9d9f1074fbe0b740c88f673f7b46eb6c52f45bcf57ac0",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-yatay-siyah-seffaf",
+      "layout": "yatay",
+      "colorId": "siyah",
+      "label": "Yatay logo · Siyah",
+      "background": "light",
+      "svg": "01-Seffaf/01-Yatay/lunapot-yatay-siyah.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 474,
+          "path": "01-Seffaf/01-Yatay/lunapot-yatay-siyah.png",
+          "transparent": true,
+          "sha256": "3cba69ad6ffd40895ad1c58961a979a023d2ba9ec3e03abe070ba6c6d521cc0c"
+        }
+      ],
+      "width": 496.8263980303251,
+      "height": 115,
+      "sha256": "1ca66d0ca68fbd9286d44f544a77965a5b86f615eca933304999831667cc3e83",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-yatay-lime-seffaf",
+      "layout": "yatay",
+      "colorId": "lime",
+      "label": "Yatay logo · Lime",
+      "background": "dark",
+      "svg": "01-Seffaf/01-Yatay/lunapot-yatay-lime.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 474,
+          "path": "01-Seffaf/01-Yatay/lunapot-yatay-lime.png",
+          "transparent": true,
+          "sha256": "cac9e5353a990f671f71dd024b9c1d8e6b1d283065273dd723c286cff14273b8"
+        }
+      ],
+      "width": 496.8263980303251,
+      "height": 115,
+      "sha256": "a352a918ece25be9a8acb6ea7b239f8bb032278c4d68d900565aceced427c886",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-yatay-kirikbeyaz-seffaf",
+      "layout": "yatay",
+      "colorId": "kirikbeyaz",
+      "label": "Yatay logo · Kırık beyaz",
+      "background": "dark",
+      "svg": "01-Seffaf/01-Yatay/lunapot-yatay-kirikbeyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 474,
+          "path": "01-Seffaf/01-Yatay/lunapot-yatay-kirikbeyaz.png",
+          "transparent": true,
+          "sha256": "9a47e3bdd4b605812c60f06088e23016a1d670bc6677d8487f15d0fe2d0d08b9"
+        }
+      ],
+      "width": 496.8263980303251,
+      "height": 115,
+      "sha256": "2fd3329c23f14eb37d1db81ae07158a0d41e146350e19271f62f3b3b74ffc73f",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-yatay-tas-seffaf",
+      "layout": "yatay",
+      "colorId": "tas",
+      "label": "Yatay logo · Taş",
+      "background": "dark",
+      "svg": "01-Seffaf/01-Yatay/lunapot-yatay-tas.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 474,
+          "path": "01-Seffaf/01-Yatay/lunapot-yatay-tas.png",
+          "transparent": true,
+          "sha256": "19efa81e84fd5bcc5aee1db32ded47e4352c69e2c95b41f3c27bb56073908903"
+        }
+      ],
+      "width": 496.8263980303251,
+      "height": 115,
+      "sha256": "b86f2f09108ad33b791690d6ce44407c69b3435eb64aa9782d76d7e3705d3f64",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-yatay-gri-seffaf",
+      "layout": "yatay",
+      "colorId": "gri",
+      "label": "Yatay logo · Gri",
+      "background": "light",
+      "svg": "01-Seffaf/01-Yatay/lunapot-yatay-gri.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 474,
+          "path": "01-Seffaf/01-Yatay/lunapot-yatay-gri.png",
+          "transparent": true,
+          "sha256": "c8414ebdb68aa83fc81ca639d6a901c5e253f4f033d1c4e706aae02245bd2989"
+        }
+      ],
+      "width": 496.8263980303251,
+      "height": 115,
+      "sha256": "c5dc7280c0da7ad7739e9b36aa45a33a6966abf98fa19db565f8b55e1bbc349e",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-yatay-lime-antrasit-seffaf",
+      "layout": "yatay",
+      "colorId": "lime-antrasit",
+      "label": "Yatay logo · Lime + antrasit",
+      "background": "light",
+      "svg": "01-Seffaf/01-Yatay/lunapot-yatay-lime-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 474,
+          "path": "01-Seffaf/01-Yatay/lunapot-yatay-lime-antrasit.png",
+          "transparent": true,
+          "sha256": "5e8fda0449cb68aa54ddefb5479305089802d35f203fa1a61cae2250eda5ecb5"
+        }
+      ],
+      "width": 496.8263980303251,
+      "height": 115,
+      "sha256": "bb879cf9758d377f9a55a3fee92805818f0518fb1f2970f752aeeca6c01a727a",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-yatay-lime-beyaz-seffaf",
+      "layout": "yatay",
+      "colorId": "lime-beyaz",
+      "label": "Yatay logo · Lime + beyaz",
+      "background": "dark",
+      "svg": "01-Seffaf/01-Yatay/lunapot-yatay-lime-beyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 474,
+          "path": "01-Seffaf/01-Yatay/lunapot-yatay-lime-beyaz.png",
+          "transparent": true,
+          "sha256": "586747e12dc803bda0dad3750e51f01661bf8a25bf5f35ebe473954328a77798"
+        }
+      ],
+      "width": 496.8263980303251,
+      "height": 115,
+      "sha256": "b5fe33503fcdbcb947dab1b08b0a1f962c8576dab00a71f3571c965908c5ff67",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-dikey-antrasit-seffaf",
+      "layout": "dikey",
+      "colorId": "antrasit",
+      "label": "Dikey logo · Antrasit",
+      "background": "light",
+      "svg": "01-Seffaf/02-Dikey/lunapot-dikey-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 1647,
+          "path": "01-Seffaf/02-Dikey/lunapot-dikey-antrasit.png",
+          "transparent": true,
+          "sha256": "63f3403a35b41974f3df0cefa087fb7a9ec23e626b673399b955b69d458aaf65"
+        }
+      ],
+      "width": 240,
+      "height": 192.9739572905088,
+      "sha256": "fdafcbff9b948e093fd7264a1435a34d63b53145ee06683b05ada94b622bf985",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-dikey-beyaz-seffaf",
+      "layout": "dikey",
+      "colorId": "beyaz",
+      "label": "Dikey logo · Beyaz",
+      "background": "dark",
+      "svg": "01-Seffaf/02-Dikey/lunapot-dikey-beyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 1647,
+          "path": "01-Seffaf/02-Dikey/lunapot-dikey-beyaz.png",
+          "transparent": true,
+          "sha256": "419e796a759d6ec30d33d3d915655011c4188c021e1924b7e6b1f4027a06c873"
+        }
+      ],
+      "width": 240,
+      "height": 192.9739572905088,
+      "sha256": "d1aea3a55a3f5f32a84b4843d22fbc482c23f6eb23a5bd5aea785026344f313d",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-dikey-siyah-seffaf",
+      "layout": "dikey",
+      "colorId": "siyah",
+      "label": "Dikey logo · Siyah",
+      "background": "light",
+      "svg": "01-Seffaf/02-Dikey/lunapot-dikey-siyah.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 1647,
+          "path": "01-Seffaf/02-Dikey/lunapot-dikey-siyah.png",
+          "transparent": true,
+          "sha256": "f03e2990108636897ae3a86c1748db8b7e4ba3f5ec7611c35a38cabcf452babc"
+        }
+      ],
+      "width": 240,
+      "height": 192.9739572905088,
+      "sha256": "afe608a28fc54ff91bf947749733e826e4bf2e3aece88b69ef58b06a9c51e69b",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-dikey-lime-seffaf",
+      "layout": "dikey",
+      "colorId": "lime",
+      "label": "Dikey logo · Lime",
+      "background": "dark",
+      "svg": "01-Seffaf/02-Dikey/lunapot-dikey-lime.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 1647,
+          "path": "01-Seffaf/02-Dikey/lunapot-dikey-lime.png",
+          "transparent": true,
+          "sha256": "fb4b35876e3015a1639ee7f51df90655f4896bd3977f9de6d008897bdd8ac8c1"
+        }
+      ],
+      "width": 240,
+      "height": 192.9739572905088,
+      "sha256": "c09c6e04d0753659344576f7bc65f6403e1c301bca0e71651803a60a9ff6a772",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-dikey-kirikbeyaz-seffaf",
+      "layout": "dikey",
+      "colorId": "kirikbeyaz",
+      "label": "Dikey logo · Kırık beyaz",
+      "background": "dark",
+      "svg": "01-Seffaf/02-Dikey/lunapot-dikey-kirikbeyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 1647,
+          "path": "01-Seffaf/02-Dikey/lunapot-dikey-kirikbeyaz.png",
+          "transparent": true,
+          "sha256": "084de5c71548c252a338d574e80387e28504617f841501e262ba09ae56849cfb"
+        }
+      ],
+      "width": 240,
+      "height": 192.9739572905088,
+      "sha256": "9a243f83f746662a541fab85cbf81351c48eb811c5aed4ab17106bb6f5adafa1",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-dikey-tas-seffaf",
+      "layout": "dikey",
+      "colorId": "tas",
+      "label": "Dikey logo · Taş",
+      "background": "dark",
+      "svg": "01-Seffaf/02-Dikey/lunapot-dikey-tas.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 1647,
+          "path": "01-Seffaf/02-Dikey/lunapot-dikey-tas.png",
+          "transparent": true,
+          "sha256": "1eac3dc598673cf85afd60e3bc9684d085f5989966f29fca56196e9cbc6288c8"
+        }
+      ],
+      "width": 240,
+      "height": 192.9739572905088,
+      "sha256": "3c22ab21e77990c2478d6b3900af9e3c5268348c0b5d1be4b9537f7e168da47f",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-dikey-gri-seffaf",
+      "layout": "dikey",
+      "colorId": "gri",
+      "label": "Dikey logo · Gri",
+      "background": "light",
+      "svg": "01-Seffaf/02-Dikey/lunapot-dikey-gri.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 1647,
+          "path": "01-Seffaf/02-Dikey/lunapot-dikey-gri.png",
+          "transparent": true,
+          "sha256": "d966812c3cf484928807cf9c53b974084778704fb494ae907dadce3fa7cc795f"
+        }
+      ],
+      "width": 240,
+      "height": 192.9739572905088,
+      "sha256": "281d2001e05b9a0dcaade01ac098ee71ecee696bae31b06c7c0ec47065a227a9",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-dikey-lime-antrasit-seffaf",
+      "layout": "dikey",
+      "colorId": "lime-antrasit",
+      "label": "Dikey logo · Lime + antrasit",
+      "background": "light",
+      "svg": "01-Seffaf/02-Dikey/lunapot-dikey-lime-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 1647,
+          "path": "01-Seffaf/02-Dikey/lunapot-dikey-lime-antrasit.png",
+          "transparent": true,
+          "sha256": "1b415f11590469fb7c4bac65c027b45eeb1e90dd62457dab3b5c5fa3fdcb9bfa"
+        }
+      ],
+      "width": 240,
+      "height": 192.9739572905088,
+      "sha256": "9b60e87362f9db8a002da766299cf4bbfda04b6a27e220173e1a67e41d25eff3",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-dikey-lime-beyaz-seffaf",
+      "layout": "dikey",
+      "colorId": "lime-beyaz",
+      "label": "Dikey logo · Lime + beyaz",
+      "background": "dark",
+      "svg": "01-Seffaf/02-Dikey/lunapot-dikey-lime-beyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 1647,
+          "path": "01-Seffaf/02-Dikey/lunapot-dikey-lime-beyaz.png",
+          "transparent": true,
+          "sha256": "46241b63fe42e62d0960c4b81be315a086a55a120a9cfa0b861c42b717ddf78a"
+        }
+      ],
+      "width": 240,
+      "height": 192.9739572905088,
+      "sha256": "601807281d4b13c59980c469fcd50c7c45343cf48a908a1843bdf0b7bec6216e",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-amblem-antrasit-seffaf",
+      "layout": "amblem",
+      "colorId": "antrasit",
+      "label": "Yalnız amblem · Antrasit",
+      "background": "light",
+      "svg": "01-Seffaf/03-Yalniz-Amblem/lunapot-amblem-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2048,
+          "path": "01-Seffaf/03-Yalniz-Amblem/lunapot-amblem-antrasit.png",
+          "transparent": true,
+          "sha256": "a59336e5a31326a24e1ce2c4784989d0ba6d99fc6b3817eeabbdb3c4c592f1cc"
+        }
+      ],
+      "width": 100,
+      "height": 100,
+      "sha256": "9fc56e480ee3d06842815348d197904daef5ac83321cefd9f34b57737568d665",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-amblem-beyaz-seffaf",
+      "layout": "amblem",
+      "colorId": "beyaz",
+      "label": "Yalnız amblem · Beyaz",
+      "background": "dark",
+      "svg": "01-Seffaf/03-Yalniz-Amblem/lunapot-amblem-beyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2048,
+          "path": "01-Seffaf/03-Yalniz-Amblem/lunapot-amblem-beyaz.png",
+          "transparent": true,
+          "sha256": "cd1a6ca92a71574c0ad9fea77da2644c966f05961010a8a06b24f60fe96b6182"
+        }
+      ],
+      "width": 100,
+      "height": 100,
+      "sha256": "9ac000f1947285dcbfa264a6cb63e0576fc44d1146ffaf16cd602b222059c44e",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-amblem-siyah-seffaf",
+      "layout": "amblem",
+      "colorId": "siyah",
+      "label": "Yalnız amblem · Siyah",
+      "background": "light",
+      "svg": "01-Seffaf/03-Yalniz-Amblem/lunapot-amblem-siyah.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2048,
+          "path": "01-Seffaf/03-Yalniz-Amblem/lunapot-amblem-siyah.png",
+          "transparent": true,
+          "sha256": "49d4ac1593599ab3fd5f250bdcdcee2c3ea88eb317b1dde2bb125e9a3e9812fb"
+        }
+      ],
+      "width": 100,
+      "height": 100,
+      "sha256": "84158e22894d3e82720bd6e37e0ecfea48202db0d4d64d9d653c6187c7ebf311",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-amblem-lime-seffaf",
+      "layout": "amblem",
+      "colorId": "lime",
+      "label": "Yalnız amblem · Lime",
+      "background": "dark",
+      "svg": "01-Seffaf/03-Yalniz-Amblem/lunapot-amblem-lime.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2048,
+          "path": "01-Seffaf/03-Yalniz-Amblem/lunapot-amblem-lime.png",
+          "transparent": true,
+          "sha256": "7892080a35d2a28da84da6f2537e8930708a14bb1a4cef671c43e3c395bcf423"
+        }
+      ],
+      "width": 100,
+      "height": 100,
+      "sha256": "15697852f3c033fbf509a67815e243ffa0d983468072e8d67474eb843b348a60",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-amblem-kirikbeyaz-seffaf",
+      "layout": "amblem",
+      "colorId": "kirikbeyaz",
+      "label": "Yalnız amblem · Kırık beyaz",
+      "background": "dark",
+      "svg": "01-Seffaf/03-Yalniz-Amblem/lunapot-amblem-kirikbeyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2048,
+          "path": "01-Seffaf/03-Yalniz-Amblem/lunapot-amblem-kirikbeyaz.png",
+          "transparent": true,
+          "sha256": "e34d9b56c8d61556ad8679f47544685ba13aaf400aa6371733ac7e7967eafc7d"
+        }
+      ],
+      "width": 100,
+      "height": 100,
+      "sha256": "040e36410db046e5123cfa681436ae0774d80216c27b12b4c9960d82dd0ad770",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-amblem-tas-seffaf",
+      "layout": "amblem",
+      "colorId": "tas",
+      "label": "Yalnız amblem · Taş",
+      "background": "dark",
+      "svg": "01-Seffaf/03-Yalniz-Amblem/lunapot-amblem-tas.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2048,
+          "path": "01-Seffaf/03-Yalniz-Amblem/lunapot-amblem-tas.png",
+          "transparent": true,
+          "sha256": "250770bfde8c39c9ab52f39907fd21dc32802ba33c38966e33d9f07aaa9d7a5d"
+        }
+      ],
+      "width": 100,
+      "height": 100,
+      "sha256": "ed703ee8b7b359de74afa4407c732a4047388d309a079c029f37811fbe3ca55a",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-amblem-gri-seffaf",
+      "layout": "amblem",
+      "colorId": "gri",
+      "label": "Yalnız amblem · Gri",
+      "background": "light",
+      "svg": "01-Seffaf/03-Yalniz-Amblem/lunapot-amblem-gri.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2048,
+          "path": "01-Seffaf/03-Yalniz-Amblem/lunapot-amblem-gri.png",
+          "transparent": true,
+          "sha256": "9c5888d6beb365818be849a75d693409b90b6bb81936bdb2d461aaa14363e9c5"
+        }
+      ],
+      "width": 100,
+      "height": 100,
+      "sha256": "a8dfaf683b71ab6463a52364e2d01dd3b8078155d383e22d39a0a4ec72259b81",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-yazi-antrasit-seffaf",
+      "layout": "yazi",
+      "colorId": "antrasit",
+      "label": "Yalnız yazı · Antrasit",
+      "background": "light",
+      "svg": "01-Seffaf/04-Yalniz-Yazi/lunapot-yazi-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 580,
+          "path": "01-Seffaf/04-Yalniz-Yazi/lunapot-yazi-antrasit.png",
+          "transparent": true,
+          "sha256": "63bfb9eb12a1c71897afbf26bd16ddeb4e1faf0288219fa9eef6173b77eb7716"
+        }
+      ],
+      "width": 353.07639803032515,
+      "height": 100,
+      "sha256": "eb3b7bf631137f6bf22008dae8b8ecb969ff683500e5335f0f532cb4a0bf6e63",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-yazi-beyaz-seffaf",
+      "layout": "yazi",
+      "colorId": "beyaz",
+      "label": "Yalnız yazı · Beyaz",
+      "background": "dark",
+      "svg": "01-Seffaf/04-Yalniz-Yazi/lunapot-yazi-beyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 580,
+          "path": "01-Seffaf/04-Yalniz-Yazi/lunapot-yazi-beyaz.png",
+          "transparent": true,
+          "sha256": "ecd4f0ecc24f5ef78f26bbc7e8c9eb45895398bf30ae03c54908e01ce8db3735"
+        }
+      ],
+      "width": 353.07639803032515,
+      "height": 100,
+      "sha256": "8ae7ea58c256b32a856fee4656ebf4c6647ef4248838e0666c7764464f5f5667",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-yazi-siyah-seffaf",
+      "layout": "yazi",
+      "colorId": "siyah",
+      "label": "Yalnız yazı · Siyah",
+      "background": "light",
+      "svg": "01-Seffaf/04-Yalniz-Yazi/lunapot-yazi-siyah.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 580,
+          "path": "01-Seffaf/04-Yalniz-Yazi/lunapot-yazi-siyah.png",
+          "transparent": true,
+          "sha256": "58638fc2ee0bd680422304a481d3eae1a840335e3e164ad1dd7014fa3073770e"
+        }
+      ],
+      "width": 353.07639803032515,
+      "height": 100,
+      "sha256": "4762290faa7c9b921888b38f1e43d094dd66aad6e479fa40da7d96dec5c819d2",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-yazi-lime-seffaf",
+      "layout": "yazi",
+      "colorId": "lime",
+      "label": "Yalnız yazı · Lime",
+      "background": "dark",
+      "svg": "01-Seffaf/04-Yalniz-Yazi/lunapot-yazi-lime.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 580,
+          "path": "01-Seffaf/04-Yalniz-Yazi/lunapot-yazi-lime.png",
+          "transparent": true,
+          "sha256": "a4366bd8c7eaae69f6cbd1c710fd887fbf5d0ebd329fd10d9c562f050488c3d9"
+        }
+      ],
+      "width": 353.07639803032515,
+      "height": 100,
+      "sha256": "4a3b9c12557296f0398eb2cb567d2c09330d26ba6179b424b216afb762fa15e9",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-yazi-kirikbeyaz-seffaf",
+      "layout": "yazi",
+      "colorId": "kirikbeyaz",
+      "label": "Yalnız yazı · Kırık beyaz",
+      "background": "dark",
+      "svg": "01-Seffaf/04-Yalniz-Yazi/lunapot-yazi-kirikbeyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 580,
+          "path": "01-Seffaf/04-Yalniz-Yazi/lunapot-yazi-kirikbeyaz.png",
+          "transparent": true,
+          "sha256": "1fea9747f63c7a667067be922a09ee20f40466a8202859e61b8cd856588d62cd"
+        }
+      ],
+      "width": 353.07639803032515,
+      "height": 100,
+      "sha256": "daaf6a2a7979a0235634a86a476eab9e3654588ffbcf021be9140f73d2ea84f2",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-yazi-tas-seffaf",
+      "layout": "yazi",
+      "colorId": "tas",
+      "label": "Yalnız yazı · Taş",
+      "background": "dark",
+      "svg": "01-Seffaf/04-Yalniz-Yazi/lunapot-yazi-tas.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 580,
+          "path": "01-Seffaf/04-Yalniz-Yazi/lunapot-yazi-tas.png",
+          "transparent": true,
+          "sha256": "a23adfcd2422ef402f9ce01dd6c816a9d5320a2d8fde983df224868bed6f8d24"
+        }
+      ],
+      "width": 353.07639803032515,
+      "height": 100,
+      "sha256": "73c258475f667ce5dca4a438d7d3ca68a38cad17c091cef1e060d758a9727fb6",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-yazi-gri-seffaf",
+      "layout": "yazi",
+      "colorId": "gri",
+      "label": "Yalnız yazı · Gri",
+      "background": "light",
+      "svg": "01-Seffaf/04-Yalniz-Yazi/lunapot-yazi-gri.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 580,
+          "path": "01-Seffaf/04-Yalniz-Yazi/lunapot-yazi-gri.png",
+          "transparent": true,
+          "sha256": "63d31adafef107d8d195d51fd9605902d04c75dab5870f20b696b46df6b17780"
+        }
+      ],
+      "width": 353.07639803032515,
+      "height": 100,
+      "sha256": "2bd333c53adc866e291af0d189d5dea9ff8561f2b41e8db6a3cc657024f7c10c",
+      "sourcePathsPreserved": true,
+      "family": "transparent",
+      "backgroundHex": null,
+      "backgroundIncluded": false
+    },
+    {
+      "id": "lunapot-yatay-lime-zemin-antrasit",
+      "layout": "yatay",
+      "colorId": "lime-zemin-antrasit",
+      "label": "Yatay logo · Lime zemin / antrasit logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#D5EF74",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/01-Lime-Zemin/lunapot-yatay-lime-zemin-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 819,
+          "path": "02-Renkli-Zemin/01-Lime-Zemin/lunapot-yatay-lime-zemin-antrasit.png",
+          "transparent": false,
+          "sha256": "4855fb8fa73365e33d2f1071c3d9945429677b806ca10c871ef4c529695de628"
+        }
+      ],
+      "width": 1600,
+      "height": 640,
+      "sha256": "aa15fd1b7596eee643a3819982a59c540b37d6d524bd7f2c32bb8982d627cf04",
+      "foregroundHex": "#20251F",
+      "fit": {
+        "scale": 2.14696052966485,
+        "x": 266.66666666666674,
+        "y": 196.5497695442711,
+        "sourceWidth": 496.8263980303251,
+        "sourceHeight": 115
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-dikey-lime-zemin-antrasit",
+      "layout": "dikey",
+      "colorId": "lime-zemin-antrasit",
+      "label": "Dikey logo · Lime zemin / antrasit logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#D5EF74",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/01-Lime-Zemin/lunapot-dikey-lime-zemin-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2253,
+          "path": "02-Renkli-Zemin/01-Lime-Zemin/lunapot-dikey-lime-zemin-antrasit.png",
+          "transparent": false,
+          "sha256": "392179f4a76963209e642bd925a37ffc9d4d190e8537663e6795b3f7d09f0a5e"
+        }
+      ],
+      "width": 1000,
+      "height": 1100,
+      "sha256": "1b6cda64446660100401a5cdd9c9dad50825faec64bc3caedd0a5536274bfd95",
+      "foregroundHex": "#20251F",
+      "fit": {
+        "scale": 2.7777777777777777,
+        "x": 166.66666666666669,
+        "y": 281.98061487429334,
+        "sourceWidth": 240,
+        "sourceHeight": 192.9739572905088
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-amblem-lime-zemin-antrasit",
+      "layout": "amblem",
+      "colorId": "lime-zemin-antrasit",
+      "label": "Yalnız amblem · Lime zemin / antrasit logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#D5EF74",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/01-Lime-Zemin/lunapot-amblem-lime-zemin-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2048,
+          "path": "02-Renkli-Zemin/01-Lime-Zemin/lunapot-amblem-lime-zemin-antrasit.png",
+          "transparent": false,
+          "sha256": "a001da39162cad522222c17623e0b75d46ca210659cd0097c4fd1f42ad437358"
+        }
+      ],
+      "width": 1000,
+      "height": 1000,
+      "sha256": "ec57870de88d11e8afec1492ac266cda51171a6d4627f81dafc65ddf6131bd5c",
+      "foregroundHex": "#20251F",
+      "fit": {
+        "scale": 6.666666666666666,
+        "x": 166.66666666666669,
+        "y": 166.66666666666669,
+        "sourceWidth": 100,
+        "sourceHeight": 100
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-yazi-lime-zemin-antrasit",
+      "layout": "yazi",
+      "colorId": "lime-zemin-antrasit",
+      "label": "Yalnız yazı · Lime zemin / antrasit logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#D5EF74",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/01-Lime-Zemin/lunapot-yazi-lime-zemin-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 819,
+          "path": "02-Renkli-Zemin/01-Lime-Zemin/lunapot-yazi-lime-zemin-antrasit.png",
+          "transparent": false,
+          "sha256": "eb232d2ba7d258ba36a6a8685b89685166028001712423b27c85f70247b03f06"
+        }
+      ],
+      "width": 1600,
+      "height": 640,
+      "sha256": "a19580068b6ca42f050462912f6efce6866ef40050916d2372d2390248a72400",
+      "foregroundHex": "#20251F",
+      "fit": {
+        "scale": 3.0210647684670566,
+        "x": 266.66666666666674,
+        "y": 168.94676157664716,
+        "sourceWidth": 353.07639803032515,
+        "sourceHeight": 100
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-yatay-antrasit-zemin-beyaz",
+      "layout": "yatay",
+      "colorId": "antrasit-zemin-beyaz",
+      "label": "Yatay logo · Antrasit zemin / beyaz logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#20251F",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/02-Antrasit-Zemin-Beyaz-Logo/lunapot-yatay-antrasit-zemin-beyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 819,
+          "path": "02-Renkli-Zemin/02-Antrasit-Zemin-Beyaz-Logo/lunapot-yatay-antrasit-zemin-beyaz.png",
+          "transparent": false,
+          "sha256": "85b6ebfce3d5421f0220f73b23f5f49acffdf3b7141e3c47d51a21455220e0e5"
+        }
+      ],
+      "width": 1600,
+      "height": 640,
+      "sha256": "7248fb0b63c3baf89479b9124ee7b5ada07c66a4544b01bcb8a664b3585d0dea",
+      "foregroundHex": "#FFFFFF",
+      "fit": {
+        "scale": 2.14696052966485,
+        "x": 266.66666666666674,
+        "y": 196.5497695442711,
+        "sourceWidth": 496.8263980303251,
+        "sourceHeight": 115
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-dikey-antrasit-zemin-beyaz",
+      "layout": "dikey",
+      "colorId": "antrasit-zemin-beyaz",
+      "label": "Dikey logo · Antrasit zemin / beyaz logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#20251F",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/02-Antrasit-Zemin-Beyaz-Logo/lunapot-dikey-antrasit-zemin-beyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2253,
+          "path": "02-Renkli-Zemin/02-Antrasit-Zemin-Beyaz-Logo/lunapot-dikey-antrasit-zemin-beyaz.png",
+          "transparent": false,
+          "sha256": "6849001321e8b6e13a0fcf9db06eb3dfc239d5c1f2ae27146dc68adae98f8372"
+        }
+      ],
+      "width": 1000,
+      "height": 1100,
+      "sha256": "3766e4a8c09fb2514b5830779cd7ada86284c1ad91f444fc3f0f47bc6e05b652",
+      "foregroundHex": "#FFFFFF",
+      "fit": {
+        "scale": 2.7777777777777777,
+        "x": 166.66666666666669,
+        "y": 281.98061487429334,
+        "sourceWidth": 240,
+        "sourceHeight": 192.9739572905088
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-amblem-antrasit-zemin-beyaz",
+      "layout": "amblem",
+      "colorId": "antrasit-zemin-beyaz",
+      "label": "Yalnız amblem · Antrasit zemin / beyaz logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#20251F",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/02-Antrasit-Zemin-Beyaz-Logo/lunapot-amblem-antrasit-zemin-beyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2048,
+          "path": "02-Renkli-Zemin/02-Antrasit-Zemin-Beyaz-Logo/lunapot-amblem-antrasit-zemin-beyaz.png",
+          "transparent": false,
+          "sha256": "5d892c4c558ddbaf103876c2367a5e5508ff218ab7a7552e632c6f81c1decd31"
+        }
+      ],
+      "width": 1000,
+      "height": 1000,
+      "sha256": "d4dcd3c7a58de45a0cb83163b7d54302c7e19ab4ef5cc65d0e56936a0cb7019f",
+      "foregroundHex": "#FFFFFF",
+      "fit": {
+        "scale": 6.666666666666666,
+        "x": 166.66666666666669,
+        "y": 166.66666666666669,
+        "sourceWidth": 100,
+        "sourceHeight": 100
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-yazi-antrasit-zemin-beyaz",
+      "layout": "yazi",
+      "colorId": "antrasit-zemin-beyaz",
+      "label": "Yalnız yazı · Antrasit zemin / beyaz logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#20251F",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/02-Antrasit-Zemin-Beyaz-Logo/lunapot-yazi-antrasit-zemin-beyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 819,
+          "path": "02-Renkli-Zemin/02-Antrasit-Zemin-Beyaz-Logo/lunapot-yazi-antrasit-zemin-beyaz.png",
+          "transparent": false,
+          "sha256": "9fbfb934bc78473f776e9a7d3244f7e10b783e90ddbd24bba3296381e0bd1799"
+        }
+      ],
+      "width": 1600,
+      "height": 640,
+      "sha256": "9a00513fed6e7f8b30ac5840612e6d88922ed75aa2854049b6cfc4091deaa1cd",
+      "foregroundHex": "#FFFFFF",
+      "fit": {
+        "scale": 3.0210647684670566,
+        "x": 266.66666666666674,
+        "y": 168.94676157664716,
+        "sourceWidth": 353.07639803032515,
+        "sourceHeight": 100
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-yatay-antrasit-zemin-lime",
+      "layout": "yatay",
+      "colorId": "antrasit-zemin-lime",
+      "label": "Yatay logo · Antrasit zemin / lime logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#20251F",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/03-Antrasit-Zemin-Lime-Logo/lunapot-yatay-antrasit-zemin-lime.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 819,
+          "path": "02-Renkli-Zemin/03-Antrasit-Zemin-Lime-Logo/lunapot-yatay-antrasit-zemin-lime.png",
+          "transparent": false,
+          "sha256": "548a13bb7f055a9438ef76ce1b66e398a1905ca6f7d5edb514d786c97c77e83e"
+        }
+      ],
+      "width": 1600,
+      "height": 640,
+      "sha256": "9411afe13727fe0a25b4bfc1522c89bc45bb6910fe65cbb1af34ab9ca3299e1d",
+      "foregroundHex": "#D5EF74",
+      "fit": {
+        "scale": 2.14696052966485,
+        "x": 266.66666666666674,
+        "y": 196.5497695442711,
+        "sourceWidth": 496.8263980303251,
+        "sourceHeight": 115
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-dikey-antrasit-zemin-lime",
+      "layout": "dikey",
+      "colorId": "antrasit-zemin-lime",
+      "label": "Dikey logo · Antrasit zemin / lime logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#20251F",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/03-Antrasit-Zemin-Lime-Logo/lunapot-dikey-antrasit-zemin-lime.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2253,
+          "path": "02-Renkli-Zemin/03-Antrasit-Zemin-Lime-Logo/lunapot-dikey-antrasit-zemin-lime.png",
+          "transparent": false,
+          "sha256": "b77d8a3f8ef69617843bb89aca4ccbb62ca0150e7733efaaa111596d6282a1c8"
+        }
+      ],
+      "width": 1000,
+      "height": 1100,
+      "sha256": "803626811245646c01f5ce2b91e793c106a35277be80b4f9a18b27cab51e5b6d",
+      "foregroundHex": "#D5EF74",
+      "fit": {
+        "scale": 2.7777777777777777,
+        "x": 166.66666666666669,
+        "y": 281.98061487429334,
+        "sourceWidth": 240,
+        "sourceHeight": 192.9739572905088
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-amblem-antrasit-zemin-lime",
+      "layout": "amblem",
+      "colorId": "antrasit-zemin-lime",
+      "label": "Yalnız amblem · Antrasit zemin / lime logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#20251F",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/03-Antrasit-Zemin-Lime-Logo/lunapot-amblem-antrasit-zemin-lime.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2048,
+          "path": "02-Renkli-Zemin/03-Antrasit-Zemin-Lime-Logo/lunapot-amblem-antrasit-zemin-lime.png",
+          "transparent": false,
+          "sha256": "ddedb32854ca0254dec2bb418eeb4e6c65685df51a8453d26d4ecf6c4d9f16b4"
+        }
+      ],
+      "width": 1000,
+      "height": 1000,
+      "sha256": "33abf5198ebd00b34cbceb12b82546bb3b24b1c331ee147ff07cbedd7d589d85",
+      "foregroundHex": "#D5EF74",
+      "fit": {
+        "scale": 6.666666666666666,
+        "x": 166.66666666666669,
+        "y": 166.66666666666669,
+        "sourceWidth": 100,
+        "sourceHeight": 100
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-yazi-antrasit-zemin-lime",
+      "layout": "yazi",
+      "colorId": "antrasit-zemin-lime",
+      "label": "Yalnız yazı · Antrasit zemin / lime logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#20251F",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/03-Antrasit-Zemin-Lime-Logo/lunapot-yazi-antrasit-zemin-lime.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 819,
+          "path": "02-Renkli-Zemin/03-Antrasit-Zemin-Lime-Logo/lunapot-yazi-antrasit-zemin-lime.png",
+          "transparent": false,
+          "sha256": "b7ff2b9457ced11379e2a5ae5b0e881b3f6d1e3a97dab5ff655086ec22955fdc"
+        }
+      ],
+      "width": 1600,
+      "height": 640,
+      "sha256": "68947b890b2f214ca47ca2cbd87d56735d7f02fa65d17f368c642e3f5962004f",
+      "foregroundHex": "#D5EF74",
+      "fit": {
+        "scale": 3.0210647684670566,
+        "x": 266.66666666666674,
+        "y": 168.94676157664716,
+        "sourceWidth": 353.07639803032515,
+        "sourceHeight": 100
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-yatay-beyaz-zemin-antrasit",
+      "layout": "yatay",
+      "colorId": "beyaz-zemin-antrasit",
+      "label": "Yatay logo · Beyaz zemin / antrasit logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#FFFFFF",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/04-Beyaz-Zemin/lunapot-yatay-beyaz-zemin-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 819,
+          "path": "02-Renkli-Zemin/04-Beyaz-Zemin/lunapot-yatay-beyaz-zemin-antrasit.png",
+          "transparent": false,
+          "sha256": "23f0d49403ac563a2e04f62fa41772ba4f93b2c2199115f8569fa52d1e1526d3"
+        }
+      ],
+      "width": 1600,
+      "height": 640,
+      "sha256": "7b9c325652dd3bd0b68cfa350f0d22e7348ad71cccd51db34ad1cb8877772209",
+      "foregroundHex": "#20251F",
+      "fit": {
+        "scale": 2.14696052966485,
+        "x": 266.66666666666674,
+        "y": 196.5497695442711,
+        "sourceWidth": 496.8263980303251,
+        "sourceHeight": 115
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-dikey-beyaz-zemin-antrasit",
+      "layout": "dikey",
+      "colorId": "beyaz-zemin-antrasit",
+      "label": "Dikey logo · Beyaz zemin / antrasit logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#FFFFFF",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/04-Beyaz-Zemin/lunapot-dikey-beyaz-zemin-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2253,
+          "path": "02-Renkli-Zemin/04-Beyaz-Zemin/lunapot-dikey-beyaz-zemin-antrasit.png",
+          "transparent": false,
+          "sha256": "c3bda7d924257bb7d7f40ff5a1bdc80598949aa86c0f7975713efaa2ffce3cb9"
+        }
+      ],
+      "width": 1000,
+      "height": 1100,
+      "sha256": "17b7cabd5dee026b8a8cc89c3b6c546c0b51e472c582a758c17cdd5e00538fd4",
+      "foregroundHex": "#20251F",
+      "fit": {
+        "scale": 2.7777777777777777,
+        "x": 166.66666666666669,
+        "y": 281.98061487429334,
+        "sourceWidth": 240,
+        "sourceHeight": 192.9739572905088
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-amblem-beyaz-zemin-antrasit",
+      "layout": "amblem",
+      "colorId": "beyaz-zemin-antrasit",
+      "label": "Yalnız amblem · Beyaz zemin / antrasit logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#FFFFFF",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/04-Beyaz-Zemin/lunapot-amblem-beyaz-zemin-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2048,
+          "path": "02-Renkli-Zemin/04-Beyaz-Zemin/lunapot-amblem-beyaz-zemin-antrasit.png",
+          "transparent": false,
+          "sha256": "bf70b577c6609fe464acd1cabdad1b034d4f5040fb404a3b40e67288f9fa879f"
+        }
+      ],
+      "width": 1000,
+      "height": 1000,
+      "sha256": "666590248669cfdfb30255e7b7602807cf8b3a09104b963850b34164ab1d7e94",
+      "foregroundHex": "#20251F",
+      "fit": {
+        "scale": 6.666666666666666,
+        "x": 166.66666666666669,
+        "y": 166.66666666666669,
+        "sourceWidth": 100,
+        "sourceHeight": 100
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-yazi-beyaz-zemin-antrasit",
+      "layout": "yazi",
+      "colorId": "beyaz-zemin-antrasit",
+      "label": "Yalnız yazı · Beyaz zemin / antrasit logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#FFFFFF",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/04-Beyaz-Zemin/lunapot-yazi-beyaz-zemin-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 819,
+          "path": "02-Renkli-Zemin/04-Beyaz-Zemin/lunapot-yazi-beyaz-zemin-antrasit.png",
+          "transparent": false,
+          "sha256": "42745538bf17674436d959821692a3e499e200fdb5366a21c12fac6293c93da3"
+        }
+      ],
+      "width": 1600,
+      "height": 640,
+      "sha256": "b80a30f39dd77cb2fe0a8d3c923b06a2ccd4b1300969d0a72a71f5c624ca9e0f",
+      "foregroundHex": "#20251F",
+      "fit": {
+        "scale": 3.0210647684670566,
+        "x": 266.66666666666674,
+        "y": 168.94676157664716,
+        "sourceWidth": 353.07639803032515,
+        "sourceHeight": 100
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-yatay-kirikbeyaz-zemin-antrasit",
+      "layout": "yatay",
+      "colorId": "kirikbeyaz-zemin-antrasit",
+      "label": "Yatay logo · Kırık beyaz zemin / antrasit logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#FAFAF6",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/05-Kirik-Beyaz-Zemin/lunapot-yatay-kirikbeyaz-zemin-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 819,
+          "path": "02-Renkli-Zemin/05-Kirik-Beyaz-Zemin/lunapot-yatay-kirikbeyaz-zemin-antrasit.png",
+          "transparent": false,
+          "sha256": "036e81503bb511c1405b1e75457d4850e0db4a14c88af45b72b0290a8b8deb40"
+        }
+      ],
+      "width": 1600,
+      "height": 640,
+      "sha256": "7fc92c5c8d22bd75210e10fd2b7a52219621ece88a0e7c61a129859aa241b5b6",
+      "foregroundHex": "#20251F",
+      "fit": {
+        "scale": 2.14696052966485,
+        "x": 266.66666666666674,
+        "y": 196.5497695442711,
+        "sourceWidth": 496.8263980303251,
+        "sourceHeight": 115
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-dikey-kirikbeyaz-zemin-antrasit",
+      "layout": "dikey",
+      "colorId": "kirikbeyaz-zemin-antrasit",
+      "label": "Dikey logo · Kırık beyaz zemin / antrasit logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#FAFAF6",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/05-Kirik-Beyaz-Zemin/lunapot-dikey-kirikbeyaz-zemin-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2253,
+          "path": "02-Renkli-Zemin/05-Kirik-Beyaz-Zemin/lunapot-dikey-kirikbeyaz-zemin-antrasit.png",
+          "transparent": false,
+          "sha256": "4003b132cdba338e8ab3d9934f4a18064f2b0ed2eac7858fb6a4f0a64da31e2e"
+        }
+      ],
+      "width": 1000,
+      "height": 1100,
+      "sha256": "60e243664b6526165b05c90d3ac00da3dfdea0e43a2a8c117fce5555bbc926dd",
+      "foregroundHex": "#20251F",
+      "fit": {
+        "scale": 2.7777777777777777,
+        "x": 166.66666666666669,
+        "y": 281.98061487429334,
+        "sourceWidth": 240,
+        "sourceHeight": 192.9739572905088
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-amblem-kirikbeyaz-zemin-antrasit",
+      "layout": "amblem",
+      "colorId": "kirikbeyaz-zemin-antrasit",
+      "label": "Yalnız amblem · Kırık beyaz zemin / antrasit logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#FAFAF6",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/05-Kirik-Beyaz-Zemin/lunapot-amblem-kirikbeyaz-zemin-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2048,
+          "path": "02-Renkli-Zemin/05-Kirik-Beyaz-Zemin/lunapot-amblem-kirikbeyaz-zemin-antrasit.png",
+          "transparent": false,
+          "sha256": "e6433b044b44e878f799045e4281f2724ea49fc62a5ab3d4ae6e8526fda9ff92"
+        }
+      ],
+      "width": 1000,
+      "height": 1000,
+      "sha256": "1e66adf09e900f456bcb6edf4fa86478fa10c8dc84a647d97da38a590a377346",
+      "foregroundHex": "#20251F",
+      "fit": {
+        "scale": 6.666666666666666,
+        "x": 166.66666666666669,
+        "y": 166.66666666666669,
+        "sourceWidth": 100,
+        "sourceHeight": 100
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-yazi-kirikbeyaz-zemin-antrasit",
+      "layout": "yazi",
+      "colorId": "kirikbeyaz-zemin-antrasit",
+      "label": "Yalnız yazı · Kırık beyaz zemin / antrasit logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#FAFAF6",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/05-Kirik-Beyaz-Zemin/lunapot-yazi-kirikbeyaz-zemin-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 819,
+          "path": "02-Renkli-Zemin/05-Kirik-Beyaz-Zemin/lunapot-yazi-kirikbeyaz-zemin-antrasit.png",
+          "transparent": false,
+          "sha256": "b263bc3df64bf2af7924d62ccd6e36b8dc7396f8904ee908bcc0200d37854255"
+        }
+      ],
+      "width": 1600,
+      "height": 640,
+      "sha256": "b2874c316b9ed77397d1b3ec555ec3ec4dfaa38542a35e42abfc418f4b552850",
+      "foregroundHex": "#20251F",
+      "fit": {
+        "scale": 3.0210647684670566,
+        "x": 266.66666666666674,
+        "y": 168.94676157664716,
+        "sourceWidth": 353.07639803032515,
+        "sourceHeight": 100
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-yatay-tas-zemin-antrasit",
+      "layout": "yatay",
+      "colorId": "tas-zemin-antrasit",
+      "label": "Yatay logo · Taş zemin / antrasit logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#E7E6DD",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/06-Tas-Zemin/lunapot-yatay-tas-zemin-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 819,
+          "path": "02-Renkli-Zemin/06-Tas-Zemin/lunapot-yatay-tas-zemin-antrasit.png",
+          "transparent": false,
+          "sha256": "b328de5c4be89df20d8c071fc1fa9c3594f124462c7eeaf2987a1e35ef5109c5"
+        }
+      ],
+      "width": 1600,
+      "height": 640,
+      "sha256": "a7784861a490160ec247b8af42c8e8648b54ddb6efba92c7dc9cb759c3c7b51a",
+      "foregroundHex": "#20251F",
+      "fit": {
+        "scale": 2.14696052966485,
+        "x": 266.66666666666674,
+        "y": 196.5497695442711,
+        "sourceWidth": 496.8263980303251,
+        "sourceHeight": 115
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-dikey-tas-zemin-antrasit",
+      "layout": "dikey",
+      "colorId": "tas-zemin-antrasit",
+      "label": "Dikey logo · Taş zemin / antrasit logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#E7E6DD",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/06-Tas-Zemin/lunapot-dikey-tas-zemin-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2253,
+          "path": "02-Renkli-Zemin/06-Tas-Zemin/lunapot-dikey-tas-zemin-antrasit.png",
+          "transparent": false,
+          "sha256": "c56d8b8da398aef0e47729b055d5145ecc68fffd1f33a54cbe7286470be2e18d"
+        }
+      ],
+      "width": 1000,
+      "height": 1100,
+      "sha256": "2945e4eeda57650481da1f436311fac6ac64c60cc168d1cdbd1c6ec8fca85c3f",
+      "foregroundHex": "#20251F",
+      "fit": {
+        "scale": 2.7777777777777777,
+        "x": 166.66666666666669,
+        "y": 281.98061487429334,
+        "sourceWidth": 240,
+        "sourceHeight": 192.9739572905088
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-amblem-tas-zemin-antrasit",
+      "layout": "amblem",
+      "colorId": "tas-zemin-antrasit",
+      "label": "Yalnız amblem · Taş zemin / antrasit logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#E7E6DD",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/06-Tas-Zemin/lunapot-amblem-tas-zemin-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2048,
+          "path": "02-Renkli-Zemin/06-Tas-Zemin/lunapot-amblem-tas-zemin-antrasit.png",
+          "transparent": false,
+          "sha256": "0f2b9c97222a3c6a803e7621845af7e8807a029c6c6ec4dfdfefb069d57b3335"
+        }
+      ],
+      "width": 1000,
+      "height": 1000,
+      "sha256": "4ad3a7d35fec8c795748fb9486d6b69c5eda9b7a050436da64a228199d740b70",
+      "foregroundHex": "#20251F",
+      "fit": {
+        "scale": 6.666666666666666,
+        "x": 166.66666666666669,
+        "y": 166.66666666666669,
+        "sourceWidth": 100,
+        "sourceHeight": 100
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-yazi-tas-zemin-antrasit",
+      "layout": "yazi",
+      "colorId": "tas-zemin-antrasit",
+      "label": "Yalnız yazı · Taş zemin / antrasit logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#E7E6DD",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/06-Tas-Zemin/lunapot-yazi-tas-zemin-antrasit.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 819,
+          "path": "02-Renkli-Zemin/06-Tas-Zemin/lunapot-yazi-tas-zemin-antrasit.png",
+          "transparent": false,
+          "sha256": "30395e6ef4696675f4d6537495db60db1f879fb85d1c752e81fb4898dfc7cbd9"
+        }
+      ],
+      "width": 1600,
+      "height": 640,
+      "sha256": "2eb969fd4276c7f18e5524936601a832867a44781656b6862789e0f08b096e2b",
+      "foregroundHex": "#20251F",
+      "fit": {
+        "scale": 3.0210647684670566,
+        "x": 266.66666666666674,
+        "y": 168.94676157664716,
+        "sourceWidth": 353.07639803032515,
+        "sourceHeight": 100
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-yatay-gri-zemin-beyaz",
+      "layout": "yatay",
+      "colorId": "gri-zemin-beyaz",
+      "label": "Yatay logo · Gri zemin / beyaz logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#656A64",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/07-Gri-Zemin/lunapot-yatay-gri-zemin-beyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 819,
+          "path": "02-Renkli-Zemin/07-Gri-Zemin/lunapot-yatay-gri-zemin-beyaz.png",
+          "transparent": false,
+          "sha256": "4253a2680fbc09b2929fc62ba605c942166ad4475a88c2147aa2cec845b38256"
+        }
+      ],
+      "width": 1600,
+      "height": 640,
+      "sha256": "015ffb804aadd23f67a3f1cf941b41087d6c47533e516ee716a648f45e6216c0",
+      "foregroundHex": "#FFFFFF",
+      "fit": {
+        "scale": 2.14696052966485,
+        "x": 266.66666666666674,
+        "y": 196.5497695442711,
+        "sourceWidth": 496.8263980303251,
+        "sourceHeight": 115
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-dikey-gri-zemin-beyaz",
+      "layout": "dikey",
+      "colorId": "gri-zemin-beyaz",
+      "label": "Dikey logo · Gri zemin / beyaz logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#656A64",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/07-Gri-Zemin/lunapot-dikey-gri-zemin-beyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2253,
+          "path": "02-Renkli-Zemin/07-Gri-Zemin/lunapot-dikey-gri-zemin-beyaz.png",
+          "transparent": false,
+          "sha256": "cfcc4818927811ac570879742dc7026bb63cfdfefdd9658bffd6f15458ee90a1"
+        }
+      ],
+      "width": 1000,
+      "height": 1100,
+      "sha256": "23d0656d08605f42b86990dbcbeadac815710d759c5d7305a603c53996768c96",
+      "foregroundHex": "#FFFFFF",
+      "fit": {
+        "scale": 2.7777777777777777,
+        "x": 166.66666666666669,
+        "y": 281.98061487429334,
+        "sourceWidth": 240,
+        "sourceHeight": 192.9739572905088
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-amblem-gri-zemin-beyaz",
+      "layout": "amblem",
+      "colorId": "gri-zemin-beyaz",
+      "label": "Yalnız amblem · Gri zemin / beyaz logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#656A64",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/07-Gri-Zemin/lunapot-amblem-gri-zemin-beyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2048,
+          "path": "02-Renkli-Zemin/07-Gri-Zemin/lunapot-amblem-gri-zemin-beyaz.png",
+          "transparent": false,
+          "sha256": "7318a0378ac091c6f49f8f2ad9a6d7e448488f37558d598cad1a5cbb763379ef"
+        }
+      ],
+      "width": 1000,
+      "height": 1000,
+      "sha256": "9d317ea75e89136d1033870b59dc876c371e95a61bd60b49b0eddf8c8383be90",
+      "foregroundHex": "#FFFFFF",
+      "fit": {
+        "scale": 6.666666666666666,
+        "x": 166.66666666666669,
+        "y": 166.66666666666669,
+        "sourceWidth": 100,
+        "sourceHeight": 100
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-yazi-gri-zemin-beyaz",
+      "layout": "yazi",
+      "colorId": "gri-zemin-beyaz",
+      "label": "Yalnız yazı · Gri zemin / beyaz logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#656A64",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/07-Gri-Zemin/lunapot-yazi-gri-zemin-beyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 819,
+          "path": "02-Renkli-Zemin/07-Gri-Zemin/lunapot-yazi-gri-zemin-beyaz.png",
+          "transparent": false,
+          "sha256": "b3706fc9b06d040ff8744caee8b1d4de21b31f289672a65574f4cff2a92346e5"
+        }
+      ],
+      "width": 1600,
+      "height": 640,
+      "sha256": "68b43053e1f6e5f19d89bfd217050934d8914c7a98166effe581bfe63eeab2ec",
+      "foregroundHex": "#FFFFFF",
+      "fit": {
+        "scale": 3.0210647684670566,
+        "x": 266.66666666666674,
+        "y": 168.94676157664716,
+        "sourceWidth": 353.07639803032515,
+        "sourceHeight": 100
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-yatay-siyah-zemin-beyaz",
+      "layout": "yatay",
+      "colorId": "siyah-zemin-beyaz",
+      "label": "Yatay logo · Siyah zemin / beyaz logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#000000",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/08-Siyah-Zemin/lunapot-yatay-siyah-zemin-beyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 819,
+          "path": "02-Renkli-Zemin/08-Siyah-Zemin/lunapot-yatay-siyah-zemin-beyaz.png",
+          "transparent": false,
+          "sha256": "516c6dad2b91b33a43065fe5b791837074c2ce4d70dc00ea20d8946b46ff5f3c"
+        }
+      ],
+      "width": 1600,
+      "height": 640,
+      "sha256": "4b67a6490ff8c410634c6f38c8c426eaf1f6d1f70590a168e42fd310bfda6b0c",
+      "foregroundHex": "#FFFFFF",
+      "fit": {
+        "scale": 2.14696052966485,
+        "x": 266.66666666666674,
+        "y": 196.5497695442711,
+        "sourceWidth": 496.8263980303251,
+        "sourceHeight": 115
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-dikey-siyah-zemin-beyaz",
+      "layout": "dikey",
+      "colorId": "siyah-zemin-beyaz",
+      "label": "Dikey logo · Siyah zemin / beyaz logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#000000",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/08-Siyah-Zemin/lunapot-dikey-siyah-zemin-beyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2253,
+          "path": "02-Renkli-Zemin/08-Siyah-Zemin/lunapot-dikey-siyah-zemin-beyaz.png",
+          "transparent": false,
+          "sha256": "457f1d416a98d828701a54efcf2b4f8e2a31d2fa35769bc3a579f1ac915225b4"
+        }
+      ],
+      "width": 1000,
+      "height": 1100,
+      "sha256": "e0d341b3c9b7f5626768eb1699a65a998dc83cabf675530192b5c945868a0ec5",
+      "foregroundHex": "#FFFFFF",
+      "fit": {
+        "scale": 2.7777777777777777,
+        "x": 166.66666666666669,
+        "y": 281.98061487429334,
+        "sourceWidth": 240,
+        "sourceHeight": 192.9739572905088
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-amblem-siyah-zemin-beyaz",
+      "layout": "amblem",
+      "colorId": "siyah-zemin-beyaz",
+      "label": "Yalnız amblem · Siyah zemin / beyaz logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#000000",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/08-Siyah-Zemin/lunapot-amblem-siyah-zemin-beyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 2048,
+          "path": "02-Renkli-Zemin/08-Siyah-Zemin/lunapot-amblem-siyah-zemin-beyaz.png",
+          "transparent": false,
+          "sha256": "868462eef02ed25c0f4efc89eef35feb6ade683a0ae43c5e42c015e1721f57e3"
+        }
+      ],
+      "width": 1000,
+      "height": 1000,
+      "sha256": "ba355e3e0e236fc1713cc1e99411370cab1d1a433cf2b23cfc6933ebddd8e567",
+      "foregroundHex": "#FFFFFF",
+      "fit": {
+        "scale": 6.666666666666666,
+        "x": 166.66666666666669,
+        "y": 166.66666666666669,
+        "sourceWidth": 100,
+        "sourceHeight": 100
+      },
+      "sourcePathsPreserved": true
+    },
+    {
+      "id": "lunapot-yazi-siyah-zemin-beyaz",
+      "layout": "yazi",
+      "colorId": "siyah-zemin-beyaz",
+      "label": "Yalnız yazı · Siyah zemin / beyaz logo",
+      "family": "background",
+      "background": "light",
+      "backgroundHex": "#000000",
+      "backgroundIncluded": true,
+      "svg": "02-Renkli-Zemin/08-Siyah-Zemin/lunapot-yazi-siyah-zemin-beyaz.svg",
+      "pngs": [
+        {
+          "width": 2048,
+          "height": 819,
+          "path": "02-Renkli-Zemin/08-Siyah-Zemin/lunapot-yazi-siyah-zemin-beyaz.png",
+          "transparent": false,
+          "sha256": "f9ccc91207c92e1af3ff20afe8a42ac852fdf156f8b68f3322bfd02f015d1dba"
+        }
+      ],
+      "width": 1600,
+      "height": 640,
+      "sha256": "8a8c94e908d63bd2b50dffe2243f1fed8db729bcd0b9e73896ba15e38834b5b6",
+      "foregroundHex": "#FFFFFF",
+      "fit": {
+        "scale": 3.0210647684670566,
+        "x": 266.66666666666674,
+        "y": 168.94676157664716,
+        "sourceWidth": 353.07639803032515,
+        "sourceHeight": 100
+      },
+      "sourcePathsPreserved": true
+    }
+  ],
+  "customSources": {
+    "yatay": "Uygulama/Ozel-Renk/lunapot-yatay.svg",
+    "dikey": "Uygulama/Ozel-Renk/lunapot-dikey.svg",
+    "amblem": "Uygulama/Ozel-Renk/lunapot-amblem.svg",
+    "yazi": "Uygulama/Ozel-Renk/lunapot-yazi.svg"
+  },
+  "backgroundLayout": {
+    "frames": {
+      "yatay": {
+        "width": 1600,
+        "height": 640
+      },
+      "dikey": {
+        "width": 1000,
+        "height": 1100
+      },
+      "amblem": {
+        "width": 1000,
+        "height": 1000
+      },
+      "yazi": {
+        "width": 1600,
+        "height": 640
+      }
+    },
+    "fitRatio": 0.6666666666666666
+  },
+  "zip": "Lunapot-Logolar-Duzenli-2026-10-09.zip",
+  "fullPackageZip": "../kurumsal-paket-v3/Lunapot-Kurumsal-Paket-2026-10-09.zip",
+  "standardPngWidth": 2048,
+  "clearSpace": {
+    "background": "En az H/4; onaylı logo eş oranda ortalanır.",
+    "transparent": "Dış güvenli alan dosyaya dahil değildir."
+  }
+}

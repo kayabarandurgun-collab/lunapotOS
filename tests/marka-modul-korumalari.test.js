@@ -57,14 +57,14 @@ test('HEX yalniz alti hane kabul edilir; serbest SVG/HTML yuklemesi yok',()=>{
  assert.equal(/innerHTML\s*=\s*[^;]*\+\s*(state\.svg|source)/.test(logoJs),false,'kullanici SVG si HTML e basilmamali');
  assert.equal(/\.outerHTML\s*=/.test(logoJs),false);
  // Kaynak SVG yalniz renk yoluyla degisir.
- assert.ok(logoJs.includes("source.replace(/currentColor/g, hex)"),'kaynak yalniz currentColor ile degismeli');
+ assert.ok(logoJs.includes('source.replace(/currentColor/g, color)'),'kaynak yalniz currentColor ile degismeli');
  assert.equal(/<input[^>]*type="file"/.test(logoJs),false,'serbest dosya yuklemesi eklenmemeli');
 });
 
 test('PNG oran korumasi aynen durur: tamsayi viewport, meet, dogal cizim',()=>{
  assert.ok(logoJs.includes("preserveAspectRatio', 'xMidYMid meet'"),'preserveAspectRatio degismis');
  assert.ok(logoJs.includes('drawImage(image, 0, 0)'),'dogal boyutta cizim yapilmali');
- assert.ok(logoJs.includes('Math.round(width * viewBox[3] / viewBox[2])'),'yukseklik viewBox oranindan gelmeli');
+ assert.ok(logoJs.includes('Math.round(width * box[3] / box[2])'),'yukseklik viewBox oranindan gelmeli');
  // Bagimsiz x/y olcek UYGULANMAZ.
  assert.equal(/\.scale\(/.test(logoJs),false,'canvas scale cagrisi oran bozar');
  assert.equal(/drawImage\([^)]*,\s*width\s*,\s*height\s*\)/.test(logoJs),false,'germe ile cizim yapilmis');
@@ -97,9 +97,11 @@ test('Dokunma hedefleri panelin 44px olcegine uyar',()=>{
 });
 
 test('Varliklar panelin kendi kokunden servis edilir: dis baglanti yok',()=>{
- assert.ok(logoJs.includes("const ASSET_ROOT = '/marka/logo/'"),'varlik koku panelin kendi yolu olmali');
+ assert.ok(logoJs.includes("const ASSET_ROOT = '/marka/logo-v2/'"),'varlik koku panelin kendi yolu olmali');
  assert.equal(/127\.0\.0\.1|localhost|8795|8806/.test(logoJs),false,'yerel sunucu bagimliligi kalmis');
- assert.equal(/https?:\/\//.test(logoJs),false,'dis kaynak baglantisi var');
+ // XML ad alani (xmlns) bir AG BAGLANTISI degildir; SVG'nin kimligidir.
+ const agBaglantilari=(logoJs.match(/https?:\/\/[^'"\s)]*/g)||[]).filter(u=>!u.startsWith('http://www.w3.org/'));
+ assert.deepEqual(agBaglantilari,[],'dis kaynak baglantisi var');
  assert.equal(/<iframe/.test(logoJs),false,'modul iframe icine alinmamali');
 });
 

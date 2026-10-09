@@ -1,0 +1,528 @@
+{
+  "date": "2026-10-09",
+  "before": [
+    {
+      "path": "lunapot-store-preview/work/logo-geometry-v8.cjs",
+      "sha256": "971608eca86b86736471a4128917de41c4ec1fc178a2e05343e41a6e2f13fe0c",
+      "unchanged": true
+    },
+    {
+      "path": "lunapot-store-preview/assets/lunapot-symbol.svg",
+      "sha256": "cb63ceb5e8b3fe00cf5442c48c53c69469bf5378d2b1e06a0c166f5c1884632b",
+      "unchanged": true
+    },
+    {
+      "path": "lunapot-store-preview/assets/lunapot-symbol-white.svg",
+      "sha256": "34cf380daa3f6680d43eb30c7afcde4d39998ce57d8486d5e47790783964192c",
+      "unchanged": true
+    },
+    {
+      "path": "lunapot-store-preview/assets/lunapot-symbol-micro.svg",
+      "sha256": "cb63ceb5e8b3fe00cf5442c48c53c69469bf5378d2b1e06a0c166f5c1884632b",
+      "unchanged": true
+    },
+    {
+      "path": "lunapot-store-preview/assets/lunapot-logo-dark.svg",
+      "sha256": "d2848b997850a3c324df072d65f345ea690d006e6c817ee2d0df189a1bebf633",
+      "unchanged": true
+    },
+    {
+      "path": "lunapot-store-preview/assets/lunapot-logo-white.svg",
+      "sha256": "855546e0160a5b032ef17f2520ac50d1affebf5e84e72c402377523814de78a7",
+      "unchanged": true
+    },
+    {
+      "path": "lunapot-store-preview/assets/lunapot-wordmark-dark.svg",
+      "sha256": "fd81d827120c5d49aa28c970e26ec8484ff05fdd06002a08bf3c29f8753038b3",
+      "unchanged": true
+    },
+    {
+      "path": "lunapot-store-preview/assets/lunapot-wordmark-white.svg",
+      "sha256": "b86e92d52eae561777fef30b75101acca4c4c6992da22cfb59ac66795fcb484c",
+      "unchanged": true
+    },
+    {
+      "path": "lunapot-store-preview/assets/lunapot-favicon.svg",
+      "sha256": "88d329f30f99d2977703a7998206e2cab4ebedd1d983597ef9799c5f36ab03b7",
+      "unchanged": true
+    },
+    {
+      "path": "lunapot-store-preview/assets/lunapot-apple-touch-icon.png",
+      "sha256": "10bbaf8d6716c4af5a45d0c4c207d66191f73e20fee26b874753baecb3b096f1",
+      "unchanged": true
+    }
+  ],
+  "after": [
+    {
+      "path": "lunapot-store-preview/work/logo-geometry-v8.cjs",
+      "sha256": "971608eca86b86736471a4128917de41c4ec1fc178a2e05343e41a6e2f13fe0c",
+      "unchanged": true
+    },
+    {
+      "path": "lunapot-store-preview/assets/lunapot-symbol.svg",
+      "sha256": "cb63ceb5e8b3fe00cf5442c48c53c69469bf5378d2b1e06a0c166f5c1884632b",
+      "unchanged": true
+    },
+    {
+      "path": "lunapot-store-preview/assets/lunapot-symbol-white.svg",
+      "sha256": "34cf380daa3f6680d43eb30c7afcde4d39998ce57d8486d5e47790783964192c",
+      "unchanged": true
+    },
+    {
+      "path": "lunapot-store-preview/assets/lunapot-symbol-micro.svg",
+      "sha256": "cb63ceb5e8b3fe00cf5442c48c53c69469bf5378d2b1e06a0c166f5c1884632b",
+      "unchanged": true
+    },
+    {
+      "path": "lunapot-store-preview/assets/lunapot-logo-dark.svg",
+      "sha256": "d2848b997850a3c324df072d65f345ea690d006e6c817ee2d0df189a1bebf633",
+      "unchanged": true
+    },
+    {
+      "path": "lunapot-store-preview/assets/lunapot-logo-white.svg",
+      "sha256": "855546e0160a5b032ef17f2520ac50d1affebf5e84e72c402377523814de78a7",
+      "unchanged": true
+    },
+    {
+      "path": "lunapot-store-preview/assets/lunapot-wordmark-dark.svg",
+      "sha256": "fd81d827120c5d49aa28c970e26ec8484ff05fdd06002a08bf3c29f8753038b3",
+      "unchanged": true
+    },
+    {
+      "path": "lunapot-store-preview/assets/lunapot-wordmark-white.svg",
+      "sha256": "b86e92d52eae561777fef30b75101acca4c4c6992da22cfb59ac66795fcb484c",
+      "unchanged": true
+    },
+    {
+      "path": "lunapot-store-preview/assets/lunapot-favicon.svg",
+      "sha256": "88d329f30f99d2977703a7998206e2cab4ebedd1d983597ef9799c5f36ab03b7",
+      "unchanged": true
+    },
+    {
+      "path": "lunapot-store-preview/assets/lunapot-apple-touch-icon.png",
+      "sha256": "10bbaf8d6716c4af5a45d0c4c207d66191f73e20fee26b874753baecb3b096f1",
+      "unchanged": true
+    }
+  ],
+  "transparentVariants": 32,
+  "backgroundVariants": 32,
+  "onePngPerVariant": true,
+  "checks": [
+    {
+      "id": "lunapot-yatay-antrasit",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-yatay-beyaz",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-yatay-siyah",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-yatay-lime",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-yatay-kirikbeyaz",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-yatay-tas",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-yatay-gri",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-yatay-lime-antrasit",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-yatay-lime-beyaz",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-dikey-antrasit",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-dikey-beyaz",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-dikey-siyah",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-dikey-lime",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-dikey-kirikbeyaz",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-dikey-tas",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-dikey-gri",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-dikey-lime-antrasit",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-dikey-lime-beyaz",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-amblem-antrasit",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-amblem-beyaz",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-amblem-siyah",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-amblem-lime",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-amblem-kirikbeyaz",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-amblem-tas",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-amblem-gri",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-yazi-antrasit",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-yazi-beyaz",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-yazi-siyah",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-yazi-lime",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-yazi-kirikbeyaz",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-yazi-tas",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-yazi-gri",
+      "sourceSvgIdentical": true,
+      "sourcePngIdentical": true
+    },
+    {
+      "id": "lunapot-yatay-lime-zemin-antrasit",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#D5EF74",
+      "width": 2048,
+      "height": 819
+    },
+    {
+      "id": "lunapot-dikey-lime-zemin-antrasit",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#D5EF74",
+      "width": 2048,
+      "height": 2253
+    },
+    {
+      "id": "lunapot-amblem-lime-zemin-antrasit",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#D5EF74",
+      "width": 2048,
+      "height": 2048
+    },
+    {
+      "id": "lunapot-yazi-lime-zemin-antrasit",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#D5EF74",
+      "width": 2048,
+      "height": 819
+    },
+    {
+      "id": "lunapot-yatay-antrasit-zemin-beyaz",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#20251F",
+      "width": 2048,
+      "height": 819
+    },
+    {
+      "id": "lunapot-dikey-antrasit-zemin-beyaz",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#20251F",
+      "width": 2048,
+      "height": 2253
+    },
+    {
+      "id": "lunapot-amblem-antrasit-zemin-beyaz",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#20251F",
+      "width": 2048,
+      "height": 2048
+    },
+    {
+      "id": "lunapot-yazi-antrasit-zemin-beyaz",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#20251F",
+      "width": 2048,
+      "height": 819
+    },
+    {
+      "id": "lunapot-yatay-antrasit-zemin-lime",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#20251F",
+      "width": 2048,
+      "height": 819
+    },
+    {
+      "id": "lunapot-dikey-antrasit-zemin-lime",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#20251F",
+      "width": 2048,
+      "height": 2253
+    },
+    {
+      "id": "lunapot-amblem-antrasit-zemin-lime",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#20251F",
+      "width": 2048,
+      "height": 2048
+    },
+    {
+      "id": "lunapot-yazi-antrasit-zemin-lime",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#20251F",
+      "width": 2048,
+      "height": 819
+    },
+    {
+      "id": "lunapot-yatay-beyaz-zemin-antrasit",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#FFFFFF",
+      "width": 2048,
+      "height": 819
+    },
+    {
+      "id": "lunapot-dikey-beyaz-zemin-antrasit",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#FFFFFF",
+      "width": 2048,
+      "height": 2253
+    },
+    {
+      "id": "lunapot-amblem-beyaz-zemin-antrasit",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#FFFFFF",
+      "width": 2048,
+      "height": 2048
+    },
+    {
+      "id": "lunapot-yazi-beyaz-zemin-antrasit",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#FFFFFF",
+      "width": 2048,
+      "height": 819
+    },
+    {
+      "id": "lunapot-yatay-kirikbeyaz-zemin-antrasit",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#FAFAF6",
+      "width": 2048,
+      "height": 819
+    },
+    {
+      "id": "lunapot-dikey-kirikbeyaz-zemin-antrasit",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#FAFAF6",
+      "width": 2048,
+      "height": 2253
+    },
+    {
+      "id": "lunapot-amblem-kirikbeyaz-zemin-antrasit",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#FAFAF6",
+      "width": 2048,
+      "height": 2048
+    },
+    {
+      "id": "lunapot-yazi-kirikbeyaz-zemin-antrasit",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#FAFAF6",
+      "width": 2048,
+      "height": 819
+    },
+    {
+      "id": "lunapot-yatay-tas-zemin-antrasit",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#E7E6DD",
+      "width": 2048,
+      "height": 819
+    },
+    {
+      "id": "lunapot-dikey-tas-zemin-antrasit",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#E7E6DD",
+      "width": 2048,
+      "height": 2253
+    },
+    {
+      "id": "lunapot-amblem-tas-zemin-antrasit",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#E7E6DD",
+      "width": 2048,
+      "height": 2048
+    },
+    {
+      "id": "lunapot-yazi-tas-zemin-antrasit",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#E7E6DD",
+      "width": 2048,
+      "height": 819
+    },
+    {
+      "id": "lunapot-yatay-gri-zemin-beyaz",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#656A64",
+      "width": 2048,
+      "height": 819
+    },
+    {
+      "id": "lunapot-dikey-gri-zemin-beyaz",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#656A64",
+      "width": 2048,
+      "height": 2253
+    },
+    {
+      "id": "lunapot-amblem-gri-zemin-beyaz",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#656A64",
+      "width": 2048,
+      "height": 2048
+    },
+    {
+      "id": "lunapot-yazi-gri-zemin-beyaz",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#656A64",
+      "width": 2048,
+      "height": 819
+    },
+    {
+      "id": "lunapot-yatay-siyah-zemin-beyaz",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#000000",
+      "width": 2048,
+      "height": 819
+    },
+    {
+      "id": "lunapot-dikey-siyah-zemin-beyaz",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#000000",
+      "width": 2048,
+      "height": 2253
+    },
+    {
+      "id": "lunapot-amblem-siyah-zemin-beyaz",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#000000",
+      "width": 2048,
+      "height": 2048
+    },
+    {
+      "id": "lunapot-yazi-siyah-zemin-beyaz",
+      "sourcePathsPreserved": true,
+      "opaque": true,
+      "backgroundHex": "#000000",
+      "width": 2048,
+      "height": 819
+    }
+  ]
+}

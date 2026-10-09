@@ -1,0 +1,10 @@
+LUNAPOT / LOGOLAR
+
+01-Seffaf: Başka bir fotoğrafın, belgenin veya ambalajın üzerine yerleştirmek için.
+02-Renkli-Zemin: Arka planı dosyanın içinde olan hazır görseller. Lime, antrasit, beyaz, kırık beyaz, taş, gri ve siyah zeminler.
+
+Her seçenekte yalnız iki dosya var: PNG günlük kullanım; SVG büyütme ve tasarım için. PNG tek standart boy: 2048 piksel genişlik. Farklı piksel boylarında tekrarlar yok. İhtiyaç duyarsan logo kataloğunun özel renk alanından başka boyut indirebilirsin.
+
+Renkli dosyalarda zemin hem PNG hem SVG içinde gerçekten vardır. Logo ile zemin arasındaki boşluklar da hazırdır. Şeffaf dosyada dış güvenli alanı kullanacağın yerde bırak. Onaylı amblem ve yazı şekli değişmemiştir.
+
+LOGOLARI-AC.html dosyasından görerek seçebilirsin. Uygulama klasörü kataloğun teknik dosyalarıdır.
