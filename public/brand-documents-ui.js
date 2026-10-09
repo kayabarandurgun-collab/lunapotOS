@@ -55,6 +55,9 @@ export function mountBrandDocuments(root, namespace, user) {
   const state = {
     type: 'teklif', draft: null, record: null, dirty: false, busy: false,
     company: null, companyAvailable: true, parties: [], partiesLoaded: false,
+    // Antet profilleri: hangi tüzel kişilik adına belge kesildiği. Göç gecikirse
+    // profilesAvailable false kalır ve ekran eski tek-satır ayara düşer.
+    profiles: [], profilesAvailable: false, profileForm: null, profileError: '',
     products: [], productsLoaded: false,
     brandAvailable: true, brandNotice: '', list: [], listLoaded: false,
     error: '', status: '', disposed: false, view: 'editor',
@@ -90,21 +93,44 @@ export function mountBrandDocuments(root, namespace, user) {
       notes: '', prepared: '', approved: '',
       example: sample,
       logo_variant_id: DEFAULT_LOGO,
+      // Boş bırakılır: antet çizilirken varsayılan profile düşer.
+      profile_id: '', antet: null,
       items: !type.table ? [] : sample ? SAMPLE_ITEMS.map(item => ({...item, product_id: null})) : [blankItem()]
     };
   }
 
-  const presentationOf = draft => ({
-    schema_version: 1, template_id: 'lunapot-business-v2', template_version: 1,
-    logo_variant_id: draft.logo_variant_id || DEFAULT_LOGO,
-    company_snapshot: state.company ? {
-      name: state.company.legal_name || '', address: state.company.address || '',
-      contact: [state.company.phone, state.company.email, state.company.website].filter(Boolean).join(' · '),
-      tax: [state.company.tax_office, state.company.tax_id].filter(Boolean).join(' / '),
-      bank: [state.company.bank_name, state.company.bank_iban].filter(Boolean).join(' · ')
-    } : null,
-    brand_version: 'v8'
-  });
+  // Belgenin anteti. Üç kaynak, bu sırayla:
+  //   1. KAYITLI belgenin donmuş anlık görüntüsü — profil sonradan değişse bile
+  //      basılmış belge neyi gösterdiyse onu göstermeye devam eder.
+  //   2. Belgede seçilen antet profili (yoksa varsayılan profil).
+  //   3. Profil hiç kurulmamışsa 0077'nin tek-satır antet ayarı.
+  // Belgeye profil KİMLİĞİ yazılmaz; yazılan şey basılan metnin kendisidir.
+  const BOS_ANTET = {name: '', address: '', contact: '', tax: '', bank: ''};
+  function antetOf(draft) {
+    if (draft.antet) return draft.antet;
+    const kaynak = state.profiles.find(item => item.id === draft.profile_id)
+      || state.profiles.find(item => item.is_default)
+      || state.company;
+    if (!kaynak) return BOS_ANTET;
+    return {
+      name: kaynak.legal_name || '',
+      address: kaynak.address || '',
+      contact: [kaynak.phone, kaynak.email, kaynak.website].filter(Boolean).join(' · '),
+      tax: [kaynak.tax_office, kaynak.tax_id].filter(Boolean).join(' / '),
+      bank: [kaynak.bank_name, kaynak.bank_iban].filter(Boolean).join(' · ')
+    };
+  }
+
+  const presentationOf = draft => {
+    const antet = antetOf(draft);
+    return {
+      schema_version: 1, template_id: 'lunapot-business-v2', template_version: 1,
+      logo_variant_id: draft.logo_variant_id || DEFAULT_LOGO,
+      // Hepsi boşsa alan null gider: boş bir kabuk kaydedilmez.
+      company_snapshot: Object.values(antet).some(Boolean) ? antet : null,
+      brand_version: 'v8'
+    };
+  };
 
   // Önizleme hesabı kanonik motordan geçer: ekranda ayrı bir matematik yoktur.
   function previewTotals(draft, type) {
@@ -268,11 +294,11 @@ export function mountBrandDocuments(root, namespace, user) {
   // ---------- A4 önizleme. Kaynak tasarım korunur. ----------
   function sheetHtml(draft, type) {
     const {totals, problem} = previewTotals(draft, type);
-    const company = state.company || {};
-    const companyName = company.legal_name || '[Şirket unvanı]';
-    const contact = [company.phone, company.email, company.website].filter(Boolean).join(' · ');
-    const taxLine = [company.tax_office, company.tax_id].filter(Boolean).join(' / ');
-    const bank = [company.bank_name, company.bank_iban].filter(Boolean).join(' · ');
+    const antet = antetOf(draft);
+    const companyName = antet.name || '[Şirket unvanı]';
+    const contact = antet.contact;
+    const taxLine = antet.tax;
+    const bank = antet.bank;
     const no = state.record ? state.record.document_no + (state.record.revision > 1 ? ' · ' + state.record.revision + '. sürüm' : '') : type.code + '-[kaydedince verilir]';
 
     const rows = draft.items.map((item, index) => {
@@ -318,7 +344,7 @@ export function mountBrandDocuments(root, namespace, user) {
       '<div class="ba-kind"><p>LUNAPOT / İŞ EVRAKLARI</p><h1>' + esc(type.name) + '</h1><span>' + esc(no) + '</span></div></header>' +
       (draft.example ? '<div class="ba-sample">ÖRNEK / TASLAK — alanlar ve fiyatlar gösterim içindir.</div>' : '') +
       '<section class="ba-meta"><div><h2>' + esc(companyName) + '</h2>' +
-      '<p>' + multiline(company.address || '[Şirket adresi]') + '</p>' +
+      '<p>' + multiline(antet.address || '[Şirket adresi]') + '</p>' +
       '<p>' + esc(contact || '[Telefon · E-posta · Web]') + '</p>' +
       '<p>' + esc(taxLine || '[Vergi dairesi / VKN]') + '</p></div>' +
       '<dl><div><dt>Tarih</dt><dd>' + esc(draft.issue_date) + '</dd></div>' +
@@ -369,11 +395,70 @@ export function mountBrandDocuments(root, namespace, user) {
       '<textarea rows="6" data-ba-scope="draft" data-ba-key="notes"' + (writable ? '' : ' disabled') + '>' + esc(draft.notes) + '</textarea></label>' +
       '<div class="ba-grid">' + field(type.sign[0], 'prepared', draft.prepared) +
       (type.sign[1] ? field(type.sign[1], 'approved', draft.approved) : '') + '</div>' +
+      antetSecici(draft) +
       '<label>Antet logosu<select data-ba-scope="draft" data-ba-key="logo_variant_id"' + (writable ? '' : ' disabled') + '>' +
       ['lunapot-yatay-antrasit', 'lunapot-yatay-siyah', 'lunapot-yatay-lime-antrasit', 'lunapot-dikey-antrasit', 'lunapot-yazi-antrasit']
         .map(id => '<option value="' + id + '"' + (draft.logo_variant_id === id ? ' selected' : '') + '>' + id + '</option>').join('') +
       '</select></label>' +
       (type.table ? linesHtml(draft, type) : '') + '</form>';
+  }
+
+  // Hangi tüzel kişilik adına kesiliyor. Kayıtlı belgede antet DONMUŞTUR; seçici
+  // o belgeyi değiştirmek için değil, yeni bir antete geçmek için kullanılır.
+  function antetSecici(draft) {
+    if (!state.profilesAvailable) return '';
+    if (!state.profiles.length) return '<p class="help">Antet profili yok. ' +
+      (writable ? '<button type="button" class="text-button" data-ba-action="profiles">Şirket bilgilerini gir</button>' : '') +
+      '</p>';
+    const secili = draft.profile_id || state.profiles.find(item => item.is_default)?.id || '';
+    return '<label>Antet profili<select data-ba-profile' + (writable ? '' : ' disabled') + '>' +
+      state.profiles.map(item => '<option value="' + esc(item.id) + '"' +
+        (item.id === secili && !draft.antet ? ' selected' : '') + '>' + esc(item.label) + '</option>').join('') +
+      (draft.antet ? '<option value="" selected>— belgeye kayıtlı antet —</option>' : '') +
+      '</select></label>' +
+      (draft.antet ? '<p class="help">Bu belge <strong>' + esc(draft.antet.name || 'kayıtlı antet') +
+        '</strong> ile kaydedilmiş. Profili değiştirirsen kâğıt yeni antetle basılır.</p>' : '');
+  }
+
+  function profilesHtml() {
+    const form = state.profileForm;
+    const alan = (etiket, ad, deger, ipucu = '') =>
+      '<label>' + esc(etiket) + '<input data-bp-key="' + ad + '" value="' + esc(deger || '') + '">' +
+      (ipucu ? '<small class="help">' + esc(ipucu) + '</small>' : '') + '</label>';
+    return '<section class="card pad"><div class="section-heading"><div><span class="eyebrow">ANTET</span>' +
+      '<h3>Şirket profilleri</h3><p>Belgeye basılan şirket kimliği. Her belgede hangisiyle ' +
+      'keseceğini seçersin. Buradaki vergi numarası yalnız kâğıda basılır; alış faturası ' +
+      'eşleştirmesi Şirket ve yedek ekranındaki numarayla yürür.</p></div>' +
+      '<button type="button" class="secondary" data-ba-action="editor">Düzenleyiciye dön</button></div>' +
+      (state.profiles.length
+        ? '<div class="table-wrap"><table><thead><tr><th>Profil</th><th>Unvan</th><th>Adres</th><th></th></tr></thead><tbody>' +
+          state.profiles.map(item => '<tr><td><strong>' + esc(item.label) + '</strong>' +
+            (item.is_default ? ' <span class="pill">varsayılan</span>' : '') + '</td>' +
+            '<td>' + esc(item.legal_name || '—') + '</td><td>' + esc(item.address || '—') + '</td>' +
+            '<td>' + (writable ? '<button type="button" class="text-button" data-bp-edit="' + esc(item.id) + '">Düzenle</button>' +
+              (item.is_default ? '' : '<button type="button" class="text-button" data-bp-default="' + esc(item.id) + '">Varsayılan yap</button>' +
+                '<button type="button" class="text-button danger" data-bp-archive="' + esc(item.id) + '">Kaldır</button>') : '') +
+            '</td></tr>').join('') + '</tbody></table></div>'
+        : '<p class="help">Henüz profil yok.</p>') +
+      (state.profileError && !form ? '<p class="notice" role="alert">' + esc(state.profileError) + '</p>' : '') +
+      (writable && !form ? '<div class="ba-custom-actions"><button type="button" class="primary" data-ba-action="profile-new">＋ Profil ekle</button></div>' : '') +
+      (form ? '<form class="ba-form" data-bp-form><h3>' + (form.id ? 'Profili düzenle' : 'Yeni profil') + '</h3>' +
+        '<div class="ba-grid">' +
+        alan('Kısa ad', 'label', form.label, 'Açılır kutuda bu görünür: Dekovill, Lunapot Endüstriyel…') +
+        alan('Ticari unvan', 'legal_name', form.legal_name) + '</div><div class="ba-grid">' +
+        alan('Vergi dairesi', 'tax_office', form.tax_office) +
+        alan('VKN / TCKN', 'tax_id', form.tax_id, '10 veya 11 rakam') + '</div>' +
+        '<label>Adres<textarea rows="3" data-bp-key="address">' + esc(form.address || '') + '</textarea></label>' +
+        '<div class="ba-grid">' + alan('Telefon', 'phone', form.phone) + alan('E-posta', 'email', form.email) + '</div>' +
+        '<div class="ba-grid">' + alan('Web adresi', 'website', form.website) + alan('İmza unvanı', 'signature_title', form.signature_title) + '</div>' +
+        '<div class="ba-grid">' + alan('Banka', 'bank_name', form.bank_name) +
+        alan('IBAN', 'bank_iban', form.bank_iban, 'TR ile başlayan 26 karakter; emin değilsen boş bırak') + '</div>' +
+        '<label class="ba-check"><input type="checkbox" data-bp-key="is_default"' + (form.is_default ? ' checked' : '') +
+        '> Yeni belgelerde bu profil önseçili gelsin</label>' +
+        (state.profileError ? '<p class="notice" role="alert">' + esc(state.profileError) + '</p>' : '') +
+        '<div class="ba-custom-actions"><button type="submit" class="primary"' + (state.busy ? ' disabled' : '') + '>Profili kaydet</button>' +
+        '<button type="button" class="secondary" data-ba-action="profile-cancel">Vazgeç</button></div></form>' : '') +
+      '</section>';
   }
 
   // Kayıtlı üründen seçmek ad, stok kodu ve birimi doldurur; fiyat ELLE yazılır.
@@ -412,6 +497,7 @@ export function mountBrandDocuments(root, namespace, user) {
       'diğer türler kurumsal evrak defterine. Hiçbiri fatura, irsaliye ya da stok hareketi yaratmaz.</p></div>' +
       '<div class="ba-head-actions">' +
       '<button type="button" class="secondary" data-ba-action="list">Kayıtlı belgeler</button>' +
+      (state.profilesAvailable ? '<button type="button" class="secondary" data-ba-action="profiles">Şirket profilleri</button>' : '') +
       (writable ? '<button type="button" class="secondary" data-ba-action="sample">Örnek veriyle doldur</button>' +
         '<label class="ba-import-pick"><span>JSON yükle</span>' +
         '<input type="file" accept="application/json,.json" data-ba-import></label>' : '') +
@@ -430,6 +516,7 @@ export function mountBrandDocuments(root, namespace, user) {
       (kapali
         ? '<section class="card pad"><h3>' + esc(type.name) + ' henüz açılmadı</h3><p role="status">' +
           esc(state.brandNotice || 'Kurumsal evrak defteri kurulduğunda bu tür açılır.') + '</p></section>'
+        : state.view === 'profiles' ? profilesHtml()
         : state.view === 'list' ? listHtml()
         : '<div class="ba-workspace"><section class="card pad ba-editor">' + editorHtml(draft, type) + '</section>' +
           '<section class="ba-preview"><div class="ba-preview-bar">' +
@@ -459,17 +546,58 @@ export function mountBrandDocuments(root, namespace, user) {
       '</tbody></table></div></section>';
   }
 
+  // ---------- Antet profilleri ----------
+  // Profil kaydetmek BELGE DEĞİŞTİRMEZ: kayıtlı belgelerin anteti donmuş anlık
+  // görüntüdedir, buradaki düzeltme onlara geri yürümez.
+  async function saveProfile(body, kapat) {
+    if (state.busy) return;
+    state.busy = true; state.profileError = ''; render();
+    try {
+      const data = await api('/brand-profile/profiles', body);
+      if (state.disposed) return;
+      state.profiles = data.profiles || [];
+      state.profilesAvailable = true;
+      if (kapat !== false) state.profileForm = null;
+      state.status = 'Antet profili kaydedildi.';
+    } catch (error) {
+      if (error.name === 'AbortError') return;
+      state.profileError = error.message;
+    }
+    state.busy = false;
+    if (!state.disposed) render();
+  }
+
+  async function archiveProfile(id) {
+    if (state.busy) return;
+    state.busy = true; state.profileError = ''; render();
+    try {
+      const data = await api('/brand-profile/profiles/archive', {id});
+      if (state.disposed) return;
+      state.profiles = data.profiles || [];
+      state.status = 'Profil listeden kaldırıldı. Bu profille basılmış belgeler değişmedi.';
+    } catch (error) {
+      if (error.name === 'AbortError') return;
+      state.profileError = error.message;
+    }
+    state.busy = false;
+    if (!state.disposed) render();
+  }
+
   // ---------- Yükleme ----------
   async function loadCompany() {
     try {
       const data = await api('/brand-profile');
       state.company = data.profile;
       state.companyAvailable = data.available !== false;
+      state.profiles = Array.isArray(data.profiles) ? data.profiles : [];
+      state.profilesAvailable = data.profilesAvailable === true;
       if (!state.companyAvailable) state.status = data.notice || '';
     } catch (error) {
       if (error.name === 'AbortError') return;
       state.company = null;
       state.companyAvailable = false;
+      state.profiles = [];
+      state.profilesAvailable = false;
     }
   }
 
@@ -553,6 +681,7 @@ export function mountBrandDocuments(root, namespace, user) {
       notes: snapshot.terms || '', prepared: presentation.prepared || '', approved: presentation.approved || '',
       example: presentation.example === true,
       logo_variant_id: presentation.logo_variant_id || DEFAULT_LOGO,
+      profile_id: '', antet: presentation.company_snapshot || null,
       items: (snapshot.totals?.rows || []).map((row, index) => ({
         name: row.description || '', sku: (presentation.line_metadata || []).find(x => x.index === index)?.sku || '',
         qty: String((row.quantity_milli ?? 0) / 1000), unit: row.unit || '',
@@ -576,6 +705,7 @@ export function mountBrandDocuments(root, namespace, user) {
       notes: content.notes || '', prepared: content.prepared || '', approved: content.approved || '',
       example: content.example === true,
       logo_variant_id: presentation.logo_variant_id || DEFAULT_LOGO,
+      profile_id: '', antet: presentation.company_snapshot || null,
       items: (content.lines || []).map((row, index) => ({
         name: row.description || '', sku: '',
         qty: String((row.quantity_milli ?? 0) / 1000), unit: row.unit || '',
@@ -749,6 +879,28 @@ export function mountBrandDocuments(root, namespace, user) {
       }
       return;
     }
+    const profilDuzenle = event.target.closest('[data-bp-edit]');
+    if (profilDuzenle && writable) {
+      const kayit = state.profiles.find(item => item.id === profilDuzenle.dataset.bpEdit);
+      if (kayit) { state.profileForm = {...kayit, is_default: !!kayit.is_default}; state.profileError = ''; render(); }
+      return;
+    }
+    const profilVarsayilan = event.target.closest('[data-bp-default]');
+    if (profilVarsayilan && writable) {
+      const kayit = state.profiles.find(item => item.id === profilVarsayilan.dataset.bpDefault);
+      // Kaydın TAMAMI gider: sunucu kısa adı zorunlu tutuyor, eksik gövde reddedilir.
+      if (kayit) saveProfile({...kayit, is_default: true});
+      return;
+    }
+    const profilKaldir = event.target.closest('[data-bp-archive]');
+    if (profilKaldir && writable) {
+      const kayit = state.profiles.find(item => item.id === profilKaldir.dataset.bpArchive);
+      if (!kayit) return;
+      // Kaldırmak SİLMEZ: profil arşivlenir, eski belgelerin anteti yerinde kalır.
+      if (!confirm('"' + kayit.label + '" profili listeden kaldırılsın mı? Bu profille basılmış belgeler değişmez.')) return;
+      archiveProfile(kayit.id);
+      return;
+    }
     const open = event.target.closest('[data-ba-open]');
     if (open) { openRecord(open.dataset.baOpen); return; }
     const remove = event.target.closest('[data-ba-remove]');
@@ -766,6 +918,14 @@ export function mountBrandDocuments(root, namespace, user) {
     if (action === 'list') { state.view = 'list'; loadList(); return; }
     if (action === 'editor') { state.view = 'editor'; render(); return; }
     if (action === 'import-cancel') { state.importing = null; render(); return; }
+    if (action === 'profiles') { state.view = 'profiles'; state.profileForm = null; state.profileError = ''; render(); return; }
+    if (action === 'profile-new' && writable) {
+      state.profileForm = {label: '', legal_name: '', tax_id: '', tax_office: '', address: '',
+        phone: '', email: '', website: '', bank_name: '', bank_iban: '', signature_title: '',
+        is_default: !state.profiles.length};
+      state.profileError = ''; render(); return;
+    }
+    if (action === 'profile-cancel') { state.profileForm = null; state.profileError = ''; render(); return; }
     // Açık kaydetme adımı: önizlemeyi onaylamak taslağı DEĞİŞTİRİR, sunucuya YAZMAZ.
     if (action === 'import-apply' && writable && state.importing && !state.importing.error) {
       const {typeId, draft} = state.importing;
@@ -809,14 +969,21 @@ export function mountBrandDocuments(root, namespace, user) {
   root.addEventListener('change', event => {
     const target = event.target;
     if (!writable) return;
+    if (target.hasAttribute('data-ba-profile')) {
+      state.draft.profile_id = target.value;
+      // Yeni antet seçildi: belgeye kayıtlı donmuş antet artık geçerli değil.
+      state.draft.antet = null;
+      state.dirty = true; render(); return;
+    }
     if (target.hasAttribute('data-ba-party')) {
       const party = state.parties.find(item => item.id === target.value);
       state.draft.party_id = target.value;
       // Seçilen carinin anlık kopyası belgeye yazılır; sonradan kart değişse belge değişmez.
+      // Yasal unvan ve vergi dairesi varsa onlar yazılır: kâğıda resmî kimlik basılsın.
       if (party) state.draft.recipient = {
-        name: party.name || '',
+        name: party.legal_name || party.name || '',
         address: [party.address, party.contact, party.phone, party.email].filter(Boolean).join('\n'),
-        tax: party.tax_id || ''
+        tax: [party.tax_office, party.tax_id].filter(Boolean).join(' / ')
       };
       state.dirty = true;
       render();
@@ -870,7 +1037,19 @@ export function mountBrandDocuments(root, namespace, user) {
   const leaveGuard = event => { if (state.dirty && !state.disposed) { event.preventDefault(); event.returnValue = ''; } };
   window.addEventListener('beforeunload', leaveGuard);
 
-  root.addEventListener('submit', event => { if (event.target.matches('[data-ba-form]')) event.preventDefault(); }, {signal});
+  root.addEventListener('submit', event => {
+    if (event.target.matches('[data-ba-form]')) { event.preventDefault(); return; }
+    if (!event.target.matches('[data-bp-form]')) return;
+    event.preventDefault();
+    if (!writable) return;
+    const body = {};
+    for (const alan of event.target.querySelectorAll('[data-bp-key]')) {
+      const ad = alan.dataset.bpKey;
+      body[ad] = alan.type === 'checkbox' ? alan.checked : alan.value.trim();
+    }
+    if (state.profileForm?.id) body.id = state.profileForm.id;
+    saveProfile(body);
+  }, {signal});
 
   // Önizlemeyi tek başına yeniler: her tuşta bütün formu yeniden kurup imleci kaybetmez.
   function refreshPreview() {

@@ -46,6 +46,38 @@ const optional = (value, label, max = 4000) => {
 };
 const key = value => { if (!/^[\w-]{1,100}$/.test(value || '')) fail('Kayıt seçimi geçersiz.'); return value; };
 
+// ---- Antet profilleri ----
+//
+// Kullanıcının birden çok tüzel kişiliği var ve ikisi de aynı çalışma alanından
+// belge kesiyor. Bu yüzden antet kimliği çalışma alanına değil BELGEYE bağlanır:
+// profil burada tutulur, belgeye basılan hâli presentation.company_snapshot
+// içinde DONAR. Belgeye profil kimliği YAZILMAZ — sonradan profil değişse bile
+// basılmış belge neyi gösterdiyse onu göstermeye devam etsin.
+const PROFILE_FIELDS = {label: 80, legal_name: 200, tax_id: 20, tax_office: 120, address: 400,
+  phone: 60, email: 160, website: 160, bank_name: 120, bank_iban: 40, signature_title: 120};
+const PROFILE_SELECT = 'SELECT id,label,legal_name,tax_id,tax_office,address,phone,email,website,' +
+  'bank_name,bank_iban,signature_title,is_default FROM brand_profiles WHERE archived_at IS NULL ' +
+  'ORDER BY is_default DESC,sort_order,label';
+
+function readProfileInput(input) {
+  for (const field of Object.keys(input))
+    if (!Object.hasOwn(PROFILE_FIELDS, field) && field !== 'id' && field !== 'is_default')
+      fail('Antet profilinde tanınmayan alan var.');
+  const values = {};
+  for (const [field, max] of Object.entries(PROFILE_FIELDS)) values[field] = optional(input[field], 'Antet bilgisi', max);
+  if (!values.label) fail('Profile kısa bir ad ver; belgede bu adla seçeceksin.');
+  // Vergi numarası BURADA serbest değildir ama alış faturası eşleştirmesini de
+  // etkilemez: o /settings'teki numara üzerinden yürür, buraya yazılan yalnız kâğıda basılır.
+  if (values.tax_id && !/^\d{10,11}$/.test(values.tax_id)) fail('Vergi numarası 10 veya 11 rakam olmalı.');
+  if (values.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(values.email)) fail('E-posta adresini kontrol edin.');
+  if (values.bank_iban) {
+    const iban = values.bank_iban.replace(/\s/g, '').toUpperCase();
+    if (!/^TR\d{24}$/.test(iban)) fail('IBAN TR ile başlayan 26 karakter olmalı. Emin değilsen boş bırak.');
+    values.bank_iban = iban;
+  }
+  return values;
+}
+
 const PARTY_FIELDS = {name: 200, address: 400, contact: 200, tax: 200, bank: 200};
 function partySnapshot(value, label) {
   if (value === undefined || value === null) return null;
@@ -252,17 +284,93 @@ export async function brandDocumentsApi(request, env, path, readBody) {
   const user = env.USER || {};
 
   // ---- Antet profili ----
-  if (path === '/api/brand-profile') {
+  // Alt yollar BU BLOKTA karşılanır; aşağıdaki `sub` dilimlemesine düşerlerse
+  // yol yanlış kesilir ve belge listesi dallarına girerler.
+  if (path === '/api/brand-profile' || path.startsWith('/api/brand-profile/')) {
     const root = env.ROOT_DB || env.DB;
+    const tail = path.slice('/api/brand-profile'.length);
+    // Göç uygulanmadıysa özellik KAPALI görünür; ana defter etkilenmez.
+    const profilesOrNull = async () => {
+      try { return (await root.prepare(PROFILE_SELECT).all()).results; }
+      catch (error) { if (missingTable(error)) return null; throw error; }
+    };
+
+    if (tail === '/profiles' && method === 'POST') {
+      const input = await readBody(request);
+      const values = readProfileInput(input);
+      const id = input.id === undefined || input.id === null || input.id === '' ? newId() : key(input.id);
+      let rows;
+      try {
+        const existing = (await root.prepare('SELECT id,is_default FROM brand_profiles WHERE id=?').bind(id).first()) || null;
+        if (input.id && !existing) fail('Profil bulunamadı.', 404);
+        const count = (await root.prepare('SELECT COUNT(*) AS n FROM brand_profiles WHERE archived_at IS NULL').first())?.n || 0;
+        // İlk profil kendiliğinden varsayılan olur, yoksa hiçbir şey önseçili gelmez.
+        // Alan GÖNDERİLMEZSE mevcut varsayılanlık korunur: telefonu düzeltmek
+        // profili varsayılanlıktan düşürmemeli.
+        const wantsDefault = Object.hasOwn(input, 'is_default')
+          ? input.is_default === true || input.is_default === 1
+          : existing ? !!existing.is_default : count === 0;
+        if (wantsDefault) await root.prepare('UPDATE brand_profiles SET is_default=0 WHERE is_default=1 AND id!=?').bind(id).run();
+        const bound = [values.label, values.legal_name, values.tax_id, values.tax_office, values.address,
+          values.phone, values.email, values.website, values.bank_name, values.bank_iban, values.signature_title];
+        if (existing) {
+          await root.prepare(
+            'UPDATE brand_profiles SET label=?,legal_name=?,tax_id=?,tax_office=?,address=?,phone=?,email=?,' +
+            'website=?,bank_name=?,bank_iban=?,signature_title=?,is_default=?,updated_at=CURRENT_TIMESTAMP WHERE id=?'
+          ).bind(...bound, wantsDefault ? 1 : 0, id).run();
+        } else {
+          await root.prepare(
+            'INSERT INTO brand_profiles(id,label,legal_name,tax_id,tax_office,address,phone,email,website,' +
+            'bank_name,bank_iban,signature_title,is_default,sort_order) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+          ).bind(id, ...bound, wantsDefault ? 1 : 0, count).run();
+        }
+        rows = (await root.prepare(PROFILE_SELECT).all()).results;
+      } catch (error) {
+        if (missingTable(error)) fail('Antet profilleri henüz kurulmadı. Veri göçü uygulanmalı.', 409);
+        if (/UNIQUE constraint failed: brand_profiles\.label/i.test(String(error?.message || '')))
+          fail('Bu adda bir profil zaten var. Başka bir kısa ad seç.');
+        throw error;
+      }
+      return {profiles: rows, profilesAvailable: true, saved: true, id};
+    }
+
+    if (tail === '/profiles/archive' && method === 'POST') {
+      const input = await readBody(request);
+      const id = key(input.id);
+      let rows;
+      try {
+        const row = await root.prepare('SELECT id,is_default FROM brand_profiles WHERE id=? AND archived_at IS NULL').bind(id).first();
+        if (!row) fail('Profil bulunamadı.', 404);
+        // Varsayılan kaldırılamaz: açılır kutuda görünmeyen bir kimlik yeni belgeye
+        // sessizce basılmasın. Önce başka profil varsayılan yapılır.
+        if (row.is_default) fail('Önce başka bir profili varsayılan yap; varsayılan profil kaldırılamaz.', 409);
+        await root.prepare("UPDATE brand_profiles SET archived_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(id).run();
+        rows = (await root.prepare(PROFILE_SELECT).all()).results;
+      } catch (error) {
+        if (missingTable(error)) fail('Antet profilleri henüz kurulmadı. Veri göçü uygulanmalı.', 409);
+        throw error;
+      }
+      // Kaldırılan profil SİLİNMEZ, arşivlenir: eski belgeler hangi kimlikle
+      // basıldığını göstermeye devam eder.
+      return {profiles: rows, profilesAvailable: true, archived: id};
+    }
+
+    if (tail !== '') fail('İstek bulunamadı.', 404);
+
     if (method === 'GET') {
+      // Profiller ayrı bir istek gerektirmesin: ekran tek çağrıyla kurulur.
+      const profiles = await profilesOrNull();
       try {
         const row = await root.prepare(
           'SELECT legal_name,tax_id,address,phone,email,website,tax_office,bank_name,bank_iban,signature_title,updated_at ' +
           'FROM workspace_settings WHERE workspace=?'
         ).bind(env.WORKSPACE).first();
-        return {workspace: env.WORKSPACE, profile: row || null, available: !!row};
+        return {workspace: env.WORKSPACE, profile: row || null, available: !!row,
+          profiles: profiles || [], profilesAvailable: profiles !== null,
+          ...(profiles === null ? {profilesNotice: 'Antet profilleri henüz kurulmadı. Veri göçü uygulandığında açılır.'} : {})};
       } catch (error) {
         if (missingTable(error)) return {workspace: env.WORKSPACE, profile: null, available: false,
+          profiles: profiles || [], profilesAvailable: profiles !== null,
           notice: 'Antet alanları henüz kurulmadı. Veri göçü uygulandığında açılır.'};
         throw error;
       }
@@ -304,10 +412,23 @@ export async function brandDocumentsApi(request, env, path, readBody) {
   // ---- Cari ve ürün seçimi ----
   if (sub === '/lookups/parties' && method === 'GET') {
     const query = (url.searchParams.get('q') || '').trim().slice(0, 100);
-    const rows = (await db.prepare(
-      'SELECT id,name,tax_id,address,contact,phone,email,kind FROM suppliers ' +
-      'WHERE archived_at IS NULL AND (?1=\'\' OR name LIKE ?2) ORDER BY name LIMIT 50'
-    ).bind(query, '%' + query + '%').all()).results;
+    // Yasal unvan ve vergi dairesi cari DOSYASINDA durur (0066), suppliers'ta değil.
+    // O tablo scoped-db listesinde olmadığı için adı açıkça yazılır; WORKSPACE
+    // bu noktada 'ec' ya da 'lp' olarak doğrulanmıştır.
+    const temel = 'SELECT s.id,s.name,s.tax_id,s.address,s.contact,s.phone,s.email,s.kind';
+    const kosul = " WHERE s.archived_at IS NULL AND (?1='' OR s.name LIKE ?2) ORDER BY s.name LIMIT 50";
+    let rows;
+    try {
+      rows = (await db.prepare(
+        temel + ',p.legal_name AS legal_name,p.tax_office AS tax_office FROM suppliers s' +
+        ' LEFT JOIN ' + env.WORKSPACE + '_party_profiles p ON p.party_id=s.id' + kosul
+      ).bind(query, '%' + query + '%').all()).results;
+    } catch (error) {
+      // Cari dosyası tablosu yoksa liste yine çalışır; yalnız unvan ve vergi dairesi gelmez.
+      if (!missingTable(error)) throw error;
+      rows = (await db.prepare(temel + ' FROM suppliers s' + kosul)
+        .bind(query, '%' + query + '%').all()).results;
+    }
     return {workspace: env.WORKSPACE, parties: rows};
   }
   if (sub === '/lookups/products' && method === 'GET') {
