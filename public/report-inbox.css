@@ -3,56 +3,56 @@
 .rb:not(.rb-document-workbench) .v2-card{padding:var(--dolgu-kart)}
 .rb:not(.rb-document-workbench) .v2-card>h2,.rb:not(.rb-document-workbench) .v2-card>h3{margin:0 0 8px;font-size:17px}
 /* Report document workbench — scoped component rules; independent of the shared shell. */
-body.workspace-redesign .rb-document-workbench.rb{--rb-accent:var(--brand,#315bea);--rb-soft:var(--brand-soft,#edf2ff);display:grid;gap:20px;min-width:0;color:var(--ink,#18232e)}
+body.workspace-redesign .rb-document-workbench.rb{--rb-accent:var(--brand,#20251f);--rb-soft:var(--brand-soft,#eef5cf);display:grid;gap:20px;min-width:0;color:var(--ink,#20251f)}
 body.workspace-redesign .rb-document-workbench .rb-pagehead{margin:0!important;align-items:center;flex-direction:row;text-align:left}
 body.workspace-redesign .rb-document-workbench .rb-pagehead h1{font-size:26px;line-height:1.2;letter-spacing:-.7px}
-body.workspace-redesign .rb-document-workbench .rb-pagehead p{margin:6px 0 0;font-size:14px;color:var(--muted,#667382)}
+body.workspace-redesign .rb-document-workbench .rb-pagehead p{margin:6px 0 0;font-size:14px;color:var(--muted,#656a64)}
 body.workspace-redesign .rb-document-workbench .rb-orders-link{text-decoration:none;white-space:nowrap}
-body.workspace-redesign .rb-document-workbench .rb-tabs{display:flex;flex-wrap:nowrap;gap:8px;padding:0 0 8px;border-bottom:1px solid var(--line,#e3e7ed);overflow:auto;min-width:0;scrollbar-width:thin}
-body.workspace-redesign .rb-document-workbench .rb-tabs button{flex:none;display:flex;align-items:center;gap:8px;min-height:40px;padding:8px 13px;border:0;border-radius:var(--radius-dugme);background:transparent;color:var(--muted,#667382);font-family:inherit;font-size:var(--yazi-dugme-kucuk);font-weight:var(--kalinlik-dugme);white-space:nowrap}
+body.workspace-redesign .rb-document-workbench .rb-tabs{display:flex;flex-wrap:nowrap;gap:8px;padding:0 0 8px;border-bottom:1px solid var(--line,#e7e6dd);overflow:auto;min-width:0;scrollbar-width:thin}
+body.workspace-redesign .rb-document-workbench .rb-tabs button{flex:none;display:flex;align-items:center;gap:8px;min-height:40px;padding:8px 13px;border:0;border-radius:var(--radius-dugme);background:transparent;color:var(--muted,#656a64);font-family:inherit;font-size:var(--yazi-dugme-kucuk);font-weight:var(--kalinlik-dugme);white-space:nowrap}
 body.workspace-redesign .rb-document-workbench .rb-tabs button.active{background:var(--rb-soft);color:var(--rb-accent);box-shadow:none}
 body.workspace-redesign .rb-document-workbench .rb-tab-count{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 4px;border-radius:6px;background:#fff;font-size:11px}
-body.workspace-redesign .rb-document-workbench .v2-card{padding:var(--dolgu-kart);border:1px solid var(--line,#e3e7ed);border-radius:var(--radius-kart);box-shadow:none;background:#fff;min-width:0}
+body.workspace-redesign .rb-document-workbench .v2-card{padding:var(--dolgu-kart);border:1px solid var(--line,#e7e6dd);border-radius:var(--radius-kart);box-shadow:none;background:#fff;min-width:0}
 body.workspace-redesign .rb-document-workbench .v2-card>h2,body.workspace-redesign .rb-document-workbench .v2-card>h3{margin:0 0 8px;font-size:18px;letter-spacing:-.3px}
 body.workspace-redesign .rb-document-workbench .v2-card>h3+.rb-muted,body.workspace-redesign .rb-document-workbench .v2-card>h2+p{margin-top:0}
 body.workspace-redesign .rb-document-workbench .v2-card h4{margin:16px 0 6px;font-size:14px}
 body.workspace-redesign .rb-document-workbench .rb-workbench{display:grid;grid-template-columns:minmax(0,1fr) minmax(250px,30%);padding:0;overflow:hidden}
 body.workspace-redesign .rb-document-workbench .rb-upload-main{min-width:0;padding:24px}
-body.workspace-redesign .rb-document-workbench .rb-upload-context{padding:24px;border-left:1px solid var(--line,#e3e7ed);background:#fafbfe;min-width:0}
+body.workspace-redesign .rb-document-workbench .rb-upload-context{padding:24px;border-left:1px solid var(--line,#e7e6dd);background:#eef5cf;min-width:0}
 body.workspace-redesign .rb-document-workbench .rb-section-head{position:static;min-height:0;height:auto;top:auto;z-index:auto;border:0;box-shadow:none;background:transparent;padding:0;display:flex;justify-content:space-between;align-items:center;gap:16px;margin:0 0 18px}
 body.workspace-redesign .rb-document-workbench .rb-section-head>div{min-width:0}
 body.workspace-redesign .rb-document-workbench .rb-section-head :is(h2,h3){font-size:16px;line-height:1.4;margin:0;letter-spacing:-.2px}
-body.workspace-redesign .rb-document-workbench .rb-section-head p{font-size:13px;color:var(--muted,#667382);margin:4px 0 0;line-height:1.5}
+body.workspace-redesign .rb-document-workbench .rb-section-head p{font-size:13px;color:var(--muted,#656a64);margin:4px 0 0;line-height:1.5}
 body.workspace-redesign .rb-document-workbench .rb-section-head>button{flex-shrink:0}
-body.workspace-redesign .rb-document-workbench .rb-format{font-size:10px;letter-spacing:.5px;font-weight:600;color:var(--muted,#667382);border:1px solid var(--line,#e3e7ed);border-radius:5px;padding:4px 6px;white-space:nowrap}
-body.workspace-redesign .rb-document-workbench .rb-drop{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;margin:0;padding:28px 16px;min-height:208px;border:1px dashed #b3c4e9;border-radius:12px;background:#f7f9ff;cursor:pointer}
-body.workspace-redesign .rb-document-workbench .rb-drop:hover,body.workspace-redesign .rb-document-workbench .rb-drop.over{background:#edf2ff;border-color:var(--rb-accent)}
+body.workspace-redesign .rb-document-workbench .rb-format{font-size:10px;letter-spacing:.5px;font-weight:600;color:var(--muted,#656a64);border:1px solid var(--line,#e7e6dd);border-radius:5px;padding:4px 6px;white-space:nowrap}
+body.workspace-redesign .rb-document-workbench .rb-drop{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;margin:0;padding:28px 16px;min-height:208px;border:1px dashed #8a9a3a;border-radius:12px;background:#eef5cf;cursor:pointer}
+body.workspace-redesign .rb-document-workbench .rb-drop:hover,body.workspace-redesign .rb-document-workbench .rb-drop.over{background:#eef5cf;border-color:var(--rb-accent)}
 body.workspace-redesign .rb-document-workbench .rb-drop:focus-within{outline:3px solid var(--rb-accent);outline-offset:3px}
 body.workspace-redesign .rb-document-workbench .rb-drop input[type=file]{position:absolute;inset:0;margin:0;display:block;opacity:0;width:100%;height:100%;min-height:0;padding:0;cursor:pointer;font-size:16px}
-body.workspace-redesign .rb-document-workbench .rb-drop .rb-upload-icon{display:grid;place-items:center;width:38px;height:38px;background:#fff;border:1px solid #dce5f6;border-radius:10px;color:var(--rb-accent);box-shadow:0 2px 4px #18232e05}
+body.workspace-redesign .rb-document-workbench .rb-drop .rb-upload-icon{display:grid;place-items:center;width:38px;height:38px;background:#fff;border:1px solid #eef5cf;border-radius:10px;color:var(--rb-accent);box-shadow:0 2px 4px #20251f05}
 body.workspace-redesign .rb-document-workbench .rb-upload-icon svg{width:22px;height:22px}
 body.workspace-redesign .rb-document-workbench .rb-drop strong{font-size:16px;font-weight:600}
 body.workspace-redesign .rb-document-workbench .rb-drop .rb-choose{display:inline-block;padding:8px 14px;border-radius:8px;background:var(--rb-accent);color:white;font-size:13px;font-weight:600}
-body.workspace-redesign .rb-document-workbench #rb-file-help{font-size:11px;color:var(--muted,#667382);line-height:1.5}
-body.workspace-redesign .rb-document-workbench .rb-upload-note{margin:12px 0;color:var(--muted,#667382);font-size:12px;line-height:1.6}
-body.workspace-redesign .rb-document-workbench .rb-source{margin:0;border-top:1px solid var(--line,#e3e7ed)}
+body.workspace-redesign .rb-document-workbench #rb-file-help{font-size:11px;color:var(--muted,#656a64);line-height:1.5}
+body.workspace-redesign .rb-document-workbench .rb-upload-note{margin:12px 0;color:var(--muted,#656a64);font-size:12px;line-height:1.6}
+body.workspace-redesign .rb-document-workbench .rb-source{margin:0;border-top:1px solid var(--line,#e7e6dd)}
 body.workspace-redesign .rb-document-workbench .rb-source>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px}
 body.workspace-redesign .rb-document-workbench .rb-source>summary:before{content:'›';font-size:16px;transform:rotate(90deg)}
-body.workspace-redesign .rb-document-workbench .rb-source>summary span{margin-left:auto;font-weight:400;color:var(--muted,#667382)}
+body.workspace-redesign .rb-document-workbench .rb-source>summary span{margin-left:auto;font-weight:400;color:var(--muted,#656a64)}
 body.workspace-redesign .rb-document-workbench .rb-context-details>summary{cursor:pointer;font-size:13px;font-weight:600;line-height:1.5;padding:0 0 18px}
 body.workspace-redesign .rb-document-workbench .rb-context-details:not([open])>summary{padding-bottom:0}
 body.workspace-redesign .rb-document-workbench .rb-context-details .rb-report-guide>h3{display:none}
 body.workspace-redesign .rb-document-workbench .rb-report-guide{display:grid;gap:16px;min-width:0}
 body.workspace-redesign .rb-document-workbench .rb-report-guide>h3{margin:0;font-size:15px}
 body.workspace-redesign .rb-document-workbench .rb-guide-item{display:flex;gap:12px}
-body.workspace-redesign .rb-document-workbench .rb-guide-item p{margin:0;display:grid;gap:5px;line-height:1.55;font-size:12px;color:var(--muted,#667382)}
-body.workspace-redesign .rb-document-workbench .rb-guide-item strong{color:var(--ink,#18232e);font-weight:600}
-body.workspace-redesign .rb-document-workbench .rb-guide-mark{color:#9aa6ba;font-size:11px;font-weight:600;line-height:21px;flex:none;font-variant-numeric:tabular-nums}
+body.workspace-redesign .rb-document-workbench .rb-guide-item p{margin:0;display:grid;gap:5px;line-height:1.55;font-size:12px;color:var(--muted,#656a64)}
+body.workspace-redesign .rb-document-workbench .rb-guide-item strong{color:var(--ink,#20251f);font-weight:600}
+body.workspace-redesign .rb-document-workbench .rb-guide-mark{color:#a9ada3;font-size:11px;font-weight:600;line-height:21px;flex:none;font-variant-numeric:tabular-nums}
 body.workspace-redesign .rb-document-workbench .rb-guide-link{font-size:12px;color:var(--rb-accent);line-height:1.6;text-decoration:none}
 body.workspace-redesign .rb-document-workbench .rb-guide-link:hover{text-decoration:underline}
-body.workspace-redesign .rb-document-workbench .rb-help summary{font-size:12px;font-weight:500;cursor:pointer;color:var(--muted,#667382)}
+body.workspace-redesign .rb-document-workbench .rb-help summary{font-size:12px;font-weight:500;cursor:pointer;color:var(--muted,#656a64)}
 body.workspace-redesign .rb-document-workbench .rb-help .rb-facts{font-size:12px;line-height:1.6;margin-top:10px}
-body.workspace-redesign .rb-document-workbench .rb-new-store{margin:16px 0 0;border-top:1px solid var(--line,#e3e7ed)}
+body.workspace-redesign .rb-document-workbench .rb-new-store{margin:16px 0 0;border-top:1px solid var(--line,#e7e6dd)}
 body.workspace-redesign .rb-document-workbench .rb-add>summary,.rb-maintenance>summary{min-height:44px;padding-block:12px;cursor:pointer;font-size:13px;font-weight:500;line-height:1.5}
 body.workspace-redesign .rb-document-workbench .rb-add .rb-grid{margin-top:4px}
 body.workspace-redesign .rb-document-workbench .rb-upload-context .rb-grid{grid-template-columns:minmax(0,1fr)}
@@ -67,24 +67,24 @@ body.workspace-redesign .rb-document-workbench .rb-file-filters{display:flex;gap
 body.workspace-redesign .rb-document-workbench .rb-file-filters label{display:grid;gap:5px;font-size:12px;min-width:0;flex:1}
 body.workspace-redesign .rb-document-workbench .rb-file-filters label:first-child{flex:2}
 body.workspace-redesign .rb-document-workbench .rb-file-filters input,body.workspace-redesign .rb-document-workbench .rb-file-filters select{min-width:0;width:100%}
-body.workspace-redesign .rb-document-workbench .rb-file-list{border-top:1px solid var(--line,#e3e7ed)}
-body.workspace-redesign .rb-document-workbench .rb-file-row{display:grid;grid-template-columns:32px minmax(0,1.5fr) minmax(90px,.65fr) minmax(145px,.85fr) auto;gap:4px 14px;align-items:center;padding:16px 22px;border-bottom:1px solid var(--line,#e3e7ed)}
+body.workspace-redesign .rb-document-workbench .rb-file-list{border-top:1px solid var(--line,#e7e6dd)}
+body.workspace-redesign .rb-document-workbench .rb-file-row{display:grid;grid-template-columns:32px minmax(0,1.5fr) minmax(90px,.65fr) minmax(145px,.85fr) auto;gap:4px 14px;align-items:center;padding:16px 22px;border-bottom:1px solid var(--line,#e7e6dd)}
 body.workspace-redesign .rb-document-workbench .rb-file-row:last-child{border-bottom:0}
-body.workspace-redesign .rb-document-workbench .rb-file-icon{display:grid;place-items:center;width:32px;height:38px;border:1px solid var(--line,#e3e7ed);border-radius:7px;background:#f8faff;color:#7f92ae}
+body.workspace-redesign .rb-document-workbench .rb-file-icon{display:grid;place-items:center;width:32px;height:38px;border:1px solid var(--line,#e7e6dd);border-radius:7px;background:#eef5cf;color:#a9ada3}
 body.workspace-redesign .rb-document-workbench .rb-file-icon svg{width:19px;height:19px}
 body.workspace-redesign .rb-document-workbench .rb-file-name,body.workspace-redesign .rb-document-workbench .rb-file-source,body.workspace-redesign .rb-document-workbench .rb-file-state{min-width:0}
 body.workspace-redesign .rb-document-workbench .rb-file-name strong{display:block;font-size:13px;font-weight:600;line-height:1.5;overflow-wrap:anywhere}
-body.workspace-redesign .rb-document-workbench .rb-file-row small{display:block;margin-top:4px;font-size:11px;color:var(--muted,#667382);line-height:1.5}
+body.workspace-redesign .rb-document-workbench .rb-file-row small{display:block;margin-top:4px;font-size:11px;color:var(--muted,#656a64);line-height:1.5}
 body.workspace-redesign .rb-document-workbench .rb-file-source{font-size:12px}
 body.workspace-redesign .rb-document-workbench .rb-file-state{font-variant-numeric:tabular-nums}
-body.workspace-redesign .rb-document-workbench .rb-file-badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:#187b60}
+body.workspace-redesign .rb-document-workbench .rb-file-badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:#20251f}
 body.workspace-redesign .rb-document-workbench .rb-file-badge i{width:5px;height:5px;border-radius:50%;background:currentColor}
 body.workspace-redesign .rb-document-workbench .rb-file-badge.is-pending{color:#a47728}
 body.workspace-redesign .rb-document-workbench .rb-file-detail{grid-column:2/-1;min-width:0}
-body.workspace-redesign .rb-document-workbench .rb-file-detail>summary{display:inline-block;padding:6px 0 0;color:var(--muted,#667382);font-size:11px;cursor:pointer}
+body.workspace-redesign .rb-document-workbench .rb-file-detail>summary{display:inline-block;padding:6px 0 0;color:var(--muted,#656a64);font-size:11px;cursor:pointer}
 body.workspace-redesign .rb-document-workbench .rb-file-detail>summary:after{content:' +';margin-left:4px}
 body.workspace-redesign .rb-document-workbench .rb-file-detail[open]>summary:after{content:' −'}
-body.workspace-redesign .rb-document-workbench .rb-file-detail>div{margin-top:8px;padding:12px 14px;border-radius:8px;background:#f6f8fb;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+body.workspace-redesign .rb-document-workbench .rb-file-detail>div{margin-top:8px;padding:12px 14px;border-radius:8px;background:#f4f5ef;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
 body.workspace-redesign .rb-document-workbench .rb-file-detail p{margin:0 0 5px}
 body.workspace-redesign .rb-document-workbench .rb-file-outcomes{display:flex;flex-wrap:wrap;gap:8px 20px;margin:0}
 body.workspace-redesign .rb-document-workbench .rb-file-outcomes>div{display:flex;gap:8px}
@@ -92,28 +92,28 @@ body.workspace-redesign .rb-document-workbench .rb-file-outcomes dd{margin:0;fon
 body.workspace-redesign .rb-document-workbench .rb-files-empty{padding:30px 20px;text-align:center}
 body.workspace-redesign .rb-document-workbench .rb-files-empty .rb-file-icon{margin:0 auto 10px}
 body.workspace-redesign .rb-document-workbench .rb-files-empty h3{font-size:14px;margin:0 0 6px}
-body.workspace-redesign .rb-document-workbench .rb-files-empty p{font-size:12px;color:var(--muted,#667382);margin:0}
+body.workspace-redesign .rb-document-workbench .rb-files-empty p{font-size:12px;color:var(--muted,#656a64);margin:0}
 .rb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:12px;align-items:end;margin:10px 0}
 .rb-grid label,body.workspace-redesign .rb-document-workbench .rb-add label{display:grid;gap:5px;min-width:0;font-size:13px}
 .rb-grid input,.rb-grid select{min-width:0;max-width:100%}
-.rb-muted{color:var(--muted,#667382);font-size:13px;line-height:1.6}
+.rb-muted{color:var(--muted,#656a64);font-size:13px;line-height:1.6}
 .rb-alert{margin:0;padding:12px 16px;border-radius:10px;border:1px solid transparent;font-size:13px;line-height:1.6}
-.rb-alert.ok{background:#eef8f3;border-color:#cce8db;color:#187b60}
+.rb-alert.ok{background:#f4f5ef;border-color:#eef5cf;color:#20251f}
 .rb-alert.warn{background:#fffbf2;border-color:#eedcb2;color:#7c6127}
 .rb-alert.error{background:#fff4f3;border-color:#edceca;color:#a54137}
-.rb-chip{display:inline-block;font-size:var(--yazi-rozet);padding:2px 8px;border-radius:var(--radius-rozet);background:#eef2f7;color:#667382;vertical-align:middle}
+.rb-chip{display:inline-block;font-size:var(--yazi-rozet);padding:2px 8px;border-radius:var(--radius-rozet);background:#f4f5ef;color:#656a64;vertical-align:middle}
 .rb-chip.warn{background:#fff4d9;color:#7c6127}
 .rb-req{font-size:12px;color:#a54137}
 .rb-sample{color:var(--muted);max-width:260px;overflow-wrap:anywhere}
 .rb-check{display:flex!important;align-items:center;gap:8px}
 .rb-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px;margin-top:14px}
 .rb-kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:10px 0}
-.rb-kv div{border:1px solid var(--line,#e3e7ed);border-radius:10px;padding:10px 12px}
+.rb-kv div{border:1px solid var(--line,#e7e6dd);border-radius:10px;padding:10px 12px}
 .rb-kv dt{font-size:12px;color:var(--muted)}
 .rb-kv dd{margin:3px 0 0;font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
 .rb-kv.small dd{font-size:14px;overflow-wrap:anywhere}
 .rb-o-review dd{color:#a54137}
-.rb-o-new dd{color:#187b60}
+.rb-o-new dd{color:#20251f}
 .rb-num{font-variant-numeric:tabular-nums;white-space:normal}
 .rb-list,.rb-facts{margin:6px 0;padding-left:18px;display:grid;gap:6px}
 .rb-warn{color:#a54137}
@@ -123,7 +123,7 @@ body.workspace-redesign .rb-document-workbench .rb-files-empty p{font-size:12px;
 .rb-compare{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:12px}
 body.workspace-redesign .rb-document-workbench progress{width:100%;height:8px;accent-color:var(--rb-accent)}
 body.workspace-redesign .rb-document-workbench td small{display:block;color:var(--muted)}
-body.workspace-redesign .rb-busy{position:fixed;right:20px;bottom:20px;z-index:30;background:#18232e;color:#fff;padding:12px 18px;border-radius:10px;margin:0;font-size:13px;box-shadow:0 4px 18px #18232e1a}
+body.workspace-redesign .rb-busy{position:fixed;right:20px;bottom:20px;z-index:30;background:#20251f;color:#fff;padding:12px 18px;border-radius:10px;margin:0;font-size:13px;box-shadow:0 4px 18px #20251f1a}
 .rb-status{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:0 0 4px}
 .rb-status a,.rb-status button,.rb-status>div{text-align:left;border:1px solid var(--line);border-radius:var(--radius-dugme);padding:12px 14px;background:#fff;display:grid;gap:3px;font-family:inherit;font-size:var(--yazi-dugme);font-weight:var(--kalinlik-dugme)}
 .rb-status button{cursor:pointer}

@@ -1,62 +1,62 @@
 /* Warehouse / purchasing workbench. One compact register, with detail on demand. */
-.workflow-stock,.workflow-invoices{--stock-soft:var(--canvas,#f5f6f8);--stock-active:#edf2ff}
+.workflow-stock,.workflow-invoices{--stock-soft:var(--canvas,#f4f5ef);--stock-active:#eef5cf}
 .workflow-stock .page-heading,.workflow-invoices .page-heading{margin-bottom:16px}
-.workflow-stock .page-heading p,.workflow-invoices .page-heading p{max-width:66ch;margin:7px 0 0;font-size:14px;color:var(--muted,#667382)}
+.workflow-stock .page-heading p,.workflow-invoices .page-heading p{max-width:66ch;margin:7px 0 0;font-size:14px;color:var(--muted,#656a64)}
 .workflow-page .stock-tasks{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:0 0 18px}
 .stock-primary-actions{display:flex;gap:8px;flex-wrap:wrap}
 .stock-primary-actions button{min-height:40px;font-size:var(--yazi-dugme);border-radius:var(--radius-dugme)}
 .stock-task-help{position:relative;margin:0}
 .stock-task-help>summary{padding:8px 0;cursor:pointer;font-size:13px;color:var(--muted)}
-.stock-task-popover{position:absolute;right:0;top:100%;width:min(440px,85vw);padding:18px;background:var(--surface,#fff);border:1px solid var(--line,#e3e7ed);border-radius:12px;box-shadow:0 12px 34px #18232e15;z-index:4}
+.stock-task-popover{position:absolute;right:0;top:100%;width:min(440px,85vw);padding:18px;background:var(--surface,#fff);border:1px solid var(--line,#e7e6dd);border-radius:12px;box-shadow:0 12px 34px #20251f15;z-index:4}
 .stock-task-popover p{margin:0 0 14px;font-size:13px;line-height:1.6}
 .stock-task-popover .ac-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .workflow-page .stock-filters-compact.stock-search-first{display:grid!important;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:0 0 14px;margin:0;border:0;background:none;box-shadow:none;border-radius:0}
 .workflow-page .stock-search-first>label{grid-column:auto!important;min-width:0;display:block;font-size:0;margin:0}
 .workflow-page .stock-search-first>label input{min-height:42px;font-size:14px;margin:0;padding:10px 14px;border-radius:var(--radius-dugme);background:var(--surface,#fff)}
 .stock-refinements{min-width:0;font-size:13px}
-.stock-refinements>summary{cursor:pointer;min-height:42px;align-content:center;padding:0 12px;border:1px solid var(--line,#e3e7ed);border-radius:8px;background:var(--surface,#fff);color:var(--ink,#18232e)}
+.stock-refinements>summary{cursor:pointer;min-height:42px;align-content:center;padding:0 12px;border:1px solid var(--line,#e7e6dd);border-radius:8px;background:var(--surface,#fff);color:var(--ink,#20251f)}
 .stock-search-first:has(.stock-refinements[open]){grid-template-columns:minmax(0,1fr)}
 .stock-refinements[open]>summary{width:fit-content}
 .stock-refinement-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:14px 0}
 .stock-refinement-fields label{font-size:12px;min-width:0}
 .stock-refinement-fields input,.stock-refinement-fields select{min-width:0;width:100%;min-height:40px;font-size:13px}
 .stock-refinement-actions{display:flex;justify-content:flex-end;gap:8px}
-.stock-register{overflow:hidden;background:var(--surface,#fff);border:1px solid var(--line,#e3e7ed);border-radius:12px}
-.stock-register-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:48px;padding:12px 18px;border-bottom:1px solid var(--line,#e3e7ed)}
+.stock-register{overflow:hidden;background:var(--surface,#fff);border:1px solid var(--line,#e7e6dd);border-radius:12px}
+.stock-register-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:48px;padding:12px 18px;border-bottom:1px solid var(--line,#e7e6dd)}
 .stock-register-heading h2{font-size:14px;font-weight:650;letter-spacing:0;margin:0}
-.stock-register-heading>span{font-size:12px;color:var(--muted,#667382)}
+.stock-register-heading>span{font-size:12px;color:var(--muted,#656a64)}
 body.workspace-redesign .workflow-stock .stock-ledger-row.product-tile{display:grid;grid-template-columns:minmax(230px,1.3fr) minmax(280px,1.3fr) minmax(100px,.55fr);gap:12px 20px;padding:18px 20px 10px!important;margin:0;border:0;border-radius:0;box-shadow:none;background:transparent;align-items:start}
-.stock-ledger-row+.stock-ledger-row{border-top:1px solid var(--line,#e3e7ed)!important}
-.stock-ledger-row:hover{background:#fafbfe}
+.stock-ledger-row+.stock-ledger-row{border-top:1px solid var(--line,#e7e6dd)!important}
+.stock-ledger-row:hover{background:#eef5cf}
 .stock-product-identity{display:flex;gap:12px;min-width:0;align-items:flex-start}
 .stock-product-identity>div{min-width:0}
-.stock-product-mark{width:36px;height:40px;flex:0 0 36px;display:grid;place-items:center;background:var(--canvas,#f5f6f8);border:1px solid var(--line,#e3e7ed);border-radius:8px;font-size:11px;font-weight:650;color:var(--muted,#667382)}
-body.workspace-redesign .workflow-stock .stock-product-identity h3{font-size:14px;line-height:1.45;min-height:0;margin:0 0 4px;letter-spacing:0;overflow-wrap:anywhere;color:var(--ink,#18232e)}
-.stock-product-identity .product-code,.workflow-stock .stock-product-identity .product-supplier{font-size:11px;line-height:1.45;margin:2px 0;color:var(--muted,#667382);overflow-wrap:anywhere}
+.stock-product-mark{width:36px;height:40px;flex:0 0 36px;display:grid;place-items:center;background:var(--canvas,#f4f5ef);border:1px solid var(--line,#e7e6dd);border-radius:8px;font-size:11px;font-weight:650;color:var(--muted,#656a64)}
+body.workspace-redesign .workflow-stock .stock-product-identity h3{font-size:14px;line-height:1.45;min-height:0;margin:0 0 4px;letter-spacing:0;overflow-wrap:anywhere;color:var(--ink,#20251f)}
+.stock-product-identity .product-code,.workflow-stock .stock-product-identity .product-supplier{font-size:11px;line-height:1.45;margin:2px 0;color:var(--muted,#656a64);overflow-wrap:anywhere}
 body.workspace-redesign .workflow-stock .stock-ledger-row .stock-physical{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:0;padding:0;border:0}
 .workflow-stock .stock-ledger-row .stock-physical>div{min-width:0;display:block;grid-template-columns:none}
-.stock-physical dt{font-size:11px;line-height:1.4;color:var(--muted,#667382)}
+.stock-physical dt{font-size:11px;line-height:1.4;color:var(--muted,#656a64)}
 body.workspace-redesign .workflow-stock .stock-ledger-row .stock-physical dd{text-align:left;margin:7px 0 0;font-size:18px;line-height:1.3;font-weight:550;letter-spacing:-.4px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
-body.workspace-redesign .workflow-stock .stock-ledger-row .stock-physical>div:first-child dd{font-size:25px;font-weight:650;color:var(--ink,#18232e)}
+body.workspace-redesign .workflow-stock .stock-ledger-row .stock-physical>div:first-child dd{font-size:25px;font-weight:650;color:var(--ink,#20251f)}
 .stock-physical dd strong{font:inherit}
-.stock-physical small,.stock-transit-note{display:block;font-size:11px;font-weight:400;line-height:1.45;margin-top:5px;color:var(--muted,#667382);letter-spacing:0}
+.stock-physical small,.stock-transit-note{display:block;font-size:11px;font-weight:400;line-height:1.45;margin-top:5px;color:var(--muted,#656a64);letter-spacing:0}
 body.workspace-redesign .workflow-stock .stock-ledger-row .product-available{display:block;margin:0;padding:0;border:0;background:none;min-width:0}
-.stock-ledger-row .product-available>span{display:block;font-size:11px;line-height:1.4;color:var(--muted,#667382)}
-body.workspace-redesign .workflow-stock .stock-ledger-row .product-available>strong{font-size:22px;font-weight:600;line-height:1.35;margin-top:6px;display:block;letter-spacing:-.3px;color:var(--brand,#315bea);overflow-wrap:anywhere}
-.stock-ledger-row .product-available small{font-size:11px;font-weight:400;letter-spacing:0;color:var(--muted,#667382)}
+.stock-ledger-row .product-available>span{display:block;font-size:11px;line-height:1.4;color:var(--muted,#656a64)}
+body.workspace-redesign .workflow-stock .stock-ledger-row .product-available>strong{font-size:22px;font-weight:600;line-height:1.35;margin-top:6px;display:block;letter-spacing:-.3px;color:var(--brand,#20251f);overflow-wrap:anywhere}
+.stock-ledger-row .product-available small{font-size:11px;font-weight:400;letter-spacing:0;color:var(--muted,#656a64)}
 .workflow-stock .stock-ledger-row .stock-amount{white-space:nowrap;overflow-wrap:normal;word-break:normal}.workflow-stock .stock-ledger-row .stock-amount.is-unknown{font-size:13px!important;letter-spacing:0}.workflow-stock .stock-ledger-row .stock-amount.is-wide{font-size:16px!important;letter-spacing:-.4px}.workflow-stock .stock-ledger-row .stock-amount.is-extra-wide{font-size:12px!important;letter-spacing:-.4px}
 .stock-row-state{grid-column:1;grid-row:2;align-self:center}
-.stock-state{display:inline-flex;align-items:center;gap:6px;font-size:11px;line-height:1.5;color:var(--muted,#667382);white-space:normal}
+.stock-state{display:inline-flex;align-items:center;gap:6px;font-size:11px;line-height:1.5;color:var(--muted,#656a64);white-space:normal}
 .stock-state:before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor;flex:none}
-.stock-state.ready{color:#187b60}.stock-state.low{color:#ad6123}.stock-state.unknown{color:var(--muted,#667382)}
+.stock-state.ready{color:#20251f}.stock-state.low{color:#ad6123}.stock-state.unknown{color:var(--muted,#656a64)}
 .stock-row-footer{grid-column:2/-1;grid-row:2;display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:4px 14px;min-width:0}
 .workflow-stock .stock-row-footer .product-details,.stock-row-footer .stock-row-menu{margin:0;padding:0;border:0;min-width:0;background:transparent;font-size:12px}
-.workflow-stock .stock-row-footer summary{font-size:11px;cursor:pointer;padding:7px 0;color:var(--muted,#667382);line-height:1.5;min-height:30px}
+.workflow-stock .stock-row-footer summary{font-size:11px;cursor:pointer;padding:7px 0;color:var(--muted,#656a64);line-height:1.5;min-height:30px}
 .stock-row-footer .stock-history-link{font-size:var(--yazi-dugme-kucuk);min-height:30px;padding:4px 0;margin:0;white-space:nowrap}
-.stock-row-footer details[open]{flex:1 0 100%;order:2;background:var(--canvas,#f5f6f8);border-radius:8px;padding:10px 14px}
-.stock-row-footer details[open]>summary{font-weight:600;color:var(--ink,#18232e)}
+.stock-row-footer details[open]{flex:1 0 100%;order:2;background:var(--canvas,#f4f5ef);border-radius:8px;padding:10px 14px}
+.stock-row-footer details[open]>summary{font-weight:600;color:var(--ink,#20251f)}
 .workflow-stock .stock-row-footer .product-details dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:10px 0}
-.workflow-stock .stock-row-footer .product-details dt{font-size:12px;color:var(--muted,#667382)}
+.workflow-stock .stock-row-footer .product-details dt{font-size:12px;color:var(--muted,#656a64)}
 .workflow-stock .stock-row-footer .product-details dd{margin:5px 0;font-size:14px;font-variant-numeric:tabular-nums}
 .workflow-stock .stock-row-footer .product-details small{display:block;font-size:11px;margin-top:3px}
 .workflow-stock .stock-row-footer .product-details .help{font-size:12px;line-height:1.6}
@@ -65,30 +65,30 @@ body.workspace-redesign .workflow-stock .stock-ledger-row .product-available>str
 .stock-register .table-wrap{border:0;border-radius:0;margin:0}
 .stock-register .product-table .product-table-name{width:30%;min-width:210px}
 .stock-register .product-table td{vertical-align:top;font-size:13px}
-.stock-register .product-table th{font-size:11px;background:var(--canvas,#f5f6f8);white-space:normal}
+.stock-register .product-table th{font-size:11px;background:var(--canvas,#f4f5ef);white-space:normal}
 .stock-table-physical>strong{font-size:23px;letter-spacing:-.4px}
 .stock-register .product-table .product-available{margin:0;padding:0;background:none}
 .stock-register .product-table .product-available>span{display:none}
-.stock-register .product-table .product-available strong{font-size:16px;color:var(--brand,#315bea);white-space:nowrap}
+.stock-register .product-table .product-available strong{font-size:16px;color:var(--brand,#20251f);white-space:nowrap}
 .stock-register .product-table .product-available strong small{display:inline;font-size:11px}
 .stock-register .product-table .product-details,.stock-register .product-table .stock-row-menu{font-size:11px;margin:8px 0;white-space:normal}
-.stock-model-note,.workflow-stock-context{font-size:12px;color:var(--muted,#667382);margin:14px 0;line-height:1.65}
+.stock-model-note,.workflow-stock-context{font-size:12px;color:var(--muted,#656a64);margin:14px 0;line-height:1.65}
 .stock-model-note>summary,.workflow-stock-help>summary{cursor:pointer;padding:5px 0;font-size:12px}
 .stock-model-note p{margin:8px 0}
-.stock-count-preview{display:block;padding:12px 14px;border:1px solid var(--line,#e3e7ed);border-radius:8px;background:var(--canvas,#f5f6f8);margin:12px 0;line-height:1.6}
+.stock-count-preview{display:block;padding:12px 14px;border:1px solid var(--line,#e7e6dd);border-radius:8px;background:var(--canvas,#f4f5ef);margin:12px 0;line-height:1.6}
 .product-shape{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:8px 0}
 .product-shape dt{font-size:12px}.product-shape dd{margin:5px 0;font-size:15px}.product-shape small{display:block;font-size:11px;margin-top:5px}
-.set-profit-list{list-style:none;padding:0;display:grid;gap:8px}.set-profit-row{padding:12px;border:1px solid var(--line,#e3e7ed);border-radius:8px}
+.set-profit-list{list-style:none;padding:0;display:grid;gap:8px}.set-profit-row{padding:12px;border:1px solid var(--line,#e7e6dd);border-radius:8px}
 .set-profit-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px}.set-profit-head strong{min-width:0;overflow-wrap:anywhere}.set-profit-result{text-align:right;font-variant-numeric:tabular-nums}.set-profit-result small,.set-profit-row>small{display:block;font-size:12px;line-height:1.5}.set-profit-row>small{margin-top:6px}
-.invoice-intake{display:grid;grid-template-columns:56px minmax(0,1fr) minmax(230px,.6fr);gap:20px;padding:24px;background:var(--surface,#fff);border:1px solid var(--line,#e3e7ed);border-radius:12px;margin:0 0 28px;align-items:start}
-.invoice-intake-icon{width:54px;height:64px;display:grid;place-items:center;color:var(--brand,#315bea);background:#edf2ff;border:1px solid #dbe4ff;border-radius:10px}.invoice-intake-icon svg{width:30px;height:30px}
-.invoice-intake-copy .eyebrow{font-size:10px;letter-spacing:1.2px;color:var(--brand,#315bea)}
-.invoice-intake-copy h2{font-size:19px;letter-spacing:-.35px;margin:7px 0 8px}.invoice-intake-copy p{font-size:13px;line-height:1.6;color:var(--muted,#667382);margin:0}
-.invoice-intake-steps{display:flex;flex-wrap:wrap;gap:8px 18px;list-style:none;margin:18px 0 0;padding:0;font-size:11px;color:var(--muted,#667382)}
-.invoice-intake-steps li{display:flex;align-items:center;gap:6px}.invoice-intake-steps b{width:18px;height:18px;display:grid;place-items:center;border-radius:50%;background:var(--canvas,#f5f6f8);border:1px solid var(--line,#e3e7ed);font-size:10px}
+.invoice-intake{display:grid;grid-template-columns:56px minmax(0,1fr) minmax(230px,.6fr);gap:20px;padding:24px;background:var(--surface,#fff);border:1px solid var(--line,#e7e6dd);border-radius:12px;margin:0 0 28px;align-items:start}
+.invoice-intake-icon{width:54px;height:64px;display:grid;place-items:center;color:var(--brand,#20251f);background:#eef5cf;border:1px solid #eef5cf;border-radius:10px}.invoice-intake-icon svg{width:30px;height:30px}
+.invoice-intake-copy .eyebrow{font-size:10px;letter-spacing:1.2px;color:var(--brand,#20251f)}
+.invoice-intake-copy h2{font-size:19px;letter-spacing:-.35px;margin:7px 0 8px}.invoice-intake-copy p{font-size:13px;line-height:1.6;color:var(--muted,#656a64);margin:0}
+.invoice-intake-steps{display:flex;flex-wrap:wrap;gap:8px 18px;list-style:none;margin:18px 0 0;padding:0;font-size:11px;color:var(--muted,#656a64)}
+.invoice-intake-steps li{display:flex;align-items:center;gap:6px}.invoice-intake-steps b{width:18px;height:18px;display:grid;place-items:center;border-radius:50%;background:var(--canvas,#f4f5ef);border:1px solid var(--line,#e7e6dd);font-size:10px}
 .invoice-intake-actions{display:grid;gap:10px;align-content:start}.invoice-intake-actions>.primary{min-height:42px;border-radius:var(--radius-dugme);font-size:var(--yazi-dugme)}
-.invoice-intake-actions .workflow-details{margin:0;padding:0;border:0;background:none}.invoice-intake-actions .workflow-details>summary{font-size:12px;cursor:pointer;padding:8px 0;min-height:32px}.invoice-intake-actions .ac-actions{display:grid;gap:8px;margin:8px 0}.invoice-unbilled-link{font-size:11px;line-height:1.5;color:var(--muted,#667382)}
-.invoice-history-heading{display:flex;justify-content:space-between;align-items:center;margin:0 0 12px}.invoice-history-heading h2{font-size:16px;margin:0;letter-spacing:-.2px}.invoice-history-heading>span{font-size:12px;color:var(--muted,#667382)}
+.invoice-intake-actions .workflow-details{margin:0;padding:0;border:0;background:none}.invoice-intake-actions .workflow-details>summary{font-size:12px;cursor:pointer;padding:8px 0;min-height:32px}.invoice-intake-actions .ac-actions{display:grid;gap:8px;margin:8px 0}.invoice-unbilled-link{font-size:11px;line-height:1.5;color:var(--muted,#656a64)}
+.invoice-history-heading{display:flex;justify-content:space-between;align-items:center;margin:0 0 12px}.invoice-history-heading h2{font-size:16px;margin:0;letter-spacing:-.2px}.invoice-history-heading>span{font-size:12px;color:var(--muted,#656a64)}
 .workflow-invoices .ac-filters{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(150px,.7fr) minmax(150px,.7fr) auto;padding:14px;margin:0 0 14px;border-radius:10px;gap:12px;background:var(--surface,#fff)}
 .workflow-invoices .ac-filters label{font-size:12px;min-width:0}.workflow-invoices .ac-filters input,.workflow-invoices .ac-filters select{min-height:40px;font-size:13px}
 .workflow-invoices .invoice-register-filters{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:0;background:none;border:0;box-shadow:none}
@@ -97,12 +97,12 @@ body.workspace-redesign .workflow-stock .stock-ledger-row .product-available>str
 /* FATURASIZ GİRİŞ SATIRI — kompakt. Satır bir <details>; kapalıyken yalnız başlık (ürün adı +
    miktar × birim maliyet) görünür. 06.10.2026: "her ürün eklediğimde liste aşağı doğru bayağı
    uzuyor". Dolu satırlar "Başka ürün ekle"de kapanır, eksik satır açık kalır. */
-.unbilled-line{min-width:0;margin:10px 0;padding:0;border:1px solid var(--line,#e3e7ed);border-radius:12px}
+.unbilled-line{min-width:0;margin:10px 0;padding:0;border:1px solid var(--line,#e7e6dd);border-radius:12px}
 .unbilled-head{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;font-weight:600;list-style:none}
 .unbilled-head::-webkit-details-marker{display:none}
 .unbilled-head::before{content:'B8';flex:none;opacity:.55;font-weight:400}
 .unbilled-line[open]>.unbilled-head::before{content:'BE'}
-.unbilled-line[open]>.unbilled-head{border-bottom:1px solid var(--line,#e3e7ed)}
+.unbilled-line[open]>.unbilled-head{border-bottom:1px solid var(--line,#e7e6dd)}
 .unbilled-head-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .unbilled-head-sum{flex:none;font-weight:400;font-size:12px;opacity:.75;white-space:nowrap}
 .unbilled-drop{flex:none;border:0;background:none;color:inherit;font-size:20px;line-height:1;padding:0 4px;cursor:pointer;opacity:.6}
@@ -118,15 +118,15 @@ body.workspace-redesign .workflow-stock .stock-ledger-row .product-available>str
    overflow-y:auto olduğu için mutlak konumlu açılır liste kenarda kırpılıyordu. */
 .ac-pick{display:block}
 .ac-pick-label{display:grid;gap:5px}
-.ac-pick-list{margin:4px 0 0;padding:4px;max-height:min(42vh,300px);overflow-y:auto;overscroll-behavior:contain;list-style:none;border:1px solid var(--line,#e3e7ed);border-radius:10px;background:var(--surface,#fff)}
+.ac-pick-list{margin:4px 0 0;padding:4px;max-height:min(42vh,300px);overflow-y:auto;overscroll-behavior:contain;list-style:none;border:1px solid var(--line,#e7e6dd);border-radius:10px;background:var(--surface,#fff)}
 .ac-pick-option,.ac-pick-new,.ac-pick-empty{display:flex;flex-direction:column;gap:1px;padding:8px 10px;border-radius:8px;font-weight:400}
 .ac-pick-option,.ac-pick-new{cursor:pointer}
 .ac-pick-empty{opacity:.7}
 .ac-pick-option b,.ac-pick-new b{font-weight:600}
 .ac-pick-option small,.ac-pick-new small{opacity:.7;font-size:12px}
-.ac-pick-option.etkin,.ac-pick-new.etkin{background:var(--tint,#eef3f0)}
-.ac-pick-option[aria-selected="true"]{box-shadow:inset 0 0 0 1px var(--line,#cfd8e3)}
-.ac-pick-new{border-top:1px solid var(--line,#e3e7ed);border-radius:0 0 8px 8px;margin-top:4px;padding-top:10px}
+.ac-pick-option.etkin,.ac-pick-new.etkin{background:var(--tint,#f4f5ef)}
+.ac-pick-option[aria-selected="true"]{box-shadow:inset 0 0 0 1px var(--line,#e7e6dd)}
+.ac-pick-new{border-top:1px solid var(--line,#e7e6dd);border-radius:0 0 8px 8px;margin-top:4px;padding-top:10px}
 .ac-pick-note{display:block;margin-top:4px;font-size:12px;opacity:.72}
 [data-ac-form="unbilled"] .dialog-footer,[data-ac-form="stock"] .dialog-footer{gap:10px}
 @media(max-width:1100px){body.workspace-redesign .workflow-stock .stock-ledger-row.product-tile{grid-template-columns:minmax(180px,1fr) minmax(250px,1.2fr) minmax(90px,.4fr);gap:12px}.invoice-intake{grid-template-columns:44px minmax(0,1fr);gap:16px}.invoice-intake-icon{width:44px;height:54px}.invoice-intake-actions{grid-column:2;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center}.invoice-unbilled-link{grid-column:1/-1}}
