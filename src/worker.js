@@ -24,6 +24,7 @@ import {urunKarlilikApi} from './urun-karlilik-api.js';
 import {panoramaApi} from './panorama-api.js';
 import {otomatikBakim} from './otomatik-bakim.js';
 import {aksamOzeti,AKSAM_CRON} from './aksam-ozeti.js';
+import {shopifyFaturaApi} from './shopify-fatura.js';
 // Stok hareketi yazan her e-ticaret isteğinden sonra, hareketi değişen ürünlerin satış maliyeti
 // satış tarihine göre (ilk giren ilk çıkar) düzeltilir. Hata isteği bozmaz; ürün kirli kalır, sonraki istekte denenir.
 async function maliyetiTazele(env,request){
@@ -106,6 +107,8 @@ async function api(request,env,path){
  const db=env.DB;if(!db)fail('Veritabanı bağlantısı henüz kurulmadı.',503);
  // iyzico geri dönüşü (form) ve bildirimi (webhook) başka kaynaktan gelir; Origin/JSON denetimi
  // bu iki uca uygulanamaz. Bu uçlarda tek güven kaynağı, sunucunun sağlayıcıya yaptığı imzalı sorgudur.
+ // lunapot.com teşekkür sayfası eklentisi başka kaynaktan (Shopify) gelir; kendi jeton denetimi var.
+ if(path==='/api/shopify/fatura')return shopifyFaturaApi(request,env);
  const providerCallback=path==='/api/store/payment/callback'||path==='/api/store/payment/webhook';
  if(!['GET','HEAD'].includes(request.method)&&!providerCallback) {
    if(request.headers.get('Origin')!==new URL(request.url).origin)fail('İstek kaynağı doğrulanamadı.',403);
