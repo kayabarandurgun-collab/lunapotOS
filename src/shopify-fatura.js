@@ -53,6 +53,7 @@ async function adminJeton(env,fetcher){
  const j=await r.json();if(!j.access_token)throw new Error('shopify jeton alınamadı');
  jetonOnbellek={t:j.access_token,son:Date.now()+((j.expires_in||3600)-120)*1000};return j.access_token;
 }
+export const shopifyGql=(env,fetcher,query,variables)=>gql(env,fetcher,query,variables);
 async function gql(env,fetcher,query,variables){
  const r=await fetcher(`https://${SHOP}/admin/api/2026-10/graphql.json`,{method:'POST',headers:{'Content-Type':'application/json','X-Shopify-Access-Token':await adminJeton(env,fetcher)},body:JSON.stringify({query,variables})});
  const j=await r.json();if(j.errors)throw new Error('shopify '+JSON.stringify(j.errors).slice(0,200));return j.data;

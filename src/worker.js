@@ -21,6 +21,7 @@ import {accountingApi} from './accounting.js';
 import {fifoRevalue,fifoApi} from './fifo-cost.js';
 import {fiyatHesapApi} from './fiyat-hesap-api.js';
 import {buyboxApi,buyboxTuru,BUYBOX_CRON} from './buybox-api.js';
+import {hediyeDenetim} from './hediye-denetim.js';
 import {urunKarlilikApi} from './urun-karlilik-api.js';
 import {panoramaApi} from './panorama-api.js';
 import {otomatikBakim} from './otomatik-bakim.js';
@@ -244,7 +245,7 @@ export default {
  async scheduled(event,env,ctx){if(env.RELEASE_MAINTENANCE==='1')return;
   if(event?.cron===BUYBOX_CRON){ctx.waitUntil(buyboxTuru(env).then(r=>console.log('buybox',JSON.stringify(r))).catch(e=>console.error('buybox',e.message)));return;}
   if(event?.cron===AKSAM_CRON){ctx.waitUntil(aksamOzeti(env).then(r=>console.log('akşam özeti',JSON.stringify(r))).catch(e=>console.error('akşam özeti',e.message)));return;}
-  ctx.waitUntil(otomatikBakim(env).then(r=>console.log('bakım',JSON.stringify(r))).catch(e=>console.error('bakım',e.message)));},
+  ctx.waitUntil(Promise.all([hediyeDenetim(env).then(r=>console.log('hediye denetimi',JSON.stringify(r))).catch(e=>console.error('hediye denetimi',e.message)),otomatikBakim(env).then(r=>console.log('bakım',JSON.stringify(r))).catch(e=>console.error('bakım',e.message))]));},
  async fetch(request,env) {
  let response;
  try {const path=new URL(request.url).pathname;
