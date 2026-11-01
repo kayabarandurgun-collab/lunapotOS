@@ -180,7 +180,7 @@ test('wrangler zamanlamaları kodun beklediğiyle birebir aynı; akşam cron UTC
   // JSON.parse ile okuyor (felaket kurtarma yolu). Yorum eklenirse kurtarma betiği çöker, o
   // yüzden burada da yorum SÜZÜLMEDEN ayrıştırılır ve kural böylece bağlanır.
   const cfg = JSON.parse(readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8'));
-  assert.deepEqual(cfg.triggers.crons, [BAKIM_CRON, AKSAM_CRON], 'wrangler cron listesi: ' + JSON.stringify(cfg.triggers.crons));
+  assert.deepEqual(cfg.triggers.crons, [BAKIM_CRON, AKSAM_CRON, '*/2 * * * *'], 'wrangler cron listesi: ' + JSON.stringify(cfg.triggers.crons));
   assert.equal(BAKIM_CRON, '*/15 * * * *');
   const [dakika, saat] = AKSAM_CRON.split(' ');
   assert.equal(dakika, '0');

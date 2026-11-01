@@ -20,6 +20,7 @@ import {convert} from '../public/costs.js';
 import {accountingApi} from './accounting.js';
 import {fifoRevalue,fifoApi} from './fifo-cost.js';
 import {fiyatHesapApi} from './fiyat-hesap-api.js';
+import {buyboxApi,buyboxTuru,BUYBOX_CRON} from './buybox-api.js';
 import {urunKarlilikApi} from './urun-karlilik-api.js';
 import {panoramaApi} from './panorama-api.js';
 import {otomatikBakim} from './otomatik-bakim.js';
@@ -168,7 +169,7 @@ async function api(request,env,path){
  const workspace=path.match(/^\/api\/(ec|lp)(\/.*)?$/);
  if(workspace){
   const scoped={...env,DB:scopedDB(db,workspace[1]),ROOT_DB:db,WORKSPACE:workspace[1],USER:current.user},subpath=workspace[2]||'';
-  for(const handler of [partyProfileApi,warehouseApi,productProfileApi,moneyPlanningApi,workbenchApi,fifoApi,fiyatHesapApi,urunKarlilikApi,panoramaApi,stagedImportApi,purchaseDocumentApi,purchaseAutopostApi,salesDocumentApi,reportStockLinkApi,reportInboxApi,marketplaceReceivablesApi,bankMatchApi,bankApi,lotApi,barcodeApi,offersApi,brandDocumentsApi,partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null){await maliyetiTazele(scoped,request);return json(scrubAmounts(result,current.user,workspace[1]));}}
+  for(const handler of [partyProfileApi,warehouseApi,productProfileApi,moneyPlanningApi,workbenchApi,fifoApi,fiyatHesapApi,buyboxApi,urunKarlilikApi,panoramaApi,stagedImportApi,purchaseDocumentApi,purchaseAutopostApi,salesDocumentApi,reportStockLinkApi,reportInboxApi,marketplaceReceivablesApi,bankMatchApi,bankApi,lotApi,barcodeApi,offersApi,brandDocumentsApi,partyStatementApi,stockHistoryApi,productionApi,purchaseAdjustmentApi,purchaseSearchApi,purchaseReturnApi,purchaseSplitApi,performanceApi,attentionApi,orderInsightsApi,orderEstimateApi,catalogApi,pricingApi,ledgerApi,settingsApi,ordersApi,connectionsApi,reconciliationApi]){const result=await handler(request,scoped,'/api'+subpath,body);if(result!==null){await maliyetiTazele(scoped,request);return json(scrubAmounts(result,current.user,workspace[1]));}}
   const accounting=await accountingApi(request,scoped,'/api/accounting'+subpath,body);await maliyetiTazele(scoped,request);
   return json(scrubAmounts(accounting,current.user,workspace[1]));
  }
@@ -241,6 +242,7 @@ export default {
  // özet, bakımın 50 saniyelik bütçesini beklemek zorunda kalmaz.
  // event.cron BOŞSA bakım çalışır: yerel `wrangler dev` tetiklemesi ve eski davranış böyleydi.
  async scheduled(event,env,ctx){if(env.RELEASE_MAINTENANCE==='1')return;
+  if(event?.cron===BUYBOX_CRON){ctx.waitUntil(buyboxTuru(env).then(r=>console.log('buybox',JSON.stringify(r))).catch(e=>console.error('buybox',e.message)));return;}
   if(event?.cron===AKSAM_CRON){ctx.waitUntil(aksamOzeti(env).then(r=>console.log('akşam özeti',JSON.stringify(r))).catch(e=>console.error('akşam özeti',e.message)));return;}
   ctx.waitUntil(otomatikBakim(env).then(r=>console.log('bakım',JSON.stringify(r))).catch(e=>console.error('bakım',e.message)));},
  async fetch(request,env) {

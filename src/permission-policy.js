@@ -31,7 +31,7 @@ export function permit(user,path,method){
  else feature=({'brand-documents':'brand_documents','brand-logos':'brand_logos','brand-profile':'brand_documents','party-profiles':'ledger',warehouse:ns==='ec'?'stock':null,'product-profile':ns==='ec'?'stock':'accounts',products:ns==='ec'?'stock':'products',stock:ns==='ec'?'stock':'accounts',sales:ns==='ec'?'sales':'accounts',documents:ns==='ec'?'invoices':'accounts',returns:ns==='ec'?'sales':'accounts',fees:ns==='ec'?'sales':'accounts',expenses:ns==='ec'?'expenses':'accounts',invoices:ns==='ec'?'invoices':'accounts',purchases:ns==='ec'?'invoices':'accounts',suppliers:ns==='ec'?'ledger':'accounts',payments:'ledger',catalog:'catalog',ledger:'ledger',statement:'ledger',offers:'offers',pricing:'pricing',reconciliation:'reconciliation',orders:'orders',reports:'orders',performance:'performance',panorama:'performance',
   // Ekranların arka plan uçları ekranın kendi yetkisiyle: Kaça satmalıyım = fiyat ekranı, ürün kârlılığı = stok ekranı.
   // Yalnız e-ticaret alanında; üretim alanında eşleme yok (kapalı kalır).
-  'fiyat-hesap':ns==='ec'?'pricing':null,'urun-karlilik':ns==='ec'?'stock':null})[head];
+  'fiyat-hesap':ns==='ec'?'pricing':null,buybox:ns==='ec'?'pricing':null,'urun-karlilik':ns==='ec'?'stock':null})[head];
  // Barkod yalnizca uretim alanindadir. Okumak icin kart gorme yetkisi yeter;
  // bagla/degistir icin depo ya da uretim yetkisi gerekir.
  // Parti ve koli etiketi uretim kayitlarina aittir; okumak icin urun gormek yeter.

@@ -18,6 +18,7 @@ const paths={
  materials:'M4 5h16v14H4z M4 9h16 M8 13h2 M14 13h2',
  recipes:'M6 3h12v18H6z M9 7h6 M9 11h6 M9 15h4',
  pricing:'M4 18 9 13l4 3 7-10 M15 6h5v5 M4 3v18h17',
+ buybox:'M12 3v3 M7 8h10a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-6a3 3 0 0 1 3-3z M9 13h.01 M15 13h.01 M10 17h4',
  costs:'M6 3h12v18H6z M9 7h6 M9 12h1 M14 12h1 M9 16h1 M14 16h1',
  sales:'M4 19V9 M10 19V5 M16 19v-7 M22 19H2',
  invoices:'M6 3h9l4 4v14H6z M14 3v5h5 M9 12h7 M9 16h5',

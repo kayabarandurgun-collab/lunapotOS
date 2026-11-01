@@ -10,7 +10,7 @@ let loggingOut=false,startupRetry=start;
 const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // Menu sirasi ve adlari: once gunluk karar isleri, sonra kayit tutma. Anahtarlar degismez;
 // mevcut #adres baglantilari ve hizli gecis aynen calisir. Ekran yetkileri ve verileri birlesmez.
-const views={"party":"Cari dosyası","warehouse":"Sayım ve tedarik","product":"Ürün dosyası","money":"Ödeme takvimi","business-result":"İşletme sonucu","intake":"Belge yükle","workbench":"Günlük işler",overview:'Genel durum',performance:'Satış ve kâr',orders:'Siparişler',reports:'Rapor yükleme',pricing:'Satış fiyatı hesapla',stock:'Depomdaki ürünler',catalog:'Ürünler ve setler',invoices:'Alış faturaları',documents:'Fatura belgeleri',sales:'Satış ve kesinti kayıtları',reconciliation:'Kesinti eşleştirme',ledger:'Cariler ve nakit',bank:'Banka ekstresi',offers:'Teklif ve belgeler',expenses:'Genel giderler',integrations:'Bağlantılar',settings:'Şirket ve yedek'};
+const views={"party":"Cari dosyası","warehouse":"Sayım ve tedarik","product":"Ürün dosyası","money":"Ödeme takvimi","business-result":"İşletme sonucu","intake":"Belge yükle","workbench":"Günlük işler",overview:'Genel durum',performance:'Satış ve kâr',orders:'Siparişler',reports:'Rapor yükleme',pricing:'Satış fiyatı hesapla',buybox:'Buybox robotu',stock:'Depomdaki ürünler',catalog:'Ürünler ve setler',invoices:'Alış faturaları',documents:'Fatura belgeleri',sales:'Satış ve kesinti kayıtları',reconciliation:'Kesinti eşleştirme',ledger:'Cariler ve nakit',bank:'Banka ekstresi',offers:'Teklif ve belgeler',expenses:'Genel giderler',integrations:'Bağlantılar',settings:'Şirket ve yedek'};
 function resetSession(){
  const owner=session.begin();authenticated=false;currentUser=null;mountedRoute='';loggingOut=false;
  disposeQuickLogin?.();disposeQuickLogin=null;routeLoader.begin();return owner;
@@ -32,6 +32,7 @@ const routeViews={
  catalog:{load:()=>import('./catalog-ui.js'),mount:(module,root)=>module.mountCatalog(root,'ec')},
  reconciliation:{load:()=>import('./reconciliation-ui.js'),mount:(module,root)=>module.mountReconciliation(root,'ec')},
  ledger:{load:()=>import('./business-ui.js'),mount:(module,root)=>module.mountBusiness(root,'ec','ledger',currentUser)},
+ buybox:{load:()=>import('./buybox-ui.js'),mount:(module,root)=>module.mountBuybox(root)},
  pricing:{load:()=>import('./business-ui.js'),mount:(module,root)=>module.mountBusiness(root,'ec','pricing',currentUser)},
  offers:{load:()=>import('./offers-ui.js'),mount:(module,root)=>module.mountOffers(root,'ec')},
  orders:{load:()=>import('./orders-ui.js'),mount:(module,root)=>module.mountOrders(root,'ec')},
