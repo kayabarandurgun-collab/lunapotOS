@@ -6,6 +6,10 @@ const kutu = v => v === null || v === undefined ? '' : String(v / 100);
 const zaman = v => { if (!v) return '—'; const t = Date.parse(String(v).replace(' ', 'T') + 'Z'); return Number.isFinite(t) ? new Date(t).toLocaleString('tr-TR', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'}) : '—'; };
 const PLATFORM = {hb: 'Hepsiburada', ty: 'Trendyol'};
 const MAGAZALAR = ['Lunapot', 'Pazaria'], MAGAZA_ANAHTARI = 'buybox-magaza';
+const MARKA = {
+  Lunapot: {kod: 'lunapot', ad: 'Lunapot', logo: '/marka/logo/01-SVG/lunapot-yatay-lime-beyaz.svg', amblem: '/icon.svg'},
+  Pazaria: {kod: 'pazaria', ad: 'Pazaria Express', logo: '/marka/pazaria/pazaria-express-acik.png', amblem: '/marka/pazaria/pazaria-amblem.png'}
+};
 // Son seçilen mağaza yalnız kolaylıktır: okunamazsa seçim ekranı açılır.
 const hatirlanan = () => { try { return localStorage.getItem(MAGAZA_ANAHTARI); } catch { return null; } };
 const hatirla = m => { try { localStorage.setItem(MAGAZA_ANAHTARI, m); } catch { /* yok say */ } };
@@ -61,7 +65,7 @@ export function mountBuybox(root) {
   const baglantiFormu = p => `<form data-baglanti="${p}" autocomplete="off" class="bb-form"><label>Satıcı kimliği (${p === 'hb' ? 'Merchant ID' : 'Satıcı ID'})<input name="seller_id" required autocomplete="off"></label><label>API kullanıcı adı<input name="key" required autocomplete="off"></label><label>API şifresi<input name="secret" type="password" required autocomplete="new-password"></label>${p === 'hb' ? '<label>User-Agent<input name="user_agent" required autocomplete="off"></label>' : ''}<button class="primary" type="submit">Şifreli kaydet</button></form>`;
   const liste = p => {
     const b = baglanti(p);
-    if (!b) return `<div class="bb-bos"><h3>${PLATFORM[p]} bağlı değil</h3><p>${esc(magaza)} için API bilgilerini gir. Bilgiler şifreli saklanır, bu bağlantı yalnız fiyat robotu içindir; kapalı olan rapor senkronunu açmaz.</p>${veri.yonetici ? baglantiFormu(p) : ''}</div>`;
+    if (!b) return `<div class="bb-bos"><h3>${PLATFORM[p]} bağlı değil</h3><p>${esc(MARKA[magaza].ad)} için API bilgilerini gir. Bilgiler şifreli saklanır, bu bağlantı yalnız fiyat robotu içindir; kapalı olan rapor senkronunu açmaz.</p>${veri.yonetici ? baglantiFormu(p) : ''}</div>`;
     const tum = ilanlar(b), v = gorunen(p, b), say = m => tum.filter(k => k.mode === m).length, sec = secim[p].size;
     const okunmayan = tum.filter(k => k.mode !== 'kapali' && k.last_reason === 'rakip_bilinmiyor').length;
     const hepsi = v.length > 0 && v.every(k => secim[p].has(k.sku));
@@ -76,17 +80,18 @@ export function mountBuybox(root) {
       ${veri.yonetici ? `<details class="bb-degistir"><summary>${PLATFORM[p]} bağlantısını değiştir</summary>${baglantiFormu(p)}</details>` : ''}`;
   };
   const kolon = p => `<section class="v2-card bb-kolon${sekme === p ? ' bb-kolon--acik' : ''}" data-kolon="${p}" aria-label="${PLATFORM[p]}"><h2>${PLATFORM[p]}</h2>${liste(p)}</section>`;
-  const secimEkrani = () => `<div class="page-heading"><div><span class="eyebrow">FİYAT TAKİBİ</span><h1>Hangi mağazada çalışacağız?</h1><p>Her mağazanın Hepsiburada ve Trendyol API bilgileri ayrı saklanır. Sonradan üstteki düğmelerle geçebilirsin.</p></div></div>
+  const secimEkrani = () => `<div class="bb-secim-baslik"><span class="eyebrow">BUYBOX ROBOTU</span><h1>Hangi mağazada çalışacağız?</h1><p>Her mağazanın Hepsiburada ve Trendyol API bilgileri ayrı saklanır.</p></div>
       ${mesaj ? `<div class="notice${hata ? ' bb-uyari' : ''}" role="status">${esc(mesaj)}</div>` : ''}
-      <div class="bb-magaza-sec">${MAGAZALAR.map(m => `<button type="button" class="bb-magaza-kart" data-magaza-sec="${esc(m)}"><strong>${esc(m)}</strong>${Object.keys(PLATFORM).map(p => { const b = veri.baglantilar.find(x => x.magaza === m && x.platform === p); return `<span class="${b ? 'bb-bagli' : 'bb-bagsiz'}">${PLATFORM[p]}: ${b ? `bağlı · ${ilanlar(b).length} ilan` : 'API girilmedi'}</span>`; }).join('')}</button>`).join('')}</div>`;
+      <div class="bb-marka-sec">${MAGAZALAR.map(m => { const k = MARKA[m]; return `<button type="button" class="bb-marka-kart bb-marka-kart--${k.kod}" data-magaza-sec="${esc(m)}"><img class="bb-marka-logo" src="${k.logo}" alt="${esc(k.ad)}"><span class="bb-marka-durum">${Object.keys(PLATFORM).map(p => { const c = veri.baglantilar.find(x => x.magaza === m && x.platform === p); return `<span class="bb-marka-pil${c ? ' bb-marka-pil--bagli' : ''}"><b>${PLATFORM[p]}</b>${c ? `Bağlı · ${ilanlar(c).length} ilan` : 'API girilmedi'}</span>`; }).join('')}</span><span class="bb-marka-gir">Mağazaya gir <span aria-hidden="true">→</span></span></button>`; }).join('')}</div>`;
   function ciz() {
     if (!veri) return;
+    if (magaza) kap.dataset.magaza = MARKA[magaza].kod; else delete kap.dataset.magaza;
     if (!magaza) { govde.innerHTML = secimEkrani(); return; }
     const durabilir = veri.yonetici && veri.baglantilar.length, hepsiDurdu = veri.baglantilar.length && veri.baglantilar.every(b => b.paused);
     const kaydirma = [...govde.querySelectorAll('.bb-liste')].map(e => [e.closest('[data-kolon]').dataset.kolon, e.scrollTop]);
     const odak = document.activeElement?.matches?.('[data-ara]') ? {p: document.activeElement.closest('[data-kolon]').dataset.kolon, s: document.activeElement.selectionStart} : null;
-    govde.innerHTML = `<div class="page-heading"><div><span class="eyebrow">FİYAT TAKİBİ</span><h1>Buybox robotu</h1><p>Rakibi 2 dakikada bir takip eder: tabana inerse onu aşağıda bırakıp çekilme fiyatına çıkar, yükselirse birlikte çıkar. Kapalı ilana dokunmaz.</p></div>
-        <div class="ac-actions bb-ust"><div class="bb-magaza" role="group" aria-label="Mağaza">${MAGAZALAR.map(m => `<button type="button" class="${m === magaza ? 'primary' : 'secondary'}" data-magaza-sec="${esc(m)}"${m === magaza ? ' aria-current="true"' : ''}>${esc(m)}</button>`).join('')}</div>${durabilir ? `<button type="button" class="${hepsiDurdu ? 'primary' : 'bb-dur'}" data-hepsini-durdur>${hepsiDurdu ? 'Tüm robotları başlat' : 'Tüm robotları durdur'}</button>` : ''}</div></div>
+    govde.innerHTML = `<div class="bb-bant"><div class="bb-bant-marka"><img class="bb-bant-logo" src="${MARKA[magaza].logo}" alt="${esc(MARKA[magaza].ad)}"><div><h1>Buybox robotu</h1><p>Rakibi 2 dakikada bir takip eder: tabana inerse onu aşağıda bırakıp çekilme fiyatına çıkar, yükselirse birlikte çıkar.</p></div></div>
+        <div class="bb-bant-islem"><div class="bb-magaza" role="group" aria-label="Mağaza">${MAGAZALAR.map(m => `<button type="button" class="bb-magaza-dugme" data-magaza-sec="${esc(m)}"${m === magaza ? ' aria-current="true"' : ''}><img src="${MARKA[m].amblem}" alt="">${esc(m)}</button>`).join('')}</div>${durabilir ? `<button type="button" class="bb-dur" data-hepsini-durdur>${hepsiDurdu ? 'Tüm robotları başlat' : 'Tüm robotları durdur'}</button>` : ''}</div></div>
       ${mesaj ? `<div class="notice${hata ? ' bb-uyari' : ''}" role="status">${esc(mesaj)}</div>` : ''}
       <div class="bb-sekmeler" role="tablist">${Object.keys(PLATFORM).map(p => `<button type="button" role="tab" aria-selected="${sekme === p}" data-sekme="${p}">${PLATFORM[p]}</button>`).join('')}</div>
       <div class="bb-bolme">${kolon('hb')}${kolon('ty')}</div>`;
