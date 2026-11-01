@@ -12,7 +12,7 @@ import {surucu} from './buybox-suruculer.js';
 import {telegramAriza} from './telegram.js';
 
 export const BUYBOX_CRON = '*/2 * * * *';
-const SAGLAYICI = {hb: 'hepsiburada-buybox', ty: 'trendyol-buybox'}, PLATFORM_AD = {hb: 'Hepsiburada', ty: 'Trendyol'};
+const MAGAZALAR = ['Lunapot', 'Pazaria'], SAGLAYICI = {hb: 'hepsiburada-buybox', ty: 'trendyol-buybox'}, PLATFORM_AD = {hb: 'Hepsiburada', ty: 'Trendyol'};
 const YUKLEME_ZAMAN_ASIMI = 30 * 60000, YANSIMA_MS = 15 * 60000, TUR_KILIDI_MS = 110000, YAZMA_PARTI = 50, EN_COK_SAYFA = 100;
 const fail = (message, status = 400) => { throw Object.assign(new Error(message), {status}); };
 const dbOf = env => env.ROOT_DB || env.DB;
@@ -221,13 +221,13 @@ export async function buyboxApi(request, env, path, readBody) {
   }
   if (alt === '/baglanti') {
     const platform = x.platform === 'ty' ? 'ty' : x.platform === 'hb' ? 'hb' : fail('Platform seçilmedi.');
-    const magaza = metin(x.magaza, 'Mağaza adı', 60), seller = metin(x.seller_id, 'Satıcı kimliği', 100);
+    const magaza = MAGAZALAR.includes(x.magaza) ? x.magaza : fail('Mağaza seçilmedi.'), seller = metin(x.seller_id, 'Satıcı kimliği', 100);
     if (platform === 'hb' ? !/^[a-f\d-]{32,36}$/i.test(seller) : !/^\d{1,20}$/.test(seller)) fail('Satıcı kimliği biçimi geçersiz.');
     const kimlik = {seller_id: seller, key: metin(x.key, 'API kullanıcı adı'), secret: metin(x.secret, 'API şifresi', 1000), user_agent: platform === 'hb' ? metin(x.user_agent, 'User-Agent', 200) : seller + ' - SelfIntegration'};
     if (!/^[\x20-\x7e]+$/.test(kimlik.key + kimlik.secret + kimlik.user_agent) || kimlik.key.includes(':')) fail('API bilgisinde geçersiz karakter var.');
     const sifreli = await encryptCredentials(env, SAGLAYICI[platform], seller, kimlik);
     await db.prepare('INSERT INTO ec_buybox_connection(platform,magaza,seller_id,encrypted_credentials) VALUES(?,?,?,?) ON CONFLICT(platform,magaza) DO UPDATE SET seller_id=excluded.seller_id,encrypted_credentials=excluded.encrypted_credentials,configured_at=CURRENT_TIMESTAMP,last_ok_at=NULL,last_error=NULL,sample_fields=NULL').bind(platform, magaza, seller, sifreli).run();
-    return {kaydedildi: true};
+    return {kaydedildi: true, connection_id: (await db.prepare('SELECT id FROM ec_buybox_connection WHERE platform=? AND magaza=?').bind(platform, magaza).first()).id};
   }
   if (alt === '/duraklat') {
     if (typeof x.paused !== 'boolean') fail('Değer yalnız true/false olabilir.');

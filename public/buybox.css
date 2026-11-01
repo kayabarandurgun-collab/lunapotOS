@@ -4,8 +4,15 @@
 .bb .bb-kolon>h2{margin:0;font-size:18px}
 .bb .bb-sekmeler{display:none}
 .bb .bb-ust{align-items:flex-end;flex-wrap:wrap}
-.bb .bb-magaza{display:grid;gap:4px;font-size:13px;font-weight:600}
-.bb .bb-magaza select{min-height:40px;min-width:170px}
+.bb .bb-magaza{display:inline-flex;gap:6px}
+.bb .bb-magaza button{min-height:40px;padding:0 16px}
+.bb .bb-magaza-sec{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;max-width:760px}
+.bb .bb-magaza-kart{display:grid;gap:6px;justify-items:start;padding:24px;border:1px solid var(--line,#e5e5e0);border-radius:14px;background:var(--surface,#fff);color:inherit;font-family:inherit;text-align:left;cursor:pointer}
+.bb .bb-magaza-kart:hover,.bb .bb-magaza-kart:focus-visible{border-color:#1e2420}
+.bb .bb-magaza-kart strong{font-size:22px;margin-bottom:6px}
+.bb .bb-magaza-kart span{font-size:14px}
+.bb .bb-bagli{color:#3f6212;font-weight:600}
+.bb .bb-bagsiz{color:var(--muted,#6b6b66)}
 .bb .bb-dur{min-height:40px;padding:0 14px;border-radius:8px;border:1px solid #b3261e;background:#fff;color:#b3261e;font-weight:700;cursor:pointer}
 .bb .bb-dur:hover{background:#b3261e;color:#fff}
 .bb .bb-uyari{border-color:#b3261e}
@@ -110,5 +117,6 @@
  .bb .bb-liste{max-height:none;overflow:visible}
  .bb .bb-zaman{margin-left:0;width:100%}
  .bb .bb-alanlar--uc{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .bb .bb-magaza-sec{grid-template-columns:minmax(0,1fr)}
  .bb .bb-canli{grid-template-columns:repeat(2,minmax(0,1fr))}
 }

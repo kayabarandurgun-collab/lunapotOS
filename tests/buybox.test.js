@@ -143,14 +143,14 @@ const post = (env, yol, govde) => buyboxApi(new Request('https://x' + yol, {meth
 const fiyatGonderimi = o => o.istekler.filter(i => i.method === 'POST' && /price-uploads$|price-and-inventory/.test(i.url));
 const AYAR = {taban: '179', cekilme: '199', zarar_onay: true};
 async function kurHb(o, mode = 'aktif', ayar = AYAR) {
-  await post(o.env, '/api/buybox/baglanti', {platform: 'hb', magaza: 'Pazaria Express', seller_id: 'a'.repeat(8) + '-1111-2222-3333-' + 'b'.repeat(12), key: 'k', secret: 's3cret', user_agent: 'ua'});
+  await post(o.env, '/api/buybox/baglanti', {platform: 'hb', magaza: 'Pazaria', seller_id: 'a'.repeat(8) + '-1111-2222-3333-' + 'b'.repeat(12), key: 'k', secret: 's3cret', user_agent: 'ua'});
   const id = o.ham.prepare("SELECT id FROM ec_buybox_connection WHERE platform='hb'").get().id;
   await post(o.env, '/api/buybox/ilanlar', {connection_id: id});
   await post(o.env, '/api/buybox/kural', {connection_id: id, sku: 'HBV1', ...ayar, mode});
   return id;
 }
 async function kurTy(o, mode = 'aktif') {
-  await post(o.env, '/api/buybox/baglanti', {platform: 'ty', magaza: 'Pazaria Express', seller_id: '12345', key: 'k', secret: 's3cret'});
+  await post(o.env, '/api/buybox/baglanti', {platform: 'ty', magaza: 'Pazaria', seller_id: '12345', key: 'k', secret: 's3cret'});
   const id = o.ham.prepare("SELECT id FROM ec_buybox_connection WHERE platform='ty'").get().id;
   await post(o.env, '/api/buybox/ilanlar', {connection_id: id});
   await post(o.env, '/api/buybox/kural', {connection_id: id, sku: 'BRK1', ...AYAR, mode});
@@ -351,8 +351,8 @@ test('API: yetki, doğrulama, zarar kilidi, deneme ve kimlik sızıntısı', asy
   await assert.rejects(post(o.env, '/api/buybox/kural', {...taban, taban: '179', cekilme: '199', mode: 'aktif'}), /Maliyet girilmedi/);
   await assert.rejects(post(o.env, '/api/buybox/kural', {...taban, taban: '179', cekilme: '199', maliyet: '150', komisyon: '20', mode: 'aktif'}), /zarar sınırının/);
   assert.ok((await post(o.env, '/api/buybox/kural', {...taban, taban: '200', cekilme: '220', maliyet: '150', komisyon: '20', mode: 'aktif'})).kaydedildi);
-  await assert.rejects(post(o.env, '/api/buybox/baglanti', {platform: 'ty', magaza: 'X', seller_id: 'abc', key: 'k', secret: 's'}), /biçimi/);
-  await assert.rejects(post(o.env, '/api/buybox/baglanti', {platform: 'zz', magaza: 'X', seller_id: '1', key: 'k', secret: 's'}), /Platform/);
+  await assert.rejects(post(o.env, '/api/buybox/baglanti', {platform: 'ty', magaza: 'Lunapot', seller_id: 'abc', key: 'k', secret: 's'}), /biçimi/);
+  await assert.rejects(post(o.env, '/api/buybox/baglanti', {platform: 'zz', magaza: 'Lunapot', seller_id: '1', key: 'k', secret: 's'}), /Platform/);
   const dene = await post(o.env, '/api/buybox/dene', {taban: '179', cekilme: '199', zarar_onay: true, fiyat: '180', rakip: '179', sira: '2'});
   assert.deepEqual([dene.degistir, dene.yeniCents, dene.neden], [true, 19900, 'cekil']);
   assert.equal(o.ham.prepare('SELECT taban_cents t FROM ec_buybox_rules').get().t, 20000, 'deneme kaydetmez');
@@ -375,4 +375,16 @@ test('Buybox ayrı çalışma alanıdır: e-ticaret menüsünde yok, kendi kabu�
   assert.ok(oku('public/buybox-app.js').includes("import('./buybox-ui.js')"));
   assert.match(oku('src/worker.js'), /path==='\/buybox'\|\|path==='\/buybox\/'/);
   assert.match(oku('public/index.html'), /class="application buybox" href="\/buybox\/"/);
+});
+
+test('iki mağazanın API bilgileri ayrı saklanır; başka mağaza adı kabul edilmez; değiştirme yalnız kendi kaydını etkiler', async () => {
+  const o = ortam();
+  const al = {platform: 'hb', seller_id: 'a'.repeat(8) + '-1111-2222-3333-' + 'b'.repeat(12), key: 'k', secret: 's', user_agent: 'ua'};
+  const p = await post(o.env, '/api/buybox/baglanti', {...al, magaza: 'Pazaria'});
+  const l = await post(o.env, '/api/buybox/baglanti', {...al, magaza: 'Lunapot', seller_id: 'c'.repeat(8) + '-1111-2222-3333-' + 'd'.repeat(12)});
+  assert.notEqual(p.connection_id, l.connection_id);
+  await assert.rejects(post(o.env, '/api/buybox/baglanti', {...al, magaza: 'Baska'}), /Mağaza seçilmedi/);
+  const sonra = await post(o.env, '/api/buybox/baglanti', {...al, magaza: 'Pazaria', key: 'yeni'});
+  assert.equal(sonra.connection_id, p.connection_id);
+  assert.equal(o.ham.prepare('SELECT count(*) n FROM ec_buybox_connection').get().n, 2);
 });

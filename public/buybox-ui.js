@@ -5,6 +5,10 @@ const tl = v => v === null || v === undefined ? '—' : new Intl.NumberFormat('t
 const kutu = v => v === null || v === undefined ? '' : String(v / 100);
 const zaman = v => { if (!v) return '—'; const t = Date.parse(String(v).replace(' ', 'T') + 'Z'); return Number.isFinite(t) ? new Date(t).toLocaleString('tr-TR', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'}) : '—'; };
 const PLATFORM = {hb: 'Hepsiburada', ty: 'Trendyol'};
+const MAGAZALAR = ['Lunapot', 'Pazaria'], MAGAZA_ANAHTARI = 'buybox-magaza';
+// Son seçilen mağaza yalnız kolaylıktır: okunamazsa seçim ekranı açılır.
+const hatirlanan = () => { try { return localStorage.getItem(MAGAZA_ANAHTARI); } catch { return null; } };
+const hatirla = m => { try { localStorage.setItem(MAGAZA_ANAHTARI, m); } catch { /* yok say */ } };
 const BICIM = {kapali: 'Kapalı', izle: 'İzle', aktif: 'Aktif'};
 const NEDEN = {cekil: 'Rakip tabana indi, çekilme fiyatına çıkıldı', esitle: 'Rakibin fiyatına inildi', alta_in: 'Aynı fiyatta sıra gelmedi, 1 TL altına inildi', yukari: 'Rakip yükseldi, birlikte çıkıldı', rakipsiz: 'Rakip yok, çekilme fiyatında',
   yerinde: 'Fiyat zaten doğru yerde', esit: 'Rakiple aynı fiyatta, sıra bizde', onde: 'Rakibin hemen altında, sıra bizde', esit_tabanda: 'Aynı fiyatta sıra gelmedi; taban daha fazla inmeye izin vermiyor', fiyat_disi: 'Rakipten ucuzuz ama sıra gelmiyor; fark fiyatta değil',
@@ -15,7 +19,7 @@ const SONUC = {gonderildi: 'Gönderildi', tamam: 'Uygulandı', hata: 'Reddedildi
 
 export function mountBuybox(root) {
   if (!document.querySelector('link[data-buybox]')) { const link = document.createElement('link'); link.rel = 'stylesheet'; link.href = new URL('./buybox.css', import.meta.url); link.dataset.buybox = '1'; document.head.append(link); }
-  let veri = null, mesaj = '', hata = false, mesgul = false, magaza = null, sekme = 'hb', ekMagaza = [];
+  let veri = null, mesaj = '', hata = false, mesgul = false, magaza = null, sekme = 'hb', ilkYukleme = true;
   const secim = {hb: new Set(), ty: new Set()}, arama = {hb: '', ty: ''}, suzgec = {hb: 'hepsi', ty: 'hepsi'};
   root.innerHTML = '<div class="v2-page bb"><div data-govde><div class="loading">Buybox robotu yükleniyor…</div></div><dialog class="bb-pencere" data-pencere aria-labelledby="bb-pencere-baslik"></dialog></div>';
   const kap = root.firstElementChild, govde = kap.querySelector('[data-govde]'), pencere = kap.querySelector('[data-pencere]');
@@ -25,14 +29,18 @@ export function mountBuybox(root) {
     if (!cevap.ok) throw new Error(j.error || 'İşlem yapılamadı.');
     return j;
   };
-  const yukle = async () => { veri = await istek(); ciz(); };
+  // API'si girilmiş mağazaya doğrudan girilir; girilmemişse ya da hangisi olduğu belli değilse önce seçim sorulur.
+  const baslangicMagazasi = () => {
+    const bagli = MAGAZALAR.filter(m => veri.baglantilar.some(b => b.magaza === m)), son = hatirlanan();
+    return bagli.includes(son) ? son : bagli.length === 1 ? bagli[0] : null;
+  };
+  const yukle = async () => { veri = await istek(); if (ilkYukleme) { ilkYukleme = false; magaza = baslangicMagazasi(); } ciz(); };
   const yap = async (is, basari) => {
     if (mesgul) return; mesgul = true; mesaj = ''; hata = false; ciz();
     try { const s = await is(); mesaj = basari(s); await yukle(); }
     catch (e) { mesaj = e.message; hata = true; }
     finally { mesgul = false; ciz(); }
   };
-  const magazalar = () => { const a = [...new Set([...veri.baglantilar.map(b => b.magaza), ...ekMagaza])]; return a.length ? a : ['Pazaria Express']; };
   const baglanti = p => veri.baglantilar.find(b => b.magaza === magaza && b.platform === p) || null;
   const ilanlar = b => b ? veri.kurallar.filter(k => k.connection_id === b.id) : [];
   const gorunen = (p, b) => {
@@ -68,14 +76,17 @@ export function mountBuybox(root) {
       ${veri.yonetici ? `<details class="bb-degistir"><summary>${PLATFORM[p]} bağlantısını değiştir</summary>${baglantiFormu(p)}</details>` : ''}`;
   };
   const kolon = p => `<section class="v2-card bb-kolon${sekme === p ? ' bb-kolon--acik' : ''}" data-kolon="${p}" aria-label="${PLATFORM[p]}"><h2>${PLATFORM[p]}</h2>${liste(p)}</section>`;
+  const secimEkrani = () => `<div class="page-heading"><div><span class="eyebrow">FİYAT TAKİBİ</span><h1>Hangi mağazada çalışacağız?</h1><p>Her mağazanın Hepsiburada ve Trendyol API bilgileri ayrı saklanır. Sonradan üstteki düğmelerle geçebilirsin.</p></div></div>
+      ${mesaj ? `<div class="notice${hata ? ' bb-uyari' : ''}" role="status">${esc(mesaj)}</div>` : ''}
+      <div class="bb-magaza-sec">${MAGAZALAR.map(m => `<button type="button" class="bb-magaza-kart" data-magaza-sec="${esc(m)}"><strong>${esc(m)}</strong>${Object.keys(PLATFORM).map(p => { const b = veri.baglantilar.find(x => x.magaza === m && x.platform === p); return `<span class="${b ? 'bb-bagli' : 'bb-bagsiz'}">${PLATFORM[p]}: ${b ? `bağlı · ${ilanlar(b).length} ilan` : 'API girilmedi'}</span>`; }).join('')}</button>`).join('')}</div>`;
   function ciz() {
     if (!veri) return;
-    if (!magaza || !magazalar().includes(magaza)) magaza = magazalar()[0];
+    if (!magaza) { govde.innerHTML = secimEkrani(); return; }
     const durabilir = veri.yonetici && veri.baglantilar.length, hepsiDurdu = veri.baglantilar.length && veri.baglantilar.every(b => b.paused);
     const kaydirma = [...govde.querySelectorAll('.bb-liste')].map(e => [e.closest('[data-kolon]').dataset.kolon, e.scrollTop]);
     const odak = document.activeElement?.matches?.('[data-ara]') ? {p: document.activeElement.closest('[data-kolon]').dataset.kolon, s: document.activeElement.selectionStart} : null;
     govde.innerHTML = `<div class="page-heading"><div><span class="eyebrow">FİYAT TAKİBİ</span><h1>Buybox robotu</h1><p>Rakibi 2 dakikada bir takip eder: tabana inerse onu aşağıda bırakıp çekilme fiyatına çıkar, yükselirse birlikte çıkar. Kapalı ilana dokunmaz.</p></div>
-        <div class="ac-actions bb-ust"><label class="bb-magaza">Mağaza<select data-magaza>${magazalar().map(m => `<option${m === magaza ? ' selected' : ''}>${esc(m)}</option>`).join('')}</select></label>${veri.yonetici ? '<button type="button" class="secondary" data-magaza-ekle>Mağaza ekle</button>' : ''}${durabilir ? `<button type="button" class="${hepsiDurdu ? 'primary' : 'bb-dur'}" data-hepsini-durdur>${hepsiDurdu ? 'Tüm robotları başlat' : 'Tüm robotları durdur'}</button>` : ''}</div></div>
+        <div class="ac-actions bb-ust"><div class="bb-magaza" role="group" aria-label="Mağaza">${MAGAZALAR.map(m => `<button type="button" class="${m === magaza ? 'primary' : 'secondary'}" data-magaza-sec="${esc(m)}"${m === magaza ? ' aria-current="true"' : ''}>${esc(m)}</button>`).join('')}</div>${durabilir ? `<button type="button" class="${hepsiDurdu ? 'primary' : 'bb-dur'}" data-hepsini-durdur>${hepsiDurdu ? 'Tüm robotları başlat' : 'Tüm robotları durdur'}</button>` : ''}</div></div>
       ${mesaj ? `<div class="notice${hata ? ' bb-uyari' : ''}" role="status">${esc(mesaj)}</div>` : ''}
       <div class="bb-sekmeler" role="tablist">${Object.keys(PLATFORM).map(p => `<button type="button" role="tab" aria-selected="${sekme === p}" data-sekme="${p}">${PLATFORM[p]}</button>`).join('')}</div>
       <div class="bb-bolme">${kolon('hb')}${kolon('ty')}</div>`;
@@ -133,7 +144,6 @@ export function mountBuybox(root) {
   });
   kap.addEventListener('change', e => {
     const t = e.target, p = t.closest('[data-kolon]')?.dataset.kolon;
-    if (t.matches('[data-magaza]')) { magaza = t.value; secim.hb.clear(); secim.ty.clear(); ciz(); return; }
     if (t.closest('[data-pencere]')) { ayarOzeti(); return; }
     if (!p) return;
     if (t.matches('[data-suz]')) { suzgec[p] = t.value; ciz(); }
@@ -149,7 +159,12 @@ export function mountBuybox(root) {
       return;
     }
     if (t.matches('[data-sekme]')) { sekme = t.dataset.sekme; ciz(); return; }
-    if (t.matches('[data-magaza-ekle]')) { const ad = prompt('Mağaza adı'); if (ad?.trim()) { ekMagaza.push(ad.trim().slice(0, 60)); magaza = ad.trim().slice(0, 60); ciz(); } return; }
+    if (t.dataset.magazaSec) {
+      magaza = t.dataset.magazaSec; hatirla(magaza); mesaj = ''; hata = false; secim.hb.clear(); secim.ty.clear(); arama.hb = arama.ty = ''; suzgec.hb = suzgec.ty = 'hepsi';
+      // Bir platform eksikse telefonda doğrudan onun formu açılır.
+      const eksik = Object.keys(PLATFORM).find(p => !baglanti(p)); if (eksik) sekme = eksik;
+      ciz(); return;
+    }
     if (t.matches('[data-hepsini-durdur]')) {
       const dur = !veri.baglantilar.every(b => b.paused);
       yap(() => istek('/duraklat', {paused: dur}), () => dur ? 'Tüm robotlar durduruldu. Hiçbir fiyat değişmiyor.' : 'Robotlar başlatıldı.');
@@ -190,7 +205,12 @@ export function mountBuybox(root) {
     if (f.matches('[data-baglanti]')) {
       e.preventDefault();
       const d = Object.fromEntries(new FormData(f));
-      yap(() => istek('/baglanti', {...d, platform: f.dataset.baglanti, magaza}), () => 'Bağlantı kaydedildi. Şimdi "Bağlantıyı sına" ve "İlanları getir".');
+      // Bilgiler kaydedilince ilanlar da hemen çekilir: yalnız okur, fiyat değiştirmez.
+      yap(async () => {
+        const c = await istek('/baglanti', {...d, platform: f.dataset.baglanti, magaza});
+        try { return {getirilen: (await istek('/ilanlar', {connection_id: c.connection_id})).getirilen}; }
+        catch (x) { return {kayitli: x.message}; }
+      }, s => s.kayitli ? `Bilgiler kaydedildi ama ilanlar çekilemedi: ${s.kayitli}` : `Bağlandı, ${s.getirilen} ilan çekildi. Hepsi Kapalı, fiyat değişmedi.`);
     }
   });
   // Ekran açıkken liste tazelenir. Kullanıcı yazarken ya da pencere açıkken ekran altından değişmez.
