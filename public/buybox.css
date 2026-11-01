@@ -1,6 +1,6 @@
 /* Buybox robotu. Küresel input/label kuralları sızmasın diye iki sınıfla yazılır. */
 .bb .bb-bolme{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
-.bb .bb-kolon{min-width:0;display:grid;gap:12px;align-content:start;padding:16px}
+.bb .bb-kolon{min-width:0;display:grid;gap:12px;align-content:start;padding:16px;container-type:inline-size}
 .bb .bb-kolon>h2{margin:0;font-size:18px}
 .bb .bb-sekmeler{display:none}
 .bb .bb-ust{align-items:flex-end;flex-wrap:wrap}
@@ -92,7 +92,8 @@
 .bb .bb-pencere-hata{margin:0;color:#b3261e;font-size:14px}
 .bb .bb-pencere-hata:empty{display:none}
 .bb .bb-pencere footer{display:flex;justify-content:flex-end;gap:8px;position:sticky;bottom:-18px;margin:0 -18px -18px;padding:12px 18px;background:var(--surface,#fff);border-top:1px solid var(--line,#e5e5e0)}
-@media(max-width:1100px){
+/* Satır dar sütuna göre dizilir: ekran değil sütun genişliği belirler. */
+@container (max-width:640px){
  .bb .bb-satir{grid-template-columns:20px repeat(3,minmax(0,1fr));grid-template-areas:"s a a r" ". f x o";row-gap:4px}
  .bb .bb-satir>input{grid-area:s}.bb .bb-ad{grid-area:a}.bb .bb-rozet{grid-area:r}
  .bb .bb-satir>.bb-deger:nth-of-type(1){grid-area:f}

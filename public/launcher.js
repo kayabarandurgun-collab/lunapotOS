@@ -19,5 +19,5 @@ fetch('/api/auth/status').then(r=>r.json()).then(s=>{
  if(s.user?.owner)document.querySelector('#manage-access').hidden=false;
  const quick=document.querySelector('#quick-start');
  if(s.authenticated&&s.user){const tasks=dailyTasks(s.user,'ec');quick.innerHTML=dailyTaskMarkup(tasks,{prefix:'/eticaret/'});quick.hidden=!tasks.length;}
- if(s.user&&!s.user.owner){if(!can(s.user,'ec','webshop'))document.querySelector('.application.webstore').hidden=true;for(const [ns,selector] of [['lp','.application.production'],['ec','.application.commerce']])if(s.user[ns+'_access']==='none')document.querySelector(selector).hidden=true;}
+ if(s.user&&!s.user.owner){if(!can(s.user,'ec','webshop'))document.querySelector('.application.webstore').hidden=true;if(!can(s.user,'ec','pricing'))document.querySelector('.application.buybox').hidden=true;for(const [ns,selector] of [['lp','.application.production'],['ec','.application.commerce']])if(s.user[ns+'_access']==='none')document.querySelector(selector).hidden=true;}
 }).catch(()=>{});

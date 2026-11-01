@@ -7,6 +7,7 @@ const areas=[
  {key:'home',title:'Çalışma alanım',detail:'Uygulamalar ve hızlı başlangıç',href:'/',icon:'overview'},
  {key:'ec',title:'E-ticaret',detail:'Sipariş, stok ve kârlılık',href:'/eticaret/#overview',icon:'orders'},
  {key:'lp',title:'Üretim',detail:'Reçete, hammadde ve üretim',href:'/uretim/#dashboard',icon:'production'},
+ {key:'buybox',title:'Buybox Robotu',detail:'Hepsiburada ve Trendyol fiyat takibi',href:'/buybox/',icon:'buybox'},
  {key:'store',title:'Web Mağaza',detail:'Mağazan ve müşteri işlemleri',href:'/webmagaza/',icon:'stock'},
  {key:'access',title:'Ekip ve erişim',detail:'Çalışanlar, yetkiler ve kurtarma',href:'/access',icon:'settings'}
 ];
@@ -23,8 +24,8 @@ function showTasks(button){
 }
 
 export function setWorkspaceUser(next){authRevision++;user=next;ready=true;dialog?.close();document.querySelector('.workspace-identity')?.remove();if(!user)document.querySelector('.workspace-account')?.remove();enhanceWorkspaceFrame();}
-const ns=()=>document.body.classList.contains('commerce')?'ec':document.body.classList.contains('lunapot')?'lp':document.body.classList.contains('webstore-admin')?'store':document.querySelector('#access-app')?'access':'home';
-const allowed=a=>a.key==='home'||a.key==='access'&&!!user||user?.owner||(a.key==='ec'?['read','write'].includes(user?.ec_access):a.key==='lp'?['read','write'].includes(user?.lp_access):a.key==='store'?can(user,'ec','webshop'):false);
+const ns=()=>document.body.classList.contains('commerce')?'ec':document.body.classList.contains('lunapot')?'lp':document.body.classList.contains('webstore-admin')?'store':document.querySelector('#access-app')?'access':document.querySelector('#buybox-app')?'buybox':'home';
+const allowed=a=>a.key==='home'||a.key==='access'&&!!user||user?.owner||(a.key==='ec'?['read','write'].includes(user?.ec_access):a.key==='lp'?['read','write'].includes(user?.lp_access):a.key==='store'?can(user,'ec','webshop'):a.key==='buybox'?can(user,'ec','pricing'):false);
 function showAreas(button){
  if(dialog||document.querySelector('dialog[open]'))return;
  const d=document.createElement('dialog');dialog=d;d.className='workspace-switch-dialog';

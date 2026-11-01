@@ -366,3 +366,13 @@ test('cron ve yayın ayarı uyumlu', () => {
   const cfg = JSON.parse(readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8'));
   assert.ok(cfg.triggers.crons.includes(BUYBOX_CRON));
 });
+
+test('Buybox ayrı çalışma alanıdır: e-ticaret menüsünde yok, kendi kabuğu ve ana ekran kartı var', () => {
+  const oku = yol => readFileSync(new URL('../' + yol, import.meta.url), 'utf8');
+  for (const dosya of ['public/ecommerce.js', 'public/app.js', 'public/workspace-navigation.js'])
+    assert.equal(/buybox/i.test(oku(dosya)), false, dosya + ' içinde buybox izi kalmış');
+  assert.ok(oku('public/buybox.html').includes('/buybox-app.js'));
+  assert.ok(oku('public/buybox-app.js').includes("import('./buybox-ui.js')"));
+  assert.match(oku('src/worker.js'), /path==='\/buybox'\|\|path==='\/buybox\/'/);
+  assert.match(oku('public/index.html'), /class="application buybox" href="\/buybox\/"/);
+});
